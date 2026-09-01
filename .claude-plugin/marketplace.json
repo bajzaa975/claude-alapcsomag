@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "bajzi-plugins",
+  "description": "Bajza Andras sajat Claude Code / Cowork bovitmenyei",
+  "owner": {
+    "name": "Bajza Andras"
+  },
+  "plugins": [
+    {
+      "name": "bajzi",
+      "version": "1.0.0",
+      "source": "./bajzi",
+      "description": "Token-takarekos munkamodszer: alapcsomag-telepito, autopilot mod, HANDOFF session-atado + automatikus betolto hook",
+      "category": "productivity"
+    }
+  ]
+}

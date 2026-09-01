@@ -1,0 +1,17 @@
+{
+  "description": "HANDOFF automatikus betöltése /clear, /compact és resume után",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "clear|compact|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/handoff-load.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
