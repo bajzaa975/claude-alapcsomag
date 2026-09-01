@@ -1,5 +1,5 @@
 {
-  "description": "HANDOFF automatikus betöltése /clear, /compact és resume után",
+  "description": "HANDOFF automatikus betöltése + repónkénti módszertan-választás (GSD vs superpowers)",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,16 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/handoff-load.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "startup|clear|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/methodology-guard.sh\"",
             "timeout": 5
           }
         ]
