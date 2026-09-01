@@ -37,5 +37,9 @@ fájlt, és a kontextusba teszi, hogy melyik skill-családot használd és melyi
 A superpowers nem-ütköző skilljei (`using-git-worktrees`, `dispatching-parallel-agents`,
 `test-driven-development`) GSD-módban is használhatók.
 
+**Git nem kell hozzá.** A jelölő bármelyik mappában működik — céges projektben, jegyzet-
+mappában, ad-hoc könyvtárban is. Git-repóban a hook rá is kérdez, ha még nincs döntés;
+git nélküli mappában néma marad, amíg te nem teszed le a jelölőt.
+
 A `.claude/METHODOLOGY` verziózható — ha a csapat többi tagja is Claude Code-ot használ,
 commitold; ha csak neked kell, tedd a `.gitignore`-ba.

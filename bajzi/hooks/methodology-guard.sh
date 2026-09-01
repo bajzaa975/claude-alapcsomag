@@ -22,8 +22,14 @@ input=$(cat 2>/dev/null || true)
 cwd=$(printf '%s' "$input" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 [ -z "$cwd" ] && cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
 
-# Csak projektben van értelme.
-[ -d "$cwd/.git" ] || { printf '{}'; exit 0; }
+# A jelölőt MINDIG tiszteletben tartjuk — git-repó nélkül is (céges projektek,
+# jegyzet-mappák, bármi). Rákérdezni viszont csak git-repóban kérdezünk rá, hogy
+# véletlen mappákban ne legyen zaj.
+f="$cwd/.claude/METHODOLOGY"
+if [ ! -f "$f" ] && [ ! -d "$cwd/.git" ]; then
+    printf '{}'
+    exit 0
+fi
 
 json_escape() {
     tr '\t' ' ' \
@@ -39,7 +45,6 @@ emit() { # $1 = systemMessage (lehet üres), $2 = additionalContext
     printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$m" "$c"
 }
 
-f="$cwd/.claude/METHODOLOGY"
 choice=""
 [ -f "$f" ] && choice=$(head -1 "$f" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 
