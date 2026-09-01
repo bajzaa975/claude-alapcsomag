@@ -1,0 +1,5 @@
+# A hook shell-script MINDIG LF sorvéggel kerüljön ki, Windows-on is —
+# CRLF-fel a bash "bad interpreter" hibával elszáll.
+*.sh text eol=lf
+*.json text eol=lf
+*.md text eol=lf
