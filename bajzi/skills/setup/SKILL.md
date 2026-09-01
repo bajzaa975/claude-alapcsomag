@@ -63,8 +63,11 @@ Minden elemnél jelöld: **KELL** (szerepel a manifestben) vagy **TÖRLENDŐ**. 
 1. Ellenőrzés: `claude --version`, `node -v`, és hogy van-e `bash` a PATH-on. **Windowson
    Git for Windows nélkül nincs bash**, és a hookok némán nem futnak — ezt jelezd.
 2. A manifest `marketplaces` listája: `claude plugin marketplace add <source>`.
-3. A manifest `plugins` listája: `claude plugin install <id>`. Minden telepítés után
-   `claude plugin details <név>` — a tokenköltséget írd be a jelentésbe.
+3. A manifest `plugins` listája:
+   - ami még nincs fent: `claude plugin install <id>`
+   - **ami már fent van: `claude plugin update <név>`** — a setup nem csak telepít, hanem
+     naprakészre is hoz. A frissítés a következő session-indításkor lép életbe.
+   Minden tétel után `claude plugin details <név>` — a tokenköltséget írd be a jelentésbe.
 4. **GSD:** interaktív telepítő, **NE te indítsd**. Írd ki a felhasználónak a manifest
    `gsd.install` parancsát, és hogy a promptokban mit válasszon (`runtime`, `scope`,
    `profile`). Várd meg, míg szól, hogy kész.
