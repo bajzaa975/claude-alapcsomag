@@ -1,6 +1,6 @@
 # bajzi-plugins — saját Claude Code / Cowork marketplace
 
-Egyetlen plugin (`bajzi`), ami mindkét környezetben ugyanazt a munkamódszert adja:
+Egyetlen plugin (`bajzi`), ami mindkét környezetben ugyanazt a munkamódszert adja. Öt skill és két SessionStart hook:
 
 | Komponens | Mit ad | Claude Code | Cowork |
 |---|---|---|---|
