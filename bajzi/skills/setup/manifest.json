@@ -1,0 +1,73 @@
+{
+  "_comment": "A kívánt Claude Code állapot. ÚJ ELEM FELVÉTELE = CSAK EZT A FÁJLT KELL SZERKESZTENI.",
+  "updated": "2026-09-01",
+
+  "marketplaces": [
+    { "source": "anthropics/claude-plugins-official", "why": "hivatalos katalógus" },
+    { "source": "thedotmack/claude-mem",              "why": "claude-mem forrása" },
+    { "source": "bajzaa975/claude-alapcsomag",        "why": "saját plugin (bajzi)" }
+  ],
+
+  "plugins": [
+    { "id": "bajzi@bajzi-plugins",                        "why": "saját: alapcsomag/autopilot/handoff + HANDOFF hook" },
+    { "id": "claude-mem@thedotmack",                      "why": "session-közi memória, kereshető előzmény" },
+    { "id": "superpowers@claude-plugins-official",        "why": "TDD, debug, sub-agent minták — ~688 tok always-on" },
+    { "id": "claude-md-management@claude-plugins-official","why": "CLAUDE.md audit + session-tanulságok — ~175 tok always-on" },
+    { "id": "frontend-design@claude-plugins-official",     "why": "UI-munkához; ha nem kell, kihagyható" }
+  ],
+
+  "tudatosan_kihagyva": [
+    { "id": "commit-commands", "why": "duplikáció: a Claude Code alapból commitol, GSD-ben ott a ship/pr-branch, az autopilot pedig tiltja az automatikus push-t" },
+    { "id": "context-mode",    "why": "duplikáció: rtk + claude-mem + GSD context-monitor már ezt csinálja; cserébe ~100 MB adat és minden sessionben egy node-process" }
+  ],
+
+  "gsd": {
+    "install": "npx @opengsd/gsd-core@latest",
+    "runtime": "Claude Code",
+    "scope": "globális",
+    "profile": "full",
+    "interaktiv": true,
+    "megjegyzes": "SOHA ne másolj kézzel gsd-* fájlokat, és ne takarítsd kézzel — a telepítő abszolút útvonalakkal írja a saját hookjait a settings.json-be."
+  },
+
+  "rtk": {
+    "kotelezo": false,
+    "ellenorzes": "rtk gain",
+    "linux_mac": "cargo install vagy a rtk-ai/rtk release-ből ~/.local/bin alá",
+    "windows": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-x86_64-pc-windows-msvc.zip -> %USERPROFILE%\\.local\\bin, majd PATH",
+    "hook": { "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "rtk hook claude" } ] } ] },
+    "megjegyzes": "Csak akkor vedd fel a hookot, ha a `rtk gain` MŰKÖDIK. Névütközés: a reachingforthejack/rtk MÁS eszköz."
+  },
+
+  "settings_merge": {
+    "effortLevel": "xhigh",
+    "modelSettings": { "claude-opus-5": { "effortLevel": "high" } },
+    "tui": "fullscreen",
+    "theme": "dark",
+    "agentPushNotifEnabled": true,
+    "disableClaudeAiConnectors": true,
+    "permissions": {
+      "allow": ["Bash(npx gsd-core *)", "Read(.planning/*)", "Edit(.planning/*)", "Read(STATE.md)", "Edit(STATE.md)"],
+      "deny": ["Read(.env)", "Read(.env.*)", "Read(.secrets)"]
+    }
+  },
+
+  "globalis_szabalyok": "A telepített marketplace-ből: ~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md -> hozzáfűzni a ~/.claude/CLAUDE.md-hez (duplikálás nélkül).",
+
+  "tiltolista_torlesnel": [
+    "~/.claude/.credentials.json",
+    "~/.claude.json",
+    "~/.claude/projects/",
+    "~/.claude/history.jsonl",
+    "~/.claude/file-history/",
+    "~/.claude/shell-snapshots/",
+    "~/.claude/todos/",
+    "~/.claude/sessions/"
+  ],
+
+  "ismert_maradvanyok": [
+    { "minta": "~/.claude/context-mode/",              "teendo": "törölhető, ha a context-mode plugin nincs telepítve" },
+    { "minta": "~/.claude/token-dashboard.db",         "teendo": "a context-mode-é, NEM az rtk-é (az rtk a ~/.local/share/rtk/history.db-t használja)" },
+    { "minta": "~/.claude/hooks/context-mode-cache-heal.mjs", "teendo": "törölhető a hozzá tartozó settings.json hook-bejegyzéssel együtt" }
+  ]
+}
