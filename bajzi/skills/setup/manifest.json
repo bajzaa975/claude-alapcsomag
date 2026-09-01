@@ -1,26 +1,52 @@
 {
   "_comment": "A kívánt Claude Code állapot. ÚJ ELEM FELVÉTELE = CSAK EZT A FÁJLT KELL SZERKESZTENI.",
   "updated": "2026-09-01",
-
   "marketplaces": [
-    { "source": "anthropics/claude-plugins-official", "why": "hivatalos katalógus" },
-    { "source": "thedotmack/claude-mem",              "why": "claude-mem forrása" },
-    { "source": "bajzaa975/claude-alapcsomag",        "why": "saját plugin (bajzi)" }
+    {
+      "source": "anthropics/claude-plugins-official",
+      "why": "hivatalos katalógus"
+    },
+    {
+      "source": "thedotmack/claude-mem",
+      "why": "claude-mem forrása"
+    },
+    {
+      "source": "bajzaa975/claude-alapcsomag",
+      "why": "saját plugin (bajzi)"
+    }
   ],
-
   "plugins": [
-    { "id": "bajzi@bajzi-plugins",                        "why": "saját: alapcsomag/autopilot/handoff + HANDOFF hook" },
-    { "id": "claude-mem@thedotmack",                      "why": "session-közi memória, kereshető előzmény" },
-    { "id": "superpowers@claude-plugins-official",        "why": "TDD, debug, sub-agent minták — ~688 tok always-on" },
-    { "id": "claude-md-management@claude-plugins-official","why": "CLAUDE.md audit + session-tanulságok — ~175 tok always-on" },
-    { "id": "frontend-design@claude-plugins-official",     "why": "UI-munkához; ha nem kell, kihagyható" }
+    {
+      "id": "bajzi@bajzi-plugins",
+      "why": "saját: alapcsomag/autopilot/handoff + HANDOFF hook"
+    },
+    {
+      "id": "claude-mem@thedotmack",
+      "why": "session-közi memória, kereshető előzmény"
+    },
+    {
+      "id": "superpowers@claude-plugins-official",
+      "why": "TDD, debug, sub-agent minták — ~688 tok always-on"
+    },
+    {
+      "id": "claude-md-management@claude-plugins-official",
+      "why": "CLAUDE.md audit + session-tanulságok — ~175 tok always-on"
+    },
+    {
+      "id": "frontend-design@claude-plugins-official",
+      "why": "UI-munkához; ha nem kell, kihagyható"
+    }
   ],
-
   "tudatosan_kihagyva": [
-    { "id": "commit-commands", "why": "duplikáció: a Claude Code alapból commitol, GSD-ben ott a ship/pr-branch, az autopilot pedig tiltja az automatikus push-t" },
-    { "id": "context-mode",    "why": "duplikáció: rtk + claude-mem + GSD context-monitor már ezt csinálja; cserébe ~100 MB adat és minden sessionben egy node-process" }
+    {
+      "id": "commit-commands",
+      "why": "duplikáció: a Claude Code alapból commitol, GSD-ben ott a ship/pr-branch, az autopilot pedig tiltja az automatikus push-t"
+    },
+    {
+      "id": "context-mode",
+      "why": "duplikáció: rtk + claude-mem + GSD context-monitor már ezt csinálja; cserébe ~100 MB adat és minden sessionben egy node-process"
+    }
   ],
-
   "gsd": {
     "install": "npx @opengsd/gsd-core@latest",
     "runtime": "Claude Code",
@@ -29,31 +55,53 @@
     "interaktiv": true,
     "megjegyzes": "SOHA ne másolj kézzel gsd-* fájlokat, és ne takarítsd kézzel — a telepítő abszolút útvonalakkal írja a saját hookjait a settings.json-be."
   },
-
   "rtk": {
     "kotelezo": false,
     "ellenorzes": "rtk gain",
     "linux_mac": "cargo install vagy a rtk-ai/rtk release-ből ~/.local/bin alá",
     "windows": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-x86_64-pc-windows-msvc.zip -> %USERPROFILE%\\.local\\bin, majd PATH",
-    "hook": { "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "rtk hook claude" } ] } ] },
+    "hook": {
+      "PreToolUse": [
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "rtk hook claude"
+            }
+          ]
+        }
+      ]
+    },
     "megjegyzes": "Csak akkor vedd fel a hookot, ha a `rtk gain` MŰKÖDIK. Névütközés: a reachingforthejack/rtk MÁS eszköz."
   },
-
   "settings_merge": {
     "effortLevel": "xhigh",
-    "modelSettings": { "claude-opus-5": { "effortLevel": "high" } },
+    "modelSettings": {
+      "claude-opus-5": {
+        "effortLevel": "high"
+      }
+    },
     "tui": "fullscreen",
     "theme": "dark",
     "agentPushNotifEnabled": true,
     "disableClaudeAiConnectors": true,
     "permissions": {
-      "allow": ["Bash(npx gsd-core *)", "Read(.planning/*)", "Edit(.planning/*)", "Read(STATE.md)", "Edit(STATE.md)"],
-      "deny": ["Read(.env)", "Read(.env.*)", "Read(.secrets)"]
+      "allow": [
+        "Bash(npx gsd-core *)",
+        "Read(.planning/*)",
+        "Edit(.planning/*)",
+        "Read(STATE.md)",
+        "Edit(STATE.md)"
+      ],
+      "deny": [
+        "Read(.env)",
+        "Read(.env.*)",
+        "Read(.secrets)"
+      ]
     }
   },
-
   "globalis_szabalyok": "A telepített marketplace-ből: ~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md -> hozzáfűzni a ~/.claude/CLAUDE.md-hez (duplikálás nélkül).",
-
   "tiltolista_torlesnel": [
     "~/.claude/.credentials.json",
     "~/.claude.json",
@@ -64,10 +112,45 @@
     "~/.claude/todos/",
     "~/.claude/sessions/"
   ],
-
   "ismert_maradvanyok": [
-    { "minta": "~/.claude/context-mode/",              "teendo": "törölhető, ha a context-mode plugin nincs telepítve" },
-    { "minta": "~/.claude/token-dashboard.db",         "teendo": "a context-mode-é, NEM az rtk-é (az rtk a ~/.local/share/rtk/history.db-t használja)" },
-    { "minta": "~/.claude/hooks/context-mode-cache-heal.mjs", "teendo": "törölhető a hozzá tartozó settings.json hook-bejegyzéssel együtt" }
+    {
+      "minta": "~/.claude/context-mode/",
+      "teendo": "törölhető, ha a context-mode plugin nincs telepítve"
+    },
+    {
+      "minta": "~/.claude/token-dashboard.db",
+      "teendo": "a context-mode-é, NEM az rtk-é (az rtk a ~/.local/share/rtk/history.db-t használja)"
+    },
+    {
+      "minta": "~/.claude/hooks/context-mode-cache-heal.mjs",
+      "teendo": "törölhető a hozzá tartozó settings.json hook-bejegyzéssel együtt"
+    }
+  ],
+  "ismert_buktatok": [
+    {
+      "mikor": "Windows, a plugin telepítése ELŐTT",
+      "tunet": "A SessionStart hookok némán nem futnak: nincs HANDOFF-visszatöltés és nincs módszertan-figyelmeztetés.",
+      "ok": "A Claude Code 2.1.139 óta Windowson a natív PowerShell toolt használja; Git for Windows nélkül nincs `bash` a gépen.",
+      "teendo": "Telepítsd a Git for Windows-t, majd: git config --global core.autocrlf input"
+    },
+    {
+      "mikor": "Windows, az első prompt a claude-mem telepítése/frissítése után",
+      "tunet": "'UserPromptSubmit hook timed out after 60s — output discarded', és lassú session-indulás.",
+      "ok": "A claude-mem bun-runner.js-e első futáskor letölti és telepíti a Bun futtatókörnyezetet (https://bun.sh). Hidegindításból ez túlmegy a hook 60 mp-es limitjén.",
+      "teendo": "Telepítsd a Bunt ELŐRE, a hivatalos telepítővel: irm bun.sh/install.ps1 | iex — utána `where bun` adjon egy ...\\.bun\\bin\\bun.exe sort. Reboot után nincs teendő, a Bun nem szolgáltatás. NE a plugin cache-ében írd át a hook timeout-ját: a következő update felülírja.",
+      "megjegyzes": "A hiba nem adatvesztés: csak arra az egy promptra marad el a memória-kontextus beszúrása."
+    },
+    {
+      "mikor": "Miután új skillt tettél a bajzi pluginba",
+      "tunet": "A másik gépen 'Unknown command', pedig a marketplace frissítve lett.",
+      "ok": "A `claude plugin update` a verziószámot nézi. Ha a plugin.json és a marketplace.json verziója nem lép, a frissítés no-op.",
+      "teendo": "MINDIG léptesd a verziót MINDKÉT manifestben (bajzi/.claude-plugin/plugin.json és .claude-plugin/marketplace.json), különben a változás nem jut el a többi gépre. A frissítés a következő session-indításkor él."
+    },
+    {
+      "mikor": "GSD-vel dolgozó gépen",
+      "tunet": "A ~4 270 token always-on költség akkor is megvan, ha abban a repóban soha nem használod a GSD-t.",
+      "ok": "A GSD skilljei gépszintűek; a .claude/METHODOLOGY azt szabályozza, MIT HASZNÁL a modell, nem azt, MI TÖLTŐDIK BE.",
+      "teendo": "Klaszter-tiltás: /gsd-surface disable <klaszter>. Az alapprofil-váltás keveset ad (a full tier csak 10 skillt tesz rá). Visszaállás: /gsd-surface reset."
+    }
   ]
 }
