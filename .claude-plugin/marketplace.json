@@ -8,9 +8,9 @@
   "plugins": [
     {
       "name": "bajzi",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "source": "./bajzi",
-      "description": "Token-takarekos munkamodszer: alapcsomag-telepito, autopilot mod, HANDOFF session-atado + automatikus betolto hook",
+      "description": "Token-takarekos munkamodszer: gep-setup manifestbol, alapcsomag-telepito, modszertan-valaszto, autopilot mod, HANDOFF session-atado + ket SessionStart hook",
       "category": "productivity"
     }
   ]
