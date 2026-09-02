@@ -1,6 +1,6 @@
 {
   "_comment": "A kívánt Claude Code állapot. ÚJ ELEM FELVÉTELE = CSAK EZT A FÁJLT KELL SZERKESZTENI.",
-  "updated": "2026-09-01",
+  "updated": "2026-09-02",
   "marketplaces": [
     {
       "source": "anthropics/claude-plugins-official",
@@ -22,7 +22,8 @@
     },
     {
       "id": "claude-mem@thedotmack",
-      "why": "session-közi memória, kereshető előzmény"
+      "why": "session-közi memória, kereshető előzmény",
+      "windows": "PROBLÉMÁS — lásd ismert_buktatok. Ha a worker elérhetetlen, hagyd letiltva: csak a session-közi memóriakeresést veszíted el, és ~1755 tokent VISSZAKAPSZ minden sessionben. Minden más plugin független tőle."
     },
     {
       "id": "superpowers@claude-plugins-official",
@@ -135,10 +136,10 @@
     },
     {
       "mikor": "Windows, az első prompt a claude-mem telepítése/frissítése után",
-      "tunet": "'UserPromptSubmit hook timed out after 60s — output discarded', és lassú session-indulás.",
+      "tunet": "'UserPromptSubmit hook timed out after 60s', lassú session-indulás, majd később 'UserPromptSubmit operation blocked by hook: claude-mem worker unreachable for 6 consecutive hooks' — ez utóbbi MEGÁLLÍTJA a munkát, nem lehet promptot beadni.",
       "ok": "A claude-mem bun-runner.js-e első futáskor letölti és telepíti a Bun futtatókörnyezetet (https://bun.sh). Hidegindításból ez túlmegy a hook 60 mp-es limitjén.",
-      "teendo": "Telepítsd a Bunt ELŐRE, a hivatalos telepítővel: irm bun.sh/install.ps1 | iex — utána `where bun` adjon egy ...\\.bun\\bin\\bun.exe sort. Reboot után nincs teendő, a Bun nem szolgáltatás. NE a plugin cache-ében írd át a hook timeout-ját: a következő update felülírja.",
-      "megjegyzes": "A hiba nem adatvesztés: csak arra az egy promptra marad el a memória-kontextus beszúrása."
+      "teendo": "Elsőként telepítsd a Bunt: irm bun.sh/install.ps1 | iex (ellenőrzés: `where bun`). Ha a worker ezután SEM elérhető, tiltsd le és haladj tovább — PowerShellben, NEM a Claude Code-on belül: `claude plugin disable claude-mem`. A CLI-t a hook nem érinti. NE a plugin cache-ében írd át a hook timeout-ját: a következő update felülírja.",
+      "megjegyzes": "2026-09-02: a laptopon (Win11) a legfrissebb claude-mem-mel is elérhetetlen maradt a worker. A worker Unix socketen (.sock) kommunikál — Windowson ez a leggyakoribb töréspont. A VM-en (Linux, 13.23.0) hibátlan."
     },
     {
       "mikor": "Miután új skillt tettél a bajzi pluginba",
