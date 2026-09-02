@@ -90,10 +90,10 @@ Owner-session: <session name and ref>
 ## SUGGESTED OPENING PROMPT
 ```
 
-## 4. Human-instruction rule in the project's CLAUDE.md
+## 4. Standing rules in the project's CLAUDE.md
 
-Idempotent: if the project's `CLAUDE.md` does not already contain a
-`## Instructions for me (the human)` heading, append this section verbatim. Do not reword it.
+Two sections, both idempotent: append each one verbatim only if its heading is not already in the
+project's `CLAUDE.md`. Do not reword them.
 
 ```markdown
 ## Instructions for me (the human)
@@ -114,6 +114,22 @@ When there is MORE THAN ONE thing for me to do, do not scatter it through prose:
 produce ONE numbered checklist, publish it as an Artifact and give me the link —
 five prompts later I cannot find a list with PgUp. Update that same Artifact as
 items get done; do not post a new list.
+```
+
+
+And the second section:
+
+```markdown
+## Git hygiene (all projects)
+- **Always `git fetch` before judging git state.** `git status`, `git log` and ahead/behind counts
+  all read remote-tracking refs, which go stale SILENTLY — a clean status on a stale tree means
+  nothing, and work built on it gets thrown away.
+- **Before editing in a long-lived worktree, check the branch is not behind its own remote:**
+  `git rev-list --left-right --count HEAD...origin/<branch>` (left = ahead, right = behind).
+  When local commits look duplicated, `git cherry -v origin/<branch> HEAD` says whether dropping
+  them loses anything: `-` = already upstream, `+` = unique to you.
+- State-changing git (commit, push, rebase, reset) NEVER routes through rtk; under sudo use the
+  full path (`/usr/bin/git`).
 ```
 
 ## 5. Environment check

@@ -1,6 +1,6 @@
 {
   "name": "bajzi",
-  "version": "1.5.8",
+  "version": "1.5.9",
   "description": "Token-efficient working method for Claude Code and Cowork: /bajzi:alapcsomag project-layer installer, /bajzi:autopilot unattended mode, /bajzi:handoff session handover, plus a SessionStart hook that reloads the HANDOFF after /clear.",
   "author": {
     "name": "Bajza Andras"

@@ -173,6 +173,13 @@
       "cause": "Before 1.5.8 both the /bajzi:handoff skill and the SessionStart hook used ONE hardcoded path per project, runtime/HANDOFF.md. Whoever closed out last overwrote everyone else, and the hook loaded that file for every session regardless of which task it belonged to.",
       "action": "From 1.5.8 handovers live at runtime/handoff/<branch-slug>.md, one per task, and the hook loads only the file matching the current branch. If no handover matches your task but others exist, the hook LISTS them and loads nothing on purpose — ask for one by name if you want it. Two sessions on the same branch are guarded by the Owner-session header: /bajzi:handoff asks before overwriting a file another session wrote in the last 2 hours.",
       "note": "2026-09-02: the legacy runtime/HANDOFF.md path is still read, so nothing breaks on upgrade; the next /bajzi:handoff migrates it. Slug = branch name lowercased with everything outside [a-z0-9._-] turned into '-', truncated to 60 chars; anything git cannot answer (no repo, detached HEAD, dubious ownership) becomes 'default'."
+    },
+    {
+      "when": "Editing files in a checkout that has been sitting around for a while, especially one worktree among several for the same repo",
+      "symptom": "The work is finished and committed, and only then does it turn out the base file was long obsolete — e.g. a CLAUDE.md translated from a 187-line version while the live one on origin/dev was 109 lines. A push is rejected non-fast-forward, or worse, succeeds and carries the stale content.",
+      "cause": "git status, git log and ahead/behind counts all read remote-tracking refs, which go stale SILENTLY. A clean working tree says nothing about whether the tree matches the remote. Without a fetch the checkout can be hundreds of commits behind and still look perfectly healthy.",
+      "action": "ALWAYS `git fetch` before judging git state or editing in a long-lived worktree. Then `git rev-list --left-right --count HEAD...origin/<branch>` (left = ahead, right = behind). If local commits look duplicated, `git cherry -v origin/<branch> HEAD` tells you whether dropping them loses anything: '-' = already upstream, '+' = unique to you.",
+      "note": "2026-09-02: found the hard way — a checkout 273 commits behind origin/dev produced three byte-identical translations of a file that had been rewritten 12 days earlier. The non-fast-forward rejection on one branch is what surfaced it; the branch that pushed cleanly needed a revert."
     }
   ]
 }
