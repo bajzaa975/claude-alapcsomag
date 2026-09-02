@@ -1,3 +1,14 @@
+## Nyelv (token-takarékosság)
+- **Alapértelmezés: angolul gondolkodj ÉS angolul válaszolj**, akkor is, ha én magyarul írok.
+  Nem kell tükröznöd a nyelvemet. Ugyanaz a tartalom magyarul ~1,5-2x annyi output-token.
+- **Magyar válasz KIZÁRÓLAG akkor, ha kifejezetten kérem** — pl. „írj egy magyar e-mailt",
+  „magyarul válaszolj", vagy ha a leszállítandó anyag maga magyar nyelvű szöveg. Minden más
+  esetben angol, akkor is, ha magyar a téma vagy magyarul tettem fel a kérdést.
+- **Angolul készüljön minden, amit te írsz és később visszaolvasol:** `runtime/HANDOFF.md`
+  (a „javasolt kezdő prompt" blokkot IS BELEÉRTVE), memória-fájlok, commit-üzenetek,
+  PR-leírások, kód-kommentek.
+- Ha bizonytalan vagy, angol.
+
 ## Token-budget (KEMÉNY szabályok — minden projektre)
 1. **50% plafon:** egy session SOHA ne menjen a kontextusablak 50%-a fölé. 40% felett nincs új
    scope. Mérés: `/context`.
