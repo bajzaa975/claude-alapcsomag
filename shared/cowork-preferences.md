@@ -1,6 +1,7 @@
-# Cowork — személyes utasítások (Settings → Customize → Instructions/Preferences)
+# Cowork — személyes utasítások (Settings → Cowork → Global instructions → Edit)
 
-Ezt a szöveget másold be a Cowork személyes utasításai közé. Ez a Claude Code-os
+Ezt a szöveget másold be a Cowork GLOBÁLIS utasításai közé: Settings → Cowork →
+Global instructions → Edit (csak asztali appban). Ez a Claude Code-os
 `~/.claude/CLAUDE.md` Cowork-megfelelője: a plugin skilljei csak hívásra futnak, ez viszont
 minden beszélgetésben él.
 

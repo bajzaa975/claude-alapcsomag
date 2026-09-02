@@ -8,7 +8,7 @@ Egyetlen plugin (`bajzi`), ami mindkét környezetben ugyanazt a munkamódszert 
 | `autopilot` skill | felügyelet nélküli munkamenet döntésnaplóval | ✅ | ✅ |
 | `handoff` skill | `runtime/HANDOFF.md` + javasolt kezdő prompt | ✅ | ✅ |
 | SessionStart hook | `/clear` után visszatölti a HANDOFF-ot | ✅ | hooks engedélyezésétől függ |
-| `shared/CLAUDE.md` | globális token-budget szabályok | kézzel `~/.claude/CLAUDE.md`-be | `shared/cowork-preferences.md` a Customize-ba |
+| `shared/CLAUDE.md` | globális token-budget szabályok | kézzel `~/.claude/CLAUDE.md`-be | `shared/cowork-preferences.md` → Global instructions |
 
 A skillek hívása: `/bajzi:alapcsomag`, `/bajzi:autopilot`, `/bajzi:handoff` — vagy egyszerűen
 kérd szövegesen („csinálj handoffot"), a leírás alapján maguktól is elindulnak.
@@ -43,7 +43,12 @@ automatikusan betölti `bajzi@skills-dir` néven.
    keletkezik. Ha kell, a repó gyökerében generáld újra a `bajzi/` mappából, és győződj
    meg róla, hogy a benne lévő `plugin.json` verziója megegyezik a marketplace-ével.
    Normál esetben az 1-2. lépés (marketplace) az ajánlott út.
-4. A `shared/cowork-preferences.md` tartalmát másold a személyes utasítások közé.
+4. A `shared/cowork-preferences.md` tartalmát (a `---` alatti részt) másold be ide:
+   **Settings → Cowork → Global instructions → Edit** (csak asztali appban van meg; újabb
+   buildekben a **Customize** panel is összefogja a Skills / Plugins / Global instructions
+   hármast). A korábban itt szereplő „Customize → Instructions/Preferences" útvonal HIBÁS volt.
+   Projektenkénti réteg ezen felül: a Projekt jobb oldali paneljén az **Instructions** mező,
+   ami a globális utasítások TETEJÉRE jön, nem helyettük.
 
 ## Frissítés
 
