@@ -1,10 +1,15 @@
 {
   "name": "bajzi",
-  "version": "1.5.5",
-  "description": "Token-takarekos munkamodszer Claude Code-hoz es Coworkhoz: /bajzi:alapcsomag projekt-reteg telepito, /bajzi:autopilot felugyelet nelkuli mod, /bajzi:handoff session-atado, plus SessionStart hook ami /clear utan visszatolti a HANDOFF-ot.",
+  "version": "1.5.6",
+  "description": "Token-efficient working method for Claude Code and Cowork: /bajzi:alapcsomag project-layer installer, /bajzi:autopilot unattended mode, /bajzi:handoff session handover, plus a SessionStart hook that reloads the HANDOFF after /clear.",
   "author": {
     "name": "Bajza Andras"
   },
   "license": "MIT",
-  "keywords": ["token-budget", "handoff", "context", "autopilot", "magyar"]
+  "keywords": [
+    "token-budget",
+    "handoff",
+    "context",
+    "autopilot"
+  ]
 }

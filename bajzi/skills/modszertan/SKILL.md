@@ -1,45 +1,45 @@
 ---
 name: modszertan
-description: A repó vezető fejlesztési módszertanának kiválasztása vagy megváltoztatása (GSD vs superpowers vs egyik sem). Használd, ha a felhasználó azt mondja "módszertan", "melyiket használjuk", "váltsunk GSD-re", "ne csináld a .planning-et", vagy ha a SessionStart hook jelezte, hogy nincs még döntés ebben a repóban.
+description: Select or change the repo's leading development methodology (GSD vs superpowers vs neither). Use it when the user says "modszertan", "methodology", "which one do we use", "let's switch to GSD", "don't do the .planning thing", or when the SessionStart hook reported that there is no decision yet in this repo.
 ---
 
-# Vezető módszertan beállítása erre a repóra
+# Setting the leading methodology for this repo
 
-A GSD és a superpowers ugyanazt a területet fedi — terv, végrehajtás, code review,
-debug, verifikáció. Ha mindkettő telepítve van, ugyanarra a feladatra hol az egyiket,
-hol a másikat választanám. Ez a döntés **repónként** születik, és a
-`<repo>/.claude/METHODOLOGY` fájlban él.
+GSD and superpowers cover the same ground — plan, execution, code review,
+debug, verification. If both are installed, for the same task I would sometimes pick one,
+sometimes the other. This decision is made **per repo**, and lives in the
+`<repo>/.claude/METHODOLOGY` file.
 
-## Teendő
+## What to do
 
-1. Nézd meg, van-e már `.claude/METHODOLOGY`, és mi van benne.
-2. Ha a felhasználó megmondta az argumentumban, mit akar, azt írd be. Ha nem, **kérdezd
-   meg egyszer**, röviden — a lenti táblázattal segítve a választást.
-3. Írd a választ egyetlen szóként a `<repo>/.claude/METHODOLOGY` fájlba:
+1. Check whether `.claude/METHODOLOGY` already exists and what is in it.
+2. If the user said in the argument what they want, write that in. If not, **ask once**,
+   briefly — using the table below to help the choice.
+3. Write the answer as a single word into the `<repo>/.claude/METHODOLOGY` file:
    `gsd` · `superpowers` · `none`
-4. Egy mondatban erősítsd meg, és jelezd, hogy a következő session-indítástól él.
+4. Confirm in one sentence, and note that it takes effect from the next session start.
 
-## Döntési segédlet
+## Decision aid
 
-| Ez a repó… | Válaszd |
+| This repo… | Choose |
 |---|---|
-| hosszú, több fázisra bontott munka; kell roadmap, phase-ek, `.planning/` nyomvonal, UAT | **gsd** |
-| napi fejlesztés, bugfix, feature-ök; kell TDD-fegyelem, szisztematikus debug, sub-agent minták, worktree-izoláció | **superpowers** |
-| kicsi repó, konfig, script, dokumentáció; a ceremónia csak akadály | **none** |
+| long work split into several phases; needs a roadmap, phases, a `.planning/` trail, UAT | **gsd** |
+| daily development, bugfixes, features; needs TDD discipline, systematic debug, sub-agent patterns, worktree isolation | **superpowers** |
+| small repo, config, script, documentation; the ceremony is just an obstacle | **none** |
 
-Ha bizonytalan a felhasználó: **superpowers** a jó alapértelmezés — kevesebb szertartás,
-és bármikor átváltható. A GSD-t akkor érdemes bekapcsolni, ha tényleg kell a fázis-nyomvonal.
+If the user is unsure: **superpowers** is the good default — less ceremony,
+and switchable at any time. GSD is worth turning on when you really need the phase trail.
 
-## Amit a beállítás után csinál a rendszer
+## What the system does after the setting
 
-A plugin SessionStart hookja (`methodology-guard.sh`) minden session elején beolvassa a
-fájlt, és a kontextusba teszi, hogy melyik skill-családot használd és melyiket kerüld.
-A superpowers nem-ütköző skilljei (`using-git-worktrees`, `dispatching-parallel-agents`,
-`test-driven-development`) GSD-módban is használhatók.
+The plugin's SessionStart hook (`methodology-guard.sh`) reads the file at the start of every
+session and puts it into the context, telling you which skill family to use and which to avoid.
+The non-conflicting superpowers skills (`using-git-worktrees`, `dispatching-parallel-agents`,
+`test-driven-development`) can be used in GSD mode too.
 
-**Git nem kell hozzá.** A jelölő bármelyik mappában működik — céges projektben, jegyzet-
-mappában, ad-hoc könyvtárban is. Git-repóban a hook rá is kérdez, ha még nincs döntés;
-git nélküli mappában néma marad, amíg te nem teszed le a jelölőt.
+**Git is not required.** The marker works in any directory — in a company project, a notes
+directory, an ad-hoc directory too. In a git repo the hook also asks about it if there is no
+decision yet; in a non-git directory it stays silent until you place the marker yourself.
 
-A `.claude/METHODOLOGY` verziózható — ha a csapat többi tagja is Claude Code-ot használ,
-commitold; ha csak neked kell, tedd a `.gitignore`-ba.
+`.claude/METHODOLOGY` can be versioned — if the rest of the team also uses Claude Code,
+commit it; if only you need it, put it into `.gitignore`.

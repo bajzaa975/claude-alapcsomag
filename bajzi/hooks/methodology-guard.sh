@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# SessionStart hook — melyik fejlesztési módszertan a vezető EBBEN a repóban?
+# SessionStart hook — which development methodology leads in THIS repo?
 #
-# MIÉRT. A GSD és a superpowers ugyanazt fedi (terv -> végrehajtás -> review ->
-# debug -> verifikáció). Ha mindkettő fent van, a modell hol az egyiket, hol a
-# másikat választja ugyanarra a feladatra. Ez a hook repónként rögzíti a döntést,
-# és minden session elején beteszi a kontextusba.
+# WHY. GSD and superpowers cover the same ground (plan -> execution -> review ->
+# debug -> verification). If both are installed, the model picks sometimes one,
+# sometimes the other for the same task. This hook records the decision per repo,
+# and puts it into the context at the start of every session.
 #
-# Jelölőfájl:  <repo>/.claude/METHODOLOGY   — tartalma egyetlen szó:
-#   gsd          -> a gsd-* skillek vezetnek
-#   superpowers  -> a superpowers skilljei vezetnek
-#   none         -> egyik sem; sima munka, ne erőltess módszertant
+# Marker file:  <repo>/.claude/METHODOLOGY   — its content is a single word:
+#   gsd          -> the gsd-* skills lead
+#   superpowers  -> the superpowers skills lead
+#   none         -> neither; plain work, do not force a methodology
 #
-# Nincs jelölőfájl + git-repó = a hook megkéri a modellt, hogy EGYSZER kérdezze meg.
-# Nem git-repóban néma marad.
+# No marker file + git repo = the hook asks the model to ask the user ONCE.
+# In a non-git repo it stays silent.
 #
-# FÜGGŐSÉGMENTES: bash, sed, awk, tr. Soha nem bukhat el, soha nem lassíthat.
+# DEPENDENCY-FREE: bash, sed, awk, tr. It must never fail, never slow anything down.
 
 set -uo pipefail
 
@@ -22,9 +22,9 @@ input=$(cat 2>/dev/null || true)
 cwd=$(printf '%s' "$input" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 [ -z "$cwd" ] && cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
 
-# A jelölőt MINDIG tiszteletben tartjuk — git-repó nélkül is (céges projektek,
-# jegyzet-mappák, bármi). Rákérdezni viszont csak git-repóban kérdezünk rá, hogy
-# véletlen mappákban ne legyen zaj.
+# The marker is ALWAYS respected — even without a git repo (company projects,
+# notes directories, anything). But we only ask about it in a git repo, so that
+# random directories stay quiet.
 f="$cwd/.claude/METHODOLOGY"
 if [ ! -f "$f" ] && [ ! -d "$cwd/.git" ]; then
     printf '{}'
@@ -38,7 +38,7 @@ json_escape() {
         | awk '{ printf "%s\\n", $0 }'
 }
 
-emit() { # $1 = systemMessage (lehet üres), $2 = additionalContext
+emit() { # $1 = systemMessage (may be empty), $2 = additionalContext
     local m c
     m=$(printf '%s' "$1" | json_escape)
     c=$(printf '%s' "$2" | json_escape)
@@ -50,16 +50,16 @@ choice=""
 
 case "$choice" in
   gsd)
-    emit "" "MÓDSZERTAN ebben a repóban: GSD. A tervezés/végrehajtás/review/debug munkát a gsd-* skillekkel végezd (/gsd-plan-phase, /gsd-execute-phase, /gsd-code-review, /gsd-debug). A superpowers azonos célú skilljeit (brainstorming, writing-plans, executing-plans, systematic-debugging, requesting-code-review) és a claude-mem tervező skilljeit (make-plan, do) NE használd itt — a superpowers többi, nem ütköző skillje (using-git-worktrees, dispatching-parallel-agents, test-driven-development) használható. Ezt a felhasználó egyszer eldöntötte, ne kérdezd újra."
+    emit "" "METHODOLOGY in this repo: GSD. Do the planning/execution/review/debug work with the gsd-* skills (/gsd-plan-phase, /gsd-execute-phase, /gsd-code-review, /gsd-debug). Do NOT use the superpowers skills with the same purpose (brainstorming, writing-plans, executing-plans, systematic-debugging, requesting-code-review) or the claude-mem planning skills (make-plan, do) here — the other, non-conflicting superpowers skills (using-git-worktrees, dispatching-parallel-agents, test-driven-development) can be used. The user decided this once, do not ask again."
     ;;
   superpowers|sp)
-    emit "" "MÓDSZERTAN ebben a repóban: superpowers. A tervezés/végrehajtás/review/debug munkát a superpowers skilljeivel végezd (brainstorming, writing-plans, executing-plans, subagent-driven-development, systematic-debugging, requesting-code-review, verification-before-completion). A gsd-* skilleket és a claude-mem tervező skilljeit (make-plan, do) NE használd itt, és ne hozz létre .planning/ struktúrát. Ezt a felhasználó egyszer eldöntötte, ne kérdezd újra."
+    emit "" "METHODOLOGY in this repo: superpowers. Do the planning/execution/review/debug work with the superpowers skills (brainstorming, writing-plans, executing-plans, subagent-driven-development, systematic-debugging, requesting-code-review, verification-before-completion). Do NOT use the gsd-* skills or the claude-mem planning skills (make-plan, do) here, and do not create a .planning/ structure. The user decided this once, do not ask again."
     ;;
   none|nincs)
-    emit "" "MÓDSZERTAN ebben a repóban: egyik sem. Ne indíts se GSD-, se superpowers-, se claude-mem make-plan/do folyamatot magadtól; dolgozz közvetlenül, ahogy a feladat kívánja. Ezt a felhasználó egyszer eldöntötte, ne kérdezd újra."
+    emit "" "METHODOLOGY in this repo: neither. Do not start a GSD, superpowers or claude-mem make-plan/do process on your own; work directly, as the task requires. The user decided this once, do not ask again."
     ;;
   *)
-    emit "Ebben a repóban még nincs kiválasztva a vezető módszertan (GSD vagy superpowers). Az első érdemi feladatnál Claude egyszer rá fog kérdezni — vagy futtasd: /bajzi:modszertan" \
-         "FIGYELEM: ebben a repóban nincs .claude/METHODOLOGY jelölőfájl, és a GSD meg a superpowers is telepítve lehet. A kettő ugyanazt a területet fedi, ezért AZ ELSŐ olyan feladatnál, ami tervezést, több lépéses végrehajtást, code review-t vagy szisztematikus debugot igényel, EGYSZER kérdezd meg a felhasználót, melyik legyen a vezető ebben a repóban (gsd / superpowers / egyik sem — a claude-mem make-plan/do mindkét esetben háttérbe lép), majd írd a válaszát egyetlen szóként a .claude/METHODOLOGY fájlba. Apró, egylépéses feladatnál ne kérdezz — csak csináld meg."
+    emit "The leading methodology has not been chosen yet in this repo (GSD or superpowers). At the first substantive task Claude will ask once — or run: /bajzi:modszertan" \
+         "WARNING: there is no .claude/METHODOLOGY marker file in this repo, and both GSD and superpowers may be installed. The two cover the same ground, so at THE FIRST task that requires planning, multi-step execution, code review or systematic debugging, ask the user ONCE which one should lead in this repo (gsd / superpowers / neither — claude-mem make-plan/do steps back in both cases), then write their answer as a single word into the .claude/METHODOLOGY file. Do not ask for a small, one-step task — just do it."
     ;;
 esac

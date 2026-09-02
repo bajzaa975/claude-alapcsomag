@@ -1,59 +1,59 @@
-# bajzi-plugins — saját Claude Code / Cowork marketplace
+# bajzi-plugins — my own Claude Code / Cowork marketplace
 
-Egyetlen plugin (`bajzi`), ami mindkét környezetben ugyanazt a munkamódszert adja. Öt skill és két SessionStart hook:
+A single plugin (`bajzi`) that gives the same working method in both environments. Five skills and two SessionStart hooks:
 
-| Komponens | Mit ad | Claude Code | Cowork |
+| Component | What it gives | Claude Code | Cowork |
 |---|---|---|---|
-| `alapcsomag` skill | token-takarékos projekt-réteg (MCP, hook, HANDOFF-váz) | ✅ | ✅ (MCP-rész kihagyva) |
-| `autopilot` skill | felügyelet nélküli munkamenet döntésnaplóval | ✅ | ✅ |
-| `handoff` skill | `runtime/HANDOFF.md` + javasolt kezdő prompt | ✅ | ✅ |
-| `modszertan` skill | repónkénti METHODOLOGY-jelölő (gsd/superpowers/none) | ✅ | ❌ — repót és SessionStart hookot feltételez |
-| `setup` skill | gép beállítása a `manifest.json` szerint | ✅ | ❌ — a Claude Code CLI állapotát kezeli |
-| SessionStart hookok | `/clear` után HANDOFF-visszatöltés + módszertan-őr | ✅ | hooks engedélyezésétől függ |
-| `shared/CLAUDE.md` | globális token-budget szabályok | kézzel `~/.claude/CLAUDE.md`-be | `shared/cowork-preferences.md` → Global instructions |
+| `alapcsomag` skill | token-efficient project layer (MCP, hook, HANDOFF skeleton) | ✅ | ✅ (MCP part skipped) |
+| `autopilot` skill | unsupervised work session with a decision log | ✅ | ✅ |
+| `handoff` skill | `runtime/HANDOFF.md` + suggested opening prompt | ✅ | ✅ |
+| `modszertan` skill | per-repo METHODOLOGY marker (gsd/superpowers/none) | ✅ | ❌ — assumes a repo and a SessionStart hook |
+| `setup` skill | machine setup per `manifest.json` | ✅ | ❌ — manages the Claude Code CLI's state |
+| SessionStart hooks | HANDOFF reload after `/clear` + methodology guard | ✅ | depends on hooks being enabled |
+| `shared/CLAUDE.md` | global token-budget rules | by hand into `~/.claude/CLAUDE.md` | `shared/cowork-preferences.md` → Global instructions |
 
-A skillek hívása: `/bajzi:alapcsomag`, `/bajzi:autopilot`, `/bajzi:handoff`, `/bajzi:modszertan`,
-`/bajzi:setup` — vagy egyszerűen
-kérd szövegesen („csinálj handoffot"), a leírás alapján maguktól is elindulnak.
+Invoking the skills: `/bajzi:alapcsomag`, `/bajzi:autopilot`, `/bajzi:handoff`, `/bajzi:modszertan`,
+`/bajzi:setup` — or simply
+ask in words ("do a handoff"), they also start by themselves based on the description.
 
-## Telepítés — Claude Code (laptop)
+## Installation — Claude Code (laptop)
 
 ```bash
-claude plugin marketplace add bajzaa975/claude-alapcsomag   # vagy: helyi útvonal
+claude plugin marketplace add bajzaa975/claude-alapcsomag   # or: a local path
 claude plugin install bajzi@bajzi-plugins
 ```
 
-Majd a globális szabályok:
+Then the global rules:
 
 ```bash
 cat shared/CLAUDE.md >> ~/.claude/CLAUDE.md
 ```
 
-Ellenőrzés: `claude plugin list`, új sessionben `/bajzi:handoff`.
+Check: `claude plugin list`, and `/bajzi:handoff` in a new session.
 
-### Marketplace nélkül, helyben (fejlesztéshez)
+### Without a marketplace, locally (for development)
 
-A `bajzi/` mappa bemásolható ide: `~/.claude/skills/bajzi/` — a következő session
-automatikusan betölti `bajzi@skills-dir` néven.
+The `bajzi/` directory can be copied here: `~/.claude/skills/bajzi/` — the next session
+loads it automatically under the name `bajzi@skills-dir`.
 
-## Telepítés — Cowork (Claude Desktop)
+## Installation — Cowork (Claude Desktop)
 
-1. **Customize → Plugins → Add marketplace** → a repó URL-je
-   (`https://github.com/bajzaa975/claude-alapcsomag` vagy `bajzaa975/claude-alapcsomag`).
-2. A listából telepítsd a `bajzi` plugint.
-3. **Vagy** repó nélkül: **Plugins → upload** és válaszd a `bajzi-plugin.zip`-et.
-   FIGYELEM: ez a zip a `.gitignore` miatt NINCS benne a GitHub-repóban — csak helyben
-   keletkezik. Ha kell, a repó gyökerében generáld újra a `bajzi/` mappából, és győződj
-   meg róla, hogy a benne lévő `plugin.json` verziója megegyezik a marketplace-ével.
-   Normál esetben az 1-2. lépés (marketplace) az ajánlott út.
-4. A `shared/cowork-preferences.md` tartalmát (a `---` alatti részt) másold be ide:
-   **Settings → Cowork → Global instructions → Edit** (csak asztali appban van meg; újabb
-   buildekben a **Customize** panel is összefogja a Skills / Plugins / Global instructions
-   hármast). A korábban itt szereplő „Customize → Instructions/Preferences" útvonal HIBÁS volt.
-   Projektenkénti réteg ezen felül: a Projekt jobb oldali paneljén az **Instructions** mező,
-   ami a globális utasítások TETEJÉRE jön, nem helyettük.
+1. **Customize → Plugins → Add marketplace** → the repo's URL
+   (`https://github.com/bajzaa975/claude-alapcsomag` or `bajzaa975/claude-alapcsomag`).
+2. Install the `bajzi` plugin from the list.
+3. **Or** without a repo: **Plugins → upload** and select `bajzi-plugin.zip`.
+   WARNING: because of `.gitignore` this zip is NOT in the GitHub repo — it is only created
+   locally. If you need it, regenerate it in the repo root from the `bajzi/` directory, and make
+   sure that the `plugin.json` version inside it matches the marketplace's.
+   Normally steps 1-2 (marketplace) are the recommended route.
+4. Copy the content of `shared/cowork-preferences.md` (the part below the `---`) here:
+   **Settings → Cowork → Global instructions → Edit** (only exists in the desktop app; in newer
+   builds the **Customize** panel also brings together the Skills / Plugins / Global instructions
+   trio). The "Customize → Instructions/Preferences" route listed here earlier was WRONG.
+   A per-project layer on top of that: the **Instructions** field on the Project's right-hand panel,
+   which goes ON TOP OF the global instructions, not instead of them.
 
-## Frissítés
+## Updating
 
-Push a repóba → Claude Code: `claude plugin update bajzi` · Cowork: a marketplace-nél
-**Update**, majd a plugin frissítése.
+Push to the repo → Claude Code: `claude plugin update bajzi` · Cowork: **Update** at the
+marketplace, then update the plugin.

@@ -1,24 +1,24 @@
 ---
 name: setup
-description: Claude Code gép beállítása a kívánt állapotra — bővítmény-takarítás, majd a manifest szerinti marketplace-ek, pluginok, GSD, rtk és settings telepítése. Használd ÚJ GÉPEN, vagy ha egy meglévő telepítést rendbe kell tenni ("állítsd be ezt a gépet", "takarítsd ki a pluginokat", "legyen olyan, mint a másik gépem").
+description: Set up a Claude Code machine to the desired state — plugin cleanup, then installation of the marketplaces, plugins, GSD, rtk and settings per the manifest. Use it ON A NEW MACHINE, or when an existing installation needs tidying up ("set up this machine", "clean out the plugins", "make it like my other machine").
 ---
 
-# Gép-beállítás a manifest szerint
+# Machine setup per the manifest
 
-A kívánt állapot **a `manifest.json`-ban van, ebben a mappában**. Először OLVASD BE, és
-mindent abból végy — ne ebből a leírásból, és ne a memóriádból. Ha a manifest és e fájl
-között ellentmondás van, a manifest nyer.
+The desired state **is in `manifest.json`, in this directory**. READ IT FIRST, and take
+everything from there — not from this description, and not from your memory. If the manifest and
+this file contradict each other, the manifest wins.
 
-Fázisonként dolgozz, minden fázis végén egy soros státusz. Windowson a `~/.claude` a
+Work phase by phase, with a one-line status at the end of each phase. On Windows `~/.claude` is
 `C:\Users\<user>\.claude`.
 
-## Tiltólista
+## Blocklist
 
-A manifest `tiltolista_torlesnel` tömbjében felsorolt útvonalakhoz **soha ne nyúlj**, akkor
-sem, ha a feladat „takarítás". Ezek törléssel nem jönnek vissza: kijelentkezés, session-
-történet, memória. Ha bizonytalan vagy egy fájlnál: NE töröld, tedd a jelentésbe „kézire".
+**Never touch** the paths listed in the manifest's `deletion_blocklist` array, not even
+when the task is "cleanup". These do not come back after deletion: logout, session
+history, memory. If you are unsure about a file: do NOT delete it, put it in the report as "manual".
 
-## A FÁZIS — Mentés (ezzel kezdd, kihagyni tilos)
+## PHASE A — Backup (start with this, skipping is forbidden)
 
 ```
 tar -czf ~/claude-backup-$(date +%Y%m%d-%H%M).tgz -C ~ \
@@ -26,74 +26,74 @@ tar -czf ~/claude-backup-$(date +%Y%m%d-%H%M).tgz -C ~ \
   --exclude='.claude/file-history' --exclude='.claude/paste-cache' .claude
 ```
 
-Írd ki a mentés útvonalát és méretét. Natív Windowson, ha nincs `tar`: másold a mappát
-`~/.claude-backup-<dátum>` néven, és ezt jelezd.
+Print the backup's path and size. On native Windows, if there is no `tar`: copy the directory
+as `~/.claude-backup-<date>`, and report this.
 
-## B FÁZIS — Leltár, MIELŐTT bármit törölnél
+## PHASE B — Inventory, BEFORE deleting anything
 
-Gyűjtsd össze és írd ki tömören: `claude plugin list`, `claude plugin marketplace list`,
-a `~/.claude/{skills,commands,agents,hooks}` tartalma, a `settings.json`
-hooks/statusLine/enabledPlugins/permissions/skillOverrides blokkjai, és hogy van-e GSD
-(`~/.claude/.gsd-source`).
+Collect and print terse: `claude plugin list`, `claude plugin marketplace list`,
+the contents of `~/.claude/{skills,commands,agents,hooks}`, the
+hooks/statusLine/enabledPlugins/permissions/skillOverrides blocks of `settings.json`, and whether GSD
+is present (`~/.claude/.gsd-source`).
 
-Minden elemnél jelöld: **KELL** (szerepel a manifestben) vagy **TÖRLENDŐ**. A manifest
-`tudatosan_kihagyva` listáján lévőket külön jelöld — azok nem véletlenül hiányoznak.
+Mark every item: **NEEDED** (present in the manifest) or **TO DELETE**. Mark separately the ones on
+the manifest's `deliberately_skipped` list — those are not missing by accident.
 
-## C FÁZIS — Takarítás
+## PHASE C — Cleanup
 
-1. **Idegen pluginok:** `claude plugin uninstall <id>` minden pluginra, ami nincs a manifest
-   `plugins` listáján. A `~/.claude/plugins/` alatt **kézzel soha ne törölj** — az
-   `installed_plugins.json` inkonzisztenssé válna. Csak a CLI-t használd.
-2. **Idegen marketplace-ek:** `claude plugin marketplace remove <név>`.
-3. **Nem-plugin skillek/commandok/agentek:** a `~/.claude/{skills,commands,agents}` alatt
-   minden törlendő, ami nem `gsd-*` és nem plugin telepítette. **Külön figyelj** az
-   `alapcsomag`, `autopilot`, `handoff` nevekre és a `hooks/handoff-load.sh`-ra: ezeket a
-   `bajzi` plugin váltja ki, duplikátumként mindkettő betöltődne. Törlés előtt sorold fel,
-   mit fogsz törölni.
-4. **settings.json:** vedd ki az árva hookokat (nem létező scriptre mutatnak), a
-   `handoff-load.sh`-t hívó SessionStart bejegyzést (a plugin hozza), és a törölt pluginra
-   mutató `skillOverrides` sorokat. A GSD hookjait és a statuslinet HAGYD BÉKÉN.
-   Előtte mentés: `settings.json.bak-<dátum>`.
-5. **Ismert maradványok:** a manifest `ismert_maradvanyok` listája alapján. Ezek nagy,
-   elárvult adatkönyvtárak — a listában ott a bizonyíték is, melyik eszközé.
-6. **GSD-t kézzel NE takarítsd** — a D fázisban a saját telepítője rendbe teszi magát.
+1. **Foreign plugins:** `claude plugin uninstall <id>` for every plugin that is not on the manifest's
+   `plugins` list. **Never delete by hand** under `~/.claude/plugins/` — `installed_plugins.json`
+   would become inconsistent. Use only the CLI.
+2. **Foreign marketplaces:** `claude plugin marketplace remove <name>`.
+3. **Non-plugin skills/commands/agents:** under `~/.claude/{skills,commands,agents}`
+   everything is to be deleted that is not `gsd-*` and was not installed by a plugin. **Pay special
+   attention** to the names `alapcsomag`, `autopilot`, `handoff` and to `hooks/handoff-load.sh`: these
+   are replaced by the `bajzi` plugin, both would load as duplicates. Before deleting, list what
+   you are going to delete.
+4. **settings.json:** remove the orphan hooks (pointing at non-existent scripts), the
+   SessionStart entry calling `handoff-load.sh` (the plugin brings it), and the `skillOverrides`
+   lines pointing at a deleted plugin. LEAVE the GSD hooks and the statusline ALONE.
+   Back up first: `settings.json.bak-<date>`.
+5. **Known leftovers:** based on the manifest's `known_leftovers` list. These are large,
+   orphaned data directories — the list also contains the evidence of which tool they belong to.
+6. **Do NOT clean up GSD by hand** — in phase D its own installer tidies itself up.
 
-## D FÁZIS — Telepítés
+## PHASE D — Installation
 
-1. Ellenőrzés: `claude --version`, `node -v`, és hogy van-e `bash` a PATH-on. **Windowson
-   Git for Windows nélkül nincs bash**, és a hookok némán nem futnak — ezt jelezd.
-2. A manifest `marketplaces` listája: `claude plugin marketplace add <source>`.
-3. A manifest `plugins` listája:
-   - ami még nincs fent: `claude plugin install <id>`
-   - **ami már fent van: `claude plugin update <név>`** — a setup nem csak telepít, hanem
-     naprakészre is hoz. A frissítés a következő session-indításkor lép életbe.
-   Minden tétel után `claude plugin details <név>` — a tokenköltséget írd be a jelentésbe.
+1. Check: `claude --version`, `node -v`, and whether `bash` is on the PATH. **On Windows
+   there is no bash without Git for Windows**, and the hooks silently do not run — report this.
+2. The manifest's `marketplaces` list: `claude plugin marketplace add <source>`.
+3. The manifest's `plugins` list:
+   - not yet installed: `claude plugin install <id>`
+   - **already installed: `claude plugin update <name>`** — setup does not only install, it also
+     brings things up to date. The update takes effect at the next session start.
+   After each item `claude plugin details <name>` — put the token cost into the report.
 
-   **SZÁNDÉKOSAN LETILTOTT PLUGINT SOHA NE KAPCSOLJ VISSZA.** Ha a `claude plugin list`
-   szerint egy plugin `disabled`, hagyd úgy, és írd a jelentésbe, hogy letiltva maradt.
-   A `claude plugin enable` parancsot ez a skill NEM használja. Ha a manifest tételénél van
-   `windows` mező és ezen a platformon futsz, azt olvasd el és kövesd — ott van megírva,
-   melyik plugin ismerten problémás és mi a teendő.
-4. **GSD:** interaktív telepítő, **NE te indítsd**. Írd ki a felhasználónak a manifest
-   `gsd.install` parancsát, és hogy a promptokban mit válasszon (`runtime`, `scope`,
-   `profile`). Várd meg, míg szól, hogy kész.
-5. **Globális szabályok:** a manifest `globalis_szabalyok` mezője szerint.
-6. **settings.json merge:** a manifest `settings_merge` objektuma. A GSD hookjait és
-   statuslinet ne bántsd.
-7. **rtk:** a manifest `rtk` blokkja szerint. Nem kötelező. A hookot CSAK akkor vedd fel,
-   ha az `ellenorzes` parancs működik.
+   **NEVER RE-ENABLE A DELIBERATELY DISABLED PLUGIN.** If `claude plugin list`
+   says a plugin is `disabled`, leave it that way, and write in the report that it stayed disabled.
+   This skill does NOT use the `claude plugin enable` command. If the manifest's entry has a
+   `windows` field and you are running on this platform, read it and follow it — that is where it is
+   written which plugin is known to be problematic and what to do.
+4. **GSD:** interactive installer, **do NOT start it yourself**. Print the manifest's
+   `gsd.install` command to the user, and what to choose at the prompts (`runtime`, `scope`,
+   `profile`). Wait until they say it is done.
+5. **Global rules:** per the manifest's `global_rules` field.
+6. **settings.json merge:** the manifest's `settings_merge` object. Do not touch the GSD hooks and
+   the statusline.
+7. **rtk:** per the manifest's `rtk` block. Not required. Add the hook ONLY if
+   the `check` command works.
 
-## E FÁZIS — Verifikáció, kifejezetten duplikátumokra
+## PHASE E — Verification, specifically for duplicates
 
-- `claude plugin list` és `marketplace list` = pontosan a manifest tartalma, semmi több
-- ne legyen olyan név, ami egyszerre van meg `~/.claude/{commands,skills}` alatt ÉS egy
-  plugin skilljeként (külön nézd: alapcsomag, autopilot, handoff)
-- minden `settings.json` hook-parancs létező fájlra mutasson
-- írd ki, hogy indítson új sessiont és ellenőrizze: `/bajzi:handoff` létezik, `/context`
-  bázis 20% alatt
+- `claude plugin list` and `marketplace list` = exactly the manifest's content, nothing more
+- there must be no name that exists both under `~/.claude/{commands,skills}` AND as a
+  plugin skill (check separately: alapcsomag, autopilot, handoff)
+- every `settings.json` hook command must point at an existing file
+- tell them to start a new session and verify: `/bajzi:handoff` exists, `/context`
+  baseline under 20%
 
-## Zárójelentés
+## Closing report
 
-Táblázat: mi lett törölve · mi lett telepítve (tokenköltséggel) · mi maradt kézire · hol a
-mentés. Ha valami nem fér a fenti kategóriákba, **ne dönts a felhasználó helyett** — tedd a
-„kézire" listába.
+Table: what was deleted · what was installed (with token cost) · what was left to manual work · where
+the backup is. If something does not fit the categories above, **do not decide for the user** — put it
+in the "manual" list.

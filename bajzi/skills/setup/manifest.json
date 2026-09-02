@@ -1,66 +1,66 @@
 {
-  "_comment": "A kívánt Claude Code állapot. ÚJ ELEM FELVÉTELE = CSAK EZT A FÁJLT KELL SZERKESZTENI.",
+  "_comment": "The desired Claude Code state. ADDING A NEW ITEM = ONLY THIS FILE NEEDS EDITING.",
   "updated": "2026-09-02",
   "marketplaces": [
     {
       "source": "anthropics/claude-plugins-official",
-      "why": "hivatalos katalógus"
+      "why": "official catalog"
     },
     {
       "source": "thedotmack/claude-mem",
-      "why": "claude-mem forrása"
+      "why": "source of claude-mem"
     },
     {
       "source": "bajzaa975/claude-alapcsomag",
-      "why": "saját plugin (bajzi)"
+      "why": "own plugin (bajzi)"
     }
   ],
   "plugins": [
     {
       "id": "bajzi@bajzi-plugins",
-      "why": "saját: alapcsomag/autopilot/handoff + HANDOFF hook"
+      "why": "own: alapcsomag/autopilot/handoff + HANDOFF hook"
     },
     {
       "id": "claude-mem@thedotmack",
-      "why": "session-közi memória, kereshető előzmény",
-      "windows": "PROBLÉMÁS — lásd ismert_buktatok. Ha a worker elérhetetlen, hagyd letiltva: csak a session-közi memóriakeresést veszíted el, és ~1755 tokent VISSZAKAPSZ minden sessionben. Minden más plugin független tőle."
+      "why": "cross-session memory, searchable history",
+      "windows": "PROBLEMATIC — see known_pitfalls. If the worker is unreachable, leave it disabled: you only lose cross-session memory search, and you GET BACK ~1755 tokens in every session. Every other plugin is independent of it."
     },
     {
       "id": "superpowers@claude-plugins-official",
-      "why": "TDD, debug, sub-agent minták — ~688 tok always-on"
+      "why": "TDD, debug, sub-agent patterns — ~688 tok always-on"
     },
     {
       "id": "claude-md-management@claude-plugins-official",
-      "why": "CLAUDE.md audit + session-tanulságok — ~175 tok always-on"
+      "why": "CLAUDE.md audit + session learnings — ~175 tok always-on"
     },
     {
       "id": "frontend-design@claude-plugins-official",
-      "why": "UI-munkához; ha nem kell, kihagyható"
+      "why": "for UI work; skippable if not needed"
     }
   ],
-  "tudatosan_kihagyva": [
+  "deliberately_skipped": [
     {
       "id": "commit-commands",
-      "why": "duplikáció: a Claude Code alapból commitol, GSD-ben ott a ship/pr-branch, az autopilot pedig tiltja az automatikus push-t"
+      "why": "duplication: Claude Code commits out of the box, in GSD there is ship/pr-branch, and autopilot forbids automatic push"
     },
     {
       "id": "context-mode",
-      "why": "duplikáció: rtk + claude-mem + GSD context-monitor már ezt csinálja; cserébe ~100 MB adat és minden sessionben egy node-process"
+      "why": "duplication: rtk + claude-mem + GSD context-monitor already do this; in exchange for ~100 MB of data and a node process in every session"
     }
   ],
   "gsd": {
     "install": "npx @opengsd/gsd-core@latest",
     "runtime": "Claude Code",
-    "scope": "globális",
+    "scope": "global",
     "profile": "full",
-    "interaktiv": true,
-    "megjegyzes": "SOHA ne másolj kézzel gsd-* fájlokat, és ne takarítsd kézzel — a telepítő abszolút útvonalakkal írja a saját hookjait a settings.json-be."
+    "interactive": true,
+    "note": "NEVER copy gsd-* files by hand, and do not clean up by hand — the installer writes its own hooks into settings.json with absolute paths."
   },
   "rtk": {
-    "kotelezo": false,
-    "ellenorzes": "rtk gain",
-    "linux_mac": "cargo install vagy a rtk-ai/rtk release-ből ~/.local/bin alá",
-    "windows": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-x86_64-pc-windows-msvc.zip -> %USERPROFILE%\\.local\\bin, majd PATH",
+    "required": false,
+    "check": "rtk gain",
+    "linux_mac": "cargo install, or from the rtk-ai/rtk release under ~/.local/bin",
+    "windows": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-x86_64-pc-windows-msvc.zip -> %USERPROFILE%\\.local\\bin, then PATH",
     "hook": {
       "PreToolUse": [
         {
@@ -74,7 +74,7 @@
         }
       ]
     },
-    "megjegyzes": "Csak akkor vedd fel a hookot, ha a `rtk gain` MŰKÖDIK. Névütközés: a reachingforthejack/rtk MÁS eszköz."
+    "note": "Only add the hook if `rtk gain` WORKS. Name collision: reachingforthejack/rtk is a DIFFERENT tool."
   },
   "settings_merge": {
     "effortLevel": "xhigh",
@@ -102,8 +102,8 @@
       ]
     }
   },
-  "globalis_szabalyok": "A telepített marketplace-ből: ~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md -> hozzáfűzni a ~/.claude/CLAUDE.md-hez (duplikálás nélkül).",
-  "tiltolista_torlesnel": [
+  "global_rules": "From the installed marketplace: ~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md -> append to ~/.claude/CLAUDE.md (without duplication).",
+  "deletion_blocklist": [
     "~/.claude/.credentials.json",
     "~/.claude.json",
     "~/.claude/projects/",
@@ -113,52 +113,52 @@
     "~/.claude/todos/",
     "~/.claude/sessions/"
   ],
-  "ismert_maradvanyok": [
+  "known_leftovers": [
     {
-      "minta": "~/.claude/context-mode/",
-      "teendo": "törölhető, ha a context-mode plugin nincs telepítve"
+      "pattern": "~/.claude/context-mode/",
+      "action": "deletable if the context-mode plugin is not installed"
     },
     {
-      "minta": "~/.claude/token-dashboard.db",
-      "teendo": "a context-mode-é, NEM az rtk-é (az rtk a ~/.local/share/rtk/history.db-t használja)"
+      "pattern": "~/.claude/token-dashboard.db",
+      "action": "belongs to context-mode, NOT to rtk (rtk uses ~/.local/share/rtk/history.db)"
     },
     {
-      "minta": "~/.claude/hooks/context-mode-cache-heal.mjs",
-      "teendo": "törölhető a hozzá tartozó settings.json hook-bejegyzéssel együtt"
+      "pattern": "~/.claude/hooks/context-mode-cache-heal.mjs",
+      "action": "deletable together with the corresponding settings.json hook entry"
     }
   ],
-  "ismert_buktatok": [
+  "known_pitfalls": [
     {
-      "mikor": "Windows, a plugin telepítése ELŐTT",
-      "tunet": "A SessionStart hookok némán nem futnak: nincs HANDOFF-visszatöltés és nincs módszertan-figyelmeztetés.",
-      "ok": "A Claude Code 2.1.139 óta Windowson a natív PowerShell toolt használja; Git for Windows nélkül nincs `bash` a gépen.",
-      "teendo": "Telepítsd a Git for Windows-t, majd: git config --global core.autocrlf input"
+      "when": "Windows, BEFORE installing the plugin",
+      "symptom": "The SessionStart hooks silently do not run: no HANDOFF reload and no methodology warning.",
+      "cause": "Since Claude Code 2.1.139, on Windows it uses the native PowerShell tool; without Git for Windows there is no `bash` on the machine.",
+      "action": "Install Git for Windows, then: git config --global core.autocrlf input"
     },
     {
-      "mikor": "Windows, az első prompt a claude-mem telepítése/frissítése után",
-      "tunet": "'UserPromptSubmit hook timed out after 60s', lassú session-indulás, majd később 'UserPromptSubmit operation blocked by hook: claude-mem worker unreachable for 6 consecutive hooks' — ez utóbbi MEGÁLLÍTJA a munkát, nem lehet promptot beadni.",
-      "ok": "KÉT különböző hiba, ne keverd őket. (1) ELSŐ futáskor: a claude-mem bun-runner.js-e letölti és telepíti a Bun futtatókörnyezetet (https://bun.sh); hidegindításból ez túlmegy a hook 60 mp-es limitjén — ez a 'timed out after 60s'. (2) TARTÓSAN, Windowson: a worker Unix socketen (.sock) kommunikál, ami Windowson nem működik — ez a 'worker unreachable'. A (2)-t a Bun telepítése NEM oldja meg: 2026-09-02-án a laptopon a Bun fent volt (~/.bun/bin/bun), a worker mégis elérhetetlen maradt.",
-      "teendo": "Windowson ne kergesd a Bun-t: tiltsd le a plugint és haladj tovább — PowerShellben, NEM a Claude Code-on belül: `claude plugin disable claude-mem`. A CLI-t a hook nem érinti. Linuxon a Bun telepítése segít, ha csak az (1)-es timeoutot látod: irm bun.sh/install.ps1 | iex (ellenőrzés: `where bun`). NE a plugin cache-ében írd át a hook timeout-ját: a következő frissítés felülírja.",
-      "megjegyzes": "2026-09-02: a laptopon (Win11) a legfrissebb claude-mem-mel (13.23.1) is elérhetetlen maradt a worker, MEGLÉVŐ Bun mellett — ez zárta ki a runtime-hiányt mint okot. A VM-en (Linux, 13.23.0) hibátlan. Windowson a letiltás a végleges válasz, nem kerülőút. FONTOS: a `claude plugin disable` csak ÚJ sessionre hat — a már futó session tovább futtatja a saját, korábban betöltött MCP-szerverét (node -e bootstrap + scripts/mcp-server.cjs a plugin .mcp.json-jából). Ezért letiltás után zárd be a futó sessionöket, különben azt hiszed, nem működött a tiltás. 2026-09-02-án pontosan ez tévesztett meg minket."
+      "when": "Windows, the first prompt after installing/updating claude-mem",
+      "symptom": "'UserPromptSubmit hook timed out after 60s', slow session startup, then later 'UserPromptSubmit operation blocked by hook: claude-mem worker unreachable for 6 consecutive hooks' — the latter STOPS the work, no prompt can be submitted.",
+      "cause": "TWO different failures, do not mix them up. (1) ON FIRST RUN: claude-mem's bun-runner.js downloads and installs the Bun runtime (https://bun.sh); from a cold start this exceeds the hook's 60 s limit — that is the 'timed out after 60s'. (2) PERSISTENTLY, on Windows: the worker communicates over a Unix socket (.sock), which does not work on Windows — that is the 'worker unreachable'. Installing Bun does NOT solve (2): on 2026-09-02 Bun was present on the laptop (~/.bun/bin/bun), yet the worker stayed unreachable.",
+      "action": "On Windows do not chase Bun: disable the plugin and move on — in PowerShell, NOT inside Claude Code: `claude plugin disable claude-mem`. The hook does not affect the CLI. On Linux, installing Bun helps if you only see the (1) timeout: irm bun.sh/install.ps1 | iex (check: `where bun`). Do NOT rewrite the hook timeout in the plugin cache: the next update overwrites it.",
+      "note": "2026-09-02: on the laptop (Win11) the worker stayed unreachable even with the latest claude-mem (13.23.1), with Bun ALREADY PRESENT — this ruled out a missing runtime as the cause. On the VM (Linux, 13.23.0) it is flawless. On Windows disabling is the final answer, not a workaround. IMPORTANT: `claude plugin disable` only affects a NEW session — an already running session keeps running its own, previously loaded MCP server (node -e bootstrap + scripts/mcp-server.cjs from the plugin's .mcp.json). So after disabling, close the running sessions, otherwise you will think the disable did not work. On 2026-09-02 this is exactly what misled us."
     },
     {
-      "mikor": "Miután új skillt tettél a bajzi pluginba",
-      "tunet": "A másik gépen 'Unknown command', pedig a marketplace frissítve lett.",
-      "ok": "A `claude plugin update` a verziószámot nézi. Ha a plugin.json és a marketplace.json verziója nem lép, a frissítés no-op.",
-      "teendo": "MINDIG léptesd a verziót MINDKÉT manifestben (bajzi/.claude-plugin/plugin.json és .claude-plugin/marketplace.json), különben a változás nem jut el a többi gépre. A frissítés a következő session-indításkor él."
+      "when": "After you added a new skill to the bajzi plugin",
+      "symptom": "'Unknown command' on the other machine, even though the marketplace was updated.",
+      "cause": "`claude plugin update` looks at the version number. If the version in plugin.json and marketplace.json does not move, the update is a no-op.",
+      "action": "ALWAYS bump the version in BOTH manifests (bajzi/.claude-plugin/plugin.json and .claude-plugin/marketplace.json), otherwise the change does not reach the other machines. The update takes effect at the next session start."
     },
     {
-      "mikor": "GSD-vel dolgozó gépen",
-      "tunet": "A ~4 270 token always-on költség akkor is megvan, ha abban a repóban soha nem használod a GSD-t.",
-      "ok": "A GSD skilljei gépszintűek; a .claude/METHODOLOGY azt szabályozza, MIT HASZNÁL a modell, nem azt, MI TÖLTŐDIK BE.",
-      "teendo": "Klaszter-tiltás: /gsd-surface disable <klaszter>. Az alapprofil-váltás keveset ad (a full tier csak 10 skillt tesz rá). Visszaállás: /gsd-surface reset."
+      "when": "On a machine working with GSD",
+      "symptom": "The ~4,270 token always-on cost is there even if you never use GSD in that repo.",
+      "cause": "GSD's skills are machine-wide; .claude/METHODOLOGY controls WHAT THE MODEL USES, not WHAT GETS LOADED.",
+      "action": "Cluster disabling: /gsd-surface disable <cluster>. Switching the base profile gives little (the full tier only adds 10 skills). Restore: /gsd-surface reset."
     },
     {
-      "mikor": "Bármelyik gépen, ahol a GSD (@opengsd/gsd-core) telepítve van — minden GSD-frissítés után újra előjöhet",
-      "tunet": "A statusline tartósan '⚠ stale hooks — run /gsd-update' figyelmeztetést mutat, és a /gsd-update futtatása NEM tünteti el, akárhányszor futtatod.",
-      "ok": "Upstream hiba. A ~/.claude/hooks/gsd-check-update-worker.js minden MANAGED_HOOKS-fájlban egy 'gsd-hook-version:' kommentsort keres (regex a 123. sor körül), és amelyikben nincs, azt automatikusan avultnak jelöli (hookVersion: 'unknown'), majd beírja a ~/.cache/gsd/gsd-update-check-*.json stale_hooks mezőjébe — innen olvassa a statusline. A csomag viszont a gsd-node-runner.sh fájlt verzió-header NÉLKÜL szállítja (ellenőrizve az 1.12.0-ban, az npx-cache példányban is), ezért a frissítés fogalmilag nem tudja megszüntetni: minden /gsd-update ugyanazt a header nélküli fájlt teszi vissza. NEM a Claude Code verziója okozza — ez a hipotézis 2026-09-02-án megdőlt.",
-      "teendo": "Ne futtass /gsd-update-et és ne telepítsd újra a GSD-t. 1) Nézd meg, mely fájlok szerepelnek a ~/.cache/gsd/gsd-update-check-*.json stale_hooks listájában. 2) A ~/.claude/gsd-core/VERSION-ből vedd a telepített verziót. 3) Minden listázott fájlba (mentés után) szúrd be a MÁSODIK sorba, a shebang alá: .sh-nál '# gsd-hook-version: <verzió>', .js-nél '// gsd-hook-version: <verzió>'; ha már van ilyen sor, csak írd át. BOM NÉLKÜLI UTF-8-cal írj vissza — a PowerShell Set-Content -Encoding UTF8 BOM-ot tenne a fájl elejére és tönkretenné a shebanget. 4) Töröld a ~/.cache/gsd/gsd-update-check-*.json fájlt. 5) Indítsd újra a Claude Code-ot; a SessionStart hook újragenerálja a gyorsítótárat, már stale_hooks nélkül.",
-      "megjegyzes": "2026-09-02: VM-en és Win11 laptopon is pontosan egy fájl volt érintett, a gsd-node-runner.sh (hookVersion 'unknown', installedVersion 1.12.0). A javítás GSD-frissítéskor visszaállhat — akkor ugyanez az eljárás megismételhető."
+      "when": "On any machine where GSD (@opengsd/gsd-core) is installed — it can come back after every GSD update",
+      "symptom": "The statusline persistently shows the '⚠ stale hooks — run /gsd-update' warning, and running /gsd-update does NOT make it go away, no matter how many times you run it.",
+      "cause": "Upstream bug. ~/.claude/hooks/gsd-check-update-worker.js looks for a 'gsd-hook-version:' comment line in every MANAGED_HOOKS file (regex around line 123), and any file without one is automatically marked stale (hookVersion: 'unknown'), then written into the stale_hooks field of ~/.cache/gsd/gsd-update-check-*.json — which is where the statusline reads it from. But the package ships gsd-node-runner.sh WITHOUT a version header (verified in 1.12.0, in the npx-cache copy too), so the update conceptually cannot fix it: every /gsd-update puts back the same header-less file. It is NOT caused by the Claude Code version — that hypothesis was disproved on 2026-09-02.",
+      "action": "Do not run /gsd-update and do not reinstall GSD. 1) Check which files are in the stale_hooks list of ~/.cache/gsd/gsd-update-check-*.json. 2) Take the installed version from ~/.claude/gsd-core/VERSION. 3) Into every listed file (after a backup) insert on the SECOND line, below the shebang: for .sh '# gsd-hook-version: <version>', for .js '// gsd-hook-version: <version>'; if such a line already exists, just rewrite it. Write back as UTF-8 WITHOUT BOM — PowerShell's Set-Content -Encoding UTF8 would put a BOM at the start of the file and break the shebang. 4) Delete the ~/.cache/gsd/gsd-update-check-*.json file. 5) Restart Claude Code; the SessionStart hook regenerates the cache, now without stale_hooks.",
+      "note": "2026-09-02: on both the VM and the Win11 laptop exactly one file was affected, gsd-node-runner.sh (hookVersion 'unknown', installedVersion 1.12.0). The fix may be reverted on a GSD update — the same procedure can then be repeated."
     }
   ]
 }

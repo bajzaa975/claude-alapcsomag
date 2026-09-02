@@ -1,43 +1,43 @@
-## Nyelv (token-takarékosság)
-- **Alapértelmezés: angolul gondolkodj ÉS angolul válaszolj**, akkor is, ha én magyarul írok.
-  Nem kell tükröznöd a nyelvemet. Ugyanaz a tartalom magyarul ~1,5-2x annyi output-token.
-- **Magyar válasz KIZÁRÓLAG akkor, ha kifejezetten kérem** — pl. „írj egy magyar e-mailt",
-  „magyarul válaszolj", vagy ha a leszállítandó anyag maga magyar nyelvű szöveg. Minden más
-  esetben angol, akkor is, ha magyar a téma vagy magyarul tettem fel a kérdést.
-- **Angolul készüljön minden, amit te írsz és később visszaolvasol:** `runtime/HANDOFF.md`
-  (a „javasolt kezdő prompt" blokkot IS BELEÉRTVE), memória-fájlok, commit-üzenetek,
-  PR-leírások, kód-kommentek.
-- Ha bizonytalan vagy, angol.
+## Language (token efficiency)
+- **Default: think in English AND answer in English**, even when I write in Hungarian.
+  You do not need to mirror my language. The same content in Hungarian costs ~1.5-2x the output tokens.
+- **Hungarian answers ONLY when I explicitly ask for it** — e.g. "write a Hungarian email",
+  "answer in Hungarian", or when the deliverable itself is Hungarian-language text. In every other
+  case English, even if the topic is Hungarian or I asked the question in Hungarian.
+- **Everything you write and later read back must be in English:** `runtime/HANDOFF.md`
+  (INCLUDING the "suggested opening prompt" block), memory files, commit messages,
+  PR descriptions, code comments.
+- When in doubt, English.
 
-## Token-budget (KEMÉNY szabályok — minden projektre)
-1. **50% plafon:** egy session SOHA ne menjen a kontextusablak 50%-a fölé. 40% felett nincs új
-   scope. Mérés: `/context`.
-2. **Sub-agentek KÖTELEZŐK:** repo-feltárás, több-fájlos olvasás, teszt-/lint-futtatás
-   sub-agentbe (Agent/Task tool); a fő szálba csak tömör eredmény kerül, soha nyers kimenet.
-3. **~300 sornál hosszabb fájl nem megy a fő szálba** — sub-agent, vagy `rtk read -l aggressive`.
-4. **Path-hivatkozás beillesztés helyett;** a projekt CLAUDE.md ≤ 200 sor, a részletek
-   docs-fájlokban.
-5. **Egy feladat = egy fókuszált session;** a session a feladat végén kilép (`/exit`).
+## Token budget (HARD rules — for every project)
+1. **50% ceiling:** a session must NEVER go above 50% of the context window. Above 40% no new
+   scope. Measure with `/context`.
+2. **Sub-agents are REQUIRED:** repo exploration, multi-file reading, test/lint runs go into a
+   sub-agent (Agent/Task tool); only a terse result reaches the main thread, never raw output.
+3. **A file longer than ~300 lines does not go into the main thread** — sub-agent, or `rtk read -l aggressive`.
+4. **Reference paths instead of pasting;** the project CLAUDE.md is ≤ 200 lines, details live in
+   docs files.
+5. **One task = one focused session;** the session exits at the end of the task (`/exit`).
 
-## Kontextus-őr + HANDOFF (minden projektre)
-- Minden lezárt részfeladat után frissítsd a `runtime/HANDOFF.md`-t (≤40 sor: hol tartunk, mi
-  kész, PONTOS következő lépés, döntések/csapdák, érintett fájl-pathok). Ha a mappa nincs meg,
-  hozd létre. Erre való a `/bajzi:handoff` skill.
-- Ha a kontextus eléri a ~40%-ot (`/context`, vagy a CLI "context low" jelzése), NE kezdj új
-  alfeladatba: az aktuálisat fejezd be, véglegesítsd a HANDOFF.md-t, majd írd ki a
-  felhasználónak: **„Kontextus 40% felett — futtass /clear-t; a folytatáshoz szükséges állapot a
-  runtime/HANDOFF.md-ből automatikusan betöltődik."**
-- `/clear` vagy compact után a `bajzi` plugin SessionStart-hookja betölti a HANDOFF.md-t → onnan
-  folytass, NE olvasd újra az egész repót.
+## Context guard + HANDOFF (for every project)
+- After every closed subtask, update `runtime/HANDOFF.md` (≤40 lines: where we are, what is
+  done, the EXACT next step, decisions/pitfalls, affected file paths). Create the directory if it
+  does not exist. That is what the `/bajzi:handoff` skill is for.
+- When context reaches ~40% (`/context`, or the CLI's "context low" indicator), do NOT start a new
+  subtask: finish the current one, finalize HANDOFF.md, then tell the user:
+  **"Context above 40% — run /clear; the state needed to continue is loaded automatically from
+  runtime/HANDOFF.md."**
+- After `/clear` or compact, the `bajzi` plugin's SessionStart hook loads HANDOFF.md → continue from
+  there, do NOT re-read the whole repo.
 
-## RTK — parancskimenet-tömörítés (CSAK ha telepítve van)
+## RTK — command output compression (ONLY if installed)
 - `rtk pytest` · `rtk ruff check` · `rtk err npm run build` · `rtk git status|log|diff` ·
-  `rtk read <f>` · `rtk grep "p" .` · `rtk ls .` · `rtk find "*.py" .` · `rtk test <parancs>`
-- SOHA ne menjen rtk-n: deploy/release, ssh/scp, titok-kezelés, DB-migráció, állapot-változtató
-  git. Ha nincs rtk, minden nyersen fut — az RTK soha nem feltétel.
-- `sudo` alatt mindig teljes elérési út kell (`/usr/bin/git`), különben „rtk: command not found".
+  `rtk read <f>` · `rtk grep "p" .` · `rtk ls .` · `rtk find "*.py" .` · `rtk test <command>`
+- NEVER run through rtk: deploy/release, ssh/scp, secret handling, DB migration, state-changing
+  git. If rtk is missing, everything runs raw — RTK is never a prerequisite.
+- Under `sudo` always use the full path (`/usr/bin/git`), otherwise you get "rtk: command not found".
 
-## MCP-higiénia
-- Batch/automatizált futásnál: `claude --strict-mcp-config --mcp-config .mcp.json`.
-- Review: code-review-graph (graph build → review-kontextus, csak blast-radius fájlok).
-- Szimbólum-navigáció (token-savior): `find_symbol`/`get_function_source` teljes fájl helyett.
+## MCP hygiene
+- For batch/automated runs: `claude --strict-mcp-config --mcp-config .mcp.json`.
+- Review: code-review-graph (graph build → review context, blast-radius files only).
+- Symbol navigation (token saver): `find_symbol`/`get_function_source` instead of whole files.

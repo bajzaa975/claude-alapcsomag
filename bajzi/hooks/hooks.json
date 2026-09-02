@@ -1,5 +1,5 @@
 {
-  "description": "HANDOFF automatikus betöltése + repónkénti módszertan-választás (GSD vs superpowers)",
+  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers)",
   "hooks": {
     "SessionStart": [
       {

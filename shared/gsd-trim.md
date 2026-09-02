@@ -1,36 +1,36 @@
-# GSD felszín-szűkítés — kész prompt
+# GSD surface trimming — ready-made prompt
 
-A GSD skilljei **gépszintűek**: minden sessionben betöltődnek, akkor is, ha abban a repóban
-soha nem használod őket. A `.claude/METHODOLOGY` azt szabályozza, mit HASZNÁL a modell, nem
-azt, mi TÖLTŐDIK BE. Tokent csak ez a művelet ad vissza.
+GSD's skills are **machine-wide**: they load in every session, even in repos where you never
+use them. `.claude/METHODOLOGY` controls what the model USES, not what gets LOADED. Only this
+operation gives tokens back.
 
-**Mérés a VM-en (2026-09-01):** 71 skill ≈ 4 270 tok → 46 skill ≈ 2 913 tok. **Nyereség ~1 357.**
+**Measured on the VM (2026-09-01):** 71 skills ≈ 4,270 tok → 46 skills ≈ 2,913 tok. **Gain ~1,357.**
 
-## Mit hagyunk meg és miért
+## What we keep and why
 
-| Klaszter | Marad? | Indok |
+| Cluster | Keep? | Reason |
 |---|---|---|
-| `core_loop` | marad | maga a fázis-ciklus |
-| `utility` | marad | ship, debug, quick, config, progress, undo, map-codebase |
-| `audit_review` | marad | code-review, verify-work, add-tests, secure-phase |
-| `ai_eval` | **marad** | AI-termékekhez (IVR, hangrögzítés): AI-SPEC + eval-audit |
-| `research_ideate` | tiltva | a superpowers `brainstorming`/`writing-plans` lefedi |
-| `workspace_state` | tiltva | a `/bajzi:handoff` jobb, mint a pause/resume-work |
-| `milestone` | tiltva | nincs milestone-ciklus |
-| `ns_meta` | tiltva | csak menü-skillek a konkrétak fölé |
-| `docs` | tiltva | a claude-md-management fedi |
-| `ui` | tiltva | csak ha a UI-t nem viszed GSD-fázisban |
+| `core_loop` | keep | the phase cycle itself |
+| `utility` | keep | ship, debug, quick, config, progress, undo, map-codebase |
+| `audit_review` | keep | code-review, verify-work, add-tests, secure-phase |
+| `ai_eval` | **keep** | for AI products (IVR, call recording): AI-SPEC + eval-audit |
+| `research_ideate` | disabled | superpowers `brainstorming`/`writing-plans` covers it |
+| `workspace_state` | disabled | `/bajzi:handoff` is better than pause/resume-work |
+| `milestone` | disabled | there is no milestone cycle |
+| `ns_meta` | disabled | just menu skills on top of the concrete ones |
+| `docs` | disabled | claude-md-management covers it |
+| `ui` | disabled | only if you do not take UI work through a GSD phase |
 
-## A prompt
+## The prompt
 
 ```
-Szűkítsd a GSD felszínét. A GSD gépszintű, ezért ez minden repóban visszaad tokent.
+Trim the GSD surface. GSD is machine-wide, so this gives tokens back in every repo.
 
-1. MENTÉS először:
-   tar -czf ~/gsd-skills-backup-<dátum>.tgz -C ~/.claude skills commands agents .gsd-profile
-   (Windowson, ha nincs tar: másold a három mappát ~/.claude-gsd-backup-<dátum> alá.)
+1. BACK UP first:
+   tar -czf ~/gsd-skills-backup-<date>.tgz -C ~/.claude skills commands agents .gsd-profile
+   (On Windows, if there is no tar: copy the three directories under ~/.claude-gsd-backup-<date>.)
 
-2. Írd meg a ~/.claude/.gsd-surface.json fájlt PONTOSAN ezzel a tartalommal:
+2. Write the ~/.claude/.gsd-surface.json file with EXACTLY this content:
    {
      "baseProfile": "full",
      "disabledClusters": ["research_ideate","workspace_state","milestone","ns_meta","docs","ui"],
@@ -38,35 +38,34 @@ Szűkítsd a GSD felszínét. A GSD gépszintű, ezért ez minden repóban vissz
      "explicitRemoves": []
    }
 
-3. Számold ki, mely skillek esnek ki. A klaszter-definíciók:
+3. Work out which skills drop out. The cluster definitions:
    ~/.claude/gsd-core/bin/lib/clusters.cjs  (CLUSTERS export)
-   FONTOS: egy skill csak akkor esik ki, ha EGYETLEN engedélyezett klaszterben sincs benne.
-   (Pl. a `health` a milestone-ban ÉS a utility-ban is szerepel -> marad.)
+   IMPORTANT: a skill only drops out if it is in NO enabled cluster at all.
+   (E.g. `health` is in both milestone AND utility -> it stays.)
 
-4. Helyezd át — NE töröld — a kiesőket ide: ~/.claude/.gsd-surface-disabled/
-   - skills/gsd-<név>/        -> .gsd-surface-disabled/skills/
-   - commands/gsd-<név>.md    -> .gsd-surface-disabled/commands/
-   A parancsok is költenek, nem elég a skilleket elvinni.
+4. Move — do NOT delete — the dropped ones here: ~/.claude/.gsd-surface-disabled/
+   - skills/gsd-<name>/        -> .gsd-surface-disabled/skills/
+   - commands/gsd-<name>.md    -> .gsd-surface-disabled/commands/
+   Commands cost tokens too, moving only the skills is not enough.
 
-5. Agentek: a ~/.claude/gsd-core/bin/lib/capability-registry.cjs `capabilities` mapjából
-   csak azt az agentet vidd el, amelynek a capability-je MINDEN skillje kiesett, ÉS amit
-   egyetlen megmaradó capability sem használ. (A VM-en ez 2 agent volt: gsd-ui-auditor,
-   gsd-ui-checker.)
+5. Agents: from the `capabilities` map in ~/.claude/gsd-core/bin/lib/capability-registry.cjs
+   move away only the agent whose capability lost ALL its skills, AND which no remaining
+   capability uses. (On the VM this was 2 agents: gsd-ui-auditor, gsd-ui-checker.)
 
-6. Ellenőrzés: ezek MARADJANAK meg a ~/.claude/skills alatt —
+6. Verification: these MUST REMAIN under ~/.claude/skills —
    gsd-next, gsd-plan-phase, gsd-execute-phase, gsd-code-review, gsd-debug, gsd-ship,
    gsd-ai-integration-phase, gsd-eval-review, gsd-secure-phase, gsd-surface
-   Írd ki: hány skill/command/agent maradt, és a becsült always-on tokenköltség
-   (a SKILL.md frontmatter hossza / 4).
+   Report: how many skills/commands/agents remain, and the estimated always-on token cost
+   (SKILL.md frontmatter length / 4).
 
-FIGYELEM: a /gsd-surface skill dokumentált útja (applySurface) NEM futtatható kívülről —
-a resolveRuntimeArtifactLayout nincs exportálva, és a gsd-tools CLI-nek sincs `surface`
-alparancsa. Ezért kell a kézi áthelyezés. Az állapotfájl a GSD által elvárt formában van,
-tehát a /gsd-surface enable <klaszter> később a saját útján tud dolgozni.
+WARNING: the documented path of the /gsd-surface skill (applySurface) is NOT runnable from
+outside — resolveRuntimeArtifactLayout is not exported, and the gsd-tools CLI has no `surface`
+subcommand either. That is why the manual move is needed. The state file is in the form GSD
+expects, so /gsd-surface enable <cluster> can later work its own way.
 ```
 
-## Visszaállítás
+## Restoring
 
-Mindent vissza: a `.gsd-surface-disabled/` tartalmát vissza a helyére, és törölni a
-`.gsd-surface.json`-t. A VM-en erre a `~/.local/bin/gsd-surface-restore` script van.
-Egy klasztert vissza: `/gsd-surface enable <klaszter>`.
+Everything back: move the contents of `.gsd-surface-disabled/` back into place, and delete
+`.gsd-surface.json`. On the VM there is the `~/.local/bin/gsd-surface-restore` script for this.
+One cluster back: `/gsd-surface enable <cluster>`.

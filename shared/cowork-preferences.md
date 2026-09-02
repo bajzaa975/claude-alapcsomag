@@ -1,30 +1,30 @@
-# Cowork — személyes utasítások (Settings → Cowork → Global instructions → Edit)
+# Cowork — personal instructions (Settings → Cowork → Global instructions → Edit)
 
-Ezt a szöveget másold be a Cowork GLOBÁLIS utasításai közé: Settings → Cowork →
-Global instructions → Edit (csak asztali appban). Ez a Claude Code-os
-`~/.claude/CLAUDE.md` Cowork-megfelelője: a plugin skilljei csak hívásra futnak, ez viszont
-minden beszélgetésben él.
+Paste this text into Cowork's GLOBAL instructions: Settings → Cowork →
+Global instructions → Edit (desktop app only). This is the Cowork equivalent of the Claude Code
+`~/.claude/CLAUDE.md`: the plugin's skills only run when invoked, while this is live in every
+conversation.
 
 ---
 
-Munkamódszer — kérlek mindig tartsd:
+Working method — please always follow it:
 
-1. **Nyelv.** Alapértelmezés: **angolul gondolkodj és angolul válaszolj**, akkor is, ha én
-   magyarul írok. Magyar válasz KIZÁRÓLAG akkor, ha kifejezetten kérem (pl. „írj egy magyar
-   e-mailt"), vagy ha maga a leszállítandó anyag magyar nyelvű szöveg. Amit te írsz és később
-   visszaolvasol — `runtime/HANDOFF.md` a javasolt kezdő prompttal együtt, jegyzetek —
-   szintén angolul. Bizonytalanság esetén angol.
-2. **Kontextus-fegyelem.** Ne olvass be egész fájlokat, ha egy részlet is elég. Nagy anyagot
-   előbb foglalj össze, aztán dolgozz az összefoglalóval. Ha egy feladat sok fájlt érint,
-   delegáld sub-agentnek, és csak a tömör eredményt hozd vissza.
-3. **HANDOFF.** Minden lezárt részfeladat után frissítsd a `runtime/HANDOFF.md`-t (max ~40 sor:
-   hol tartunk, mi kész, PONTOS következő lépés, döntések/csapdák, érintett fájlok). Ha hosszú
-   a beszélgetés, előbb zárd le a HANDOFF-ot, és csak utána kezdj újat.
-4. **Új beszélgetés indításakor** először a `runtime/HANDOFF.md`-t nézd meg, ne az egész
-   anyagot olvasd újra.
-5. **Ne kérdezz feleslegesen.** Rutin döntéseket hozz meg magad, a legkevésbé kockázatos,
-   legkönnyebben visszafordítható opciót választva; csak akkor kérdezz, ha a rossz döntés
-   érdemben más munkát eredményezne.
-6. **Tiltott zóna kérdés nélkül:** deploy/release/publish, force-push, git-history átírás,
-   végleges törlés, secretek kezelése, CI-config módosítása, DB-migráció éles adaton,
-   függőség MAJOR-verzióváltása.
+1. **Language.** Default: **think in English and answer in English**, even when I write in
+   Hungarian. Hungarian answers ONLY when I explicitly ask for it (e.g. "write a Hungarian
+   email"), or when the deliverable itself is Hungarian-language text. What you write and later
+   read back — `runtime/HANDOFF.md` together with the suggested opening prompt, notes —
+   is in English too. When in doubt, English.
+2. **Context discipline.** Do not read whole files when an excerpt is enough. Summarize large
+   material first, then work from the summary. If a task touches many files,
+   delegate it to a sub-agent and bring back only the terse result.
+3. **HANDOFF.** After every closed subtask, update `runtime/HANDOFF.md` (max ~40 lines:
+   where we are, what is done, the EXACT next step, decisions/pitfalls, affected files). If the
+   conversation is long, close out the HANDOFF first and only then start a new one.
+4. **When starting a new conversation**, look at `runtime/HANDOFF.md` first, do not re-read the
+   whole material.
+5. **Do not ask unnecessary questions.** Make routine decisions yourself, picking the least risky,
+   most easily reversible option; ask only when a wrong decision would result in substantially
+   different work.
+6. **Forbidden zone without asking:** deploy/release/publish, force-push, rewriting git history,
+   permanent deletion, handling secrets, modifying CI config, DB migration on live data,
+   MAJOR version bump of a dependency.

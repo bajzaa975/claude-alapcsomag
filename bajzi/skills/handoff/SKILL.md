@@ -1,57 +1,58 @@
 ---
 name: handoff
-description: Session-állapot mentése a runtime/HANDOFF.md-be + javasolt kezdő prompt generálása a /clear utáni folytatáshoz. Használd, ha a felhasználó lezárja a sessiont, átadót kér, kifogy a kontextusból, vagy azt mondja "handoff", "mentsük el hol tartunk", "jön a /clear".
+description: Save session state into runtime/HANDOFF.md + generate a suggested opening prompt for continuing after /clear. Use it when the user closes the session, asks for a handoff, is running out of context, or says "handoff", "let's save where we are", "/clear is coming".
 ---
 
-# HANDOFF — session-átadó
+# HANDOFF — session handover
 
-Készíts MOST teljes session-átadót a `runtime/HANDOFF.md` fájlba (a mappát hozd létre, ha
-nincs; a meglévő fájlt írd felül). Tömören, PONTOSAN ez a szerkezet:
+Write a full session handover NOW into the `runtime/HANDOFF.md` file (create the directory if it
+does not exist; overwrite the existing file). Terse, EXACTLY this structure:
 
 ```markdown
-# HANDOFF — session-folytatás
-Frissítve: <mai dátum, idő> · Feladat: <a session célja egy mondatban>
-## Hol tartunk
-## Kész
-## KÖVETKEZŐ LÉPÉS (pontosan, ezzel kell kezdeni)
-## Döntések / csapdák
-## Érintett fájlok (path-ok)
-## JAVASOLT KEZDŐ PROMPT
+# HANDOFF — session continuation
+Updated: <today's date, time> · Task: <the session's goal in one sentence>
+## Where we are
+## Done
+## NEXT STEP (exactly, start with this)
+## Decisions / pitfalls
+## Affected files (paths)
+## SUGGESTED OPENING PROMPT
 ```
 
-A `## Hol tartunk` … `## Érintett fájlok` rész legfeljebb ~40 sor legyen.
+The `## Where we are` … `## Affected files` part must be at most ~40 lines.
 
-## A JAVASOLT KEZDŐ PROMPT szekció — kötelező szabályok
+## The SUGGESTED OPENING PROMPT section — mandatory rules
 
-A `## JAVASOLT KEZDŐ PROMPT` szekcióban **pontosan egy hárombacktickes kódblokk** legyen, benne
-egy kész, bemásolható prompt a következő sessionhöz. A plugin `SessionStart` hookja
-(`hooks/handoff-load.sh`) **ebből a kódblokkból** olvassa ki a szöveget, és `/clear` után kiírja
-a felhasználónak — tehát a formátum kötött, ne térj el tőle.
+The `## SUGGESTED OPENING PROMPT` section must contain **exactly one triple-backtick code block**,
+holding a ready, pasteable prompt for the next session. The plugin's `SessionStart` hook
+(`hooks/handoff-load.sh`) reads the text **out of this code block** and prints it to the user after
+`/clear` — so the format is fixed, do not deviate from it.
 
-A prompt legyen önmagában is működő utasítás, és tartalmazza:
-- mit folytatunk (egy mondat), és hogy a részletek a `runtime/HANDOFF.md`-ben vannak;
-- **a felhasználó már meghozott döntéseit** azzal, hogy ezeket NE kérdezze újra;
-- a konkrét következő lépéseket sorszámozva;
-- a fontos csapdákat, ha egy rossz első lépés kárt okozhat;
-- ha a munka sub-agenteket igényel, azt is.
+The prompt must work as a standalone instruction, and must contain:
+- what we are continuing (one sentence), and that the details are in `runtime/HANDOFF.md`;
+- **the decisions the user has already made**, with the note NOT to ask about them again;
+- the concrete next steps, numbered;
+- the important pitfalls, if a wrong first step could cause damage;
+- if the work requires sub-agents, that too.
 
-Írd meg egyes szám második személyben, ahogy a felhasználó írná — ne „a felhasználó azt kéri,
-hogy…", hanem közvetlenül: „Folytatjuk a…".
+Write it in the second person, the way the user would write it — not "the user asks that…",
+but directly: "We are continuing the…".
 
-Ha kaptál argumentumot / extra megjegyzést a felhasználótól, építsd be a promptba.
+If you received an argument / extra note from the user, build it into the prompt.
 
-## A fájl megírása után
+## After writing the file
 
-Írd ki a chatbe **magát a javasolt promptot is**, kódblokkban, hogy a felhasználó rögtön lássa és
-másolhassa. Ezen kívül egyetlen rövid mondat: hogy a HANDOFF kész, és most jöhet a `/clear`.
+Also print **the suggested prompt itself** into the chat, in a code block, so the user sees it right
+away and can copy it. Beyond that, a single short sentence: that the HANDOFF is done and `/clear`
+can come now.
 
-Semmi mást ne csinálj.
+Do nothing else.
 
-## Környezeti eltérések
+## Environment differences
 
-- **Claude Code:** a plugin SessionStart hookja `/clear`, `/compact` és `resume` után
-  automatikusan betölti a HANDOFF.md-t és kiírja a javasolt promptot. A beviteli mező
-  automatikus előkitöltése nem támogatott — a prompt megjelenik másolható formában.
-- **Cowork:** ha a hookok nincsenek engedélyezve, a HANDOFF.md ugyanúgy elkészül; új
-  beszélgetés elején a felhasználó bemásolja a javasolt promptot, vagy megkéri Claude-ot,
-  hogy olvassa be a `runtime/HANDOFF.md`-t.
+- **Claude Code:** the plugin's SessionStart hook automatically loads HANDOFF.md after `/clear`,
+  `/compact` and `resume`, and prints the suggested prompt. Automatically prefilling the input
+  field is not supported — the prompt appears in copyable form.
+- **Cowork:** if hooks are not enabled, HANDOFF.md is still produced; at the start of a new
+  conversation the user pastes the suggested prompt, or asks Claude to read
+  `runtime/HANDOFF.md`.

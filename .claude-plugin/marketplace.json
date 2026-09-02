@@ -1,16 +1,16 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "bajzi-plugins",
-  "description": "Bajza Andras sajat Claude Code / Cowork bovitmenyei",
+  "description": "Andras Bajza's own Claude Code / Cowork extensions",
   "owner": {
     "name": "Bajza Andras"
   },
   "plugins": [
     {
       "name": "bajzi",
-      "version": "1.5.5",
+      "version": "1.5.6",
       "source": "./bajzi",
-      "description": "Token-takarekos munkamodszer: gep-setup manifestbol, alapcsomag-telepito, modszertan-valaszto, autopilot mod, HANDOFF session-atado + ket SessionStart hook",
+      "description": "Token-efficient working method: machine setup from a manifest, project-layer installer, methodology selector, autopilot mode, HANDOFF session handover, plus two SessionStart hooks.",
       "category": "productivity"
     }
   ]
