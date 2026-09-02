@@ -16,7 +16,7 @@ kérd szövegesen („csinálj handoffot"), a leírás alapján maguktól is eli
 ## Telepítés — Claude Code (laptop)
 
 ```bash
-claude plugin marketplace add <github-user>/claude-alapcsomag   # vagy: helyi útvonal
+claude plugin marketplace add bajzaa975/claude-alapcsomag   # vagy: helyi útvonal
 claude plugin install bajzi@bajzi-plugins
 ```
 
@@ -36,9 +36,13 @@ automatikusan betölti `bajzi@skills-dir` néven.
 ## Telepítés — Cowork (Claude Desktop)
 
 1. **Customize → Plugins → Add marketplace** → a repó URL-je
-   (`https://github.com/<user>/claude-alapcsomag` vagy `<user>/claude-alapcsomag`).
+   (`https://github.com/bajzaa975/claude-alapcsomag` vagy `bajzaa975/claude-alapcsomag`).
 2. A listából telepítsd a `bajzi` plugint.
 3. **Vagy** repó nélkül: **Plugins → upload** és válaszd a `bajzi-plugin.zip`-et.
+   FIGYELEM: ez a zip a `.gitignore` miatt NINCS benne a GitHub-repóban — csak helyben
+   keletkezik. Ha kell, a repó gyökerében generáld újra a `bajzi/` mappából, és győződj
+   meg róla, hogy a benne lévő `plugin.json` verziója megegyezik a marketplace-ével.
+   Normál esetben az 1-2. lépés (marketplace) az ajánlott út.
 4. A `shared/cowork-preferences.md` tartalmát másold a személyes utasítások közé.
 
 ## Frissítés
