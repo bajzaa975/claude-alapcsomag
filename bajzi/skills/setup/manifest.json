@@ -166,6 +166,13 @@
       "cause": "The hook silently rewrites the Bash command into rtk's own compressing command (grep -> rtk grep, etc.), and the wrapper's output is not equivalent to the original: for diff it is not merely shorter, it states the OPPOSITE. This is a silent failure — nothing warns you that the command was rewritten.",
       "action": "Whenever a DECISION depends on the output (are two files identical, is there a match, what exactly changed), bypass the wrapper: `rtk proxy <command>` runs it raw, or use a command whose output cannot be mis-compressed (md5sum, `cmp -s`). Keep rtk for large, orientational output: build, test, lint, logs.",
       "note": "2026-09-02: found while diffing the bajzi 1.5.4 -> 1.5.5 update. `diff -rq` still reported the difference correctly, but `diff` on the file pair said 'identical' while the md5 sums differed; only `rtk proxy diff` showed the real change."
+    },
+    {
+      "when": "Several Claude Code sessions are open on the same project at the same time (this is the normal case on the dev box)",
+      "symptom": "A session's handover vanishes, or after /clear a session resumes a task it was never working on. Nothing is logged and nothing warns you.",
+      "cause": "Before 1.5.8 both the /bajzi:handoff skill and the SessionStart hook used ONE hardcoded path per project, runtime/HANDOFF.md. Whoever closed out last overwrote everyone else, and the hook loaded that file for every session regardless of which task it belonged to.",
+      "action": "From 1.5.8 handovers live at runtime/handoff/<branch-slug>.md, one per task, and the hook loads only the file matching the current branch. If no handover matches your task but others exist, the hook LISTS them and loads nothing on purpose — ask for one by name if you want it. Two sessions on the same branch are guarded by the Owner-session header: /bajzi:handoff asks before overwriting a file another session wrote in the last 2 hours.",
+      "note": "2026-09-02: the legacy runtime/HANDOFF.md path is still read, so nothing breaks on upgrade; the next /bajzi:handoff migrates it. Slug = branch name lowercased with everything outside [a-z0-9._-] turned into '-', truncated to 60 chars; anything git cannot answer (no repo, detached HEAD, dubious ownership) becomes 'default'."
     }
   ]
 }
