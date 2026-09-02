@@ -7,10 +7,13 @@ Egyetlen plugin (`bajzi`), ami mindkét környezetben ugyanazt a munkamódszert 
 | `alapcsomag` skill | token-takarékos projekt-réteg (MCP, hook, HANDOFF-váz) | ✅ | ✅ (MCP-rész kihagyva) |
 | `autopilot` skill | felügyelet nélküli munkamenet döntésnaplóval | ✅ | ✅ |
 | `handoff` skill | `runtime/HANDOFF.md` + javasolt kezdő prompt | ✅ | ✅ |
-| SessionStart hook | `/clear` után visszatölti a HANDOFF-ot | ✅ | hooks engedélyezésétől függ |
+| `modszertan` skill | repónkénti METHODOLOGY-jelölő (gsd/superpowers/none) | ✅ | ❌ — repót és SessionStart hookot feltételez |
+| `setup` skill | gép beállítása a `manifest.json` szerint | ✅ | ❌ — a Claude Code CLI állapotát kezeli |
+| SessionStart hookok | `/clear` után HANDOFF-visszatöltés + módszertan-őr | ✅ | hooks engedélyezésétől függ |
 | `shared/CLAUDE.md` | globális token-budget szabályok | kézzel `~/.claude/CLAUDE.md`-be | `shared/cowork-preferences.md` → Global instructions |
 
-A skillek hívása: `/bajzi:alapcsomag`, `/bajzi:autopilot`, `/bajzi:handoff` — vagy egyszerűen
+A skillek hívása: `/bajzi:alapcsomag`, `/bajzi:autopilot`, `/bajzi:handoff`, `/bajzi:modszertan`,
+`/bajzi:setup` — vagy egyszerűen
 kérd szövegesen („csinálj handoffot"), a leírás alapján maguktól is elindulnak.
 
 ## Telepítés — Claude Code (laptop)
