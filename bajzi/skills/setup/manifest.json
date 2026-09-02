@@ -137,9 +137,9 @@
     {
       "mikor": "Windows, az első prompt a claude-mem telepítése/frissítése után",
       "tunet": "'UserPromptSubmit hook timed out after 60s', lassú session-indulás, majd később 'UserPromptSubmit operation blocked by hook: claude-mem worker unreachable for 6 consecutive hooks' — ez utóbbi MEGÁLLÍTJA a munkát, nem lehet promptot beadni.",
-      "ok": "A claude-mem bun-runner.js-e első futáskor letölti és telepíti a Bun futtatókörnyezetet (https://bun.sh). Hidegindításból ez túlmegy a hook 60 mp-es limitjén.",
-      "teendo": "Elsőként telepítsd a Bunt: irm bun.sh/install.ps1 | iex (ellenőrzés: `where bun`). Ha a worker ezután SEM elérhető, tiltsd le és haladj tovább — PowerShellben, NEM a Claude Code-on belül: `claude plugin disable claude-mem`. A CLI-t a hook nem érinti. NE a plugin cache-ében írd át a hook timeout-ját: a következő update felülírja.",
-      "megjegyzes": "2026-09-02: a laptopon (Win11) a legfrissebb claude-mem-mel is elérhetetlen maradt a worker. A worker Unix socketen (.sock) kommunikál — Windowson ez a leggyakoribb töréspont. A VM-en (Linux, 13.23.0) hibátlan."
+      "ok": "KÉT különböző hiba, ne keverd őket. (1) ELSŐ futáskor: a claude-mem bun-runner.js-e letölti és telepíti a Bun futtatókörnyezetet (https://bun.sh); hidegindításból ez túlmegy a hook 60 mp-es limitjén — ez a 'timed out after 60s'. (2) TARTÓSAN, Windowson: a worker Unix socketen (.sock) kommunikál, ami Windowson nem működik — ez a 'worker unreachable'. A (2)-t a Bun telepítése NEM oldja meg: 2026-09-02-án a laptopon a Bun fent volt (~/.bun/bin/bun), a worker mégis elérhetetlen maradt.",
+      "teendo": "Windowson ne kergesd a Bun-t: tiltsd le a plugint és haladj tovább — PowerShellben, NEM a Claude Code-on belül: `claude plugin disable claude-mem`. A CLI-t a hook nem érinti. Linuxon a Bun telepítése segít, ha csak az (1)-es timeoutot látod: irm bun.sh/install.ps1 | iex (ellenőrzés: `where bun`). NE a plugin cache-ében írd át a hook timeout-ját: a következő frissítés felülírja.",
+      "megjegyzes": "2026-09-02: a laptopon (Win11) a legfrissebb claude-mem-mel (13.23.1) is elérhetetlen maradt a worker, MEGLÉVŐ Bun mellett — ez zárta ki a runtime-hiányt mint okot. A VM-en (Linux, 13.23.0) hibátlan. Windowson a letiltás a végleges válasz, nem kerülőút."
     },
     {
       "mikor": "Miután új skillt tettél a bajzi pluginba",
@@ -152,6 +152,13 @@
       "tunet": "A ~4 270 token always-on költség akkor is megvan, ha abban a repóban soha nem használod a GSD-t.",
       "ok": "A GSD skilljei gépszintűek; a .claude/METHODOLOGY azt szabályozza, MIT HASZNÁL a modell, nem azt, MI TÖLTŐDIK BE.",
       "teendo": "Klaszter-tiltás: /gsd-surface disable <klaszter>. Az alapprofil-váltás keveset ad (a full tier csak 10 skillt tesz rá). Visszaállás: /gsd-surface reset."
+    },
+    {
+      "mikor": "Bármelyik gépen, ahol a GSD (@opengsd/gsd-core) telepítve van — minden GSD-frissítés után újra előjöhet",
+      "tunet": "A statusline tartósan '⚠ stale hooks — run /gsd-update' figyelmeztetést mutat, és a /gsd-update futtatása NEM tünteti el, akárhányszor futtatod.",
+      "ok": "Upstream hiba. A ~/.claude/hooks/gsd-check-update-worker.js minden MANAGED_HOOKS-fájlban egy 'gsd-hook-version:' kommentsort keres (regex a 123. sor körül), és amelyikben nincs, azt automatikusan avultnak jelöli (hookVersion: 'unknown'), majd beírja a ~/.cache/gsd/gsd-update-check-*.json stale_hooks mezőjébe — innen olvassa a statusline. A csomag viszont a gsd-node-runner.sh fájlt verzió-header NÉLKÜL szállítja (ellenőrizve az 1.12.0-ban, az npx-cache példányban is), ezért a frissítés fogalmilag nem tudja megszüntetni: minden /gsd-update ugyanazt a header nélküli fájlt teszi vissza. NEM a Claude Code verziója okozza — ez a hipotézis 2026-09-02-án megdőlt.",
+      "teendo": "Ne futtass /gsd-update-et és ne telepítsd újra a GSD-t. 1) Nézd meg, mely fájlok szerepelnek a ~/.cache/gsd/gsd-update-check-*.json stale_hooks listájában. 2) A ~/.claude/gsd-core/VERSION-ből vedd a telepített verziót. 3) Minden listázott fájlba (mentés után) szúrd be a MÁSODIK sorba, a shebang alá: .sh-nál '# gsd-hook-version: <verzió>', .js-nél '// gsd-hook-version: <verzió>'; ha már van ilyen sor, csak írd át. BOM NÉLKÜLI UTF-8-cal írj vissza — a PowerShell Set-Content -Encoding UTF8 BOM-ot tenne a fájl elejére és tönkretenné a shebanget. 4) Töröld a ~/.cache/gsd/gsd-update-check-*.json fájlt. 5) Indítsd újra a Claude Code-ot; a SessionStart hook újragenerálja a gyorsítótárat, már stale_hooks nélkül.",
+      "megjegyzes": "2026-09-02: VM-en és Win11 laptopon is pontosan egy fájl volt érintett, a gsd-node-runner.sh (hookVersion 'unknown', installedVersion 1.12.0). A javítás GSD-frissítéskor visszaállhat — akkor ugyanez az eljárás megismételhető."
     }
   ]
 }

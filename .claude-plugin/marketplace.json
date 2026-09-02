@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "bajzi",
-      "version": "1.5.2",
+      "version": "1.5.3",
       "source": "./bajzi",
       "description": "Token-takarekos munkamodszer: gep-setup manifestbol, alapcsomag-telepito, modszertan-valaszto, autopilot mod, HANDOFF session-atado + ket SessionStart hook",
       "category": "productivity"
