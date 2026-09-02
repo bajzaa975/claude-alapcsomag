@@ -180,6 +180,20 @@
       "cause": "git status, git log and ahead/behind counts all read remote-tracking refs, which go stale SILENTLY. A clean working tree says nothing about whether the tree matches the remote. Without a fetch the checkout can be hundreds of commits behind and still look perfectly healthy.",
       "action": "ALWAYS `git fetch` before judging git state or editing in a long-lived worktree. Then `git rev-list --left-right --count HEAD...origin/<branch>` (left = ahead, right = behind). If local commits look duplicated, `git cherry -v origin/<branch> HEAD` tells you whether dropping them loses anything: '-' = already upstream, '+' = unique to you.",
       "note": "2026-09-02: found the hard way — a checkout 273 commits behind origin/dev produced three byte-identical translations of a file that had been rewritten 12 days earlier. The non-fast-forward rejection on one branch is what surfaced it; the branch that pushed cleanly needed a revert."
+    },
+    {
+      "when": "Releasing a new version of this plugin",
+      "symptom": "The version is bumped and pushed, but on another machine `claude plugin update bajzi@bajzi-plugins` reports 'already up to date' and installs nothing — or the marketplace advertises a version that does not match what is actually shipped.",
+      "cause": "There are TWO manifests and they are easy to desynchronize: bajzi/.claude-plugin/plugin.json (the plugin's own version) and .claude-plugin/marketplace.json (the version the marketplace advertises). 1.5.8 and 1.5.9 bumped only the first, leaving the marketplace entry at 1.5.7.",
+      "action": "Bump BOTH in the same commit, then verify from the remote before telling anyone to update: `git show origin/main:.claude-plugin/marketplace.json`. Note that a stale marketplace entry does not necessarily block the update — on the dev box 1.5.7 -> 1.5.8 -> 1.5.9 all installed correctly while marketplace.json still said 1.5.7, because the version resolved from the plugin's own manifest via the './bajzi' source. Fix it regardless: the advertised version being wrong is a defect on its own.",
+      "note": "2026-09-02: caught by the laptop session during the 1.5.9 rollout, before anyone acted on the stale entry."
+    },
+    {
+      "when": "Git Bash on Windows, reading a file straight out of git",
+      "symptom": "`git show \"origin/main:.claude-plugin/marketplace.json\"` fails with 'ambiguous argument', and it looks like the file is missing. Paths with more slashes (e.g. bajzi/.claude-plugin/plugin.json) work fine, so the failure looks selective and file-specific.",
+      "cause": "MSYS path conversion rewrites the argument into 'origin\\\\main;.claude-plugin\\\\marketplace.json' before git ever sees it. Quoting does not help — the mangling happens in the MSYS layer, not the shell.",
+      "action": "Prefix the command with MSYS_NO_PATHCONV=1, e.g. `MSYS_NO_PATHCONV=1 git show origin/main:path/to/file`.",
+      "note": "2026-09-02: reported by the laptop session. Only affects Git Bash on Windows; the Linux boxes are unaffected."
     }
   ]
 }

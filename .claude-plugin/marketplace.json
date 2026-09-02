@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "bajzi",
-      "version": "1.5.7",
+      "version": "1.5.10",
       "source": "./bajzi",
       "description": "Token-efficient working method: machine setup from a manifest, project-layer installer, methodology selector, autopilot mode, HANDOFF session handover, plus two SessionStart hooks.",
       "category": "productivity"
