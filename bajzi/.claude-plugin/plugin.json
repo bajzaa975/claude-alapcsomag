@@ -1,6 +1,6 @@
 {
   "name": "bajzi",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "Token-takarekos munkamodszer Claude Code-hoz es Coworkhoz: /bajzi:alapcsomag projekt-reteg telepito, /bajzi:autopilot felugyelet nelkuli mod, /bajzi:handoff session-atado, plus SessionStart hook ami /clear utan visszatolti a HANDOFF-ot.",
   "author": {
     "name": "Bajza Andras"

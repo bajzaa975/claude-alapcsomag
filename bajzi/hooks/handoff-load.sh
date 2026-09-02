@@ -41,11 +41,26 @@ prompt=$(awk '
 
 sep="────────────────────────────────────────────────────────────"
 
+# A HANDOFF kora. Startup-nál egy régi átadó félrevihet, ezért kiírjuk — de csak ha
+# meg tudjuk állapítani. A stat kapcsolói platformfüggők (GNU vs BSD), ezért mindkettőt
+# megpróbáljuk, és ha egyik sem megy, a kor egyszerűen kimarad az üzenetből.
+age_sfx=""
+mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || printf '')
+now=$(date +%s 2>/dev/null || printf '')
+if [ -n "$mtime" ] && [ -n "$now" ] && [ "$mtime" -le "$now" ] 2>/dev/null; then
+    age_h=$(( (now - mtime) / 3600 ))
+    if [ "$age_h" -lt 24 ]; then
+        age_sfx=" (${age_h} órája frissítve)"
+    else
+        age_sfx=" ($(( age_h / 24 )) napja frissítve — ellenőrizd, hogy még aktuális-e)"
+    fi
+fi
+
 if [ -n "$prompt" ]; then
-    msg=$(printf 'HANDOFF betöltve: %s\n\nJAVASOLT KEZDŐ PROMPT — másold be, vagy szerkeszd:\n%s\n%s\n%s' \
-        "$f" "$sep" "$prompt" "$sep")
+    msg=$(printf 'HANDOFF betöltve: %s%s\n\nJAVASOLT KEZDŐ PROMPT — másold be, vagy szerkeszd:\n%s\n%s\n%s' \
+        "$f" "$age_sfx" "$sep" "$prompt" "$sep")
 else
-    msg=$(printf 'HANDOFF betöltve: %s\n(Nincs benne "## JAVASOLT KEZDŐ PROMPT" szekció — futtass /bajzi:handoff-ot a legközelebbi lezáráskor.)' "$f")
+    msg=$(printf 'HANDOFF betöltve: %s%s\n(Nincs benne "## JAVASOLT KEZDŐ PROMPT" szekció — futtass /bajzi:handoff-ot a legközelebbi lezáráskor.)' "$f" "$age_sfx")
 fi
 
 msg_json=$(printf '%s' "$msg" | json_escape)
