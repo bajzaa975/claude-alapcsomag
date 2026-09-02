@@ -68,6 +68,12 @@ Minden elemnél jelöld: **KELL** (szerepel a manifestben) vagy **TÖRLENDŐ**. 
    - **ami már fent van: `claude plugin update <név>`** — a setup nem csak telepít, hanem
      naprakészre is hoz. A frissítés a következő session-indításkor lép életbe.
    Minden tétel után `claude plugin details <név>` — a tokenköltséget írd be a jelentésbe.
+
+   **SZÁNDÉKOSAN LETILTOTT PLUGINT SOHA NE KAPCSOLJ VISSZA.** Ha a `claude plugin list`
+   szerint egy plugin `disabled`, hagyd úgy, és írd a jelentésbe, hogy letiltva maradt.
+   A `claude plugin enable` parancsot ez a skill NEM használja. Ha a manifest tételénél van
+   `windows` mező és ezen a platformon futsz, azt olvasd el és kövesd — ott van megírva,
+   melyik plugin ismerten problémás és mi a teendő.
 4. **GSD:** interaktív telepítő, **NE te indítsd**. Írd ki a felhasználónak a manifest
    `gsd.install` parancsát, és hogy a promptokban mit válasszon (`runtime`, `scope`,
    `profile`). Várd meg, míg szól, hogy kész.
