@@ -89,10 +89,18 @@
   "gsd": {
     "install": "npx @opengsd/gsd-core@latest",
     "runtime": "Claude Code",
-    "scope": "global",
-    "profile": "full",
+    "scope": "global install, TRIMMED surface — see shared/gsd-trim.md",
+    "profile": "full as baseProfile in .gsd-surface.json, 6 clusters disabled; the .gsd-profile marker says core but the surface file overrides it",
     "interactive": true,
-    "note": "NEVER copy gsd-* files by hand, and do not clean up by hand — the installer writes its own hooks into settings.json with absolute paths."
+    "note": "NEVER copy gsd-* files by hand, and do not clean up by hand — the installer writes its own hooks into settings.json with absolute paths. The ONLY hand-operations allowed are the three above, all of them documented in shared/gsd-trim.md.",
+    "version_checked": "1.14.0 (2026-09-15)",
+    "update": "npx @opengsd/gsd-core@latest -g --claude",
+    "after_every_update": [
+      "Verify .gsd-surface.json still has ALL FOUR keys (baseProfile, disabledClusters, explicitAdds, explicitRemoves) — a missing key is silently ignored and restores all 72 skills.",
+      "Move back any skill dir that duplicates a slash command: 1.14 installed 46 skill dirs over 46 commands (~+1,110 always-on tokens for nothing). Keep a skill dir ONLY when it has no commands/<name>.md counterpart.",
+      "Restore our permissions.deny (Read(.env), Read(.env.*), Read(.secrets)) — GSD 1.14 removes that block in favour of its own secret-read-guard hook.",
+      "Re-measure: expected ~1,512 always-on tokens (9 skills + 46 commands)."
+    ]
   },
   "rtk": {
     "required": false,
@@ -244,6 +252,13 @@
       "cause": "MSYS path conversion rewrites the argument into 'origin\\\\main;.claude-plugin\\\\marketplace.json' before git ever sees it. Quoting does not help — the mangling happens in the MSYS layer, not the shell.",
       "action": "Prefix the command with MSYS_NO_PATHCONV=1, e.g. `MSYS_NO_PATHCONV=1 git show origin/main:path/to/file`.",
       "note": "2026-09-02: reported by the laptop session. Only affects Git Bash on Windows; the Linux boxes are unaffected."
+    },
+    {
+      "id": "gsd-update-resets-our-settings",
+      "symptom": "After a GSD update the always-on token count jumps and .env reads are no longer denied.",
+      "cause": "1.14 installs a skill dir for every command (45 duplicate names) and deletes the permissions.deny block that 1.12 wrote, replacing it with gsd-secret-read-guard.js.",
+      "fix": "Follow gsd.after_every_update. Measured 2026-09-15: 46+46 = ~2,573 tok -> trimmed back to 9+46 = ~1,512 tok.",
+      "also": "Help text's --profile=core,audit is a trap: valid names are only core/standard/full, unknown tokens are dropped silently and --profile=audit alone falls back to FULL."
     }
   ],
   "noise_filter": {

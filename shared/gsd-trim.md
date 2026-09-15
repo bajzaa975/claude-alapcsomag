@@ -69,3 +69,54 @@ expects, so /gsd-surface enable <cluster> can later work its own way.
 Everything back: move the contents of `.gsd-surface-disabled/` back into place, and delete
 `.gsd-surface.json`. On the VM there is the `~/.local/bin/gsd-surface-restore` script for this.
 One cluster back: `/gsd-surface enable <cluster>`.
+
+---
+
+## 1.14.0 update (2026-09-15) — what changed, and what the old prompt gets wrong
+
+Updated with `npx @opengsd/gsd-core@latest -g --claude`. Result: **9 skills (~248 tok) +
+46 commands (~1,264 tok) ≈ 1,512 always-on**, against ~1,463 at 1.12.0. The +49 is one new
+skill (`gsd-quick-batch`, utility cluster, skill-only — it has no slash command, so it stays).
+
+### 1. The surface file now has a hard schema requirement
+`readSurface()` returns null unless **all four** keys are present — `baseProfile`,
+`disabledClusters`, `explicitAdds`, `explicitRemoves`. A file missing the two empty arrays is
+**silently ignored** and you get all 72 skills back. Ours already had all four, so the trim
+survived the update untouched. Check this BEFORE every update.
+
+### 2. Surface beats --profile
+`bin/install.js` reads the surface file and, when valid, replaces the resolved profile with it.
+So `.gsd-surface.json` wins over both `--profile=` and the `.gsd-profile` marker. Note the
+marker on this machine says `core` while the surface produces 46 — if the surface file is ever
+deleted, the next update silently drops to core's 15 skills, which does NOT include next, debug,
+ship, secure-phase, eval-review or ai-integration-phase.
+
+### 3. `--profile=core,audit` from the help text is a trap
+Valid profile names are exactly **core (15), standard (23), full (72)**. Unknown tokens are
+dropped silently: `--profile=core,audit` resolves to core, and `--profile=audit` alone falls
+back to **full**.
+
+### 4. The real cost surprise: skills and commands duplicate each other
+1.12 left 8 skill dirs + 46 commands. 1.14 installed **46 skill dirs**, 45 of which have the
+same name as a command already on disk — roughly +1,110 always-on tokens for no new capability.
+Fix, and the rule from now on: a GSD skill dir is only kept when it has **no** slash-command
+counterpart. Everything else moves to `.gsd-surface-disabled/skills/` (move, never delete).
+Kept here: the 8 from 1.12 plus `gsd-quick-batch`.
+
+### 5. It deletes your own permissions.deny
+1.14 removes the `Read(.env)`, `Read(.env.*)`, `Read(.secrets)` deny block that 1.12 wrote and
+replaces it with a `PreToolUse` hook (`gsd-secret-read-guard.js`). Those rules are also OURS —
+they are in `settings_merge` in the setup manifest. Restore them after every GSD update.
+
+### 6. Hook timeouts went 5s -> 120s
+Seven GSD hooks now carry a 120-second timeout (prompt-guard, workflow-guard,
+worktree-path-guard, agent-isolation-guard, write-guard, validate-commit, secret-read-guard).
+Worst case a blocked tool call stalls for two minutes instead of five seconds. Left as-is: the
+installer owns these entries and hand-edits are reverted by the next update. If it ever bites,
+that is the first thing to look at.
+
+### 7. "Local patches detected" may be inert
+The installer reported `hooks/gsd-node-runner.sh` as a local patch from 1.12 and offered
+`/gsd-update --reapply`. On this machine `settings.json` references it **zero** times (hooks
+resolve node directly), so the reapply was skipped deliberately. Check with
+`grep -c gsd-node-runner ~/.claude/settings.json` before reapplying anything.
