@@ -120,3 +120,37 @@ The installer reported `hooks/gsd-node-runner.sh` as a local patch from 1.12 and
 `/gsd-update --reapply`. On this machine `settings.json` references it **zero** times (hooks
 resolve node directly), so the reapply was skipped deliberately. Check with
 `grep -c gsd-node-runner ~/.claude/settings.json` before reapplying anything.
+
+### 8. The agent layer — the cost the first pass missed (2026-09-15)
+
+1.14 also stages **29 agent files** into `~/.claude/agents/`, worth **~1,648 always-on tokens**
+(agent descriptions sit in the Agent tool listing every session). At 1.12 there were **zero**
+agent files on this machine — which also means every GSD command that dispatches an agent
+(`/gsd-code-review` → `gsd-code-reviewer`, `/gsd-debug` → `gsd-debug-session-manager`, …) was
+spawning something that did not exist. The old low number was partly a broken install, not a
+clean one.
+
+Attribution check (skill bodies, dispatch sites only — the agent catalogs
+`references/agent-contracts.md` and `references/model-profiles.md` list all 29 and cause false
+positives): 26 of the 29 are dispatched by KEPT commands. Only the `ui` cluster's three are not.
+
+**Moved away (3, ~141 tok):** `gsd-ui-auditor`, `gsd-ui-checker`, `gsd-ui-researcher`.
+Note `gsd-ui-researcher` is MISSING from the `ui` capability in `capability-registry.cjs`
+although `workflows/ui-phase.md` dispatches it — skill-body evidence wins over the registry.
+
+**DECISION (owner, 2026-09-15): keep the other 26.** Cutting them saves at most ~910 more
+tokens and breaks code-review, debug, ship's mempalace step, secure-phase, eval-review,
+ai-integration-phase, validate-phase, audit-milestone and profile-user.
+
+**Final surface on all three machines:** 9 skills (~248) + 46 commands (~1,264) + 26 agents
+(~1,507) ≈ **3,019 always-on tokens**.
+
+### 9. Pitfall resolved upstream
+The "⚠ stale hooks — run /gsd-update" statusline loop is FIXED in 1.14.0:
+`hooks/gsd-node-runner.sh` now carries `# gsd-hook-version: 1.14.0`, the line the checker
+looks for. The old manual patch procedure is no longer needed.
+
+### 10. Commands do not depend on the skill dirs
+Verified before trimming: 42 of 46 command files pull their workflow from
+`gsd-core/workflows/*.md`, only one references a skill dir. Moving a duplicate skill dir aside
+therefore costs no functionality — the slash command carries the whole workflow.

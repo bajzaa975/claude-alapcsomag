@@ -25,6 +25,10 @@ Working method — please always follow it:
 5. **Do not ask unnecessary questions.** Make routine decisions yourself, picking the least risky,
    most easily reversible option; ask only when a wrong decision would result in substantially
    different work.
-6. **Forbidden zone without asking:** deploy/release/publish, force-push, rewriting git history,
+6. **Web pages.** For article / docs / blog pages use the `defuddle parse <url> --md` CLI
+   instead of the built-in web fetch — clean markdown, no nav or ads, typically ~85% fewer
+   characters. Install once: `npm i -g defuddle`. Fall back to normal fetching for JSON/APIs
+   and for pages it cannot parse.
+7. **Forbidden zone without asking:** deploy/release/publish, force-push, rewriting git history,
    permanent deletion, handling secrets, modifying CI config, DB migration on live data,
    MAJOR version bump of a dependency.
