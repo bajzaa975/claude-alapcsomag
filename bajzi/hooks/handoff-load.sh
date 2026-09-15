@@ -173,8 +173,19 @@ else
 fi
 
 msg_json=$(printf '%s' "$msg" | json_escape)
+# The model gets the handover WITHOUT the "## SUGGESTED OPENING PROMPT" section: that block is
+# for the human (already shown above in systemMessage) and it restates the NEXT STEP section,
+# so injecting it too would pay for the same text twice on every /clear.
+ctx_body=$(awk '
+    /^## SUGGESTED OPENING PROMPT/ { skip=1; next }
+    /^## JAVASOLT KEZDŐ PROMPT/  { skip=1; next }   # legacy Hungarian heading
+    skip && /^## /               { skip=0 }
+    !skip                        { print }
+' "$f" 2>/dev/null)
+[ -z "$ctx_body" ] && ctx_body=$(cat "$f")
+
 ctx_json=$(printf 'The contents of %s (the previous session handover for this task) — continue from this, do NOT re-read the whole repo:\n\n%s' \
-    "$f" "$(cat "$f")" | json_escape)
+    "$f" "$ctx_body" | json_escape)
 
 printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' \
     "$msg_json" "$ctx_json"
