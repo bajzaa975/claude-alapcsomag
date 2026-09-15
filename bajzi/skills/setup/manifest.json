@@ -1,6 +1,6 @@
 {
   "_comment": "The desired Claude Code state. ADDING A NEW ITEM = ONLY THIS FILE NEEDS EDITING.",
-  "updated": "2026-09-02",
+  "updated": "2026-09-15",
   "marketplaces": [
     {
       "source": "anthropics/claude-plugins-official",
@@ -13,6 +13,10 @@
     {
       "source": "bajzaa975/claude-alapcsomag",
       "why": "own plugin (bajzi)"
+    },
+    {
+      "source": "DietrichGebert/ponytail",
+      "why": "source of ponytail"
     }
   ],
   "plugins": [
@@ -36,6 +40,16 @@
     {
       "id": "frontend-design@claude-plugins-official",
       "why": "for UI work; skippable if not needed"
+    },
+    {
+      "id": "ponytail@ponytail",
+      "why": "lazy-senior-dev discipline: YAGNI, reuse before writing, stdlib before deps — the only reviewed add-on with zero overlap with the base package",
+      "env": {
+        "PONYTAIL_DEFAULT_MODE": "lite"
+      },
+      "cost": "~1300 tok per SessionStart AND per subagent spawn. The subagent share lands in the SUBAGENT's context, not the main thread, so it does not eat the 50% ceiling. If subagent spend gets tight, narrow it with PONYTAIL_SUBAGENT_MATCHER (regex over the subagent type).",
+      "gotcha": "If ~/.claude/settings.json has NO statusLine, on first interaction ponytail injects a one-off nudge asking Claude to offer to set one up — i.e. it wants to edit global settings. Set a statusLine first, or decline the offer once. Uninstall: scripts/uninstall.js (cleans ~/.claude/.ponytail-active, ~/.config/ponytail/, statusLine entry).",
+      "checked": "2026-09-15: MIT, v4.10.0, 138.9k stars, no network calls in the runtime hooks, no API key. Weak signal: ~176 open PRs, effectively a single maintainer."
     }
   ],
   "deliberately_skipped": [
@@ -45,7 +59,31 @@
     },
     {
       "id": "context-mode",
-      "why": "duplication: rtk + claude-mem + GSD context-monitor already do this; in exchange for ~100 MB of data and a node process in every session"
+      "why": "duplication: rtk + claude-mem + GSD context-monitor already do this, and its SQLite session capture is a second, competing runtime/HANDOFF.md. Cost: six always-on hook types (a node process per event), a SessionStart routing block (~1.5k tok) that argues with our own rtk/subagent rules, plus 11 MCP tool schemas. 2026-09-15 recheck: STALLED — last human commit and last release both 2026-06-29 (v1.0.169), the ~100 commits since are all `ci: update install stats` bot commits; 126 issues + 119 PRs open. License is Elastic-2.0 (source-available, not OSI). Also runs `npm install better-sqlite3` from a hook on first use."
+    },
+    {
+      "id": "headroom (headroomlabs-ai/headroom)",
+      "why": "REJECTED 2026-09-15. Real project (72k stars, Apache-2.0, active), but integration means pointing ANTHROPIC_BASE_URL at a local proxy that relays EVERY Anthropic request through third-party code, rewrites ~/.claude.json (registers Serena MCP at user scope) and ~/.claude/settings.json. Their own code admits the proxy breaks tool-search, the /model picker and 1M context — we run Opus 5 with 1M. Telemetry beacon is ON by default (BEACON_DEFAULT_ON=True -> Cloudflare Worker); opt out with HEADROOM_BEACON=off / DO_NOT_TRACK=1. Its token win overlaps rtk + token-savior at a safer layer."
+    },
+    {
+      "id": "graphify (Graphify-Labs/graphify)",
+      "why": "NOT in the package 2026-09-15; per-project trial only. pip CLI that builds a tree-sitter code graph (query/path/explain instead of grep) — genuinely useful, but it appends an always-on block to the GLOBAL ~/.claude/CLAUDE.md, writes ~/.claude/skills/, and registers PreToolUse hooks on Read|Glob|Bash|Grep that inject imperative 'MANDATORY: you MUST run graphify query first' prose competing with our own rules. Overlaps code-review-graph (blast radius) and symbol navigation. IF trialed: install with --project, never --strict, never global. Non-code inputs (PDF/images) go through an LLM, i.e. they leave the machine unless --code-only / --backend ollama."
+    },
+    {
+      "id": "obsidian-skills plugin (kepano/obsidian-skills)",
+      "why": "2026-09-15: the CLI is taken (see 'defuddle'), the PLUGIN is not. 48k stars, MIT, effectively first-party (kepano = Obsidian CEO), zero hooks, zero MCP — but 3 of 6 skills are Obsidian-only and obsidian-cli executes arbitrary JS in a running vault. Install the whole thing only if actually working in an Obsidian vault."
+    },
+    {
+      "id": "LMCache (LMCache/LMCache)",
+      "why": "2026-09-15: wrong layer. KV-cache manager for self-hosted vLLM inference (attention tensors across GPU/DRAM/SSD/Redis). Needs your own weights + GPU; there is no seam between Claude Code and api.anthropic.com. Does not reduce what we send or get billed for — the hosted-API equivalent is Anthropic prompt caching, which Claude Code already does."
+    },
+    {
+      "id": "Agent Reach (Panniantong/Agent-Reach)",
+      "why": "2026-09-15: content acquisition for 15 platforms; no overlap with our stack and no telemetry to the author, but: install = paste a URL and let the agent run pip/npm from a remote markdown file; it reads the Chrome cookie DB and stores social session cookies (full account access, ban risk); EVERY page read is proxied through r.jina.ai and every search through mcp.exa.ai; and its always-on skill description is an aggressive 'MUST USE for any research' trigger. Standalone tool at most, never in the package."
+    },
+    {
+      "id": "oh-my-claudecode (Yeachan-Heo/oh-my-claudecode)",
+      "why": "2026-09-15: a competing OPERATING SYSTEM, not a component. ~5.5-6.5k tokens always-on (40-skill index + a 6,001-byte block written into ~/.claude/CLAUDE.md, install style 'overwrite') + up to ~1k per prompt, 20 hook scripts on the tool path, fetch to registry.npmjs.org every session start, reads ~/.bash_history, patches settings.json statusLine. Ships its own context-guard-stop.mjs (a second context guard), its own .omc/ handoffs (a second HANDOFF) and a colliding /autopilot. With superpowers+claude-mem+GSD that makes 4 planners, 3 memory systems, 2 context guards. Try only per-project via /omc-setup local mode, never global."
     }
   ],
   "gsd": {
@@ -76,6 +114,15 @@
     },
     "note": "Only add the hook if `rtk gain` WORKS. Name collision: reachingforthejack/rtk is a DIFFERENT tool."
   },
+  "defuddle": {
+    "required": false,
+    "check": "defuddle --version",
+    "install": "npm i -g defuddle",
+    "why": "Article/doc pages as clean markdown instead of WebFetch. Measured 2026-09-15 on stephango.com/file-over-app: 15,839 -> 2,238 chars (-86%).",
+    "usage": "defuddle parse <url> --md",
+    "rule_lives_in": "global ~/.claude/CLAUDE.md, section 'Web pages (token saver)' — so it survives /clear",
+    "note": "From kepano/obsidian-skills (MIT) we take ONLY this binary. The 6-skill plugin is NOT installed: 3 of its skills are Obsidian-specific and obsidian-cli can run arbitrary JS in the vault. The defuddle skill there is just a 1.1 KB wrapper around this CLI."
+  },
   "settings_merge": {
     "effortLevel": "xhigh",
     "modelSettings": {
@@ -100,6 +147,9 @@
         "Read(.env.*)",
         "Read(.secrets)"
       ]
+    },
+    "env": {
+      "PONYTAIL_DEFAULT_MODE": "lite"
     }
   },
   "global_rules": "From the installed marketplace: ~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md -> append to ~/.claude/CLAUDE.md (without duplication).",
@@ -195,5 +245,14 @@
       "action": "Prefix the command with MSYS_NO_PATHCONV=1, e.g. `MSYS_NO_PATHCONV=1 git show origin/main:path/to/file`.",
       "note": "2026-09-02: reported by the laptop session. Only affects Git Bash on Windows; the Linux boxes are unaffected."
     }
-  ]
+  ],
+  "noise_filter": {
+    "what": "PreToolUse(Bash) hook in this plugin: hooks/noise-filter.sh + hooks/noise-run.sh. Keeps loud, low-information command output out of the context window.",
+    "mechanism": "PostToolUse CANNOT shrink a tool result — it only ADDS text (additionalContext). Verified against the Claude Code 2.1.272 binary: 'updatedInput' 103 hits, 'updatedOutput' 0. So the rewrite must happen in PreToolUse via hookSpecificOutput.updatedInput.",
+    "exit_code": "The runner never pipes the command into tail — a pipeline returns tail's status and a FAILED BUILD WOULD LOOK SUCCESSFUL. It captures to a log, then prints head + error lines + final summary, and exits with the original rc.",
+    "scope": "Allowlist only: package installs and builds (npm/yarn/pnpm/bun, pip/uv, cargo/go, docker, apt, make/gradle/mvn, terraform init|plan). Anything under BAJZI_NOISE_KEEP (40) lines passes through whole. Output on failure is kept MORE, never less.",
+    "rtk_boundary": "Complementary, not competing: pytest/ruff/git/ls/find/grep/`err npm run build` stay rtk's; commands already starting with `rtk` are skipped, so the two PreToolUse hooks never rewrite the same call.",
+    "measured": "2026-09-15, npm install --loglevel verbose: 28,295 -> 2,967 chars (-89.5%), rc preserved (0 on success, 1 on a failing pip install). NOTE: Claude Code runs Bash without a TTY, so many tools already suppress their progress bars — the real win is on verbose installs, builds and test runners, not on a plain `npm install`.",
+    "off": "BAJZI_NOISE_OFF=1"
+  }
 }
