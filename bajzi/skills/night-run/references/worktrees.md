@@ -97,11 +97,24 @@ Then append the `worktrees.tsv` row.
 
 ## 4. Cleanup — PHASE F only
 
-    bajzi/skills/night-run/worktree-cleanup.sh --config <config.env> [--apply] [--prune]
+    bajzi/skills/night-run/worktree-cleanup.sh --config <config.env> [--apply] [--no-fetch] [--prune]
+
+`--config=<path>` works as well, and `NIGHT_CONFIG` stands in for the flag.
+`--help` prints exactly this usage block and the exit-status table.
 
 Cleanup runs in the morning phase, never mid-run. **It is a dry run by
 default**: without `--apply` it decides and prints and removes nothing. A
 cleanup tool that deletes by default is a bug, not a convenience.
+
+**The flags cannot be set from `config.env`.** The file is parsed for facts
+(`PROJECT`, `NIGHT_DIR`, `REPO`, `GH_BIN`) and `APPLY` / `FETCH` / `PRUNE` are
+re-asserted from the command line immediately after it is sourced. Sourcing used
+to happen *after* the argument loop, so an `APPLY=1` line in the config turned a
+bare, flagless invocation into a run that removed trees, and a `PRUNE=1` line
+made it run a repo-wide prune — the one way `--prune` could fire without anyone
+typing it, in a repository the night runner shares with other projects' live
+worktrees. The shipped template defines none of those names, but the gating has
+to be structural rather than a convention about what the template contains.
 
 For each recorded tree the script evaluates the rules in order and stops at the
 first KEEP. Every KEEP line in the summary names the rule that produced it.
@@ -116,7 +129,50 @@ first KEEP. Every KEEP line in the summary names the rule that produced it.
 | 2 | `git rev-parse --verify origin/<branch>` — **non-zero exit means KEEP** | see below; the most important rule in the file |
 | 3 | `git status --porcelain --ignored=matching` **exits 0** and is empty, **and** `git cherry -v origin/<branch> HEAD` **exits 0** and lists no `+` commits | dirty or unpushed work is unrecoverable once the directory is gone |
 | 4 | a MERGED PR exists for the branch: `gh` exits 0 **and** its first line is nothing but digits | unmerged work stays on disk; if `gh` cannot answer, that is a KEEP too |
-| 5 | `git worktree remove <path>` — **without `--force`** | `--force` would delete a tree with modified tracked files. This is **not** a safety net, see below |
+| 5 | rule 3's status check is **re-run**, then `git worktree remove <path>` — **without `--force`** | closes the window between deciding and deleting, see below. `--force` would delete a tree with modified tracked files; this is **not** a safety net, see below |
+
+Rules 3 and 4 are *reported* in that order but *executed* the other way round —
+see "Nothing slow between the decision and the delete" below. The reported reason
+(and with it the exit code) follows the table: a dirty or unpushed tree is
+reported as rule 3 and sets the attention exit, never as "no merged PR".
+
+### Nothing slow between the decision and the delete
+
+The dirty check and `git worktree remove` are two separate commands, and rule 4 —
+a `gh pr list` **network round trip**, 0.3-3s per tree — used to sit between
+them. Everything written into the tree during that window was deleted. Proven: a
+`gh` that dropped a gitignored `.env` into the tree and slept 2s produced
+`REMOVE removed: clean, pushed, PR #4242 merged`, and that file, which existed
+nowhere else, was destroyed. Rule 1 does not cover this — a dev server, a sync
+agent or a `make` started from the parent directory has its cwd elsewhere and
+never names the path in its argv — and rule 5 unforced does not refuse
+gitignored content.
+
+Two changes, both needed:
+
+1. **The `gh` call runs first** of the last three checks, so the slow call is no
+   longer the last thing before the removal.
+2. **Rule 3's status check is re-run immediately before `git worktree remove`**,
+   same command, same `2>&1`, exit code checked. Any output at all, or any
+   non-zero exit, is a KEEP. The window shrinks from seconds to microseconds,
+   and a tree that stops being clean while the run is deciding about it is
+   reported as `rule 3 (re-check)`.
+
+The `2>&1` on **both** status calls is load-bearing, not cosmetic: an unreadable
+subdirectory makes `git status` exit **0** with an **empty stdout** and put its
+only complaint on stderr (`warning: could not open directory 'sub/'`). Folding
+stderr into stdout is what turns that into a KEEP. Never tidy it away.
+
+### The record is read on fd 3
+
+The per-tree loop reads `worktrees.tsv` on **file descriptor 3**, not on stdin,
+and the `gh` call additionally gets `</dev/null`. With `done < "$TSV"` every
+command in the loop body inherits the open record as *its* stdin, and any child
+that reads stdin swallows the rest of the file: a `gh` wrapper that did so left
+three of four trees never evaluated and never mentioned anywhere in the report.
+The direction is safe — nothing gets removed — but it is invisible, which is
+worse: a dirty or parked tree simply drops out of the output with no line saying
+it was skipped.
 
 ### Rule 2 must come first among the git checks
 
@@ -134,11 +190,32 @@ turns "already pushed" and "already merged" into guesses — and it is the one
 failure that leaves no trace in the output. The fetch is therefore decided and
 remembered **per repository**: if the repository cannot be located, or
 `git fetch origin` fails in it, every tree of that repository is KEPT and the
-failure is printed. `--no-fetch` keeps every tree for the same reason; it is for
-inspecting decisions offline, not for cleaning up. (The earlier code stored the
-empty key `||` when the first repository lookup failed, and because every later
-lookup matched that same `||`, the fetch was silently skipped for the whole
-rest of the run.)
+failure is printed. (The earlier code stored the empty key `||` when the first
+repository lookup failed, and because every later lookup matched that same `||`,
+the fetch was silently skipped for the whole rest of the run.)
+
+#### `--no-fetch` reports the real verdict, and removes nothing
+
+`--no-fetch` used to KEEP every tree. That was fail-closed and useless: it
+printed N identical `rule 2a` lines, showed nothing that `cat worktrees.tsv`
+would not, and was indistinguishable from a completely broken run. It now:
+
+- evaluates **every rule normally**, against the refs already on disk;
+- prints the **real verdict**, with a removal labelled
+  `WOULD-REMOVE  unverified — --no-fetch, origin/* not refreshed: …`;
+- **hard-forces the run to a dry run**, so nothing can be removed on refs that
+  were never refreshed — both at argument parsing and again in the loop;
+- leaves those branches out of the merged-branch suggestions, because a
+  branch-delete suggestion off stale refs is exactly the advice to withhold.
+
+`--no-fetch --apply` is rejected at argument parsing with **exit 2**. It used to
+exit 1, which reads as "trees need your attention" when it actually means "you
+asked for an impossible combination".
+
+There is deliberately **no** trust-the-caller path and no `--assume-fetched`.
+`git fetch --quiet origin` on a current repository costs about 200ms and is
+idempotent, which is cheaper than reasoning about whether the caller's fetch
+covered this repository, this remote and this moment.
 
 ### Rule 3 uses `--ignored=matching` on purpose
 
@@ -163,19 +240,50 @@ read as "nothing wrong" is how this tool destroys work:
 - `gh pr list` prints an error body, not a PR number, when the API fails. Its
   first line must be **entirely digits** to count as a merged PR; squeezing the
   digits out of it (`tr -dc '0-9'`) turns `HTTP 502` into `PR #502 merged`.
+- **Counting with `grep -c` is the same bug wearing a hat.** `ahead=$(… | grep -c
+  '^+ ')` has no exit code to check by construction: a grep that fails prints
+  nothing, `$ahead` becomes the empty string, `[ "$ahead" -gt 0 ]` dies with
+  `integer expression expected`, and execution falls through to REMOVE. Proven:
+  a tree with one unpushed commit went from
+  `KEEP rule 3: 1 commit(s) not on origin/…` to `REMOVE … tree deleted` under a
+  `grep` that exits 2. Both counts in the script are now plain bash loops.
+- **The PARKED/BLOCKED check uses no external command at all.** It asked `grep`
+  three times and checked its exit code none of those times, so a failing grep
+  read as "not parked": a story whose log said
+  `RESULT S3 parked waiting on owner ruling` became `REMOVE` with **exit 0** —
+  the signal PHASE F branches on. No file content was lost in that case (the
+  commit survives in the branch ref), which is why it was once argued to be
+  acceptable; it is not, because a parked story's tree vanishes under an
+  all-clear. It also interpolated the queue id **unescaped** into two EREs, so an
+  id holding a regex metacharacter made those greps exit 2 with no shim at all.
+  Every comparison is now a literal bash `case`, and a log, report or `state.txt`
+  that exists but cannot be read answers **PARKED** rather than "not parked".
 
 So: a non-zero exit from any check means **the check could not be completed**,
 which means KEEP, with the reason naming the failed command and its exit code.
 
 ### `git worktree remove` is NOT a backstop
 
-The unforced form refuses a tree with **modified tracked files** — and nothing
-else. It deletes a tree whose entire content is untracked or gitignored (that
-local `.env`) and exits 0; verified during review. And the same
-`status.showUntrackedFiles=no` that breaks rule 3 also silences `git worktree
-remove`'s own internal check, so both fail together. `--force` stays forbidden,
-but rule 3 — our own status call with its exit code checked — is the **only**
-real guard on this path. Never weaken it on the theory that git will catch it.
+Measured on **git 2.43.0**, in a lab with an isolated `GIT_CONFIG_GLOBAL` and
+`GIT_CONFIG_SYSTEM=/dev/null`:
+
+| extra content in the tree | `git worktree remove` (no `--force`) |
+|---|---|
+| modified **tracked** files | refused — `fatal: … contains modified or untracked files, use --force to delete it`, **rc 128**, tree survives |
+| plain **untracked** files | refused the same way, **rc 128**, tree survives |
+| **gitignored** content only (the local `.env`) | **deleted, rc 0** — the file is gone |
+| anything, with `status.showUntrackedFiles=no` | its internal check is silenced, so even untracked files are **deleted, rc 0** |
+
+So it catches two of the four cases, and the two it misses are exactly the
+unrecoverable ones. An earlier version of this page claimed it deletes "a tree
+whose entire content is untracked or gitignored" — that is **false for plain
+untracked** and was corrected here after being measured. Overstating a safety
+property in either direction is how the original bug survived review once
+already: overstate what `git worktree remove` protects and rule 3 looks
+optional; overstate what it deletes and a reviewer stops checking the case that
+actually happens. `--force` stays forbidden, and rule 3 — our own status call
+with its exit code checked, run **twice**, once before rule 4 and once
+immediately before the removal — is the only guard that covers all four rows.
 
 ### Rule 1 does not use `pgrep -f`
 
@@ -215,7 +323,7 @@ answer is "in use" — the check that cannot be performed fails towards KEEP.
 |------|---------|
 | 0 | nothing was kept that the owner has to look at |
 | 1 | at least one tree was kept dirty, unpushed, parked or blocked — PHASE F lists these in the report under "what the owner should look at" |
-| 2 | usage or config error |
+| 2 | usage or config error, including `--no-fetch --apply` (an impossible combination, not a run that kept everything) |
 
 So a caller can branch on "needs attention" without parsing the table.
 

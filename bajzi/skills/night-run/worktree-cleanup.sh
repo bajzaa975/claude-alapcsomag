@@ -5,13 +5,19 @@
 #
 # Usage:
 #   worktree-cleanup.sh --config <path/to/config.env> [--apply] [--no-fetch] [--prune]
-#   (--config may be replaced by the NIGHT_CONFIG environment variable.)
+#   (--config <path> or --config=<path>; NIGHT_CONFIG is used when neither is
+#   given. `--help` prints the same usage block and the exit-status table.)
 #
 #   (no flag)   DRY RUN — decides and prints, removes NOTHING. The default.
 #   --apply     actually run `git worktree remove` for the trees decided REMOVE.
 #   --no-fetch  skip the `git fetch` that refreshes origin/* before judging.
-#               Without a fetch nothing can be proven pushed or merged, so every
-#               tree is KEPT: the flag is for offline inspection, not cleanup.
+#               Every rule is still evaluated normally, against the refs already
+#               on disk, and the REAL verdict is printed — but a removal verdict
+#               is labelled WOULD-REMOVE (unverified) and the run is FORCED to a
+#               dry run, so nothing is ever removed under --no-fetch. The flag
+#               used to KEEP every tree, which printed N identical lines and was
+#               indistinguishable from a totally broken run. `--no-fetch
+#               --apply` is a contradiction and is rejected with exit 2.
 #   --prune     ALSO run `git worktree prune` in the repos we removed from.
 #               OFF by default and rarely wanted: prune is REPO-WIDE, not
 #               per-project, and de-registers every worktree of that repo whose
@@ -35,7 +41,14 @@
 #   3. dirty (`git status --porcelain --ignored=matching`) or unpushed
 #      (`git cherry -v origin/<branch> HEAD` lists `+` commits)         -> KEEP
 #   4. no MERGED PR for the branch                                      -> KEEP
-#   5. everything above passed -> `git worktree remove <path>`, never --force.
+#   5. everything above passed -> re-run rule 3's status check, then
+#      `git worktree remove <path>`, never --force.
+#
+# Rules 3 and 4 are REPORTED in that order but EXECUTED the other way round:
+# rule 4 is a network round trip, and while it was the last thing before the
+# removal, anything written into the tree during it was destroyed. The gh call
+# now happens first, rule 3 is re-run immediately before the removal, and the
+# reported reason (and with it the exit code) keeps the order above.
 #
 # EVERY git/gh call above is judged on its EXIT CODE first and its output
 # second. A failed command prints nothing, and "no output" read as "nothing
@@ -45,11 +58,20 @@
 # `git cherry -v origin/<missing-branch>` does the same. So: non-zero exit from
 # any safety check means the check COULD NOT BE COMPLETED, which means KEEP.
 #
-# `git worktree remove` without --force is NOT a backstop. It refuses a tree
-# with modified tracked files, but it happily deletes a tree whose only content
-# is untracked or gitignored (a local .env), and the same
-# status.showUntrackedFiles=no silences its internal check as well. Rule 3 —
-# our own status call, with its exit code checked — is the only real guard.
+# `git worktree remove` without --force is NOT a backstop, but the precise shape
+# of what it does and does not refuse matters — an overstated safety note is how
+# the original bug survived review once already. Measured on git 2.43.0:
+#   - modified TRACKED files      -> refused, "contains modified or untracked
+#                                    files, use --force", exit 128, tree lives;
+#   - plain UNTRACKED files       -> refused the same way, exit 128, tree lives;
+#   - GITIGNORED content only
+#     (the local .env)            -> DELETED, exit 0, file gone;
+#   - anything, with
+#     status.showUntrackedFiles=no -> its internal check is silenced, so even
+#                                    untracked files are DELETED, exit 0.
+# So it covers two of the four cases and the two it misses are exactly the
+# unrecoverable ones. Rule 3 — our own status call, with its exit code checked —
+# is the only guard that covers all four.
 #
 # Exit status:
 #   0  nothing kept that the owner has to look at
@@ -62,22 +84,67 @@
 set -u
 
 # ---------------------------------------------------------------- arguments --
+# The flags are parsed into CLI_* and RE-ASSERTED after config.env is sourced.
+# config.env is a facts file (PROJECT / NIGHT_DIR / REPO / GH_BIN) and must
+# never be able to switch on a destructive mode. It used to be able to: the
+# sourcing happened AFTER this loop, so an `APPLY=1` line in the config made a
+# bare, flagless invocation remove trees and a `PRUNE=1` line made it run a
+# REPO-WIDE prune — the one way --prune could fire without the flag, in a repo
+# the night runner shares with other projects' live worktrees. "A cleanup tool
+# that deletes by default is a bug", so the gating is structural, not a
+# convention about what the shipped template happens to define.
 CONFIG=${NIGHT_CONFIG:-}
-APPLY=0
-FETCH=1
-PRUNE=0
-usage(){ sed -n '2,21p' "$0" >&2; }
+CLI_APPLY=0
+CLI_FETCH=1
+CLI_PRUNE=0
+usage(){
+  cat >&2 <<'USAGE'
+Usage:
+  worktree-cleanup.sh --config <path/to/config.env> [--apply] [--no-fetch] [--prune]
+
+  --config <path>   the run's config.env; --config=<path> works too. Without it
+                    the NIGHT_CONFIG environment variable is used.
+  (no flag)         DRY RUN — decides and prints, removes NOTHING. The default.
+  --apply           actually run `git worktree remove` for the REMOVE rows.
+  --no-fetch        do not refresh origin/*. Every rule is still evaluated
+                    against the refs already on disk and the real verdict is
+                    printed, but a removal verdict is labelled
+                    WOULD-REMOVE (unverified) and the run is forced to a dry
+                    run. Rejected together with --apply.
+  --prune           ALSO run `git worktree prune` in the repos we removed from.
+                    OFF by default: prune is REPO-WIDE and de-registers every
+                    worktree of that repo whose directory it cannot see,
+                    including another project's live tree. A successful
+                    `git worktree remove` already cleans up after itself.
+  -h, --help        print this and exit 0.
+
+Exit status:
+  0  nothing kept that the owner has to look at
+  1  at least one tree was kept dirty, unpushed, parked or blocked
+  2  usage / config error
+USAGE
+}
 while [ $# -gt 0 ]; do
   case "$1" in
     --config)   [ $# -ge 2 ] || { echo "worktree-cleanup.sh: --config needs a path" >&2; exit 2; }; CONFIG=$2; shift;;
-    --apply)    APPLY=1;;
-    --no-fetch) FETCH=0;;
-    --prune)    PRUNE=1;;
+    --config=*) CONFIG=${1#--config=}; [ -n "$CONFIG" ] || { echo "worktree-cleanup.sh: --config= needs a path" >&2; exit 2; };;
+    --apply)    CLI_APPLY=1;;
+    --no-fetch) CLI_FETCH=0;;
+    --prune)    CLI_PRUNE=1;;
     -h|--help)  usage; exit 0;;
     *) echo "worktree-cleanup.sh: unknown argument $1" >&2; usage; exit 2;;
   esac
   shift
 done
+
+# Nothing can be removed without a fetch, so asking for both is an impossible
+# combination, not a run that "kept everything for you". It must exit 2 (usage
+# error) and not 1 (trees need your attention) — PHASE F branches on exactly
+# that difference.
+if [ $CLI_FETCH -eq 0 ] && [ $CLI_APPLY -eq 1 ]; then
+  echo "worktree-cleanup.sh: --no-fetch and --apply are mutually exclusive. Without a fetch nothing can be proven pushed or merged, so nothing may be removed; drop one of the two flags." >&2
+  exit 2
+fi
 
 if [ -z "$CONFIG" ]; then
   echo "worktree-cleanup.sh: no config — pass --config <path/to/config.env> or set NIGHT_CONFIG." >&2
@@ -86,6 +153,16 @@ fi
 [ -f "$CONFIG" ] || { echo "worktree-cleanup.sh: config file not found: $CONFIG" >&2; exit 2; }
 # shellcheck source=/dev/null
 . "$CONFIG"
+
+# The CLI wins, unconditionally, whatever the file just set.
+APPLY=$CLI_APPLY
+FETCH=$CLI_FETCH
+PRUNE=$CLI_PRUNE
+# ACT is the EFFECTIVE apply. --no-fetch hard-forces a dry run here, so no code
+# path below can remove a tree judged against refs that were never refreshed —
+# belt and braces behind the argument-level rejection above.
+ACT=$APPLY
+if [ $FETCH -eq 0 ]; then ACT=0; fi
 
 missing=""
 for v in PROJECT NIGHT_DIR REPO; do
@@ -156,24 +233,68 @@ tree_in_use(){ # <real path> <branch>
 # Rule 1b: the night itself said this story is PARKED or BLOCKED. state.txt
 # carries only "<id> <rc> <ISO>", so the verdict is read from the story's RESULT
 # line and from the night report.
+# It is written WITHOUT grep, on purpose, and this is not a style choice.
+# The previous version asked grep three times and checked its exit code none of
+# those times, so a grep that FAILED (rc 2) was read as "did not match", i.e.
+# "not parked" — the file's recurring bug class, empty output as an all-clear.
+# Proven: with a grep that exits 2, a story whose log said
+# "RESULT S3 parked waiting on owner ruling" went from KEEP to REMOVE and the
+# tool exited 0, which is the signal PHASE F branches on. The counter-argument
+# that reaching REMOVE still needs clean+pushed+merged is true and not enough: a
+# parked story's tree then silently vanishes under an all-clear.
+# It also interpolated $id UNESCAPED into two EREs, so a queue id holding a
+# regex metacharacter made those greps exit 2 with no shim needed at all. Every
+# comparison below is a literal bash `case`, and a file that exists but cannot
+# be read answers PARKED (the check that cannot be performed fails to KEEP).
 parked_or_blocked(){ # <id>
-  local id=$1 line rep
+  local id=$1 line rep l up idu sid src _rest
+  idu=${id^^}
   if [ -f "$LOGS/$id.log" ]; then
-    line=$(grep -h "^RESULT $id " "$LOGS/$id.log" 2>/dev/null | tail -1)
+    if [ ! -r "$LOGS/$id.log" ]; then
+      printf 'the story log %s.log exists but cannot be read, so PARKED/BLOCKED cannot be ruled out' "$id"
+      return 0
+    fi
+    line=""
+    while IFS= read -r l || [ -n "$l" ]; do
+      case "$l" in "RESULT $id "*) line=$l;; esac
+    done < "$LOGS/$id.log"
     case "$line" in
       *" parked "*|*" blocked "*|*review=parked*) printf 'the run reported it %s' "${line#RESULT }"; return 0;;
     esac
   fi
   for rep in "$NIGHT_DIR"/REPORT-*.md; do
     [ -f "$rep" ] || continue
-    if grep -Eiq "(^|[^A-Za-z0-9])$id([^A-Za-z0-9].*)?(PARKED|BLOCKED)" "$rep"; then
-      printf 'the night report lists it as PARKED/BLOCKED (%s)' "$(basename "$rep")"
+    if [ ! -r "$rep" ]; then
+      printf 'the night report %s cannot be read, so PARKED/BLOCKED cannot be ruled out' "$(basename "$rep")"
       return 0
     fi
+    while IFS= read -r l || [ -n "$l" ]; do
+      up=${l^^}
+      case "$up" in *PARKED*|*BLOCKED*) :;; *) continue;; esac
+      # The id must appear on that same line as a whole word. Literal `case`
+      # patterns: a metacharacter in the id is just a character here. The old
+      # ERE also demanded the id come BEFORE the word; dropping that ordering
+      # can only produce MORE KEEPs, which is the safe direction.
+      case "$up" in
+        "$idu"|"$idu"[!A-Z0-9]*|*[!A-Z0-9]"$idu"|*[!A-Z0-9]"$idu"[!A-Z0-9]*)
+          printf 'the night report lists it as PARKED/BLOCKED (%s)' "${rep##*/}"
+          return 0;;
+      esac
+    done < "$rep"
   done
-  if [ -f "$STATE" ] && grep -Eq "^$id +[1-9][0-9]* " "$STATE"; then
-    printf 'state.txt records a non-zero exit for the story'
-    return 0
+  if [ -f "$STATE" ]; then
+    if [ ! -r "$STATE" ]; then
+      printf 'state.txt exists but cannot be read, so a non-zero story exit cannot be ruled out'
+      return 0
+    fi
+    while read -r sid src _rest || [ -n "${sid:-}" ]; do
+      [ "$sid" = "$id" ] || continue
+      case "$src" in ''|*[!0-9]*) continue;; esac
+      if [ "$src" -ne 0 ]; then
+        printf 'state.txt records a non-zero exit (%s) for the story' "$src"
+        return 0
+      fi
+    done < "$STATE"
   fi
   return 1
 }
@@ -183,8 +304,13 @@ parked_or_blocked(){ # <id>
 pr_merged(){ # <branch> ; echoes the PR number on success
   local branch=$1 out rc first
   command -v "$GH_BIN" >/dev/null 2>&1 || return 1
+  # </dev/null: gh is a child of the per-tree loop and inherits its stdin. A gh
+  # that reads stdin (a wrapper, a pager, an auth prompt) DRAINS the record file
+  # the loop is reading, and the remaining trees are then never evaluated and
+  # never mentioned — proven with a two-line stub. The loop itself now reads the
+  # record on fd 3, so this is the second lock on the same door.
   out=$("$GH_BIN" pr list -R "$REPO" --head "$branch" --state merged \
-        --json number,state --jq '.[]|select(.state=="MERGED")|.number' 2>/dev/null)
+        --json number,state --jq '.[]|select(.state=="MERGED")|.number' 2>/dev/null </dev/null)
   rc=$?
   # gh failed (no auth, no network, API error, rate limit) -> merge status is
   # UNKNOWN, and unknown is KEEP.
@@ -221,15 +347,23 @@ SEEN_PATHS=""
 PRUNE_DIRS=""
 ROWS=""
 
-printf '%s\n' "== night worktree cleanup — project $PROJECT, $( [ $APPLY -eq 1 ] && echo 'APPLY (trees will be removed)' || echo 'DRY RUN (nothing will be removed)' )"
+printf '%s\n' "== night worktree cleanup — project $PROJECT, $( [ $ACT -eq 1 ] && echo 'APPLY (trees will be removed)' || echo 'DRY RUN (nothing will be removed)' )"
 printf '%s\n' "   record: $TSV"
+if [ $FETCH -eq 0 ]; then
+  printf '%s\n' "   --no-fetch: origin/* was NOT refreshed. Every rule below is still evaluated, against the refs already on disk, but a removal verdict is reported as WOULD-REMOVE (unverified) and NOTHING is removed."
+fi
 
 record(){ # <id> <decision> <reason>
   ROWS="$ROWS$1	$2	$3
 "
 }
 
-while IFS=$'\t' read -r id path branch created || [ -n "${id:-}" ]; do
+# The record is read on FD 3, never on stdin. With `done < "$TSV"` every command
+# in this loop body inherits the open record as its stdin, and any child that
+# reads stdin swallows the rest of it: a `gh` wrapper that did so left three of
+# four trees unevaluated and unmentioned — a dirty or parked tree silently
+# dropping out of the report, with no line saying it was skipped.
+while IFS=$'\t' read -r id path branch created <&3 || [ -n "${id:-}" ]; do
   id=${id%$'\r'}; branch=${branch%$'\r'}; path=${path%$'\r'}
   [ -z "${id:-}" ] && continue
   case "$id" in \#*) continue;; esac
@@ -315,11 +449,17 @@ while IFS=$'\t' read -r id path branch created || [ -n "${id:-}" ]; do
         ATTENTION=1
         continue;;
     esac
-  else
-    record "$id" "KEEP" "rule 2a: --no-fetch was passed, so origin/* was never refreshed — 'pushed' and 'merged' cannot be proven against possibly stale refs"
-    ATTENTION=1
-    continue
   fi
+  # No `else` branch: under --no-fetch the rules below run NORMALLY against the
+  # refs already on disk, and only the ACTION is withheld (ACT is forced to 0
+  # above, and a removal verdict is recorded as WOULD-REMOVE, unverified). The
+  # old code KEPT every tree here, which was fail-closed but useless: it printed
+  # N identical rule-2a lines, showed nothing `cat worktrees.tsv` would not, and
+  # was indistinguishable from a completely broken run. Note what did NOT
+  # change: there is no trust-the-caller path. `git fetch --quiet origin` on a
+  # current repo costs ~200ms and is idempotent, which is cheaper than reasoning
+  # about whether some earlier fetch covered this repo, this remote and this
+  # moment; --assume-fetched is deliberately not offered.
 
   # The tree must still be on the branch we recorded; if someone checked out
   # something else in it, every check below would be answering about the wrong
@@ -347,6 +487,28 @@ while IFS=$'\t' read -r id path branch created || [ -n "${id:-}" ]; do
     continue
   fi
 
+  # RULE 4 IS EVALUATED FIRST OF THE LAST THREE, DELIBERATELY. It is a NETWORK
+  # round trip (`gh pr list`, 0.3-3s per tree) and it used to sit BETWEEN the
+  # dirty check and `git worktree remove`. Everything written into the tree
+  # during that window was deleted: proven with a `gh` that dropped a gitignored
+  # .env into the tree and slept 2s — the run reported
+  # "REMOVE removed: clean, pushed, PR #4242 merged" and the only copy of that
+  # file was destroyed. Rule 5 unforced does not refuse gitignored content, and
+  # rule 1 cannot see a writer whose cwd is elsewhere and whose argv never names
+  # the path (a dev server, a sync agent, a `make` started from the parent).
+  # The slow call is now the FIRST of the three and the dirty check is re-run
+  # immediately before the removal, which leaves microseconds, not seconds.
+  #
+  # Its verdict is only RECORDED after rules 3a/3b, so the documented precedence
+  # is unchanged: a dirty or unpushed tree is still reported as rule 3 and still
+  # sets ATTENTION, rather than being reported as "no merged PR" with exit 0.
+  if pr=$(pr_merged "$branch"); then
+    pr_ok=1
+  else
+    pr_ok=0
+    pr=""
+  fi
+
   # Rule 3a — dirty? --ignored=matching is deliberate: plain --porcelain hides
   # gitignored files, and a local-only .env or credentials file is exactly the
   # unrecoverable case.
@@ -369,7 +531,10 @@ while IFS=$'\t' read -r id path branch created || [ -n "${id:-}" ]; do
     continue
   fi
   if [ -n "$dirty" ]; then
-    n=$(printf '%s\n' "$dirty" | grep -c .)
+    n=0
+    while IFS= read -r dline || [ -n "$dline" ]; do
+      [ -n "$dline" ] && n=$((n + 1))
+    done <<<"$dirty"
     record "$id" "KEEP" "rule 3: working tree not clean — $n path(s) per git status --porcelain --ignored=matching (includes ignored files such as .env)"
     ATTENTION=1
     continue
@@ -386,15 +551,25 @@ while IFS=$'\t' read -r id path branch created || [ -n "${id:-}" ]; do
     ATTENTION=1
     continue
   fi
-  ahead=$(printf '%s\n' "$cherry" | grep -c '^+ ')
+  # Counted in bash, not by `grep -c '^+ '`. That was the last survivor of this
+  # file's recurring bug class: its exit code was unchecked, and a grep that
+  # fails prints nothing, so $ahead became the EMPTY STRING, the test below died
+  # with "integer expression expected" and execution fell through to REMOVE.
+  # Proven: a tree with one unpushed commit went from
+  # "KEEP rule 3: 1 commit(s) not on origin/…" to "REMOVE … TREE DELETED" under
+  # a grep shim. A bash loop has no exit code to ignore and nothing to shim.
+  ahead=0
+  while IFS= read -r cline || [ -n "$cline" ]; do
+    case "$cline" in '+ '*) ahead=$((ahead + 1));; esac
+  done <<<"$cherry"
   if [ "$ahead" -gt 0 ]; then
     record "$id" "KEEP" "rule 3: $ahead commit(s) not on origin/$branch (git cherry '+')"
     ATTENTION=1
     continue
   fi
 
-  # Rule 4 — merged PR?
-  if ! pr=$(pr_merged "$branch"); then
+  # Rule 4's verdict, now that rules 3a and 3b have had first claim on the row.
+  if [ $pr_ok -ne 1 ]; then
     record "$id" "KEEP" "rule 4: no MERGED PR found for $branch in $REPO (or gh could not answer) — the work is still open"
     continue
   fi
@@ -405,10 +580,18 @@ while IFS=$'\t' read -r id path branch created || [ -n "${id:-}" ]; do
   # untracked or gitignored (a local .env) is deleted by it with exit 0, and
   # status.showUntrackedFiles=no silences its internal check completely. Rule 3
   # above — our own status call, exit code checked — is the only real guard.
-  if [ $APPLY -eq 0 ]; then
-    record "$id" "REMOVE" "clean, pushed, PR #$pr merged — would run: git worktree remove $path (dry run, nothing done)"
-    MERGED_BRANCHES="$MERGED_BRANCHES  $branch (PR #$pr)
+  if [ $ACT -eq 0 ]; then
+    if [ $FETCH -eq 0 ]; then
+      # The real verdict, labelled for what it is worth: every rule passed, but
+      # against origin/* refs that were never refreshed. Not added to the
+      # merged-branch suggestions — a branch-delete suggestion off stale refs is
+      # exactly the advice this tool must not give.
+      record "$id" "WOULD-REMOVE" "unverified — --no-fetch, origin/* not refreshed: clean, pushed and PR #$pr merged according to the refs already on disk; would run: git worktree remove $path"
+    else
+      record "$id" "REMOVE" "clean, pushed, PR #$pr merged — would run: git worktree remove $path (dry run, nothing done)"
+      MERGED_BRANCHES="$MERGED_BRANCHES  $branch (PR #$pr)
 "
+    fi
     continue
   fi
   # $main was located and validated by rule 2a above; re-check it is still a
@@ -418,7 +601,31 @@ while IFS=$'\t' read -r id path branch created || [ -n "${id:-}" ]; do
     ATTENTION=1
     continue
   fi
-  if out=$(git -C "$main" worktree remove "$path" 2>&1); then
+  # ---------------------------------------------------------------------------
+  # RULE 3, RE-RUN. The dirty check above and this destructive call are two
+  # separate commands, and a gh round trip used to sit between them: everything
+  # a third party wrote into the tree in that window was deleted. Same command,
+  # same rc check, same 2>&1 fold, executed with nothing but this `if` between
+  # it and `git worktree remove`.
+  #
+  # The 2>&1 is LOAD-BEARING and must never be "tidied" away: an unreadable
+  # subdirectory makes `git status` exit 0 with EMPTY stdout and emit only a
+  # warning on stderr, and folding stderr into stdout is what turns that into a
+  # KEEP. Any output at all, or any non-zero rc, means KEEP.
+  # ---------------------------------------------------------------------------
+  recheck=$(git -C "$real" status --porcelain --ignored=matching 2>&1)
+  recheck_rc=$?
+  if [ $recheck_rc -ne 0 ]; then
+    record "$id" "KEEP" "rule 3 (re-check): the dirty-tree safety check could not be completed immediately before the removal — git status --porcelain --ignored=matching exited $recheck_rc (${recheck%%$'\n'*}); nothing is removed on an unanswered safety check"
+    ATTENTION=1
+    continue
+  fi
+  if [ -n "$recheck" ]; then
+    record "$id" "KEEP" "rule 3 (re-check): the tree stopped being clean while this run was deciding about it (${recheck%%$'\n'*}) — something is writing into it; nothing removed"
+    ATTENTION=1
+    continue
+  fi
+  if out=$(git -C "$main" worktree remove "$path" 2>&1 </dev/null); then
     REMOVED=$((REMOVED + 1))
     PRUNE_DIRS="$PRUNE_DIRS
 $main"
@@ -429,7 +636,7 @@ $main"
     record "$id" "KEEP" "rule 5: git worktree remove refused it — ${out%%$'\n'*}"
     ATTENTION=1
   fi
-done < "$TSV"
+done 3< "$TSV"
 
 # ------------------------------------------------------------------- prune ----
 # OFF BY DEFAULT, behind --prune, because `git worktree prune` is REPO-WIDE and
@@ -443,24 +650,26 @@ done < "$TSV"
 # only for a repo with known-stale metadata, run deliberately by the owner.
 # PRUNE_DIRS holds the main worktree of repos we actually removed from — never a
 # path derived from a GONE row, which would be $NIGHT_DIR/wt, not a repository.
-if [ $PRUNE -eq 1 ] && [ $APPLY -eq 1 ] && [ $REMOVED -gt 0 ]; then
-  printf '%s\n' "$PRUNE_DIRS" | grep -v '^$' | sort -u | while IFS= read -r d; do
-    [ -d "$d" ] || continue
-    git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
-    printf '%s\n' "--prune: running REPO-WIDE git worktree prune in $d — this touches every worktree registered there, not only this project's"
-    git -C "$d" worktree prune 2>/dev/null && printf 'pruned worktree metadata in %s\n' "$d"
-  done
-elif [ $APPLY -eq 1 ] && [ $REMOVED -gt 0 ]; then
-  printf 'git worktree prune was NOT run (it is repo-wide and off by default); git worktree remove cleaned up after itself.\n'
-fi
+prune_step(){
+  if [ $PRUNE -eq 1 ] && [ $ACT -eq 1 ] && [ $REMOVED -gt 0 ]; then
+    printf '%s\n' "$PRUNE_DIRS" | grep -v '^$' | sort -u | while IFS= read -r d; do
+      [ -d "$d" ] || continue
+      git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1 </dev/null || continue
+      printf '%s\n' "--prune: running REPO-WIDE git worktree prune in $d — this touches every worktree registered there, not only this project's"
+      git -C "$d" worktree prune 2>/dev/null </dev/null && printf 'pruned worktree metadata in %s\n' "$d"
+    done
+  elif [ $ACT -eq 1 ] && [ $REMOVED -gt 0 ]; then
+    printf 'git worktree prune was NOT run (it is repo-wide and off by default); git worktree remove cleaned up after itself.\n'
+  fi
+}
 
 # ----------------------------------------------------------------- summary ----
-printf '\n%-10s %-7s %s\n' "ID" "ACTION" "REASON"
-printf '%-10s %-7s %s\n' "----------" "-------" "------------------------------------------------------------"
+printf '\n%-10s %-13s %s\n' "ID" "ACTION" "REASON"
+printf '%-10s %-13s %s\n' "----------" "-------------" "------------------------------------------------------------"
 if [ -n "$ROWS" ]; then
   printf '%s' "$ROWS" | while IFS=$'\t' read -r rid rdec rreason; do
     [ -z "${rid:-}" ] && continue
-    printf '%-10s %-7s %s\n' "$rid" "$rdec" "$rreason"
+    printf '%-10s %-13s %s\n' "$rid" "$rdec" "$rreason"
   done
 else
   printf '(worktrees.tsv holds no usable rows)\n'
@@ -472,11 +681,16 @@ if [ -n "$MERGED_BRANCHES" ]; then
   printf '%s' "$MERGED_BRANCHES"
 fi
 
-if [ $APPLY -eq 0 ]; then
-  printf '\nDRY RUN — nothing was removed. Re-run with --apply to act on the REMOVE rows.\n'
+if [ $ACT -eq 0 ]; then
+  if [ $FETCH -eq 0 ]; then
+    printf '\n--no-fetch — nothing was removed, and nothing could be: every WOULD-REMOVE row is a verdict against origin/* refs that were never refreshed. Re-run WITHOUT --no-fetch (a fetch on a current repo costs ~200ms and is idempotent) to turn them into real REMOVE rows.\n'
+  else
+    printf '\nDRY RUN — nothing was removed. Re-run with --apply to act on the REMOVE rows.\n'
+  fi
 else
   printf '\n%s tree(s) removed.\n' "$REMOVED"
 fi
+prune_step
 
 if [ $ATTENTION -ne 0 ]; then
   printf 'Some trees were KEPT for a reason you should look at (dirty, unpushed, parked or blocked) — see the KEEP rows above.\n'
