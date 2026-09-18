@@ -151,7 +151,7 @@ Then write into `~/night-runs/<project>/`:
   (default 45) and from nowhere else: the runner never reads `docs/NIGHT-RULES.md`, so a
   CI-wait number written there is silently ignored.
 
-  **2. Strip the renderer-only comment block.** The template opens with a ~43-line HTML
+  **2. Strip the renderer-only comment block.** The template opens with an HTML
   comment addressed to you, which tells the reader "THE SKILL STRIPS THIS ENTIRE COMMENT AT
   RENDER TIME" — a sentence that is false unless you actually do it, at the top of a file
   the session is ordered to obey literally. The block starts on line 1 and ends on its own
@@ -296,7 +296,7 @@ with `hours:8` puts eight hours of work into a 5.5-hour window and the rest is s
 
 ## PHASE F — Morning follow-through (`report` mode)
 
-Per spec section 5: read `REPORT-<date>.md` and this run's
+Per spec section 5: read `~/night-runs/<project>/REPORT-<date>.md` and this run's
 `~/night-runs/<project>/state-<date>.txt` — `state.txt` is only a symlink to it, and a real
 `state.txt` left by an older runner was preserved as `state-before-<date>.txt`, which is NOT
 tonight's run and must not be read as it; review every still-open PR with

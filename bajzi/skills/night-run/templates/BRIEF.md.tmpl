@@ -132,9 +132,14 @@ to resume. Finishing early and parked is strictly better than late and dead.
   `state.txt` left by an older runner was moved aside as
   `state-before-{{RUN_DATE}}.txt`, never deleted. One queue line can have MORE
   THAN ONE row there (a deferred row from the first pass and a terminal row
-  from the second), and the LAST row for an id is its outcome. You append to
-  your own rows and your own log. You never edit another story's rows, and you
-  never delete `run.lock` or `STOP`.
+  from the second), and the LAST row for an id is its outcome. You do NOT write
+  those rows: the runner appends every state row itself, and your output is
+  captured into `logs/<id>.log` for you. `state.txt`, `queue.txt` and the BRIEF
+  are denied to you by the permission layer, and that refusal is expected —
+  never route around it. Your deliverables go to
+  `{{BASE}}/runtime/AUTOPILOT-REPORT.md` and your own handoff file (section 9);
+  the only file here you append to is `worktrees.tsv` (section 3), and you never
+  delete `run.lock` or `STOP`.
 - This is a SHARED machine running several unrelated services and, possibly,
   other Claude sessions. Before any port, container, service or reverse-proxy
   change: read `~/infra/INVENTORY.md` and `~/infra/PORTS.md`. Never stop a
