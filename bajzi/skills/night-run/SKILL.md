@@ -527,8 +527,9 @@ unpushed or parked; refresh the deck and update the owner's single runbook list 
 matters is the STATUS TRANSITIONS — `QUOTA-WAIT`, `RESTARTED`, `DEAD`, `STALLED`, `DISK-LOW`,
 `FINISHED`/`STOPPED`/`EXPIRED`, plus any `orphan sid=` lines. `UNKNOWN` means the watcher
 itself went blind — no `flock`, a broken `pgrep`, or a `run.meta` it could not read or date —
-so from that line on it restarted nothing and the night is only as watched as the log says:
-treat every `UNKNOWN` stretch as unsupervised time and check the runner's own logs across it. A night whose state rows stop
+so THAT TICK restarted nothing. `UNKNOWN` is a per-tick verdict, not a latch: the next tick
+that can read `run.meta` is back to normal watching, so treat each `UNKNOWN` stretch — not
+everything after it — as unsupervised time and check the runner's own logs across it. A night whose state rows stop
 mid-queue is explained there, not in `state-<date>.txt`, and every transition belongs in the
 morning report.
 

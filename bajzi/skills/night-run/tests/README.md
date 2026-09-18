@@ -7,7 +7,7 @@ every check passed.
 ```bash
 cd bajzi/skills/night-run
 bash tests/lock-race.sh        # ~90 s   (40 race trials; `bash tests/lock-race.sh 8` for a quick pass)
-bash tests/quota.sh            # ~75 s
+bash tests/quota.sh            # ~95 s
 bash tests/watch.sh            # ~35 s   (night-watch.sh only: no run.sh, no claude)
 ```
 
@@ -88,7 +88,14 @@ the tests prove fd 9 — the run lock — never reaches a session.
    and `--report` leaves `run.args`, `run.meta` and `finished` untouched, so a
    watcher polling a queue run that died is never told the night was a report
    run that already finished.
-6. **(iii) no fd leak.** Across every session the whole suite launched, not one
+6. **(vii) `--date` pins the night.** A queue run APPENDS `--date <its own
+   date>` to `run.args` when the owner gave none, so a watcher re-exec that
+   crosses local midnight stays on the same night; a run started with
+   `--date <yesterday>` reads `state-<yesterday>.txt`, SKIPs the rows already in
+   it (no merged story is run twice) and reports as `REPORT-<yesterday>.md`; the
+   pin is never appended twice; and an invalid `--date` — `2026-02-30`,
+   `last night` — is refused with exit 2 before the run does anything.
+7. **(iii) no fd leak.** Across every session the whole suite launched, not one
    fd table contains fd 9.
 
 ## What `watch.sh` proves
@@ -150,9 +157,9 @@ real watcher with `--interval 2` and then stop it.
 
 ## What `quota.sh` proves
 
-*Before this work the whole file scored 6/33 and run (A) burned its four-story
-queue in **one second** — which is exactly what happened in production on
-2026-09-18. After: 33/33.*
+*Before this work run (A) burned its four-story queue in **one second** — which
+is exactly what happened in production on 2026-09-18; the file scored 6 of the
+33 checks it had then. It is 73/73 now.*
 
 * **(A) a session limit mid-queue.** Story 2's limit becomes a **non-terminal**
   `DEFERRED-quota` row whose reason is the parsed `resets=<ISO-8601 UTC>`;
@@ -182,3 +189,23 @@ queue in **one second** — which is exactly what happened in production on
   20 more output lines is still classified `DEFERRED-quota` (the classifier
   reads the last 40 non-empty lines, not 8), and the same message with exit
   code 0 is never a quota row.
+* **(G) a zone whose local day has already rolled over.** `date -d 'TZ="…" <t>'`
+  resolves a bare time against the current day OF THAT ZONE, so a reset the zone
+  announced minutes before ITS midnight came out almost a day ahead
+  (`resets 11:56pm (Etc/GMT+12)` → **+1414 min** in production). The candidate is
+  now computed for yesterday, today and tomorrow in the announcing zone and the
+  earliest one inside `QUOTA_PAST_GRACE_SEC` wins, so the same message resolves
+  to minutes ago and is treated as NOW. The fixture's zone is a POSIX offset
+  spec rather than an IANA name because real zones only exist at `:00`, `:30`
+  and `:45` offsets — for a quarter of every hour no IANA name is inside its own
+  first 15 minutes, and this case must reproduce at any wall-clock time.
+  A plain `(UTC)` reset three hours ahead is unaffected.
+* **(H) the report never waits.** The walk ends for its OWN reason (here the
+  owner's `STOP`) while `quota-until` is armed an hour out, with
+  `QUOTA_MAX_WAIT_SEC` at its 6 h default. The run ends in a second — narrative
+  skipped with the reset named in the log, deterministic report on disk with no
+  `## Narrative`, `finished` written and `run.flock` free — instead of sitting on
+  the project's lock for an hour with nothing running.
+* **(I) the kill switch during a wait.** `STOP` dropped in the middle of a quota
+  wait is seen in ~3 s (the slice is 5 s, not 60 s), the wait is aborted, and the
+  run still reports and writes `finished`.

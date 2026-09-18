@@ -237,7 +237,10 @@ nr_strays(){ # prints "<pid> <cmdline>" per stray, if any
     out=""
     for p in $(pgrep -f "$NR_SCRATCH" 2>/dev/null); do
       [ "$p" = "$$" ] && continue
-      cmd=$(tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | cut -c1-120)
+      # The 2> belongs to the GROUP, not to `tr`: the open of /proc/<pid>/cmdline
+    # is the SHELL's, so a pid that exits mid-scan would otherwise print its
+    # "No such file or directory" straight to the test's stderr.
+    cmd=$( { tr '\0' ' ' <"/proc/$p/cmdline"; } 2>/dev/null | cut -c1-120)
       [ -n "$cmd" ] || continue
       out="$out$p $cmd
 "

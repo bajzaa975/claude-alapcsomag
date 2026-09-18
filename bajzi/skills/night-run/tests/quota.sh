@@ -248,6 +248,125 @@ printf 'N2 row: %s\n' "$(awk '$1=="N2"' "$ND"/state-*.txt 2>/dev/null | tail -1)
 check "$([ -n "$(row N2 0)" ] && echo 0 || echo 1)" "(F) a session that exited 0 got its numeric row"
 check "$(grep -qE '^N2 DEFERRED' "$ND"/state-*.txt 2>/dev/null && echo 1 || echo 0)" "(F) …and no quota row at all"
 
+# ============================= (G) a zone whose LOCAL DAY has already rolled =
+# `date -d 'TZ="<zone>" <time>'` resolves a bare time against the current day OF
+# THAT ZONE. Minutes after the zone crosses midnight, the reset it announced
+# belongs to the day BEFORE — and the day-blind parse lands almost 24 h ahead.
+# Measured in production: `resets 11:56pm (Etc/GMT+12)` came out +1414 min.
+#
+# The zone below is a POSIX offset spec, not an IANA name, for one reason: real
+# zones only come in :00, :30 and :45 offsets, so for a quarter of every hour no
+# IANA name is inside its own first 15 minutes — and this case must be
+# reproducible at ANY wall-clock time. run.sh hands whatever stands in the
+# parentheses straight to `date -d 'TZ="…" …'`, so the code path is identical.
+echo
+echo "== (G) a reset in a zone that is minutes past ITS OWN midnight is not a day out =="
+setup G 'QUOTA_MARGIN_SEC="5"'
+nr_queue "$ND" G1 G2
+g_now=$(date +%s)
+# The offset that makes the announcing zone read 00:09 local right now, so the
+# announced 11:57pm is 12 minutes ago — inside QUOTA_PAST_GRACE_SEC — but on the
+# zone's PREVIOUS day.
+g_off=$(( ( 540 - g_now % 86400 + 86400 ) % 86400 ))
+ZONE=$(printf 'NRT-%d:%02d:%02d' $(( g_off / 3600 )) $(( g_off % 3600 / 60 )) $(( g_off % 60 )))
+g_naive=$(date -d "TZ=\"$ZONE\" 11:57pm" +%s)
+g_true=$(date -d "TZ=\"$ZONE\" yesterday 11:57pm" +%s)
+printf 'zone %s reads %s local; "resets 11:57pm" there was %s min ago, but the day-blind parse gives %s min AHEAD\n' \
+  "$ZONE" "$(TZ=$ZONE date +%T)" "$(( (g_now - g_true) / 60 ))" "$(( (g_naive - g_now) / 60 ))"
+nr_plan "$ND/fake" "raw:You've hit your session limit · resets 11:57pm ($ZONE)" "ok" "ok" "ok"
+dl=$(date -d '+10 minutes' +%H:%M)
+t0=$(date +%s)
+setsid -w bash "$NR_RUN" --config "$CFG" --deadline "$dl" >"$ROOT/G/out.txt" 2>&1; rcG=$?
+tG=$(( $(date +%s) - t0 ))
+r=$(row G1 DEFERRED-quota); got=${r##*resets=}
+gote=$(date -u -d "$got" +%s 2>/dev/null || echo 0)
+printf 'run G finished in %ss with exit %s; G1 row: %s\n  recorded reset is %ss from the start (the day-blind answer was %s min)\n' \
+  "$tG" "$rcG" "${r:-<none>}" "$(( gote - t0 ))" "$(( (g_naive - t0) / 60 ))"
+check "$([ -n "$r" ] && echo 0 || echo 1)" "(G) G1 got a DEFERRED-quota row"
+check "$([ "$gote" -gt 0 ] && [ "$(( gote - t0 ))" -lt 300 ] && echo 0 || echo 1)" \
+      "(G) the reset was treated as NOW ($(( gote - t0 ))s out), not the day-blind $(( (g_naive - t0) / 60 )) min"
+check "$([ "$tG" -le 90 ] && echo 0 || echo 1)" "(G) the whole run took ${tG}s — the wait was the margin only"
+check "$([ -n "$(row G1 0)" ] && echo 0 || echo 1)" "(G) G1 ran and completed after that margin"
+check "$([ -n "$(row G2 0)" ] && echo 0 || echo 1)" "(G) G2 ran and completed"
+
+echo
+echo "== (G) an ordinary '(UTC)' reset three hours ahead is untouched by that rule =="
+setup G3 'QUOTA_MARGIN_SEC="5"' 'QUOTA_MAX_WAIT_SEC="60"'
+nr_queue "$ND" U1 U2
+u_e=$(( ( $(date +%s) + 10800 ) / 60 * 60 ))
+u_t=$(date -u -d "@$u_e" '+%-I:%M%P')
+nr_plan "$ND/fake" "raw:You've hit your session limit · resets $u_t (UTC)" "ok"
+t0=$(date +%s)
+setsid -w bash "$NR_RUN" --config "$CFG" >"$ROOT/G3/out.txt" 2>&1
+tU=$(( $(date +%s) - t0 ))
+r=$(row U1 DEFERRED-quota); got=${r##*resets=}; want=$(date -u -d "@$u_e" +%FT%TZ)
+printf 'announced "resets %s (UTC)" (3 h out) -> expected %s, recorded %s; run took %ss\n' "$u_t" "$want" "${got:-<none>}" "$tU"
+check "$([ -n "$r" ] && [ "$got" = "$want" ] && echo 0 || echo 1)" "(G) the 3 h reset still resolved to today, exactly $want"
+check "$([ "$tU" -le 60 ] && echo 0 || echo 1)" "(G) …and QUOTA_MAX_WAIT_SEC=60 ended the run in ${tU}s"
+
+# ================== (H) the report NEVER waits for a quota window ============
+echo
+echo "== (H) the walk ended for its OWN reason with quota-until armed: no wait in the report =="
+setup H 'QUOTA_MARGIN_SEC="5"'
+nr_queue "$ND" K1 K2
+nr_plan "$ND/fake" "ok" "ok"
+# The owner's kill switch ends the walk before the first story while a quota
+# window from an earlier pass is still armed an hour out. QUOTA_MAX_WAIT_SEC is
+# left at its 6 h default ON PURPOSE: nothing but write_report's own rule can
+# keep the runner from sitting on run.flock for that hour with nothing running.
+printf 'owner asked for a stop\n' >"$ND/STOP"
+qe=$(( $(date +%s) + 3600 ))
+printf '%s\n' "$qe" >"$ND/quota-until"
+t0=$(date +%s)
+setsid -w bash "$NR_RUN" --config "$CFG" >"$ROOT/H/out.txt" 2>&1; rcH=$?
+tH=$(( $(date +%s) - t0 ))
+printf 'run H finished in %ss with exit %s; quota-until was %s (%s min ahead)\n' \
+  "$tH" "$rcH" "$(date -u -d "@$qe" +%FT%TZ)" "$(( (qe - t0) / 60 ))"
+check "$([ "$tH" -le 30 ] && echo 0 || echo 1)" "(H) the run ended in ${tH}s instead of holding the lock for 60 min"
+check "$(grep -q 'REPORT narrative skipped — quota resets at' "$LOG" && echo 0 || echo 1)" \
+      "(H) the runner logged the skip and named the reset"
+rep=$(report)
+check "$([ -n "$rep" ] && grep -q '^## Counts' "$rep" && echo 0 || echo 1)" "(H) the deterministic report is there"
+check "$([ -n "$rep" ] && grep -q '^## Narrative' "$rep" && echo 1 || echo 0)" "(H) …and it has no '## Narrative' section"
+check "$([ -s "$ND/finished" ] && echo 0 || echo 1)" "(H) 'finished' was written"
+lockrc=$(flock -n "$ND/run.flock" true >/dev/null 2>&1; echo $?)
+printf 'flock -n on run.flock after the run: rc=%s\n' "$lockrc"
+check "$([ "$lockrc" -eq 0 ] && echo 0 || echo 1)" "(H) run.flock is free again (flock -n rc=$lockrc)"
+
+# ============== (I) the kill switch is seen DURING a wait, not a minute later =
+echo
+echo "== (I) a STOP dropped mid-wait aborts it within seconds, not within a sleep slice =="
+setup I 'QUOTA_MARGIN_SEC="5"' 'QUOTA_MAX_WAIT_SEC="600"'
+nr_queue "$ND" C1 C2
+# A reset ~2 minutes out: long enough that a 60 s sleep slice would hide the
+# owner's kill switch for most of a minute.
+nr_plan "$ND/fake" "limit:120" "ok" "ok"
+setsid -w bash "$NR_RUN" --config "$CFG" >"$ROOT/I/out.txt" 2>&1 &
+irunner=$!
+waited=0
+while [ "$waited" -lt 600 ]; do
+  grep -q 'QUOTA-WAIT until' "$LOG" 2>/dev/null && break
+  sleep 0.05; waited=$((waited + 1))
+done
+check "$(grep -q 'QUOTA-WAIT until' "$LOG" && echo 0 || echo 1)" "(I) the runner entered the quota wait"
+# Two seconds INTO a slice, so what is measured is the slice and not a lucky
+# boundary right after the runner looked.
+sleep 2
+s0=$(date +%s%N)
+printf 'owner asked for a stop mid-wait\n' >"$ND/STOP"
+waited=0
+while [ "$waited" -lt 300 ]; do
+  grep -q 'QUOTA-WAIT aborted' "$LOG" 2>/dev/null && break
+  sleep 0.05; waited=$((waited + 1))
+done
+lat=$(( ( $(date +%s%N) - s0 ) / 1000000 ))
+wait "$irunner" 2>/dev/null; rcI=$?
+printf 'STOP dropped mid-wait; the runner noticed it %s ms later and exited %s\n' "$lat" "$rcI"
+check "$(grep -q 'QUOTA-WAIT aborted — the STOP file appeared' "$LOG" && echo 0 || echo 1)" "(I) the wait was aborted by the STOP"
+check "$([ "$lat" -le 10000 ] && echo 0 || echo 1)" "(I) …${lat} ms after it appeared, well inside 10 s"
+check "$([ -n "$(report)" ] && echo 0 || echo 1)" "(I) the run still wrote its report"
+check "$([ -s "$ND/finished" ] && echo 0 || echo 1)" "(I) …and 'finished'"
+
 # ------------------------------------------------------------------ strays ---
 echo
 nr_cleanup "$ROOT"/*/nd

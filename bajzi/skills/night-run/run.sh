@@ -5,7 +5,8 @@
 #
 # Usage:
 #   run.sh --config <path/to/config.env> [--dry-run] [--smoke] [--one <id>]
-#          [--deadline "<HH:MM|YYYY-MM-DD HH:MM>"] [--report]
+#          [--deadline "<HH:MM|YYYY-MM-DD HH:MM>"] [--date YYYY-MM-DD]
+#          [--report]
 #   (--config may be replaced by the NIGHT_CONFIG environment variable.)
 #
 #   --dry-run   print what would happen and exit; launches nothing, takes no
@@ -25,13 +26,23 @@
 #               "7:5", "7:300", "24:00", prose — is REFUSED, and so is a
 #               deadline that is still in the past after the roll-forward: a
 #               night that silently does nothing is the worst outcome.
+#   --date      the NIGHT this run belongs to, YYYY-MM-DD (shape-checked
+#               and then handed to `date -d`; anything else is REFUSED).
+#               It names the state file and the report and it defaults to
+#               today. It exists because RUN_DATE is recomputed at EVERY
+#               start: a watcher restart that crosses LOCAL MIDNIGHT would
+#               otherwise open an empty state-<new date>.txt and walk the
+#               whole queue again, merged stories included. A queue run
+#               therefore APPENDS `--date <its own date>` to run.args when
+#               the owner gave none, so the watcher's verbatim re-exec
+#               stays pinned to the night it is watching.
 #   --report    only (re)write REPORT-<date>.md from the logs; a normal run ends
 #               with that same report session by itself. Like --smoke it takes
 #               the run lock, but it publishes NOTHING to the watcher (see
 #               run.args/run.meta/finished below) — it is not the night.
 #
-#   kill switch: touch $NIGHT_DIR/STOP   (checked between stories, and it also
-#               aborts a quota wait)
+#   kill switch: touch $NIGHT_DIR/STOP   (checked between stories, and every
+#               5 s during a quota wait, which it aborts)
 #
 # FILES THE RUN OWNS IN $NIGHT_DIR (the watcher and the morning report read
 # them, so their names are a contract):
@@ -55,7 +66,7 @@
 #                 a queue run that has DIED still finds that run's inputs and
 #                 restarts it instead of reading mode=report and giving up.
 #   heartbeat     touched at least every 60 s while the runner lives — inside
-#                 the story wait (<=20 s), inside every quota wait (<=60 s),
+#                 the story wait (<=20 s), inside every quota wait (<=5 s),
 #                 inside the report AND smoke session waits (<=20 s), right
 #                 after the bounded (<=60 s) `gh` dependency check, and once
 #                 per queue line. EVERY model session this script starts is
@@ -159,7 +170,7 @@ set -u
 
 # ---------------------------------------------------------------- arguments --
 CONFIG=${NIGHT_CONFIG:-}
-DRY=0; SMOKE=0; ONE=""; DEADLINE=""; REPORT_ONLY=0
+DRY=0; SMOKE=0; ONE=""; DEADLINE=""; REPORT_ONLY=0; RUN_DATE_ARG=""
 # The runner's own argv, kept verbatim for $NIGHT_DIR/run.args so the watcher
 # can re-exec exactly this run. argv[0] is resolved to an absolute path.
 SELF=$0; case "$SELF" in /*) :;; *) SELF=$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0");; esac
@@ -177,12 +188,24 @@ while [ $# -gt 0 ]; do
     --smoke)    SMOKE=1;;
     --one)      [ $# -ge 2 ] || { echo "run.sh: --one needs a story id" >&2; exit 2; }; ONE=$2; shift;;
     --deadline) [ $# -ge 2 ] || { echo "run.sh: --deadline needs a time" >&2; exit 2; }; DEADLINE=$2; shift;;
+    --date)     [ $# -ge 2 ] || { echo "run.sh: --date needs a YYYY-MM-DD date" >&2; exit 2; }; RUN_DATE_ARG=$2; shift;;
     --report)   REPORT_ONLY=1;;
     -h|--help)  usage; exit 0;;
     *) echo "run.sh: unknown argument $1" >&2; usage >&2; exit 2;;
   esac
   shift
 done
+
+# --date is validated before anything else this run does: a malformed night
+# date would silently become a fresh, EMPTY state file and re-run the queue.
+if [ -n "$RUN_DATE_ARG" ]; then
+  case "$RUN_DATE_ARG" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) :;;
+    *) echo "run.sh: --date '$RUN_DATE_ARG' is not a YYYY-MM-DD date" >&2; exit 2;;
+  esac
+  [ "$(date -d "$RUN_DATE_ARG" +%F 2>/dev/null)" = "$RUN_DATE_ARG" ] ||
+    { echo "run.sh: --date '$RUN_DATE_ARG' is not a date date -d understands" >&2; exit 2; }
+fi
 
 if [ -z "$CONFIG" ]; then
   echo "run.sh: no config — pass --config <path/to/config.env> or set NIGHT_CONFIG." >&2
@@ -276,7 +299,7 @@ RUN_META=$NIGHT_DIR/run.meta
 SKILL_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd) || SKILL_DIR=""
 CLAUDE_BIN=${CLAUDE_BIN:-claude}
 PERM_MODE=${PERM_MODE:-auto}        # same mode as an interactive session, plus $BASE/.claude/settings.local.json
-RUN_DATE=$(date +%F)
+RUN_DATE=${RUN_DATE_ARG:-$(date +%F)}
 RUN_MODE=queue; [ $REPORT_ONLY -eq 1 ] && RUN_MODE=report; [ $SMOKE -eq 1 ] && RUN_MODE=smoke
 STATE=$NIGHT_DIR/state-$RUN_DATE.txt   # THIS RUN's rows: <id> <rc|TOKEN> <ISO time> [reason]
 EXTRA=(--model "$MODEL")
@@ -638,7 +661,7 @@ CLASS_TOKEN=""      # set by classify_result: the state token to record
 CLASS_REASON=""     # set by classify_result: the reason column ("" for a plain rc)
 QUOTA_RESET_EPOCH="" # set by classify_result when the token is a quota one
 classify_result(){ # id rc logfile
-  local rc=$2 lf=$3 endlines msg low t zone epoch now
+  local rc=$2 lf=$3 endlines msg low t zone epoch now d cand tzp
   CLASS_TOKEN=$rc; CLASS_REASON=""; QUOTA_RESET_EPOCH=""
   case "$rc" in 0) return 0;; esac
   # The LAST 40 non-empty lines, not the last 8: the limit message is not
@@ -661,27 +684,29 @@ classify_result(){ # id rc logfile
   zone=$(printf '%s' "$msg" | sed -n 's/.*[Rr]esets[^(]*(\([^)]*\)).*/\1/p')
   epoch=""
   if [ -n "$t" ]; then
-    if [ -n "$zone" ]; then
-      epoch=$(date -d "TZ=\"$zone\" $t" +%s 2>/dev/null) || epoch=""
-    else
-      epoch=$(date -d "$t" +%s 2>/dev/null) || epoch=""
-    fi
     now=$(date +%s)
-    # The reset is today at that time; if that moment is already past it is
-    # either the SAME reset a truncated minute ago (treat it as NOW, so
-    # quota-until becomes now + QUOTA_MARGIN_SEC and the run waits the margin)
-    # or genuinely tomorrow's. Rolling EVERY past time a full day forward is
+    # The announced time carries no DATE, and `date -d` resolves a bare time
+    # against the current day OF THE ZONE it is told to use. In a zone whose
+    # local day has already rolled over relative to the runner's, that day is
+    # one too many: "resets 11:56pm (Etc/GMT+12)" announced 25 minutes earlier
+    # came out 1414 minutes AHEAD and would have parked the night. So the
+    # candidate epoch is computed for yesterday, today AND tomorrow in the
+    # announcing zone, and the EARLIEST candidate that is not older than the
+    # grace wins: yesterday's for a zone that has rolled over, today's for the
+    # ordinary case, tomorrow's for a reset that really is in the past.
+    tzp=""; [ -n "$zone" ] && tzp="TZ=\"$zone\" "
+    for d in 'yesterday ' '' 'tomorrow '; do
+      cand=$(date -d "$tzp$d$t" +%s 2>/dev/null) || continue
+      [ -n "$cand" ] || continue
+      [ "$cand" -lt $(( now - QUOTA_PAST_GRACE_SEC )) ] && continue
+      epoch=$cand; break
+    done
+    # Inside the grace the announced reset is the SAME reset a truncated minute
+    # ago: treat it as NOW, so quota-until becomes now + QUOTA_MARGIN_SEC and
+    # the run waits the margin. Rolling EVERY past time a full day forward is
     # what produced "QUOTA-WAIT until <tomorrow> (1442 min)" and held the run
     # lock for a day after a reset announced one minute earlier.
-    if [ -n "$epoch" ] && [ "$epoch" -le "$now" ]; then
-      if [ $(( now - epoch )) -le "$QUOTA_PAST_GRACE_SEC" ]; then
-        epoch=$now
-      elif [ -n "$zone" ]; then
-        epoch=$(date -d "TZ=\"$zone\" tomorrow $t" +%s 2>/dev/null) || epoch=""
-      else
-        epoch=$(date -d "tomorrow $t" +%s 2>/dev/null) || epoch=""
-      fi
-    fi
+    if [ -n "$epoch" ] && [ "$epoch" -le "$now" ]; then epoch=$now; fi
   fi
   if [ -n "$epoch" ]; then
     CLASS_REASON="resets=$(date -u -d "@$epoch" +%FT%TZ)"
@@ -743,7 +768,10 @@ quota_wait(){
       return 1
     fi
     beat
-    left=$(( e - now )); [ "$left" -gt 60 ] && left=60
+    # STOP is the only way out of a long wait, so it must be seen within
+    # SECONDS: the slice is capped at 5 s, not at a minute. Beating once per
+    # slice is free and keeps the heartbeat far inside the watcher's 180 s.
+    left=$(( e - now )); [ "$left" -gt 5 ] && left=5
     nap "$left"
   done
   rm -f "$QUOTA_FILE"
@@ -1111,14 +1139,20 @@ report_deterministic(){ # out
   } >"$out" 2>/dev/null
 }
 write_report(){ # the deterministic report FIRST, then one fresh session for the narrative
-  local out=$NIGHT_DIR/REPORT-$RUN_DATE.md rc rpid
+  local out=$NIGHT_DIR/REPORT-$RUN_DATE.md rc rpid qe
   log "REPORT start -> $out"
   report_deterministic "$out"
   [ -s "$out" ] && log "REPORT deterministic part written -> $out"
   # The narrative is a launch site like any other: it must not start while the
-  # usage limit is still in force, and a weekly limit means it never will.
-  if ! quota_gate; then
-    log "REPORT narrative SKIPPED — the usage limit is still in force; the deterministic report stands ($out)"
+  # usage limit is still in force. It NEVER waits for one, though. The report is
+  # the last thing the run does, and the walk that led here ended for its OWN
+  # reason (STOP, the disk floor, the deadline) — so a wait here buys nothing
+  # and costs everything: the runner would sit on run.flock, the whole project,
+  # for up to QUOTA_MAX_WAIT_SEC with not one session running. The deterministic
+  # report is already on disk and the owner reads it in the morning, not at 4am.
+  qe=$(quota_until) || qe=""
+  if [ -n "$qe" ] && [ "$qe" -gt "$(date +%s)" ]; then
+    log "REPORT narrative skipped — quota resets at $(date -u -d "@$qe" +%FT%TZ); the deterministic report stands ($out)"
     return 0
   fi
   ( exec 9>&-; cd "$BASE" && env -u CLAUDECODE timeout -k 60 1800 "$CLAUDE_BIN" -p "Write the night report for the $PROJECT overnight run of $RUN_DATE. Read these with Bash, change nothing else: $STATE; $LOGS/runner.log; the RESULT lines from grep -h 'RESULT ' $LOGS/*.log; $BASE/runtime/AUTOPILOT-REPORT.md; $BASE/runtime/handoff/night-*.md; $BASE/runtime/DECISIONS.md if present; gh pr list -R $REPO --state all --limit 20 --json number,title,state,mergedAt,headRefName; and brain next $PROJECT. Write $out in English with: $STATE holds THIS run's rows only, one or more per queue line, as '<id> <rc|TOKEN> <ISO time> [reason]'. A numeric second field is a story that ran and its exit code. Every other second field is a runner-side outcome with the reason in the rest of the line: BLOCKED-queue (malformed queue line), BLOCKED-criteria (the queue line carried no acceptance criteria), BLOCKED-needs (the needs column held no PR number), BLOCKED-needs-unknown (gh could not say whether the dependency PR is merged), BLOCKED-brief (the per-story brief could not be rendered, so the story was never launched), BLOCKED-deadline (no time left before the hard deadline), DEFERRED-needs (the dependency PR was not merged in time), DEFERRED-alive (a session from an earlier pass or an earlier runner was still alive in that story's worktree, so it was not started a second time) and INTERRUPTED (the runner was signalled and killed that story mid-flight — say so, and say the story must be re-queued). When an id has several rows the LAST one is its outcome and the earlier ones are its history. Every id in $STATE is a queue line that MUST appear in the table and in section 4, never be omitted, and so is every id the deterministic '## Stories' table above lists as 'not reached' — those are queue lines the run never got to and they must be re-queued. 1) a one-paragraph summary (stories attempted, merged, open, parked, blocked, plus blocked-before-start); 2) one table row per story: id, result, PR, merged or open, review verdict and rounds, tests run; 3) decisions taken on the owner's behalf; 4) PARKED and BLOCKED items with reasons, naming which floor was hit (review, timeout, context, ci, forbidden or tests); 5) any story reported merged or open with reason=review, flagged as a contradiction; 6) LET'S REVIEW THIS TOGETHER in priority order; 7) worktrees under $NIGHT_DIR/wt that are dirty, unpushed or parked and must be kept; 8) what the Brain recommends next. Then run: update-monitor note \"$PROJECT overnight run $RUN_DATE: <one line with PR numbers>\" and brain note night run $RUN_DATE: <one line>. Do NOT rewrite or delete what is already in $out — it was written from the state rows and it is the ground truth; APPEND your narrative to it under the heading '## Narrative'. Finish with the line REPORT WRITTEN $out" \
@@ -1180,6 +1214,11 @@ publish_run_inputs(){
   # exact re-exec. One line per word is what keeps a quoted --deadline intact.
   : >"$RUN_ARGS" 2>/dev/null || { log "WARNING: could not write $RUN_ARGS"; return 0; }
   for a in ${ORIG_ARGV[@]+"${ORIG_ARGV[@]}"}; do printf '%s\n' "$a" >>"$RUN_ARGS"; done
+  # PIN THE NIGHT. RUN_DATE is recomputed at every start and the state file is
+  # per date, so a watcher restart across LOCAL MIDNIGHT would re-exec into an
+  # empty state-<tomorrow>.txt and run the whole queue again — merged stories
+  # included. The re-exec therefore always carries this night's own date.
+  [ -n "$RUN_DATE_ARG" ] || printf -- '--date\n%s\n' "$RUN_DATE" >>"$RUN_ARGS"
   {
     printf 'pgid=%s\n' "$MY_PGID"
     printf 'started_epoch=%s\n' "$(date +%s)"

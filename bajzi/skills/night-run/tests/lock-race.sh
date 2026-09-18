@@ -220,7 +220,8 @@ while [ "$i" -lt 120 ]; do
     st=${st#*") "}
     # shellcheck disable=SC2086
     set -- $st
-    pcmd=$(tr '\0' ' ' <"/proc/$2/cmdline" 2>/dev/null)
+    # Same rule as nr_strays: the redirect must cover the shell's own open.
+    pcmd=$( { tr '\0' ' ' <"/proc/$2/cmdline"; } 2>/dev/null )
     case "$pcmd" in *"$NR_RUN"*"$dcfg"*) :;; *) continue;; esac
     samples=$((samples + 1))
     [ -e "/proc/$sp/fd/9" ] && leaked=$((leaked + 1))
@@ -299,12 +300,54 @@ check "$([ "$a_after" = "$s_args" ] && [ "$m_after" = "$s_meta" ] && [ "$f_after
 check "$([ -f "$ond/heartbeat" ] && echo 0 || echo 1)" "(vi) …and it beat while its session ran"
 nr_cleanup "$ond"
 
+# ------------------------- (vii) --date pins the night across local midnight --
+echo
+echo "== (vii) the queue run pins its own date into run.args, and --date picks the night =="
+DT=$ROOT/date; mkdir -p "$DT"
+dtnd=$DT/nd; dtcfg=$DT/cfg.env
+nr_make_night "$dtnd"
+nr_queue "$dtnd" X1
+nr_fake_claude "$DT/fake-claude" "$dtnd/fake"
+nr_plan "$dtnd/fake" "ok" "ok"
+nr_config "$dtcfg" "$dtnd" "$BASE" "$DT/fake-claude"
+today=$(date +%F)
+setsid -w bash "$NR_RUN" --config "$dtcfg" >"$DT/out.txt" 2>&1
+tail2=$(tail -2 "$dtnd/run.args" | tr '\n' ' ')
+printf 'run.args ends with: %s| state files: %s\n' "$tail2" "$(printf '%s ' "$dtnd"/state-*.txt)"
+check "$([ "$tail2" = "--date $today " ] && echo 0 || echo 1)" \
+      "(vii) run.args ends with '--date $today' — a re-exec after midnight stays on tonight"
+check "$([ -f "$dtnd/state-$today.txt" ] && echo 0 || echo 1)" "(vii) the run wrote state-$today.txt"
+
+# THE MIDNIGHT RESTART. The watcher re-execs run.args verbatim, and by then the
+# LOCAL date may have changed. With the pin the restarted runner opens the same
+# night's state file and skips every row already in it, instead of walking the
+# whole queue again and re-running stories that were merged hours ago.
+yday=$(date -d yesterday +%F)
+printf 'X1 0 %s\n' "$(date -u +%FT%TZ)" >"$dtnd/state-$yday.txt"
+: >"$dtnd/logs/runner.log"
+setsid -w bash "$NR_RUN" --config "$dtcfg" --date "$yday" >"$DT/out-yday.txt" 2>&1; rc_y=$?
+printf 'the --date %s run exited %s and logged: %s\n' "$yday" "$rc_y" "$(grep -o 'SKIP X1 .*' "$dtnd/logs/runner.log" | head -1)"
+check "$(grep -qF "already recorded in this run ($dtnd/state-$yday.txt)" "$dtnd/logs/runner.log" && echo 0 || echo 1)" \
+      "(vii) --date <yesterday> read state-$yday.txt and SKIPped the row already in it"
+check "$(grep -q ' START X1 (' "$dtnd/logs/runner.log" && echo 1 || echo 0)" "(vii) …so the already-merged story was never re-run"
+check "$([ -f "$dtnd/REPORT-$yday.md" ] && echo 0 || echo 1)" "(vii) …and that night's report is REPORT-$yday.md"
+ndate=$(grep -c -x -- '--date' "$dtnd/run.args"); ndate=${ndate:-0}
+check "$([ "$ndate" -eq 1 ] && echo 0 || echo 1)" "(vii) …and the pin was not appended a second time ($ndate '--date' in run.args)"
+
+# A --date that is not a date is refused before the run does anything at all.
+setsid -w bash "$NR_RUN" --config "$dtcfg" --date "2026-02-30" >"$DT/out-bad.txt" 2>&1; rc_b=$?
+setsid -w bash "$NR_RUN" --config "$dtcfg" --date "last night" >"$DT/out-bad2.txt" 2>&1; rc_b2=$?
+printf 'invalid dates: "2026-02-30" -> exit %s (%s); "last night" -> exit %s (%s)\n' \
+  "$rc_b" "$(head -1 "$DT/out-bad.txt")" "$rc_b2" "$(head -1 "$DT/out-bad2.txt")"
+check "$([ "$rc_b" -eq 2 ] && [ "$rc_b2" -eq 2 ] && echo 0 || echo 1)" "(vii) an invalid --date is refused with exit 2"
+nr_cleanup "$dtnd"
+
 # ------------------------------------------------------------- (iii) fd leak --
 echo
 echo "== (iii) fd 9 (the run lock) is not inherited by the session =="
 leaks=0; seen=0
 for f in "$ROOT"/t*/nd/fake/fds.log "$nd/fake/fds.log" "$ROOT"/live/nd/fake/fds.log \
-         "$ROOT"/decoy/nd/fake/fds.log "$ROOT"/own/nd/fake/fds.log; do
+         "$ROOT"/decoy/nd/fake/fds.log "$ROOT"/own/nd/fake/fds.log "$ROOT"/date/nd/fake/fds.log; do
   [ -s "$f" ] || continue
   seen=$((seen + 1))
   c=$(grep -c ' 9 -> ' "$f" 2>/dev/null); c=${c:-0}

@@ -107,8 +107,9 @@
 # on each restart: `update-monitor note "night-run <project>: ..."` when
 # update-monitor is on PATH, plus WATCH_NOTIFY_CMD "<message>" when set.
 #
-# ORPHANS are REPORTED, never signalled: this script sends no signal to any
-# process, ever. It only ever starts one (the restart), never stops one.
+# ORPHANS are REPORTED, never signalled: the only process this script ever
+# signals is the `sleep` slice it started itself, when it is signalled in turn.
+# It only ever starts a runner (the restart), never stops one.
 #
 # MODE GATE: the watcher exits 0 at once unless run.meta says mode=queue (or
 # carries no mode at all). A --report or --smoke run is short, foreground and
