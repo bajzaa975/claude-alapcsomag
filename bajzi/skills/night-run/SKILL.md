@@ -42,7 +42,9 @@ report it at the PHASE D gate, do not stop.
 
    ```bash
    CFG=~/night-runs/<project>/config.env           # THIS project's config, absolute
-   for p in $(pgrep -f 'run\.sh'); do
+   pids=$(pgrep -f 'run\.sh'); rc=$?   # NEVER `for p in $(pgrep ...)`: that throws the rc away
+   [ "$rc" -le 1 ] || { echo "RUNNER SCAN FAILED (pgrep rc=$rc)"; exit 1; }   # 0=hits 1=none >1=broken
+   for p in $pids; do
      [ -r "/proc/$p/cmdline" ] || continue
      argv=$(tr '\0' '\n' < "/proc/$p/cmdline" 2>/dev/null) || continue
      a0=$(printf '%s\n' "$argv" | sed -n 1p); a1=$(printf '%s\n' "$argv" | sed -n 2p)
@@ -52,8 +54,12 @@ report it at the PHASE D gate, do not stop.
    done | sort -u
    ```
 
-   No line: continue. ONE line: a live run for this project — STOP. TWO OR MORE: STOP and
-   report it loudly, that is two runners sharing one worktree. Never a bare `ps | grep`:
+   `RUNNER SCAN FAILED`: the SCAN broke (pgrep missing, denied, rewritten), so the empty
+   result means nothing — refuse and report it as a STOP, never read it as "no runner". This
+   is `run.sh`'s own rule at `live_runner_pgids`, whose comment records that reading an
+   erroring pgrep as "nobody home" has started a second runner in one worktree three times.
+   No line, rc 0 or 1: continue. ONE line: a live run for this project — STOP. TWO OR MORE:
+   STOP and report it loudly, that is two runners sharing one worktree. Never a bare `ps | grep`:
    `rtk` rewrites `ps`, the format changes, the pattern silently finds nothing, and on
    2026-09-18 that made a healthy runner look dead.
 2. **Cross-check the lock.** `cat ~/night-runs/<project>/run.lock` — it holds one pgid. If
@@ -127,6 +133,12 @@ Then write into `~/night-runs/<project>/`:
   one's; run.sh rejects such a line at parse time as `BLOCKED-criteria` and the story never
   runs). Pipes inside the note are fine here — `IFS='|' read -r id slug needs note` lets the
   note absorb every remaining pipe intact; they are a problem only in the table below.
+  **Name mapping, deliberate, do not "correct" either side:** the 4th FIELD of `queue.txt` is
+  called `<note>` because that is the name `run.sh` parses it under
+  (`IFS='|' read -r id slug needs note`, and its block message calls it "the 4th column"), but
+  in the rendered `{{QUEUE_TABLE}}` that same field is the column headed **`criteria`** —
+  which is the header the brief's eight "acceptance-criteria cell" / "criteria column"
+  references resolve against. `queue.txt` keeps `note`; the markdown header says `criteria`.
 - `BRIEF.md`, rendered from `templates/BRIEF.md.tmpl` in three steps, in this order.
 
   **1. Substitute these TWELVE placeholders, and only these twelve.**
@@ -134,11 +146,32 @@ Then write into `~/night-runs/<project>/`:
   {{REQUIRED_CHECK}} {{PER_STORY_TIMEOUT}}` come from the same-named `config.env` fields;
   `{{NIGHT_RULES}}` is the full body of the project's `docs/NIGHT-RULES.md`, verbatim;
   `{{RUN_DATE}}` is `date +%F` of the night being planned;
-  `{{QUEUE_TABLE}}` is the ordered queue as a markdown table (id, size, needs, note) —
+  `{{QUEUE_TABLE}}` is the ordered queue as a markdown table whose header row is exactly
+  `| id | size | needs | criteria |` —
   **escape every `|` inside a cell as `\|`**. Criteria routinely contain pipes
   (`sort -u | wc -l`, a literal `a|b`), and one unescaped pipe splits the row: the proven
   case rendered SIX cells instead of four, with the criteria cell ending mid-word at
   ``Export must emit `a`` — and a reviewer grading that fragment returns a genuine pass.
+
+  **HOW to substitute — `{{NIGHT_RULES}}` is a whole FILE BODY, not a word.** A
+  `sed 's|…|…|'` cannot carry it: the body has NEWLINES (sed's replacement text is one
+  line), and a `&` or a `\1` anywhere in the rules re-inserts the match instead of itself —
+  `run.sh` carries a `sed_repl` escaper for exactly this class of bug. Render the whole file
+  with LITERAL string replacement instead, which has no metacharacters at all:
+
+  ```bash
+  python3 - ~/night-runs/<project>/BRIEF.md <REPO>/docs/NIGHT-RULES.md <<'PY'
+  import sys
+  brief, rules = sys.argv[1], sys.argv[2]
+  body = open(rules).read()                   # verbatim: newlines, &, backslashes and all
+  src  = open(brief).read()
+  assert src.count('{{NIGHT_RULES}}') == 1, 'expected exactly one {{NIGHT_RULES}}'
+  src = src.replace('{{NIGHT_RULES}}', body)  # str.replace: BOTH sides literal
+  # ... the other eleven single-line values exactly the same way, e.g.
+  # src = src.replace('{{PROJECT}}', project)
+  open(brief, 'w').write(src)
+  PY
+  ```
 
   **These FIVE are RUNNER-OWNED: DO NOT SUBSTITUTE THEM, and never invent values.**
   `{{STORY_DEADLINE_EPOCH}} {{STORY_FINALIZE_EPOCH}} {{CI_WAIT_MINUTES}} {{GIT_USER_NAME}}
@@ -183,15 +216,24 @@ Then write into `~/night-runs/<project>/`:
 
   Any line of output is a RENDER BUG: fix it and re-render. Do not proceed to PHASE D, do
   not hand the file to the owner, and never "explain" a leftover token in the gate summary.
-  The five runner-owned names are the only exemption. If `{{NIGHT_RULES}}` survives, the
-  project's `docs/NIGHT-RULES.md` still carries that token inside its own scaffold comment —
-  delete that token from the project's file, it re-injects a live placeholder.
+  The five runner-owned names are the only exemption. A surviving `{{NIGHT_RULES}}` is
+  almost always a BROKEN SUBSTITUTION, not a bad scaffold: `NIGHT-RULES.md.tmpl` spells that
+  name WITHOUT its braces on purpose, so a freshly scaffolded project file CANNOT carry the
+  token. Re-do step 1 with the literal-replace method above — a `sed` that met the body's
+  newlines or an `&` is the usual cause. Check the project's own file only after that, and
+  only because an OLD hand-edited one may still carry it:
+  `/usr/bin/grep -n '{{NIGHT_RULES}}' <REPO>/docs/NIGHT-RULES.md` — a hit there does
+  re-inject a live placeholder, and must be deleted from the project's file.
 
 Also render `config.env` from `templates/config.env.tmpl` if it is not there yet, and
 `settings.local.json` from `templates/settings.local.json.tmpl`, for PHASE E to install.
 The JSON template is NOT copy-ready and its own `_comment_placeholders` says what it needs:
 
-- `<BASE_BRANCH>` and `<BRANCH_PREFIX>` from `config.env`, `<project>` from `PROJECT`.
+- `<BASE_BRANCH>` and `<BRANCH_PREFIX>` from `config.env`, `<project>` from `PROJECT`, and
+  `<NIGHT_DIR>` / `<BASE_DIR>` from `config.env`'s `NIGHT_DIR` and `BASE` — ABSOLUTE, no
+  trailing slash, NEVER `~`: a `Bash(...)` rule is matched against the raw command text, so a
+  `~` in the rule only ever matches a literal tilde. These two scope the `git -C` allow rules
+  to the run's own trees; unscoped, `-C *` reached every git repo on this shared machine.
 - ONE `Edit(<glob>)` deny line per forbidden path in `docs/NIGHT-RULES.md` section 3, and
   one `Read(<glob>)` deny line per secret file. This translation is section 3's ONLY
   enforcement channel — sections 1, 5 and 6 are wired into the brief, section 3 is prose
@@ -205,8 +247,28 @@ Then prove the render, with the `~` expanded:
 
 ```bash
 python3 -c "import json;json.load(open('/home/ubuntu/night-runs/<project>/settings.local.json'))" && echo JSON_OK
-/usr/bin/grep -n '<[A-Za-z]' /home/ubuntu/night-runs/<project>/settings.local.json   # must print nothing
+python3 - /home/ubuntu/night-runs/<project>/settings.local.json <<'PY'
+import json, re, sys
+perms = json.load(open(sys.argv[1]))["permissions"]
+bad = [r for r in perms.get("allow", []) + perms.get("deny", []) if re.search(r"<[A-Za-z]", r)]
+for r in bad:
+    print("UNRENDERED RULE:", r)
+sys.exit(1 if bad else 0)
+PY
+echo "rules rc=$?"   # 0 = every allow/deny entry is rendered; anything else = the lines above
 ```
+
+**The check is scoped to the RULES, never to the whole file, and that is load-bearing.** A
+whole-file `grep '<[A-Za-z]'` is UNSATISFIABLE: on a PERFECT render it still returns 6 hits,
+every one of them inside the `_comment*` documentation keys, which legitimately spell
+`<BASE>`, `<glob>`, `<dir>`, `<stamp>`, `<angle-bracket>`, `<RUN_DATE>`, `<id>`, `<date>`
+and `<project>`. Faced with a check that cannot pass, an agent either deletes those comment
+blocks — destroying the measured matcher and symlink knowledge the file exists to carry —
+or learns to wave the hits through; and the next thing waved through is a REAL leftover
+(`Edit(//<absolute path of the deployed tree…>/**)`, the section-3 line, or
+`<PR number the run must never merge>`) sitting inside `permissions.deny` matching NOTHING,
+with section 3 then unenforced for the whole night. The JSON-scoped check above returns
+nothing on that same perfect render and NAMES every leftover on a bad one.
 
 ## PHASE D — Approval gate
 
@@ -218,9 +280,13 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    that **every item passes the Opus review-and-fix loop and must be review-green AND
    CI-green before anything is merged**;
 3. what was deferred, and why; 4. every blocker PHASE A found;
-5. one line that the PHASE C render gate came back clean (no leftover placeholder, JSON
-   valid, no `<angle-bracket>` left in `settings.local.json`) — if it did not, you are not
-   at this gate yet.
+5. one line that the PHASE C render gate came back clean: no leftover `{{placeholder}}` in
+   `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
+   `permissions.allow + permissions.deny` printed no `UNRENDERED RULE:` line (`rules rc=0`).
+   Say it in those words. The `_comment*` keys of `settings.local.json` DO still contain
+   `<angle-bracket>` text and that is correct — they are documentation, they are not rules,
+   and they are outside the check on purpose. If the rules check did not come back 0, you
+   are not at this gate yet.
 The owner approves or edits once. Then go to PHASE E.
 
 ## PHASE E — Launch (the owner's step)
@@ -260,7 +326,9 @@ ls -l <BASE>/.claude/
 cd <BASE>
 setsid nohup bash <absolute path of run.sh> --config ~/night-runs/<project>/config.env --deadline "<HH:MM>" >> ~/night-runs/<project>/logs/console.log 2>&1 &
 CFG=~/night-runs/<project>/config.env
-for p in $(pgrep -f 'run\.sh'); do
+pids=$(pgrep -f 'run\.sh'); rc=$?   # 0=hits 1=none >1=the SCAN itself failed
+[ "$rc" -le 1 ] || echo "RUNNER SCAN FAILED (pgrep rc=$rc) — this is NOT 'nothing started'"
+for p in $pids; do
   [ -r "/proc/$p/cmdline" ] || continue
   argv=$(tr '\0' '\n' < "/proc/$p/cmdline" 2>/dev/null) || continue
   a0=$(printf '%s\n' "$argv" | sed -n 1p); a1=$(printf '%s\n' "$argv" | sed -n 2p)
@@ -282,8 +350,11 @@ if `hours:` would run past it, queue less and say so at the PHASE D gate — a 0
 with `hours:8` puts eight hours of work into a 5.5-hour window and the rest is simply parked.
 
 > **Success:** the last command prints exactly ONE pgid, and it is a NEW number, not one you
-> saw in PHASE A. `tail ~/night-runs/<project>/logs/runner.log` then shows `RUN start`
-> followed by `START <first id>`.
+> saw in PHASE A. If it prints `RUNNER SCAN FAILED`, the check broke, NOT the launch: do NOT
+> re-run the launch line — that is how a second runner ends up in one worktree. Read
+> `tail ~/night-runs/<project>/logs/runner.log` instead, and fix `pgrep` first.
+> On a clean ONE-pgid result, `tail ~/night-runs/<project>/logs/runner.log` then shows
+> `RUN start` followed by `START <first id>`.
 > **Likeliest failure:** the launch line prints
 > `bash: .../logs/console.log: No such file or directory` and nothing starts. The `logs/`
 > directory is missing, the redirect fails in YOUR shell before run.sh ever runs, and there
@@ -297,9 +368,26 @@ with `hours:8` puts eight hours of work into a 5.5-hour window and the rest is s
 ## PHASE F — Morning follow-through (`report` mode)
 
 Per spec section 5: read `~/night-runs/<project>/REPORT-<date>.md` and this run's
-`~/night-runs/<project>/state-<date>.txt` — `state.txt` is only a symlink to it, and a real
-`state.txt` left by an older runner was preserved as `state-before-<date>.txt`, which is NOT
-tonight's run and must not be read as it; review every still-open PR with
+`~/night-runs/<project>/state-<date>.txt`.
+
+**Resolve `<date>` first — do not guess it and never glob `state-*.txt`.** The report runs
+the morning AFTER `RUN_DATE`, so `state-$(date +%F).txt` is yesterday's name and does not
+exist; and `state-*.txt` also matches `state-before-<date>.txt`, the real `state.txt` an
+OLDER runner left behind, which is NOT tonight's run. Take the symlink, and fall back to the
+newest `state-2*.txt` (that glob cannot match `state-before-…`):
+
+```bash
+ND=~/night-runs/<project>
+tgt=$(readlink "$ND/state.txt" 2>/dev/null)          # empty when it is not a symlink
+if [ -n "$tgt" ]; then STATE="$ND/${tgt##*/}"; else STATE=$(ls -1t "$ND"/state-2*.txt 2>/dev/null | head -1); fi
+REPORT=$(ls -1t "$ND"/REPORT-2*.md 2>/dev/null | head -1)
+RUN_DATE=${STATE##*/state-}; RUN_DATE=${RUN_DATE%.txt}
+echo "state=$STATE report=$REPORT run_date=$RUN_DATE"
+```
+
+Empty `STATE` means no run wrote rows: say exactly that in the report and read nothing else
+as a substitute. A `STATE` whose name contains `before` means the fallback was mis-typed —
+stop and resolve it by hand. Then: review every still-open PR with
 ONE Opus sub-agent each in the spec's verdict format, never in the main thread; merge only
 PRs that are BOTH review-green and CI-green under the NIGHT-RULES merge policy — a PR the
 night PARKED is re-reviewed, not waved through because it is morning; run the post-merge
