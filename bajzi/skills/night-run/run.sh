@@ -12,13 +12,20 @@
 #   --smoke     one short session that proves the headless setup works, then exit
 #   --one <id>  run only that queue id
 #   --deadline  stop before the next story once this moment has passed. Accepts a
-#               full timestamp ("2026-09-18 07:30") or a bare HH:MM, which means
-#               the next occurrence of that time (so 07:30 typed at 23:00 is
-#               tomorrow morning). Compared with `date -d`.
+#               full timestamp ("2026-09-18 07:30") or a bare H:MM / HH:MM, which
+#               means the next occurrence of that time (so 7:30 or 07:30 typed at
+#               23:00 is tomorrow morning; both forms behave identically).
+#               Compared with `date -d`. A deadline that is still in the past
+#               after the roll-forward is REFUSED with a non-zero exit — a night
+#               that silently does nothing is the worst outcome.
 #   --report    only (re)write REPORT-<date>.md from the logs; a normal run ends
 #               with that same report session by itself.
 #
 #   kill switch: touch $NIGHT_DIR/STOP   (checked between stories)
+#
+# Every queue line ends up in $NIGHT_DIR/state.txt: either "<id> <exit code>" for
+# a story that ran, or "<id> BLOCKED-queue|BLOCKED-needs|DEFERRED-needs <time>
+# <reason>" for one that could not. Nothing is ever dropped silently.
 #
 # LAUNCH IT WITH setsid — this is required, not cosmetic:
 #
@@ -282,7 +289,8 @@ needs_satisfied(){ # <needs column>: '-' (none) or a PR reference that must be M
 # BRIEF.md is rendered by the skill, except for the values only the runner can
 # know or must pin. Each story gets its own copy with those substituted.
 render_brief(){ # id story_deadline_epoch -> prints the path of the story's brief
-  local id=$1 epoch=$2 out=$NIGHT_DIR/BRIEF-$id.md
+  local id=$1 epoch=$2
+  local out=$NIGHT_DIR/BRIEF-$id.md
   if [ ! -f "$BRIEF" ]; then printf '%s\n' "$BRIEF"; return 1; fi
   sed -e "s|{{STORY_DEADLINE_EPOCH}}|$epoch|g" \
       -e "s|{{CI_WAIT_MINUTES}}|$CI_WAIT_MINUTES|g" \
@@ -290,7 +298,8 @@ render_brief(){ # id story_deadline_epoch -> prints the path of the story's brie
       -e "s|{{GIT_USER_EMAIL}}|$GIT_USER_EMAIL|g" \
       "$BRIEF" >"$out" || { printf '%s\n' "$BRIEF"; return 1; }
   if grep -q '{{[A-Z_]*}}' "$out"; then
-    log "WARNING $id: $out still contains unsubstituted placeholder(s): $(grep -o '{{[A-Z_]*}}' "$out" | sort -u | tr '\n' ' ')"
+    # stderr: this function's stdout is the brief path and nothing else.
+    log "WARNING $id: $out still contains unsubstituted placeholder(s): $(grep -o '{{[A-Z_]*}}' "$out" | sort -u | tr '\n' ' ')" >&2
   fi
   printf '%s\n' "$out"
 }
@@ -343,7 +352,7 @@ run_story(){ # id slug note
 write_report(){ # one more fresh session that consolidates the night into REPORT-<date>.md
   local out=$NIGHT_DIR/REPORT-$RUN_DATE.md rc
   log "REPORT start -> $out"
-  ( cd "$BASE" && env -u CLAUDECODE timeout 1800 "$CLAUDE_BIN" -p "Write the night report for the $PROJECT overnight run of $RUN_DATE. Read these with Bash, change nothing else: $STATE; $LOGS/runner.log; the RESULT lines from grep -h 'RESULT ' $LOGS/*.log; $BASE/runtime/AUTOPILOT-REPORT.md; $BASE/runtime/DECISIONS.md if present; gh pr list -R $REPO --state all --limit 20 --json number,title,state,mergedAt,headRefName; and brain next $PROJECT. Write $out in English with: 1) a one-paragraph summary (stories attempted, merged, open, parked, blocked); 2) one table row per story: id, result, PR, merged or open, review verdict and rounds, tests run; 3) decisions taken on the owner's behalf; 4) PARKED and BLOCKED items with reasons, naming which floor was hit (review, timeout or context); 5) any story reported merged or open with review=parked, flagged as a contradiction; 6) LET'S REVIEW THIS TOGETHER in priority order; 7) worktrees under $NIGHT_DIR/wt that are dirty, unpushed or parked and must be kept; 8) what the Brain recommends next. Then run: update-monitor note \"$PROJECT overnight run $RUN_DATE: <one line with PR numbers>\" and brain note night run $RUN_DATE: <one line>. Finish with the line REPORT WRITTEN $out" \
+  ( cd "$BASE" && env -u CLAUDECODE timeout 1800 "$CLAUDE_BIN" -p "Write the night report for the $PROJECT overnight run of $RUN_DATE. Read these with Bash, change nothing else: $STATE; $LOGS/runner.log; the RESULT lines from grep -h 'RESULT ' $LOGS/*.log; $BASE/runtime/AUTOPILOT-REPORT.md; $BASE/runtime/DECISIONS.md if present; gh pr list -R $REPO --state all --limit 20 --json number,title,state,mergedAt,headRefName; and brain next $PROJECT. Write $out in English with: In $STATE a numeric second field is a story that ran and its exit code, while BLOCKED-queue, BLOCKED-needs and DEFERRED-needs are runner-side outcomes with the reason in the rest of the line; every one of them is a queue line that never ran and MUST appear in the table and in section 4, never be omitted. 1) a one-paragraph summary (stories attempted, merged, open, parked, blocked, plus blocked-before-start); 2) one table row per story: id, result, PR, merged or open, review verdict and rounds, tests run; 3) decisions taken on the owner's behalf; 4) PARKED and BLOCKED items with reasons, naming which floor was hit (review, timeout or context); 5) any story reported merged or open with review=parked, flagged as a contradiction; 6) LET'S REVIEW THIS TOGETHER in priority order; 7) worktrees under $NIGHT_DIR/wt that are dirty, unpushed or parked and must be kept; 8) what the Brain recommends next. Then run: update-monitor note \"$PROJECT overnight run $RUN_DATE: <one line with PR numbers>\" and brain note night run $RUN_DATE: <one line>. Finish with the line REPORT WRITTEN $out" \
       --permission-mode "$PERM_MODE" "${EXTRA[@]}" --output-format text </dev/null ) >"$LOGS/report.log" 2>&1
   rc=$?
   log "REPORT rc=$rc $(grep -o 'REPORT WRITTEN .*' "$LOGS/report.log" | tail -1)"
@@ -378,24 +387,43 @@ log "RUN start (project=$PROJECT dry=$DRY one=${ONE:-all} deadline=$log_deadline
 for pass in 1 2; do
   deferred=0
   while IFS='|' read -r id slug needs note || [ -n "${id:-}" ]; do
-    id=${id# }; id=${id%% }
+    id=$(trim "${id:-}")
     [ -z "$id" ] && continue
     case "$id" in \#*) continue;; esac
     [ -n "$ONE" ] && [ "$id" != "$ONE" ] && continue
     is_done "$id" && continue
+    slug=$(trim "${slug:-}")
+    # A line with no `|`, or a truncated one, used to start a story on the
+    # branch feat/<prefix>-<id>-  with an empty slug. Both fields are mandatory.
+    if [ -z "$slug" ]; then
+      log "BLOCKED $id — malformed queue line: no slug (a queue line is 'id|slug|needs|note')"
+      [ $DRY -eq 0 ] && record_state "$id" BLOCKED-queue "malformed queue line: no slug"
+      continue
+    fi
     [ -e "$STOP" ] && { log "STOP file present — stopping before $id"; finish; }
-    past_deadline && { log "deadline $DEADLINE passed — stopping before $id"; finish; }
+    past_deadline && { log "deadline $log_deadline passed — stopping before $id"; finish; }
     if [ $DRY -eq 1 ]; then
       # A dry run previews the whole queue, gated items included, and never
       # calls gh: it annotates the gate instead of evaluating it.
-      case "${needs:--}" in -|none|NONE) :;; *) printf '### %s is gated on PR #%s being MERGED in %s\n' "$id" "$needs" "$REPO";; esac
+      case "${needs:--}" in -|none|NONE) :;; *) printf '### %s is gated on PR #%s being MERGED in %s\n' "$id" "$(printf '%s' "$needs" | tr -dc '0-9')" "$REPO";; esac
       run_story "$id" "$slug" "${note:-}"
       continue
     fi
     if ! disk_ok; then log "free disk $(free_gb)G below DISK_FLOOR_GB=${DISK_FLOOR_GB}G — stopping before $id"; finish; fi
-    if ! needs_satisfied "${needs:--}"; then
-      log "SKIP $id (needs PR #${needs:-?} not merged yet, pass $pass)"
+    needs_satisfied "${needs:--}"; ns=$?
+    if [ $ns -eq 2 ]; then
+      # Not a skip: a needs value with no PR number in it is a configuration
+      # error, and it is recorded and reported, never silently dropped.
+      log "BLOCKED $id — needs='$(trim "${needs:-}")' contains no PR number (accepted forms: 115, #115, pr115, PR#115)"
+      record_state "$id" BLOCKED-needs "needs='$(trim "${needs:-}")' contains no PR number"
+      continue
+    fi
+    if [ $ns -ne 0 ]; then
+      log "SKIP $id (needs PR #$(printf '%s' "$needs" | tr -dc '0-9') not merged yet, pass $pass)"
       deferred=$((deferred + 1))
+      # On the LAST pass the deferral is final, so it gets a row of its own and
+      # appears in the morning report like every other queue line.
+      [ "$pass" -eq 2 ] && record_state "$id" DEFERRED-needs "PR #$(printf '%s' "$needs" | tr -dc '0-9') never merged tonight"
       continue
     fi
     run_story "$id" "$slug" "${note:-}"
