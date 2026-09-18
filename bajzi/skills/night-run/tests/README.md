@@ -6,9 +6,9 @@ every check passed.
 
 ```bash
 cd bajzi/skills/night-run
-bash tests/lock-race.sh        # ~60 s   (40 race trials; `bash tests/lock-race.sh 8` for a quick pass)
-bash tests/quota.sh            # ~55 s
-bash tests/watch.sh            # ~5 s    (night-watch.sh only: no run.sh, no claude)
+bash tests/lock-race.sh        # ~90 s   (40 race trials; `bash tests/lock-race.sh 8` for a quick pass)
+bash tests/quota.sh            # ~75 s
+bash tests/watch.sh            # ~35 s   (night-watch.sh only: no run.sh, no claude)
 ```
 
 All three scripts are safe to run on a machine that has a real night running:
@@ -34,7 +34,7 @@ That is how the "before" numbers below were measured.
 | `lib.sh` | fixtures, sourced by both tests: a git-initialised `BASE` with `.claude/settings.local.json`, a `NIGHT_DIR` with `queue.txt` + `BRIEF.md`, a `config.env` the runner accepts, the fake claude, and the stray-process sweep |
 | `lock-race.sh` | the run lock and per-story session liveness |
 | `quota.sh` | what happens when the model says "You've hit your session limit" |
-| `watch.sh` | `night-watch.sh` alone: its statuses, its restart budget and its mode gate. Standalone — it sources nothing, fakes `run.sh` with a stub that only records its argv, and shadows `update-monitor` with a stub on `PATH` |
+| `watch.sh` | `night-watch.sh` alone: its statuses, its marker dating, its restart budget, its single-instance guard and its mode gate. Standalone — it sources nothing, fakes `run.sh` with stubs that record their argv (one of them also behaving like the real runner at queue start), and shadows `update-monitor` with a stub on `PATH` |
 
 ### The fake claude
 
@@ -49,6 +49,9 @@ the plan runs out):
 | `hang[:secs]` | sleep, exit 0 — a session that outlives its wrapper |
 | `orphan[:secs]` | exit 0 but leave a member behind in the story's session |
 | `raw:<text>` | print `<text>` and exit 1 — used to pin an exact reset time and zone |
+| `past:<min>` | the session-limit message with a reset `<min>` minutes in the **past**, minute-truncated like the real one |
+| `limitnoise[:n]` | the session-limit message followed by `n` (default 20) more output lines, exit 1 |
+| `limitok` | the session-limit message, then exit 0 — rc 0 is never a quota row |
 
 The reset time is rounded UP to the next whole minute, because the real message
 carries no seconds and a truncated one would land in the past.
@@ -72,14 +75,27 @@ the tests prove fd 9 — the run lock — never reaches a session.
    sid>` lists the story's members while it runs; `wait` still returns each
    story's real exit code; a story that left a member behind is drained after
    the wait; and a story whose recorded session is STILL ALIVE is skipped
-   rather than started a second time — with no state row written for the skip.
-4. **(iii) no fd leak.** Across every session the whole suite launched, not one
+   rather than started a second time — leaving a **non-terminal
+   `DEFERRED-alive sid=<sid>` row**, because nothing is ever dropped silently.
+4. **(v) fd 9 in the retry loop.** A **decoy** process whose argv names
+   `run.sh` and carries the same `--config` keeps the real runner spinning in
+   the post-acquire retry loop while it already holds the lock. Every `sleep`
+   the runner forks there is inspected: none may carry fd 9, or a SIGKILLed
+   runner would leave the project locked by a sleeping child.
+5. **(vi) the night files the queue run owns.** A queue run deletes yesterday's
+   `finished` and `watch.restarts` when it takes the night and writes
+   `finished` only at the end; a pre-placed `STOP` is the owner's and survives;
+   and `--report` leaves `run.args`, `run.meta` and `finished` untouched, so a
+   watcher polling a queue run that died is never told the night was a report
+   run that already finished.
+6. **(iii) no fd leak.** Across every session the whole suite launched, not one
    fd table contains fd 9.
 
 ## What `watch.sh` proves
 
-Each scenario builds a throwaway `NIGHT_DIR` under `$NR_SCRATCH`, runs
-`night-watch.sh --once` and reads the single status line.
+Most scenarios build a throwaway `NIGHT_DIR` under `$NR_SCRATCH`, run
+`night-watch.sh --once` and read the single status line; the last three start a
+real watcher with `--interval 2` and then stop it.
 
 1. **healthy / stalled.** A real `flock` holder stands in for the runner: fresh
    heartbeat is `OK runner=alive`, a 300 s old one is `STALLED` (the watcher's
@@ -87,8 +103,11 @@ Each scenario builds a throwaway `NIGHT_DIR` under `$NR_SCRATCH`, runs
 2. **restart, then DEAD.** With no lock holder the runner is dead, so the
    watcher re-execs `run.args` **verbatim** — `run.args` is the complete argv,
    argv[0] first, and the stub must therefore receive exactly
-   `--config <cfg> --deadline 04:30`, never its own path as `$1`. Two restarts,
-   then `DEAD`: exactly two stub calls, never a third.
+   `--config <cfg> --deadline 04:30`, never its own path as `$1`. Three
+   SEPARATE `--once` processes: the first restarts and leaves the crash hint
+   `watch.restarts=1`, the second resumes the count FROM that hint
+   (`RESTART 2/2`, and it says so), the third is `DEAD`. Exactly two stub
+   calls, never a third.
 3. **quota.** `quota-until` in the future is `QUOTA-WAIT` and no restart.
    60 s PAST it, with `QUOTA_MARGIN_SEC="600"` in the config, is `quota=none`:
    `run.sh` already added the margin before writing the file, so the watcher
@@ -98,8 +117,36 @@ Each scenario builds a throwaway `NIGHT_DIR` under `$NR_SCRATCH`, runs
 5. **finished.** A `finished` marker gives `FINISHED` and exit 0.
 6. **notify.** Two identical ticks notify once; a status change notifies again.
 7. **mode gate.** `run.meta` with `mode=report` makes the watcher log and exit 0
-   before its first tick — a `--report` or `--smoke` run is never restarted.
-8. **teardown.** No process is left under the scratch tree.
+   before its first tick. Belt and braces: only a queue run publishes `run.meta`
+   at all, so this is for a hand-started watcher and for an older runner's
+   leftovers.
+8. **a SECOND night in the same directory.** `NIGHT_DIR` is permanent, so
+   yesterday's `finished`, `STOP` and `watch.restarts` are still in it: each is
+   logged once and treated as absent, the dead runner is restarted `1/2`, and
+   `watch.restarts` is overwritten with `1`. Tonight's own `finished` and `STOP`
+   (mtime now) still end the watch with `FINISHED` / `STOPPED`.
+9. **an undatable run fails closed.** No `run.meta`, or a `started_epoch` that
+   is not an epoch (an ISO string), is `UNKNOWN` and restarts nothing.
+10. **`DEFERRED-*` is never counted done.** A `DEFERRED-alive` row leaves
+    `queue=1/2 deferred=1`; the counting is prefix based, so a new token needs
+    no change here.
+11. **single-instance guard + TERM.** A process merely NAMED `night-watch.sh`
+    that watches another run does not block a new watcher (the guard checks the
+    argv basename AND the config/night dir); a real second watcher on the same
+    config declines with exit 0; and a `TERM` stops the watcher within a second,
+    because each sleep slice is a child it `wait`s on, and removes `watch.pid`.
+12. **the restart budget survives the runner it restarts.** A LIVE watcher
+    against a stub that behaves like the real `run.sh` at queue start — it
+    deletes `watch.restarts` and republishes `run.meta` with a fresh
+    `started_epoch` — still restarts exactly `WATCH_MAX_RESTARTS=2` times and
+    then says `DEAD`. The budget is the watcher's own in-memory count; the file
+    is only a crash hint for the next process.
+13. **a `STOP` dropped just before a RESTART still stops the run.** It is older
+    than the restarted runner's `started_epoch` but newer than the watcher's own
+    start, so it is tonight's: `STOPPED`, exit 0, and never logged as stale.
+    (`lock-race.sh` (vi) proves the runner's half — a pre-placed `STOP` survives
+    the start of the run and stops the night before the first story.)
+14. **teardown.** No process is left under the scratch tree.
 
 ## What `quota.sh` proves
 
@@ -121,3 +168,17 @@ queue in **one second** — which is exactly what happened in production on
 * **(D) `resets 11:05pm (Europe/Budapest)`.** Parsed to the exact epoch via
   `date -d 'TZ="…" …'`, and with a `--deadline` three minutes out the runner
   refuses the wait, says the deadline was why, and still reports.
+* **(E1) a reset one minute in the past.** The message is minute-truncated, so
+  a reset announced at 11:02 and read at 11:03 is the SAME reset: the runner
+  waits `QUOTA_MARGIN_SEC`, not a day. (Measured before the fix:
+  `QUOTA-WAIT until <tomorrow> (1442 min)`, holding `run.flock` for a day.)
+* **(E2) a reset twenty minutes in the past + a small `QUOTA_MAX_WAIT_SEC`.**
+  That one really is tomorrow's, and a wait that long is refused: the run
+  finishes in seconds, the rows stay `DEFERRED-quota`, and the deterministic
+  report lists the story the walk never reached as **`not reached`**.
+* **(E3) the same reset with a large cap** resolves to the next occurrence of
+  that time — a full day out — and the `--deadline` is what bars the wait.
+* **(F) the message is not always the last line.** A limit message followed by
+  20 more output lines is still classified `DEFERRED-quota` (the classifier
+  reads the last 40 non-empty lines, not 8), and the same message with exit
+  code 0 is never a quota row.

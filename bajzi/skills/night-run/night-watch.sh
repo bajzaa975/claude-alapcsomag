@@ -27,7 +27,6 @@
 #   run.flock    never unlinked; run.sh holds flock on it for the run's lifetime.
 #                LIVENESS TEST: `flock -n` SUCCEEDS => no runner alive (the lock
 #                is released again immediately — this is a probe, never a hold).
-#   run.lock     the runner's pgid, one line (observability only)
 #   heartbeat    touched at least every 60 s while the runner lives (run.sh
 #                beats in its story poll, its quota wait and once per queue
 #                line); older than HEARTBEAT_STALL_SEC = STALLED
@@ -37,22 +36,51 @@
 #                quota-until > now. Adding the margin twice here is how a
 #                one-off 3-minute grace silently became six.
 #   run.meta     key=value: pgid started_epoch deadline_epoch run_date base
-#                night_dir skill_dir config mode. mode is queue|report|smoke;
-#                ONLY mode=queue is watched — a --report or --smoke run wants no
-#                watchdog, and a missing mode (an older runner) counts as queue.
+#                night_dir skill_dir config mode. ONLY a QUEUE run publishes
+#                this file at all (--report and --smoke take the lock and
+#                publish nothing), so mode is effectively always queue; the
+#                mode gate below is belt-and-braces for a hand-started watcher
+#                and for an older runner's leftovers, and a missing mode counts
+#                as queue. started_epoch is a BARE EPOCH, written before this
+#                script is spawned.
+#                started_epoch DATES THE RUN. NIGHT_DIR is PERMANENT, so the
+#                markers below survive the night that wrote them: every one
+#                whose mtime is OLDER than started_epoch belongs to an earlier
+#                night and is treated as ABSENT (logged once). No run.meta, or
+#                no sane started_epoch => UNKNOWN and no restart: a watcher that
+#                cannot date the markers must not act on them.
 #   run.args     the runner's COMPLETE argv, one word per line, argv[0] (the
 #                absolute path of run.sh) FIRST: a restart re-execs it verbatim
 #                with `mapfile -t A <run.args; setsid "${A[@]}"`, never
 #                <skill_dir>/run.sh plus those words — that doubled the path.
-#   finished     epoch, written after the report when a non-dry run has ended
+#   finished     epoch, written after the report when a non-dry run has ended.
+#                IGNORED when older than started_epoch — otherwise, from the
+#                second night on, the watcher read yesterday's marker two
+#                seconds after being spawned, printed FINISHED and left the
+#                runner unwatched until morning.
 #   STOP         if present the runner stops before the next story; THIS SCRIPT
-#                MAY CREATE IT (disk floor breach) and writes the reason into it
+#                MAY CREATE IT (disk floor breach) and writes the reason into
+#                it. run.sh NEVER deletes it, and dates it not at all — so the
+#                watcher dates it against the EARLIER of started_epoch and its
+#                OWN start: a restart rewrites started_epoch, and a STOP the
+#                owner dropped in the seconds before that restart is older than
+#                it yet plainly tonight's. Older than this watcher's own start
+#                => an earlier night's, ignored.
 #   state.txt    symlink to state-<run_date>.txt, rows `<id> <token> <ISO> [why]`
 #                the LAST row of an id is its outcome; DEFERRED-* is NOT done
 #   queue.txt    the queue run.sh walks: `id|slug|needs|note`, # comments
 #   story/<id>.sid   session id of a launched story; `pgrep -s <sid>` = members
 # FILES IT WRITES under $NIGHT_DIR
 #   watch.pid  watch.status  watch.restarts  (and STOP, on a disk floor breach)
+#   watch.restarts A CRASH HINT, NOT THE BUDGET. The budget is an in-memory
+#     counter that lives as long as this watcher, which outlives every runner it
+#     restarts. The file is read ONCE, at start, and only when it is newer than
+#     started_epoch (else the count starts at 0); every restart writes it both
+#     before and after the spawn, and it is never read again. It cannot be
+#     authoritative: the restarted run.sh deletes it at queue start and writes a
+#     fresh started_epoch seconds later, which would reset the count to 0 after
+#     every restart and make the restarts unbounded.
+#   logs/runner-restart-<n>.log   stdout+stderr of the n-th restarted runner
 #
 # ONE LINE PER TICK, on stdout:
 #   <ISO UTC> <STATUS> runner=<alive|dead> hb=<age s> disk=<free G>
@@ -70,8 +98,10 @@
 #   FINISHED   `finished` exists — logs the summary and exits 0
 #   STOPPED    STOP exists and the runner is dead — exits 0
 #   EXPIRED    now > deadline_epoch + 1800 — exits 0
-#   UNKNOWN    a check the watcher depends on failed (no flock, df or pgrep
-#              broke). Fail-closed: never reported as OK.
+#   UNKNOWN    a check the watcher depends on failed: no flock, a broken pgrep,
+#              or a run.meta that is missing or carries no usable started_epoch.
+#              Fail-closed: never reported as OK, and nothing is restarted. An
+#              unreadable df is NOT this — that is DISK-LOW, see above.
 #
 # NOTIFY happens on TRANSITIONS only (previous status kept in watch.status), and
 # on each restart: `update-monitor note "night-run <project>: ..."` when
@@ -111,6 +141,9 @@ set -a
 # shellcheck source=/dev/null
 . "$CONFIG"
 set +a
+
+CONFIG_ABS=$(readlink -f "$CONFIG" 2>/dev/null) || CONFIG_ABS=""
+[ -n "$CONFIG_ABS" ] || CONFIG_ABS=$CONFIG
 
 NIGHT_DIR=${NIGHT_DIR:-}
 BASE=${BASE:-}
@@ -162,24 +195,56 @@ PIDFILE=$NIGHT_DIR/watch.pid
 STATUS_FILE=$NIGHT_DIR/watch.status
 RESTART_FILE=$NIGHT_DIR/watch.restarts
 
+# WHEN THIS WATCHER STARTED. It is the second floor for the owner's STOP: see
+# stop_floor() below. Read once, never again — it dates US, not the run.
+WATCH_START=$(date +%s)
+
 now_iso(){ date -u +%FT%TZ; }
 say(){ printf '%s %s\n' "$(now_iso)" "$*"; }
 
 # ---------------------------------------------------------- single watcher ---
 # Two watchers on one NIGHT_DIR would double every restart. A stale pid file is
 # not a reason to refuse: only a LIVE night-watch.sh is.
+# BOTH halves are required. "cmdline CONTAINS night-watch.sh" is not a watcher:
+# a renamed sleep, an editor or a grep matched it and blocked every new watcher
+# on the machine. So: some argv element's BASENAME must be exactly night-watch.sh
+# AND the process must name the same config (or the same NIGHT_DIR) as we do.
+is_our_watcher(){ # pid -> 0 when pid is a live night-watch.sh watching THIS run
+  local pid=$1 a named=0 same=0
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  local argv=()
+  mapfile -d '' -t argv <"/proc/$pid/cmdline" 2>/dev/null || return 1
+  [ "${#argv[@]}" -gt 0 ] || return 1
+  for a in "${argv[@]}"; do
+    [ "${a##*/}" = "$PROG" ] && named=1
+    case "$a" in "$CONFIG"|"$CONFIG_ABS"|"$NIGHT_DIR") same=1;; esac
+  done
+  # Started from NIGHT_CONFIG instead of --config: the env carries the same fact.
+  if [ "$named" -eq 1 ] && [ "$same" -eq 0 ] && [ -r "/proc/$pid/environ" ]; then
+    while IFS= read -r -d '' a; do
+      case "$a" in
+        NIGHT_CONFIG="$CONFIG"|NIGHT_CONFIG="$CONFIG_ABS"|NIGHT_DIR="$NIGHT_DIR") same=1; break;;
+      esac
+    done <"/proc/$pid/environ"
+  fi
+  [ "$named" -eq 1 ] && [ "$same" -eq 1 ]
+}
 if [ -f "$PIDFILE" ]; then
   other=$(head -1 "$PIDFILE" 2>/dev/null | tr -dc '0-9')
-  if [ -n "$other" ] && [ "$other" != "$$" ] && [ -r "/proc/$other/cmdline" ]; then
-    # -F: a recycled pid running something else must not match, and PROG is a
-    # literal file name, not a pattern (the dot would match any character).
-    if tr '\0' '\n' < "/proc/$other/cmdline" 2>/dev/null | /usr/bin/grep -qF "$PROG"; then
+  if [ -n "$other" ] && [ "$other" != "$$" ]; then
+    if is_our_watcher "$other"; then
       say "another $PROG is already watching $NIGHT_DIR (pid $other) — exiting."
       exit 0
     fi
+    say "$PIDFILE holds pid $other, which is not a live $PROG for this run — taking it over."
   fi
 fi
 printf '%s\n' "$$" >"$PIDFILE" 2>/dev/null || say "WARNING: could not write $PIDFILE"
+
+# The current sleep slice runs as a CHILD, so a TERM can be acted on at once
+# instead of up to 60 s later; on_signal kills that child (the only process this
+# script ever signals is one it started itself).
+SLEEP_PID=""
 
 # shellcheck disable=SC2317  # both run from traps
 cleanup(){
@@ -190,7 +255,12 @@ cleanup(){
   fi
 }
 # shellcheck disable=SC2317  # runs from the INT/TERM trap
-on_signal(){ say "$PROG: signalled — stopping."; cleanup; exit 0; }
+on_signal(){
+  say "$PROG: signalled — stopping."
+  [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
+  cleanup
+  exit 0
+}
 trap on_signal INT TERM
 trap cleanup EXIT
 
@@ -233,17 +303,85 @@ meta_get(){ # key -> value, empty when absent
 }
 
 # ------------------------------------------------------------ which mode? ---
-# Only a QUEUE run is watched. run.sh spawns this script in queue mode only,
-# but a human can start it by hand next to a `--report` or `--smoke` run, and
-# restarting one of those from run.args would re-run a report nobody asked for.
-# A run.meta with no mode= line is an older runner: it can only have been a
-# queue run, so it is watched.
+# BELT AND BRACES, and unreachable in a normal night. run.sh publishes run.args
+# and run.meta ONLY from a queue run — `--report` and `--smoke` take the lock
+# and publish nothing — so a run.meta found here effectively always says
+# mode=queue. The gate stays for the two cases that are not a normal night: a
+# human starting this script by hand next to a report or smoke run, and a
+# run.meta left by an OLDER runner that did publish one. Restarting either from
+# run.args would re-run a report nobody asked for. A run.meta with no mode=
+# line is an older runner: it can only have been a queue run, so it is watched.
 RUN_MODE=$(meta_get mode | tr -dc '[:lower:]')
 if [ -n "$RUN_MODE" ] && [ "$RUN_MODE" != queue ]; then
   say "$PROG: run.meta says mode=$RUN_MODE (not queue) — a $RUN_MODE run needs no watchdog. Exiting."
   cleanup
   exit 0
 fi
+
+# ------------------------------------------------ which NIGHT is this one? ---
+# NIGHT_DIR is the project's PERMANENT directory, so last night's finished, STOP
+# and watch.restarts are still lying in it when tonight's runner starts. Without
+# dating them the watcher printed FINISHED two seconds after being spawned and
+# the runner ran unwatched all night, and a spent restart budget disarmed every
+# following night. run.sh deletes those markers at queue start; this is the
+# second belt, and the only one that also covers STOP.
+iso_of(){ date -u -d "@$1" +%FT%TZ 2>/dev/null || printf '%s' "$1"; }
+
+RUN_START=""
+RUN_START_WHY=""
+read_run_start(){ # 0 = RUN_START is a usable epoch, 1 = this run cannot be dated
+  local raw v now_s
+  RUN_START=""; RUN_START_WHY=""
+  if [ ! -f "$META" ]; then
+    RUN_START_WHY="$META is missing — this run cannot be dated, so tonight's markers cannot be told from an older night's"
+    return 1
+  fi
+  raw=$(meta_get started_epoch)
+  v=$(printf '%s' "$raw" | tr -dc '0-9')
+  now_s=$(date +%s)
+  # A SANE epoch only: an ISO timestamp squeezed through `tr -dc 0-9` becomes a
+  # 14-digit number that would make every marker look stale for ever.
+  if [ -z "$v" ] || [ "$v" -lt 1000000000 ] || [ "$v" -gt $((now_s + 86400)) ]; then
+    RUN_START_WHY="$META has no usable started_epoch (got '$raw')"
+    return 1
+  fi
+  RUN_START=$v
+  return 0
+}
+
+STALE_SEEN=""
+# 0 = the marker is at or after <floor> (or cannot be dated at all: fail
+# closed), 1 = absent, or older than <floor> and therefore an earlier night's.
+marker_since(){ # path label floor
+  local f=$1 label=$2 floor=$3 m
+  [ -e "$f" ] || return 1
+  [ -n "$floor" ] || return 0
+  m=$(stat -c %Y "$f" 2>/dev/null | tr -dc '0-9')
+  [ -n "$m" ] || return 0
+  [ "$m" -ge "$floor" ] && return 0
+  case " $STALE_SEEN " in
+    *" $label "*) :;;
+    *) STALE_SEEN="$STALE_SEEN $label"
+       say "ignoring stale $label from $(iso_of "$m") (floor $(iso_of "$floor"))";;
+  esac
+  return 1
+}
+marker_of_this_run(){ marker_since "$1" "$2" "$RUN_START"; }
+
+# STOP IS DATED MORE GENEROUSLY THAN THE REST, against the EARLIER of this
+# watcher's own start and the run's started_epoch. A RESTART rewrites
+# started_epoch, so a STOP the owner dropped in the seconds between the old
+# runner's death and the restart is OLDER than the new started_epoch — and the
+# restarted run.sh honours it (it only tests for the file) while the watcher
+# would have called it yesterday's and restarted the night again. Anything
+# older than this watcher's own start is still an earlier night's: we were not
+# running when it was written.
+stop_floor(){
+  [ -n "$RUN_START" ] || { printf '%s' "$WATCH_START"; return 0; }
+  if [ "$WATCH_START" -lt "$RUN_START" ]; then printf '%s' "$WATCH_START"
+  else printf '%s' "$RUN_START"; fi
+}
+stop_is_live(){ marker_since "$STOP" STOP "$(stop_floor)"; }
 
 state_file(){ # the real state file, empty when state.txt is missing or dangling
   [ -e "$STATE" ] || return 0
@@ -271,12 +409,30 @@ maybe_notify(){ # status detail — only when the status CHANGED
   printf '%s\n' "$st" >"$STATUS_FILE" 2>/dev/null || true
 }
 
-restarts_so_far(){
+# THE RESTART BUDGET IS AN IN-MEMORY COUNTER, and this watcher's own memory is
+# the only authority for it. The watcher outlives every runner it restarts (a
+# second watcher spawned by a restarted runner exits on the single-instance
+# guard above), so nothing else has to survive.
+# $RESTART_FILE is a CRASH HINT ONLY. It cannot be the source of truth: the
+# restarted run.sh deletes it at queue start — together with `finished` —
+# seconds after the spawn, AND writes a fresh started_epoch that would date any
+# surviving copy as an earlier night's. Re-reading it per tick therefore reset
+# the count to 0 after every restart, WATCH_MAX_RESTARTS was never reached and
+# the restarts were unbounded. So: read it ONCE at start (and only when it is
+# newer than started_epoch), then never again.
+RESTARTS=0
+init_restart_budget(){
   local n=""
-  [ -f "$RESTART_FILE" ] && n=$(head -1 "$RESTART_FILE" 2>/dev/null | tr -dc '0-9')
+  read_run_start || :
+  if marker_since "$RESTART_FILE" watch.restarts "$RUN_START"; then
+    n=$(head -1 "$RESTART_FILE" 2>/dev/null | tr -dc '0-9')
+  fi
   [ -n "$n" ] || n=0
-  printf '%s\n' "$n"
+  RESTARTS=$n
+  [ "$RESTARTS" -gt 0 ] && say "restart budget resumed from $RESTART_FILE: $RESTARTS/$WATCH_MAX_RESTARTS already used"
+  return 0
 }
+restarts_so_far(){ printf '%s\n' "$RESTARTS"; }
 
 # run.args is the COMPLETE argv of the run, argv[0] first, so the restart is
 # `setsid "${A[@]}"` — verbatim. Prefixing it with <skill_dir>/run.sh once more
@@ -296,11 +452,17 @@ do_restart(){ # n
   mkdir -p "$LOGS" 2>/dev/null || true
   log=$LOGS/runner-restart-$n.log
   say "RESTART $n/$WATCH_MAX_RESTARTS — re-exec of the argv in $ARGS_FILE: ${A[*]}, log $log"
+  # The counter is ours; the FILE is written BEFORE the spawn so that a watcher
+  # killed mid-restart still leaves the hint behind, and again afterwards
+  # because the restarted runner may have cleared it in between. Neither write
+  # is ever read back by THIS watcher.
+  RESTARTS=$n
+  printf '%s\n' "$n" >"$RESTART_FILE" 2>/dev/null || say "WARNING: could not write $RESTART_FILE"
   # 9>&- belongs here even though probe_runner always closes fd 9: flock(2)
   # lives on the open file description, so a single inherited copy would keep
   # the OLD run's lock alive and the restarted runner would refuse with exit 3.
   setsid "${A[@]}" </dev/null >>"$log" 2>&1 9>&- &
-  printf '%s\n' "$n" >"$RESTART_FILE" 2>/dev/null || say "WARNING: could not write $RESTART_FILE"
+  printf '%s\n' "$n" >"$RESTART_FILE" 2>/dev/null || :
   notify "night-run $PROJECT: RESTART $n/$WATCH_MAX_RESTARTS — runner was dead, relaunched from run.args"
   return 0
 }
@@ -314,11 +476,19 @@ tick(){
   status=OK
   detail=""
   TICK_EXIT=0
+  local unknown=0 unknown_why=""
+
+  # 0. WHICH NIGHT? ----------------------------------------------------------
+  # Re-read every tick: a restarted runner writes a NEW run.meta, and from then
+  # on the markers are dated against the new start.
+  local meta_bad=0
+  if ! read_run_start; then
+    meta_bad=1; unknown=1; unknown_why="$RUN_START_WHY"
+  fi
 
   # 1. RUNNER ---------------------------------------------------------------
   local rc_runner
   probe_runner; rc_runner=$?
-  local unknown=0 unknown_why=""
   case $rc_runner in
     0) runner=alive;;
     1) runner=dead;;
@@ -418,15 +588,20 @@ tick(){
   # Order matters: an ended run is an ended run, a full disk outranks
   # everything that is still running, and a quota wait is NOT a dead runner.
   local exiting=0
-  if [ -f "$FINISHED" ]; then
+  # Dated ONCE per tick, before the chain: an undatable run (meta_bad) trusts
+  # neither marker, so it falls through to UNKNOWN instead of ending the watch.
+  local fin_here=0 stop_here=0
+  marker_of_this_run "$FINISHED" finished && fin_here=1
+  stop_is_live && stop_here=1
+  if [ "$meta_bad" -eq 0 ] && [ "$fin_here" -eq 1 ]; then
     status=FINISHED
     detail="run finished, queue $done_n/$total done, $deferred_n deferred"
     exiting=1
-  elif [ -f "$STOP" ] && [ "$runner" = dead ]; then
+  elif [ "$meta_bad" -eq 0 ] && [ "$stop_here" -eq 1 ] && [ "$runner" = dead ]; then
     status=STOPPED
     detail="STOP present and the runner is gone: $(head -1 "$STOP" 2>/dev/null)"
     exiting=1
-  elif [ -n "$deadline" ] && [ "$now" -gt $((deadline + 1800)) ]; then
+  elif [ "$meta_bad" -eq 0 ] && [ -n "$deadline" ] && [ "$now" -gt $((deadline + 1800)) ]; then
     status=EXPIRED
     detail="past deadline_epoch+1800 with no finished marker"
     exiting=1
@@ -437,7 +612,7 @@ tick(){
     else
       detail="free disk ${disk_txt} is below DISK_FLOOR_GB=${DISK_FLOOR_GB}G"
     fi
-    if [ ! -f "$STOP" ]; then
+    if [ "$stop_here" -eq 0 ]; then
       printf 'night-watch %s: %s — the runner must stop before the next story. Nothing was deleted.\n' \
         "$(now_iso)" "$detail" >"$STOP" 2>/dev/null \
         || say "ERROR: could not create $STOP"
@@ -495,6 +670,7 @@ tick(){
 
 # ------------------------------------------------------------------ loop ---
 say "$PROG: watching $NIGHT_DIR (project=$PROJECT interval=${WATCH_INTERVAL}s max_restarts=$WATCH_MAX_RESTARTS floor=${DISK_FLOOR_GB}G once=$ONCE)"
+init_restart_budget
 
 tick
 if [ $ONCE -eq 1 ] || [ "$TICK_EXIT" -eq 1 ]; then
@@ -504,14 +680,22 @@ fi
 
 while :; do
   # Sleep in <=60 s slices so a STOP or a finished marker is noticed promptly
-  # instead of up to WATCH_INTERVAL late.
+  # instead of up to WATCH_INTERVAL late — and each slice is a CHILD we `wait`
+  # on, so an INT/TERM is acted on within milliseconds instead of at the end of
+  # the slice: `sleep 60` in the foreground made watch.pid linger for a minute
+  # after the run was stopped.
   slept=0
   while [ "$slept" -lt "$WATCH_INTERVAL" ]; do
     left=$((WATCH_INTERVAL - slept))
     [ "$left" -gt 60 ] && left=60
-    sleep "$left" 9>&-
+    sleep "$left" 9>&- &
+    SLEEP_PID=$!
+    wait "$SLEEP_PID" 2>/dev/null || :
+    SLEEP_PID=""
     slept=$((slept + left))
-    if [ -f "$FINISHED" ] || [ -f "$STOP" ]; then break; fi
+    # An EARLIER night's finished/STOP must not spin this loop, so the same
+    # dating rule applies here as in the verdict.
+    if marker_of_this_run "$FINISHED" finished || stop_is_live; then break; fi
   done
   tick
   [ "$TICK_EXIT" -eq 1 ] && break

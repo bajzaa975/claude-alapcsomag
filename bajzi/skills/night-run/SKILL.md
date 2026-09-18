@@ -68,7 +68,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
    bad field. `REPO` and `BASE` are the two that must not be confused; see the paragraph
    above.
 
-   Six more keys are OPTIONAL — absent is fine, every one has a default, and an older
+   Seven more keys are OPTIONAL — absent is fine, every one has a default, and an older
    `config.env` still starts (`templates/config.env.tmpl` carries the same list, commented
    out):
 
@@ -78,6 +78,8 @@ only where the `owner/name` value is wanted. There is no third spelling.
    - `QUOTA_MARGIN_SEC` (180) — seconds added to the announced usage-limit reset before a
      session is launched again; `run.sh` applies it once, when it writes `quota-until`.
    - `QUOTA_MAX_WAITS` (3) — how many usage-limit waits ONE run may take before it finishes.
+   - `QUOTA_MAX_WAIT_SEC` (21600) — the longest SINGLE usage-limit wait; beyond it the run
+     leaves the rows `DEFERRED-quota`, reports and finishes instead of holding the run lock.
    - `QUOTA_FALLBACK_WAIT_SEC` (1800) — the wait used when the reset time cannot be parsed.
 
    **`FIRST RUN`** → create it here, before step 3, and never later:
@@ -476,7 +478,16 @@ watch. Every `WATCH_INTERVAL` seconds (900 by default; `WATCH_INTERVAL="0"` in `
 turns it off) it appends one status line to `~/night-runs/<project>/watch.log` — runner alive
 or dead, heartbeat age, free disk, quota wait, queue progress — restarts a dead runner up to
 `WATCH_MAX_RESTARTS` times from `run.args`, and creates `STOP` if free disk falls under
-`DISK_FLOOR_GB`. It never deletes anything and never signals a story process.
+`DISK_FLOOR_GB`. It never deletes anything and never signals a story process. The night's
+directory is PERMANENT, so it DATES every marker against `run.meta`'s `started_epoch`: a
+`finished` or `watch.restarts` left by an earlier night is logged once and ignored
+(otherwise the second night's watcher would read yesterday's `finished` seconds after
+starting and leave the runner unwatched). `STOP` is dated more generously — against the
+EARLIER of `started_epoch` and the watcher's own start — because a restart rewrites
+`started_epoch` and a `STOP` you dropped seconds before it is still tonight's. The restart
+BUDGET is counted in the watcher's memory, which outlives every runner it restarts;
+`watch.restarts` is only a crash hint, read once at start. A run it cannot date — no
+`run.meta`, no usable `started_epoch` — is reported `UNKNOWN` and nothing is restarted.
 
 ## PHASE F — Morning follow-through (`report` mode)
 
@@ -514,7 +525,10 @@ unpushed or parked; refresh the deck and update the owner's single runbook list 
 
 **Read `~/night-runs/<project>/watch.log` before the rows.** One line per watcher tick; what
 matters is the STATUS TRANSITIONS — `QUOTA-WAIT`, `RESTARTED`, `DEAD`, `STALLED`, `DISK-LOW`,
-`FINISHED`/`STOPPED`/`EXPIRED`, plus any `orphan sid=` lines. A night whose state rows stop
+`FINISHED`/`STOPPED`/`EXPIRED`, plus any `orphan sid=` lines. `UNKNOWN` means the watcher
+itself went blind — no `flock`, a broken `pgrep`, or a `run.meta` it could not read or date —
+so from that line on it restarted nothing and the night is only as watched as the log says:
+treat every `UNKNOWN` stretch as unsupervised time and check the runner's own logs across it. A night whose state rows stop
 mid-queue is explained there, not in `state-<date>.txt`, and every transition belongs in the
 morning report.
 
@@ -544,6 +558,8 @@ and the number is its exit code. Every other second field is a runner-side outco
   ran tonight and goes back into the queue unchanged.
 - `DEFERRED-quota-weekly` — the same, but the WEEKLY limit. Also non-terminal, and no night
   can wait it out: do NOT re-run before the weekly reset named in the reason column.
+- `DEFERRED-alive` — the story was skipped this pass because its PREVIOUS session was still
+  alive (reason `sid=<sid>`); non-terminal, so a later pass or the next night picks it up.
 - `INTERRUPTED` — the runner was signalled and that story was killed mid-flight. Its worktree
   may be dirty or half-pushed, so keep it, inspect it, and re-queue the story.
 
@@ -554,8 +570,12 @@ limit or a crash: `## Counts`, `## Stories` (one row per id, its LAST row), `## 
 `## Narrative` is appended afterwards by one Claude session, and it is **absent when the
 limit was still in force** — an absent narrative is not a failed report, it is the limit.
 Finally, `~/night-runs/<project>/finished` (one epoch) is written as the LAST act of a real
-run, after the report: no `finished` file means the run did not end on its own, so read
-`watch.log` for what happened to it.
+QUEUE run, after the report — and DELETED again when the next queue run takes the night, so
+it always belongs to the newest run that started. (A `--report` or `--smoke` run writes no
+`finished` at all: it is not the night.) No `finished` file means the run did not end on its
+own, so read `watch.log` for what happened to it. Check its CONTENTS, not just its presence
+— an epoch older than this run's `started_epoch` is a marker the runner never cleared (the
+watcher ignores it for exactly that reason).
 
 ## Closing report
 

@@ -11,6 +11,14 @@
 #   (C) the REPORT session hits the limit -> the deterministic report survives
 #   (D) a reset in a named zone, too far away for the --deadline -> parsed
 #                         exactly, waited for NEVER, run finishes
+#   (E1) a reset ONE MINUTE in the past (the message is minute-truncated) is
+#                         the SAME reset: the wait is the margin, not a day
+#   (E2) a reset 20 minutes in the past is TOMORROW's, and a wait that long is
+#                         refused by QUOTA_MAX_WAIT_SEC — rows stay deferred,
+#                         the report still names the stories never reached
+#   (E3) the same reset with a large cap resolves to tomorrow exactly
+#   (F)  a limit message followed by 20 more output lines is still found, and
+#                         the same message with exit code 0 is never a quota row
 #
 # Usage:  bash tests/quota.sh
 set -u
@@ -134,6 +142,111 @@ check "$([ "$tD" -le 30 ] && echo 0 || echo 1)" "(D) the runner did not wait (${
 check "$(grep -q 'QUOTA-WAIT refused' "$LOG" && echo 0 || echo 1)" "(D) it refused the wait and said the deadline was why"
 check "$([ -n "$(report)" ] && echo 0 || echo 1)" "(D) the report was still written"
 check "$([ -s "$ND/finished" ] && echo 0 || echo 1)" "(D) the run wrote 'finished'"
+
+# ===================================== (E) a reset time that is already past =
+# The message is minute-truncated, so the reset it announces is routinely a few
+# seconds — or a minute — BEHIND the clock by the time the runner reads it.
+# Rolling every such time a full day forward held run.flock for a day.
+echo
+echo "== (E1) a reset one minute in the past is the SAME reset: wait the margin, not a day =="
+setup E1 'QUOTA_MARGIN_SEC="5"'
+nr_queue "$ND" P1 P2
+nr_plan "$ND/fake" "past:1" "ok" "ok" "ok"
+# The deadline is a SAFETY NET, not the subject: if the rollover regresses, the
+# run refuses the (day-long) wait and the checks below fail loudly instead of
+# parking this test until tomorrow.
+dl=$(date -d '+10 minutes' +%H:%M)
+t0=$(date +%s)
+setsid -w bash "$NR_RUN" --config "$CFG" --deadline "$dl" >"$ROOT/E1/out.txt" 2>&1; rcE1=$?
+tE1=$(( $(date +%s) - t0 ))
+printf 'run E1 finished in %ss with exit %s\n' "$tE1" "$rcE1"
+r=$(row P1 DEFERRED-quota)
+printf 'P1 quota row: %s\n' "${r:-<none>}"
+check "$([ -n "$r" ] && echo 0 || echo 1)" "(E1) P1 got a DEFERRED-quota row"
+got=${r##*resets=}
+gote=$(date -u -d "$got" +%s 2>/dev/null || echo 0)
+printf 'recorded reset %s = epoch %s, run started %s (delta %ss)\n' "$got" "$gote" "$t0" "$(( gote - t0 ))"
+check "$([ "$gote" -gt 0 ] && [ "$(( gote - t0 ))" -lt 300 ] && echo 0 || echo 1)" \
+      "(E1) the reset was treated as NOW, not rolled forward a day"
+check "$([ "$tE1" -le 90 ] && echo 0 || echo 1)" "(E1) the whole run took ${tE1}s (the wait was the margin only)"
+check "$(grep -q 'QUOTA-WAIT over' "$LOG" && echo 0 || echo 1)" "(E1) the runner really waited and the wait ended"
+check "$([ -n "$(row P1 0)" ] && echo 0 || echo 1)" "(E1) P1 ran and completed after the wait"
+check "$([ -n "$(row P2 0)" ] && echo 0 || echo 1)" "(E1) P2 ran and completed"
+check "$([ -s "$ND/finished" ] && echo 0 || echo 1)" "(E1) the run wrote 'finished'"
+
+echo
+echo "== (E2) a 20-minute-old reset is tomorrow's — and a wait longer than QUOTA_MAX_WAIT_SEC is refused =="
+setup E2 'QUOTA_MARGIN_SEC="5"' 'QUOTA_MAX_WAIT_SEC="60"'
+nr_queue "$ND" Q1 Q2
+nr_plan "$ND/fake" "past:20" "ok" "ok"
+# The cap is what must stop this run. The deadline is only a safety net for a
+# regression: without one, a runner that rolls the reset forward a day and
+# takes the wait would hold the lock — and this test — until tomorrow.
+dl=$(date -d '+10 minutes' +%H:%M)
+t0=$(date +%s)
+setsid -w bash "$NR_RUN" --config "$CFG" --deadline "$dl" >"$ROOT/E2/out.txt" 2>&1; rcE2=$?
+tE2=$(( $(date +%s) - t0 ))
+printf 'run E2 finished in %ss with exit %s\n' "$tE2" "$rcE2"
+check "$([ "$tE2" -le 60 ] && echo 0 || echo 1)" "(E2) the run finished in ${tE2}s instead of holding the lock for a day"
+r=$(row Q1 DEFERRED-quota)
+printf 'Q1 row: %s\n' "${r:-<none>}"
+check "$([ -n "$r" ] && echo 0 || echo 1)" "(E2) Q1 stayed DEFERRED-quota (non-terminal, the next night picks it up)"
+check "$(grep -q 'exceeds QUOTA_MAX_WAIT_SEC' "$LOG" && echo 0 || echo 1)" "(E2) the runner refused the wait and named QUOTA_MAX_WAIT_SEC"
+rep=$(report)
+check "$([ -n "$rep" ] && echo 0 || echo 1)" "(E2) the deterministic report was still written"
+# Q2 was never reached: no state row at all. The report must still list it.
+check "$([ -z "$(awk '$1=="Q2"' "$ND"/state-*.txt 2>/dev/null)" ] && echo 0 || echo 1)" "(E2) Q2 was never reached (no state row)"
+check "$([ -n "$rep" ] && grep -q '^| Q2 | not reached |' "$rep" && echo 0 || echo 1)" \
+      "(E2) the report's Stories table lists the unreached Q2 as 'not reached'"
+check "$([ -s "$ND/finished" ] && echo 0 || echo 1)" "(E2) the run wrote 'finished'"
+
+echo
+echo "== (E3) with a large cap the same 20-minute-old reset resolves to TOMORROW =="
+setup E3 'QUOTA_MARGIN_SEC="5"' 'QUOTA_MAX_WAIT_SEC="172800"'
+nr_queue "$ND" T1 T2
+nr_plan "$ND/fake" "past:20" "ok" "ok"
+dl=$(date -d '+3 minutes' +%H:%M)
+t0=$(date +%s)
+setsid -w bash "$NR_RUN" --config "$CFG" --deadline "$dl" >"$ROOT/E3/out.txt" 2>&1; rcE3=$?
+tE3=$(( $(date +%s) - t0 ))
+printf 'run E3 finished in %ss with exit %s (deadline %s)\n' "$tE3" "$rcE3" "$dl"
+hhmm=$(cat "$ND/fake/last-reset-hhmm" 2>/dev/null)
+# The same rule, computed independently of the runner: that time TODAY, or
+# tomorrow when today's is already past. (Between 00:00 and 00:20 UTC "20
+# minutes ago" is still ahead of us today — the epoch is ~23h40m out either
+# way, which is what "tomorrow's reset" means here.)
+exp=$(date -d "TZ=\"UTC\" $hhmm" +%s 2>/dev/null || echo 0)
+[ "$exp" -le "$t0" ] && exp=$(date -d "TZ=\"UTC\" tomorrow $hhmm" +%s 2>/dev/null || echo 0)
+expiso=$(date -u -d "@$exp" +%FT%TZ 2>/dev/null)
+r=$(row T1 DEFERRED-quota); got=${r##*resets=}
+printf 'announced %s -> expected %s, recorded %s (%sh out)\n' "$hhmm" "$expiso" "$got" "$(( (exp - t0) / 3600 ))"
+check "$([ -n "$r" ] && echo 0 || echo 1)" "(E3) T1 got a DEFERRED-quota row"
+check "$([ -n "$expiso" ] && [ "$got" = "$expiso" ] && echo 0 || echo 1)" "(E3) the reset resolved to the next occurrence of $hhmm"
+check "$([ "$(( exp - t0 ))" -gt 82800 ] && echo 0 || echo 1)" "(E3) …which is a full day out, not 'now'"
+check "$([ "$tE3" -le 60 ] && echo 0 || echo 1)" "(E3) the run did not take that wait (${tE3}s) — the deadline barred it"
+check "$(grep -q 'QUOTA-WAIT refused' "$LOG" && echo 0 || echo 1)" "(E3) it logged the refusal"
+
+# ============================== (F) the limit message is not always the last =
+echo
+echo "== (F) a limit message followed by 20 more lines is still a quota stop =="
+setup F1 'QUOTA_MARGIN_SEC="5"' 'QUOTA_MAX_WAIT_SEC="1"'
+nr_queue "$ND" N1
+nr_plan "$ND/fake" "limitnoise:20" "ok"
+setsid -w bash "$NR_RUN" --config "$CFG" >"$ROOT/F1/out.txt" 2>&1
+lines=$(wc -l <"$ND/logs/N1.log" 2>/dev/null)
+printf 'N1 log has %s lines; row: %s\n' "${lines:-0}" "$(awk '$1=="N1"' "$ND"/state-*.txt 2>/dev/null | tail -1)"
+check "$([ -n "$(row N1 DEFERRED-quota)" ] && echo 0 || echo 1)" \
+      "(F) the message 20 lines from the end was still classified DEFERRED-quota"
+
+echo
+echo "== (F) the same message with exit code 0 is NOT a quota row =="
+setup F2 'QUOTA_MARGIN_SEC="5"'
+nr_queue "$ND" N2
+nr_plan "$ND/fake" "limitok" "ok"
+setsid -w bash "$NR_RUN" --config "$CFG" >"$ROOT/F2/out.txt" 2>&1
+printf 'N2 row: %s\n' "$(awk '$1=="N2"' "$ND"/state-*.txt 2>/dev/null | tail -1)"
+check "$([ -n "$(row N2 0)" ] && echo 0 || echo 1)" "(F) a session that exited 0 got its numeric row"
+check "$(grep -qE '^N2 DEFERRED' "$ND"/state-*.txt 2>/dev/null && echo 1 || echo 0)" "(F) …and no quota row at all"
 
 # ------------------------------------------------------------------ strays ---
 echo

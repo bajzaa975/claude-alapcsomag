@@ -77,6 +77,14 @@ nr_queue(){ # <night_dir> <id>...  — one trivial, valid queue line per id
 #                  so the runner's post-wait drain has something to clean up
 #   raw:<text>     print <text> verbatim and exit 1 — for limit messages with a
 #                  reset time or zone the test wants to pin exactly
+#   past:<min>     the session-limit message with a reset time <min> minutes in
+#                  the PAST, minute-truncated exactly like the real message —
+#                  the case that used to roll a whole day forward
+#   limitnoise[:n] the session-limit message followed by <n> (default 20) more
+#                  output lines, exit 1: the message is no longer in the last
+#                  few lines and must still be classified as a quota stop
+#   limitok        the session-limit message, then exit 0 — rc 0 is NEVER a
+#                  quota row, however the log ends
 # When the plan runs out, the LAST line is repeated.
 # It also records, per invocation: the invocation number, its own sid, and its
 # whole fd table — that is how the tests prove fd 9 (the run lock) never leaks.
@@ -107,6 +115,12 @@ reset_at(){ # seconds ahead -> the next whole minute at or after now+secs
   e=$(( (e + 59) / 60 * 60 ))
   printf '%s %s' "$e" "$(date -u -d "@$e" '+%-I:%M%P')"
 }
+past_at(){ # minutes BACK -> that whole minute, truncated like the real message
+  local e=$(( $(date +%s) - ${1:-1} * 60 ))
+  e=$(( e / 60 * 60 ))
+  printf '%s %s' "$e" "$(date -u -d "@$e" '+%-I:%M%P')"
+}
+limit_msg(){ printf "You've hit your session limit · resets %s (UTC)\n" "$1"; }
 case "$mode" in
   ok)
     [ -n "$arg" ] && sleep "$arg"
@@ -123,6 +137,22 @@ case "$mode" in
     printf '%s\n' "$2" >"$D/last-reset-hhmm"; printf '%s\n' "$1" >"$D/last-reset-epoch"
     echo "You've hit your weekly limit · resets $2 (UTC)"
     exit 1;;
+  past)
+    set -- $(past_at "${arg:-1}")
+    printf '%s\n' "$2" >"$D/last-reset-hhmm"; printf '%s\n' "$1" >"$D/last-reset-epoch"
+    limit_msg "$2"
+    exit 1;;
+  limitnoise)
+    set -- $(reset_at 20)
+    printf '%s\n' "$2" >"$D/last-reset-hhmm"; printf '%s\n' "$1" >"$D/last-reset-epoch"
+    limit_msg "$2"
+    i=1; while [ "$i" -le "${arg:-20}" ]; do echo "trailing output line $i after the limit message"; i=$((i + 1)); done
+    exit 1;;
+  limitok)
+    set -- $(reset_at 20)
+    limit_msg "$2"
+    echo "RESULT fake merged PR#- reason=-"
+    exit 0;;
   hang)
     sleep "${arg:-30}"
     exit 0;;

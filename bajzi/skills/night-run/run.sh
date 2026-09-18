@@ -11,7 +11,9 @@
 #   --dry-run   print what would happen and exit; launches nothing, takes no
 #               lock, writes no state and no report. It combines with --report
 #               and --smoke, both of which then also launch nothing.
-#   --smoke     one short session that proves the headless setup works, then exit
+#   --smoke     one short session that proves the headless setup works, then
+#               exit. Backgrounded and polled like every other session, so the
+#               heartbeat keeps ticking while it runs.
 #   --one <id>  run only that queue id
 #   --deadline  the HARD stop of the night. The run stops before the next story
 #               once this moment has passed, AND every story's own cap is
@@ -24,7 +26,9 @@
 #               deadline that is still in the past after the roll-forward: a
 #               night that silently does nothing is the worst outcome.
 #   --report    only (re)write REPORT-<date>.md from the logs; a normal run ends
-#               with that same report session by itself.
+#               with that same report session by itself. Like --smoke it takes
+#               the run lock, but it publishes NOTHING to the watcher (see
+#               run.args/run.meta/finished below) — it is not the night.
 #
 #   kill switch: touch $NIGHT_DIR/STOP   (checked between stories, and it also
 #               aborts a quota wait)
@@ -37,41 +41,68 @@
 #                 never deleted, and fd 9 is closed in every child so an
 #                 orphaned claude session can never keep the run locked.
 #   run.lock      OBSERVABILITY ONLY — one line, the live runner's pgid,
-#                 written atomically (temp + mv). It decides nothing; it is
-#                 what the owner's PHASE A check and the watcher print.
+#                 written atomically (temp + mv). It decides nothing and the
+#                 watcher does not even read it (it probes run.flock); it is
+#                 what the owner's PHASE A check prints.
 #   run.args      the runner's own argv, one word per line, argv[0] first (the
 #                 absolute path of this script): the watcher re-execs the run
 #                 with `mapfile -t a <run.args; setsid "${a[@]}"`.
 #   run.meta      key=value: pgid, started_epoch, deadline_epoch, run_date,
-#                 base, night_dir, skill_dir, config, mode. mode is
-#                 queue|report|smoke and the watcher only ever restarts a
-#                 queue run — which is also the only mode that spawns it.
+#                 base, night_dir, skill_dir, config, mode. mode is always
+#                 `queue`, because ONLY a queue run publishes run.args and
+#                 run.meta at all: --report and --smoke take the lock but
+#                 publish nothing and write no `finished`, so a watcher polling
+#                 a queue run that has DIED still finds that run's inputs and
+#                 restarts it instead of reading mode=report and giving up.
 #   heartbeat     touched at least every 60 s while the runner lives — inside
 #                 the story wait (<=20 s), inside every quota wait (<=60 s),
-#                 inside the report session's wait (<=20 s) and once per queue
-#                 line. A heartbeat older than that means the runner is wedged;
-#                 the watcher calls it STALLED after three missed beats (180 s).
+#                 inside the report AND smoke session waits (<=20 s), right
+#                 after the bounded (<=60 s) `gh` dependency check, and once
+#                 per queue line. EVERY model session this script starts is
+#                 backgrounded and polled (await_session) for exactly this
+#                 reason: nothing here blocks for longer than a minute without
+#                 beating. A heartbeat older than that means the runner is
+#                 wedged; the watcher calls it STALLED after three missed
+#                 beats (180 s).
 #   story/<id>.sid  the SESSION id of that story's `claude`. It survives the
 #                 story, because it is how a later runner and the watcher tell
 #                 an orphaned session from a finished one.
 #   quota-until   epoch (reset + QUOTA_MARGIN_SEC): the EXACT moment a session
 #                 may be launched again. Every launch site checks it first, and
 #                 the watcher compares it with `now` and adds NOTHING — the
-#                 margin is applied here, once.
-#   finished      epoch, written as the LAST act of a non-dry run, after the
-#                 report. A runner that no longer holds run.flock AND left no
-#                 `finished` behind is what makes the watcher restart the run;
-#                 a LIVE runner with a stale heartbeat is only ever STALLED.
+#                 margin is applied here, once. The announced reset is
+#                 minute-truncated, so one that is already up to 15 minutes
+#                 past is the SAME reset and counts as now; further back than
+#                 that it is tomorrow's. No single wait may exceed
+#                 QUOTA_MAX_WAIT_SEC (6 h by default) — beyond it the run
+#                 leaves the rows DEFERRED-quota, reports and finishes instead
+#                 of holding run.flock for a day.
+#   finished      epoch, written as the LAST act of a non-dry QUEUE run, after
+#                 the report. A runner that no longer holds run.flock AND left
+#                 no `finished` behind is what makes the watcher restart the
+#                 run; a LIVE runner with a stale heartbeat is only ever
+#                 STALLED. It is night-scoped, so the queue run DELETES it (and
+#                 $NIGHT_DIR/watch.restarts, the watcher's crash hint for its
+#                 in-memory restart budget) when it takes the night:
+#                 yesterday's copies would tell tonight's watcher that this
+#                 night had already ended and that its budget was spent. $NIGHT_DIR/STOP is never removed by the runner — it is
+#                 the owner's kill switch and a STOP placed before the run must
+#                 still stop the night.
 #
 # STATE IS PER RUN: every queue line ends up in $NIGHT_DIR/state-<date>.txt
 # (with $NIGHT_DIR/state.txt kept as a symlink to the newest one), either as
 # "<id> <exit code>" for a story that ran, or "<id> <TOKEN> <time> <reason>"
 # for one that could not: BLOCKED-queue, BLOCKED-criteria, BLOCKED-needs,
-# BLOCKED-needs-unknown, BLOCKED-brief, BLOCKED-deadline, DEFERRED-needs, and
+# BLOCKED-needs-unknown, BLOCKED-brief, BLOCKED-deadline, DEFERRED-needs,
 # INTERRUPTED for the one story that was running when the runner was signalled,
-# and DEFERRED-quota / DEFERRED-quota-weekly with reason `resets=<ISO>` for a
-# session the model's usage limit cut short.
-# Nothing is ever dropped silently. BLOCKED-* and an exit code are TERMINAL
+# DEFERRED-alive with reason `sid=<sid>` for a story whose PREVIOUS session was
+# still alive (so it was not started a second time), and DEFERRED-quota /
+# DEFERRED-quota-weekly with reason `resets=<ISO>` for a session the model's
+# usage limit cut short.
+# Nothing is ever dropped silently — not even a queue line the run never
+# reached: the deterministic report lists EVERY id in the queue, and one with
+# no state row at all is listed as `not reached`.
+# BLOCKED-* and an exit code are TERMINAL
 # (the story is not retried tonight); every DEFERRED-* token is not, so a later
 # pass can still pick the story up — that is what makes a quota wait work. Scoping the file to the run is what lets a story
 # parked for context be re-queued the next night (spec section 9) and what lets
@@ -184,7 +215,8 @@ case "$DISK_FLOOR_GB"     in *[!0-9]*) echo "run.sh: DISK_FLOOR_GB must be a who
 : "${QUOTA_MARGIN_SEC:=180}"          # added to the announced reset before retrying
 : "${QUOTA_MAX_WAITS:=3}"             # bounded: a run never waits more times than this
 : "${QUOTA_FALLBACK_WAIT_SEC:=1800}"  # used when the reset time cannot be parsed
-for v in WATCH_INTERVAL WATCH_MAX_RESTARTS QUOTA_MARGIN_SEC QUOTA_MAX_WAITS QUOTA_FALLBACK_WAIT_SEC; do
+: "${QUOTA_MAX_WAIT_SEC:=21600}"      # 6 h: no SINGLE quota wait may be longer
+for v in WATCH_INTERVAL WATCH_MAX_RESTARTS QUOTA_MARGIN_SEC QUOTA_MAX_WAITS QUOTA_FALLBACK_WAIT_SEC QUOTA_MAX_WAIT_SEC; do
   eval "val=\${$v}"
   case "$val" in ""|*[!0-9]*) echo "run.sh: $v must be a whole number, got '$val'" >&2; exit 2;; esac
 done
@@ -470,7 +502,11 @@ acquire_lock(){
       echo "run.sh: check them with the argv test in the header of this script ($0 --help)." >&2
       exit 3
     }
-    sleep 1; waited=$((waited + 1))
+    # `9>&-`: fd 9 IS the run lock, and flock(2) lives on the open file
+    # description, so this `sleep` would hold the project locked for as long as
+    # it lived if the runner were SIGKILLed while it waited. (`nap` is the same
+    # rule, one function further down.)
+    sleep 1 9>&-; waited=$((waited + 1))
   done
   log "run lock taken: $FLOCK held on fd 9, pgid $MY_PGID published to $LOCK"
   return 0
@@ -505,6 +541,28 @@ proc_alive(){
   set -- $st
   [ $# -ge 1 ] || return 1
   [ "$1" != "Z" ]
+}
+# EVERY model session this script starts — story, report and smoke — is
+# BACKGROUNDED and polled through this, never run in the foreground. Two
+# reasons, both load-bearing: the heartbeat must keep ticking (the watcher
+# calls a runner whose beat is 180 s old STALLED, and --smoke ran a 360 s
+# session in the foreground without beating once), and a SIGTERM to the runner
+# must be handled NOW — bash defers a trap until the foreground command
+# returns, and "handled in three hours" is not handling a signal.
+# The interval starts at a second and backs off to twenty: a session that dies
+# in four seconds on a usage limit must not cost a whole poll slice, a session
+# that runs for hours must not cost a fork a second, and twenty is well inside
+# the sixty seconds the heartbeat contract allows.
+# `kill -0` is true for a zombie, so liveness is read from procfs; the exit
+# code is collected with a real `wait` and IS this function's return value.
+await_session(){ # pid
+  local p=$1 poll=1
+  while proc_alive "$p"; do
+    beat; nap "$poll"
+    if [ "$poll" -lt 20 ]; then poll=$(( poll * 2 )); [ "$poll" -gt 20 ] && poll=20; fi
+  done
+  beat
+  wait "$p"
 }
 # The pids that are still in a story's SESSION. `pgrep -s 0` means "my own
 # session", so an empty or zero sid is never passed through.
@@ -570,15 +628,26 @@ kill_story(){
 # away. It becomes a NON-TERMINAL DEFERRED-quota row plus a wait.
 QUOTA_WAITS=0
 QUOTA_WEEKLY=0
+# The message is minute-truncated and carries no date, so the reset it
+# announces is routinely a few seconds BEHIND the clock by the time the runner
+# reads it: "resets 11:02am" printed at 11:02:40 and read at 11:03 is the SAME
+# reset, not tomorrow's. Inside this grace the reset is treated as NOW; further
+# back than it, the time really is tomorrow's.
+QUOTA_PAST_GRACE_SEC=900
 CLASS_TOKEN=""      # set by classify_result: the state token to record
 CLASS_REASON=""     # set by classify_result: the reason column ("" for a plain rc)
 QUOTA_RESET_EPOCH="" # set by classify_result when the token is a quota one
 classify_result(){ # id rc logfile
-  local rc=$2 lf=$3 tail8 msg low t zone epoch now
+  local rc=$2 lf=$3 endlines msg low t zone epoch now
   CLASS_TOKEN=$rc; CLASS_REASON=""; QUOTA_RESET_EPOCH=""
   case "$rc" in 0) return 0;; esac
-  tail8=$(grep -v '^[[:space:]]*$' "$lf" 2>/dev/null | tail -8)
-  msg=$(printf '%s\n' "$tail8" | grep -iE 'hit your .*limit' | tail -1)
+  # The LAST 40 non-empty lines, not the last 8: the limit message is not
+  # always the last thing a session prints — a wrapper, a stack trace or a
+  # summary can follow it — and a limit burned as a plain failure throws the
+  # story (and, in the queue walk, the whole night) away. Still rc != 0 only:
+  # a session that exited 0 is never a quota stop, whatever its log ends with.
+  endlines=$(grep -v '^[[:space:]]*$' "$lf" 2>/dev/null | tail -40)
+  msg=$(printf '%s\n' "$endlines" | grep -iE 'hit your .*limit' | tail -1)
   [ -n "$msg" ] || return 0
   low=$(printf '%s' "$msg" | tr '[:upper:]' '[:lower:]')
   case "$low" in
@@ -598,9 +667,16 @@ classify_result(){ # id rc logfile
       epoch=$(date -d "$t" +%s 2>/dev/null) || epoch=""
     fi
     now=$(date +%s)
-    # The reset is today at that time, or tomorrow if that moment is past.
+    # The reset is today at that time; if that moment is already past it is
+    # either the SAME reset a truncated minute ago (treat it as NOW, so
+    # quota-until becomes now + QUOTA_MARGIN_SEC and the run waits the margin)
+    # or genuinely tomorrow's. Rolling EVERY past time a full day forward is
+    # what produced "QUOTA-WAIT until <tomorrow> (1442 min)" and held the run
+    # lock for a day after a reset announced one minute earlier.
     if [ -n "$epoch" ] && [ "$epoch" -le "$now" ]; then
-      if [ -n "$zone" ]; then
+      if [ $(( now - epoch )) -le "$QUOTA_PAST_GRACE_SEC" ]; then
+        epoch=$now
+      elif [ -n "$zone" ]; then
         epoch=$(date -d "TZ=\"$zone\" tomorrow $t" +%s 2>/dev/null) || epoch=""
       else
         epoch=$(date -d "tomorrow $t" +%s 2>/dev/null) || epoch=""
@@ -637,6 +713,15 @@ quota_wait(){
   if [ "$e" -le "$now" ]; then rm -f "$QUOTA_FILE"; return 0; fi
   if [ "$QUOTA_WEEKLY" -eq 1 ]; then
     log "QUOTA-WAIT refused — this is a WEEKLY limit (resets $(date -u -d "@$e" +%FT%TZ)); no night can wait that out. Finishing."
+    return 1
+  fi
+  # A SINGLE wait is bounded too, not just their number. A reset that resolves
+  # a day out (a mis-parse, a clock skew, or a limit that really does reset
+  # tomorrow) would otherwise hold run.flock — the whole project — for that
+  # day, with nothing running and no report until it ended.
+  left=$(( e - now )); mins=$(( (left + 59) / 60 ))
+  if [ "$left" -gt "$QUOTA_MAX_WAIT_SEC" ]; then
+    log "QUOTA-WAIT refused — $mins min exceeds QUOTA_MAX_WAIT_SEC=${QUOTA_MAX_WAIT_SEC}s (reset $(date -u -d "@$e" +%FT%TZ)). The DEFERRED-quota rows stand and the next night re-queues them. Finishing."
     return 1
   fi
   QUOTA_WAITS=$((QUOTA_WAITS + 1))
@@ -772,9 +857,16 @@ needs_satisfied(){ # <needs column>: '-' (none) or a PR reference that must be M
   num=$(printf '%s' "$n" | tr -dc '0-9')
   [ -n "$num" ] || return 2
   case "$MERGED_PRS" in *" $num "*) return 0;; esac
-  out=$(gh pr view "$num" -R "$REPO" --json state --jq .state 2>&1); rc=$?
+  # BOUNDED: an unreachable API or a `gh` waiting on a credential helper would
+  # otherwise block the queue walk indefinitely — with no heartbeat, so the
+  # watcher would call a perfectly healthy runner STALLED. A timeout is a gh
+  # failure like any other and fails CLOSED (the story is BLOCKED-needs-unknown,
+  # never silently treated as "not merged").
+  out=$(timeout -k 5 60 gh pr view "$num" -R "$REPO" --json state --jq .state 2>&1); rc=$?
+  beat
   if [ "$rc" -ne 0 ]; then
     GH_ERR=$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-200)
+    [ -n "$GH_ERR" ] || GH_ERR="gh exited $rc with no output (timed out after 60s?)"
     return 3
   fi
   case "$out" in
@@ -855,7 +947,7 @@ P
 #   stop     = finish the run now (weekly limit, or a wait we may not take)
 QUEUE_ACTION="continue"
 run_story(){ # id slug note
-  local id=$1 slug=$2 note=$3 rc prompt now budget remain epoch finalize prev sidf poll
+  local id=$1 slug=$2 note=$3 rc prompt now budget remain epoch finalize prev sidf
   QUEUE_ACTION="continue"
   sidf=$STORYDIR/$id.sid
   # The per-story clock is CLAMPED to the --deadline: --deadline is the hard
@@ -891,6 +983,11 @@ run_story(){ # id slug note
   [ -f "$sidf" ] && prev=$(tr -dc '0-9' <"$sidf" 2>/dev/null)
   if [ -n "$prev" ] && session_alive "$prev"; then
     log "SKIP $id — previous session $prev still alive"
+    # NEVER a silent skip: nothing is dropped without a row. DEFERRED-alive is
+    # non-terminal, so a later pass — or the next night — picks the story up
+    # once that session is gone, and the morning report can account for the
+    # queue line instead of leaving it out.
+    record_state "$id" DEFERRED-alive "sid=$prev"
     return 0
   fi
   # No session may start while the usage limit is still in force.
@@ -917,22 +1014,10 @@ run_story(){ # id slug note
   # Written BEFORE the wait and KEPT afterwards: it is how the watcher and the
   # next runner tell an orphaned session from a finished story.
   printf '%s\n' "$STORY_SID" >"$sidf" 2>/dev/null || log "WARNING $id: could not write $sidf"
-  # Polled, not a plain `wait`, for two reasons: the heartbeat must keep
-  # ticking for the watcher, and a SIGTERM to the runner must be handled NOW —
-  # bash defers a trap until the foreground command returns, and "handled in
-  # three hours" is not handled. `kill -0` is true for a zombie, so liveness is
-  # read from procfs and the exit code is collected with a real `wait`.
-  # The interval starts at a second and backs off to twenty: a story that ends
-  # in seconds (a usage limit does, in four) must not cost a whole poll slice,
-  # and a story that runs for hours must not cost a fork a second. Twenty is
-  # well inside the sixty seconds the watcher allows the heartbeat to age.
-  poll=1
-  while proc_alive "$STORY_PID"; do
-    beat; nap "$poll"
-    if [ "$poll" -lt 20 ]; then poll=$(( poll * 2 )); [ "$poll" -gt 20 ] && poll=20; fi
-  done
-  beat
-  wait "$STORY_PID"; rc=$?
+  # Polled, not a plain `wait`: see await_session. The heartbeat has to keep
+  # ticking for the watcher, and a signal to the runner has to be handled while
+  # the story is still running, not hours later.
+  await_session "$STORY_PID"; rc=$?
   # The wrapper is gone; the SESSION may not be. A claude that survived its own
   # timeout would otherwise keep working in the worktree the next story uses.
   stop_session "$STORY_SID" "DRAIN $id"
@@ -960,8 +1045,22 @@ run_story(){ # id slug note
 # whose report a model session cannot write, and "no report" is how a night
 # becomes invisible. So the facts are written from the state rows first, and
 # the narrative is APPENDED afterwards if a session can still run.
+# Every id this run's queue offers, in queue order, filtered by --one exactly
+# as the walk filters it. It is what lets the report name a story the run never
+# reached at all.
+queue_ids(){
+  local id rest
+  [ -f "$QUEUE" ] || return 0
+  while IFS='|' read -r id rest || [ -n "${id:-}" ]; do
+    id=$(trim "${id:-}")
+    [ -z "$id" ] && continue
+    case "$id" in \#*) continue;; esac
+    [ -n "$ONE" ] && [ "$id" != "$ONE" ] && continue
+    printf '%s\n' "$id"
+  done <"$QUEUE"
+}
 report_deterministic(){ # out
-  local out=$1 id tok iso reason rc
+  local out=$1 id tok iso reason rid row rcline
   {
     printf '# Night report — %s — %s\n\n' "$PROJECT" "$RUN_DATE"
     # shellcheck disable=SC2016  # the backticks are markdown code spans
@@ -977,11 +1076,22 @@ report_deterministic(){ # out
             printf "- queue lines with a row: %d\n- done (exit 0): %d\n- failed (non-zero exit): %d\n- deferred: %d\n- blocked: %d\n- interrupted: %d\n",
                    n+0, d+0, f+0, df+0, b+0, it+0 }' "$STATE" 2>/dev/null
     printf '\n## Stories\n\n| id | outcome | time (UTC) | reason | RESULT line |\n|---|---|---|---|---|\n'
-    awk '{ k=$1; last[k]=$0; if (!(k in seen)) { seen[k]=1; order[++n]=k } }
-         END { for (i=1;i<=n;i++) print last[order[i]] }' "$STATE" 2>/dev/null |
-    while read -r id tok iso reason; do
-      rc=$(grep -o 'RESULT .*' "$LOGS/$id.log" 2>/dev/null | tail -1)
-      printf '| %s | %s | %s | %s | %s |\n' "$id" "$tok" "${iso:--}" "${reason:--}" "${rc:--}"
+    # EVERY queue line this run offered, in queue order, whether or not it has
+    # a state row. A story the walk never reached — the usage limit stopped it,
+    # the deadline passed, the runner died — would otherwise be missing from
+    # the report altogether, while the header promises nothing is dropped
+    # silently and the narrative prompt promises every id appears. Ids that
+    # carry a row but are no longer in the queue follow them.
+    { queue_ids; awk '!seen[$1]++ { print $1 }' "$STATE" 2>/dev/null; } | awk 'NF && !s[$0]++' |
+    while read -r id; do
+      row=$(awk -v i="$id" '$1==i' "$STATE" 2>/dev/null | tail -1)
+      rcline=$(grep -o 'RESULT .*' "$LOGS/$id.log" 2>/dev/null | tail -1)
+      if [ -z "$row" ]; then
+        printf '| %s | not reached | - | - | %s |\n' "$id" "${rcline:--}"
+        continue
+      fi
+      read -r rid tok iso reason <<<"$row"
+      printf '| %s | %s | %s | %s | %s |\n' "$rid" "$tok" "${iso:--}" "${reason:--}" "${rcline:--}"
     done
     printf '\n## Quota\n\n'
     if grep -q ' DEFERRED-quota' "$STATE" 2>/dev/null; then
@@ -1001,7 +1111,7 @@ report_deterministic(){ # out
   } >"$out" 2>/dev/null
 }
 write_report(){ # the deterministic report FIRST, then one fresh session for the narrative
-  local out=$NIGHT_DIR/REPORT-$RUN_DATE.md rc rpid poll
+  local out=$NIGHT_DIR/REPORT-$RUN_DATE.md rc rpid
   log "REPORT start -> $out"
   report_deterministic "$out"
   [ -s "$out" ] && log "REPORT deterministic part written -> $out"
@@ -1011,23 +1121,14 @@ write_report(){ # the deterministic report FIRST, then one fresh session for the
     log "REPORT narrative SKIPPED — the usage limit is still in force; the deterministic report stands ($out)"
     return 0
   fi
-  ( exec 9>&-; cd "$BASE" && env -u CLAUDECODE timeout -k 60 1800 "$CLAUDE_BIN" -p "Write the night report for the $PROJECT overnight run of $RUN_DATE. Read these with Bash, change nothing else: $STATE; $LOGS/runner.log; the RESULT lines from grep -h 'RESULT ' $LOGS/*.log; $BASE/runtime/AUTOPILOT-REPORT.md; $BASE/runtime/handoff/night-*.md; $BASE/runtime/DECISIONS.md if present; gh pr list -R $REPO --state all --limit 20 --json number,title,state,mergedAt,headRefName; and brain next $PROJECT. Write $out in English with: $STATE holds THIS run's rows only, one or more per queue line, as '<id> <rc|TOKEN> <ISO time> [reason]'. A numeric second field is a story that ran and its exit code. Every other second field is a runner-side outcome with the reason in the rest of the line: BLOCKED-queue (malformed queue line), BLOCKED-criteria (the queue line carried no acceptance criteria), BLOCKED-needs (the needs column held no PR number), BLOCKED-needs-unknown (gh could not say whether the dependency PR is merged), BLOCKED-brief (the per-story brief could not be rendered, so the story was never launched), BLOCKED-deadline (no time left before the hard deadline), DEFERRED-needs (the dependency PR was not merged in time) and INTERRUPTED (the runner was signalled and killed that story mid-flight — say so, and say the story must be re-queued). When an id has several rows the LAST one is its outcome and the earlier ones are its history. Every id in $STATE is a queue line that MUST appear in the table and in section 4, never be omitted. 1) a one-paragraph summary (stories attempted, merged, open, parked, blocked, plus blocked-before-start); 2) one table row per story: id, result, PR, merged or open, review verdict and rounds, tests run; 3) decisions taken on the owner's behalf; 4) PARKED and BLOCKED items with reasons, naming which floor was hit (review, timeout, context, ci, forbidden or tests); 5) any story reported merged or open with reason=review, flagged as a contradiction; 6) LET'S REVIEW THIS TOGETHER in priority order; 7) worktrees under $NIGHT_DIR/wt that are dirty, unpushed or parked and must be kept; 8) what the Brain recommends next. Then run: update-monitor note \"$PROJECT overnight run $RUN_DATE: <one line with PR numbers>\" and brain note night run $RUN_DATE: <one line>. Do NOT rewrite or delete what is already in $out — it was written from the state rows and it is the ground truth; APPEND your narrative to it under the heading '## Narrative'. Finish with the line REPORT WRITTEN $out" \
+  ( exec 9>&-; cd "$BASE" && env -u CLAUDECODE timeout -k 60 1800 "$CLAUDE_BIN" -p "Write the night report for the $PROJECT overnight run of $RUN_DATE. Read these with Bash, change nothing else: $STATE; $LOGS/runner.log; the RESULT lines from grep -h 'RESULT ' $LOGS/*.log; $BASE/runtime/AUTOPILOT-REPORT.md; $BASE/runtime/handoff/night-*.md; $BASE/runtime/DECISIONS.md if present; gh pr list -R $REPO --state all --limit 20 --json number,title,state,mergedAt,headRefName; and brain next $PROJECT. Write $out in English with: $STATE holds THIS run's rows only, one or more per queue line, as '<id> <rc|TOKEN> <ISO time> [reason]'. A numeric second field is a story that ran and its exit code. Every other second field is a runner-side outcome with the reason in the rest of the line: BLOCKED-queue (malformed queue line), BLOCKED-criteria (the queue line carried no acceptance criteria), BLOCKED-needs (the needs column held no PR number), BLOCKED-needs-unknown (gh could not say whether the dependency PR is merged), BLOCKED-brief (the per-story brief could not be rendered, so the story was never launched), BLOCKED-deadline (no time left before the hard deadline), DEFERRED-needs (the dependency PR was not merged in time), DEFERRED-alive (a session from an earlier pass or an earlier runner was still alive in that story's worktree, so it was not started a second time) and INTERRUPTED (the runner was signalled and killed that story mid-flight — say so, and say the story must be re-queued). When an id has several rows the LAST one is its outcome and the earlier ones are its history. Every id in $STATE is a queue line that MUST appear in the table and in section 4, never be omitted, and so is every id the deterministic '## Stories' table above lists as 'not reached' — those are queue lines the run never got to and they must be re-queued. 1) a one-paragraph summary (stories attempted, merged, open, parked, blocked, plus blocked-before-start); 2) one table row per story: id, result, PR, merged or open, review verdict and rounds, tests run; 3) decisions taken on the owner's behalf; 4) PARKED and BLOCKED items with reasons, naming which floor was hit (review, timeout, context, ci, forbidden or tests); 5) any story reported merged or open with reason=review, flagged as a contradiction; 6) LET'S REVIEW THIS TOGETHER in priority order; 7) worktrees under $NIGHT_DIR/wt that are dirty, unpushed or parked and must be kept; 8) what the Brain recommends next. Then run: update-monitor note \"$PROJECT overnight run $RUN_DATE: <one line with PR numbers>\" and brain note night run $RUN_DATE: <one line>. Do NOT rewrite or delete what is already in $out — it was written from the state rows and it is the ground truth; APPEND your narrative to it under the heading '## Narrative'. Finish with the line REPORT WRITTEN $out" \
       --permission-mode "$PERM_MODE" "${EXTRA[@]}" --output-format text </dev/null ) >"$LOGS/report.log" 2>&1 &
   # BACKGROUNDED AND POLLED, exactly like a story: this session may run for up
   # to 1800 s, and in the foreground the runner beat NOT ONCE in that window —
   # a live runner that the watcher would have called STALLED after 180 s and
-  # (once the run ends and the lock drops) restarted. Same backoff as run_story:
-  # a session that dies in four seconds on a usage limit costs no whole slice,
-  # and the cap of 20 s is well inside the 60 s heartbeat contract.
+  # (once the run ends and the lock drops) restarted.
   rpid=$!; REPORT_PID=$rpid
-  poll=1
-  while proc_alive "$rpid"; do
-    beat; nap "$poll"
-    if [ "$poll" -lt 20 ]; then poll=$(( poll * 2 )); [ "$poll" -gt 20 ] && poll=20; fi
-  done
-  beat
-  wait "$rpid"
-  rc=$?
+  await_session "$rpid"; rc=$?
   REPORT_PID=""
   log "REPORT rc=$rc $(grep -o 'REPORT WRITTEN .*' "$LOGS/report.log" | tail -1)"
   if [ "$rc" -ne 0 ]; then
@@ -1065,6 +1166,15 @@ finish(){
 # to a run that really owns the night.
 publish_run_inputs(){
   local a
+  # These two are NIGHT-SCOPED and owned by the run that takes the night.
+  # Yesterday's `finished` tells tonight's watcher the run has already ended
+  # (so it never restarts a run that dies), and yesterday's watch.restarts is
+  # the crash hint a starting watcher reads, so it would open the night with
+  # its whole restart budget already spent. They are cleared here,
+  # under the lock, and `finished` is written again only by finish().
+  # $STOP is deliberately NOT touched: it is the owner's kill switch, and a
+  # STOP placed before the run must still stop the night.
+  rm -f "$FINISHED" "$NIGHT_DIR/watch.restarts" 2>/dev/null || true
   # argv[0] first (the absolute path of this script), then the original
   # arguments, one per line — `mapfile -t a <run.args; setsid "${a[@]}"` is an
   # exact re-exec. One line per word is what keeps a quoted --deadline intact.
@@ -1110,8 +1220,12 @@ if [ $REPORT_ONLY -eq 1 ]; then
     echo "=== --dry-run --report: would take $LOCK, then run one report session in $BASE reading $STATE and write $NIGHT_DIR/REPORT-$RUN_DATE.md. Nothing was launched, no lock was taken."
     exit 0
   fi
-  acquire_lock; publish_run_inputs; write_report
-  date +%s >"$FINISHED" 2>/dev/null || true
+  # NOTHING is published to the watcher here, and no `finished` is written:
+  # run.args, run.meta and finished belong to the QUEUE run that owns the
+  # night. A --report run that overwrote them told a watcher polling a DEAD
+  # queue run that the night was a report run and had already finished, so the
+  # watcher logged its mode gate and exited instead of restarting it.
+  acquire_lock; write_report
   exit 0
 fi
 if [ $SMOKE -eq 1 ]; then
@@ -1119,12 +1233,20 @@ if [ $SMOKE -eq 1 ]; then
     echo "=== --dry-run --smoke: would take $LOCK, then run one 300s session in $BASE (model $MODEL, mode $PERM_MODE). Nothing was launched, no lock was taken."
     exit 0
   fi
+  # Same rule as --report: the smoke test takes the lock, but it is not the
+  # night and publishes nothing to the watcher.
   acquire_lock
-  publish_run_inputs
   log "SMOKE start (project=$PROJECT base=$BASE mode=$PERM_MODE model=$MODEL)"
+  # BACKGROUNDED AND POLLED like every other session: `timeout -k 60 300` is up
+  # to 360 s, and run in the foreground this mode beat not once in that window
+  # — a runner the watcher would have called STALLED while it was working
+  # perfectly. REPORT_PID is what the INT/TERM traps signal.
   ( exec 9>&-; cd "$BASE" && env -u CLAUDECODE timeout -k 60 300 "$CLAUDE_BIN" -p "Run 'brain here' via Bash and then reply with exactly: SMOKE OK <the branch name brain here printed>. Change nothing." \
-      --permission-mode "$PERM_MODE" "${EXTRA[@]}" --output-format text </dev/null ) >"$LOGS/smoke.log" 2>&1
-  rc=$?; log "SMOKE rc=$rc last line: $(tail -1 "$LOGS/smoke.log")"; exit $rc
+      --permission-mode "$PERM_MODE" "${EXTRA[@]}" --output-format text </dev/null ) >"$LOGS/smoke.log" 2>&1 &
+  REPORT_PID=$!
+  await_session "$REPORT_PID"; rc=$?
+  REPORT_PID=""
+  log "SMOKE rc=$rc last line: $(tail -1 "$LOGS/smoke.log")"; exit $rc
 fi
 
 [ -f "$QUEUE" ] || { echo "run.sh: queue file not found: $QUEUE" >&2; exit 2; }

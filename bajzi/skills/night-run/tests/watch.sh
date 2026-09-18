@@ -85,7 +85,15 @@ EOS
 hold(){ # NIGHT_DIR — take the runner's flock in the background, like run.sh does
   local nd=$1
   rm -f "$nd/holder.ready"
-  flock "$nd/run.flock" -c "touch '$nd/holder.ready'; sleep 120" &
+  # The holder EXECs into its sleep, so $! stays the pid that owns fd 9 and one
+  # kill both releases the lock and leaves nothing behind. `flock -c "...; sleep"`
+  # forked the sleep off instead: killing $! released the lock but left a stray
+  # sleep running for two minutes, holding this script's stdout open with it.
+  bash -c '
+     exec 9<>"$1/run.flock" || exit 1
+     flock -w 10 9 || exit 1
+     touch "$1/holder.ready"
+     exec sleep 120' _ "$nd" </dev/null >/dev/null 2>&1 &
   HOLDERS="$HOLDERS $!"
   local i=0
   while [ ! -f "$nd/holder.ready" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
@@ -114,11 +122,17 @@ check "2 stale heartbeat: STALLED" " STALLED runner=alive" "$OUT"
 ND=$(mkenv restart); touch "$ND/heartbeat"; : >"$WT/stub.calls"
 OUT=$(run_watch "$ND"); RC=$?
 check "3 dead runner: RESTART 1/2" "RESTART 1/2" "$OUT"
+# --once is a whole PROCESS: its in-memory budget dies with it, so the next
+# invocation may only carry on from the FILE — and does, because the file is
+# newer than started_epoch. This is the one case watch.restarts is read in.
+N=$(head -1 "$ND/watch.restarts" 2>/dev/null)
+if [ "$N" = 1 ]; then ok "3 watch.restarts holds the crash hint 1"; else bad "3 expected watch.restarts=1, got '$N'"; fi
 i=0; while [ ! -s "$WT/stub.calls" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
 CALLS=$(cat "$WT/stub.calls" 2>/dev/null)
 check "3 stub ran with the run.args argv" "RAN --config $ND/config.env --deadline 04:30" "$CALLS"
 OUT=$(run_watch "$ND"); RC=$?
-check "4 second tick: RESTART 2/2" "RESTART 2/2" "$OUT"
+check "4 second --once process resumes from the hint: RESTART 2/2" "RESTART 2/2" "$OUT"
+check "4 …and says where the count came from" "restart budget resumed from" "$OUT"
 i=0; while [ "$(/usr/bin/grep -c '^RAN ' "$WT/stub.calls")" -lt 2 ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
 OUT=$(run_watch "$ND"); RC=$?
 check "4 third tick: DEAD, budget spent" " DEAD runner=dead" "$OUT"
@@ -181,8 +195,12 @@ N=$(wc -l <"$WT/notify.log")
 if [ "$N" = 2 ]; then ok "8 a status change notifies again"; else bad "8 expected 2 notify lines, got $N: $(cat "$WT/notify.log")"; fi
 
 # ----------------------------------------------------------- 9. mode gate ---
-# A --report or --smoke run must never be restarted: the watcher reads
-# run.meta's mode and leaves at once for anything that is not a queue run.
+# BELT AND BRACES, and unreachable in a normal night: only a queue run publishes
+# run.meta at all, so a real one always says mode=queue. The gate exists for the
+# two cases that are not a normal night — a watcher started by hand next to a
+# --report or --smoke run, and a run.meta left by an OLDER runner that did
+# publish one for those modes. Either way it must leave at once, because
+# restarting from run.args would re-run a report nobody asked for.
 : >"$WT/stub.calls"
 ND=$(MODE=report mkenv modereport); touch "$ND/heartbeat"
 OUT=$(run_watch "$ND"); RC=$?
@@ -192,11 +210,178 @@ sleep 0.3
 if [ -s "$WT/stub.calls" ]; then bad "9 a report run was restarted"; else ok "9 no restart for a report run"; fi
 case "$OUT" in *" runner="*) bad "9 the mode gate ticked instead of exiting";; *) ok "9 the mode gate exits before the first tick";; esac
 
+# ------------------------------------------ 10. a SECOND night in the same dir ---
+# NIGHT_DIR is the project's PERMANENT directory: last night's finished, STOP and
+# watch.restarts are still lying in it when tonight's runner starts. Everything
+# older than run.meta's started_epoch must be treated as absent, or the watcher
+# prints FINISHED two seconds after being spawned and the runner is unwatched all
+# night — and yesterday's spent restart budget disarms tonight's first restart.
+: >"$WT/stub.calls"
+ND=$(mkenv second-night)
+touch "$ND/heartbeat"
+YDAY=$(( $(date +%s) - 86400 ))
+printf '%s\n' "$YDAY"   >"$ND/finished";       touch -d "@$YDAY" "$ND/finished"
+printf '2\n'            >"$ND/watch.restarts"; touch -d "@$YDAY" "$ND/watch.restarts"
+printf 'yesterday\n'    >"$ND/STOP";           touch -d "@$YDAY" "$ND/STOP"
+OUT=$(run_watch "$ND"); RC=$?
+check "10 stale finished+STOP+restarts: RESTART 1/2" "RESTART 1/2" "$OUT"
+check "10 the stale marker is logged" "ignoring stale finished from" "$OUT"
+case "$OUT" in *FINISHED*) bad "10 yesterday's finished ended tonight's watch";; *) ok "10 no FINISHED from yesterday's marker";; esac
+case "$OUT" in *STOPPED*) bad "10 yesterday's STOP stopped tonight's watch";; *) ok "10 no STOPPED from yesterday's marker";; esac
+i=0; while [ ! -s "$WT/stub.calls" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+N=$(head -1 "$ND/watch.restarts" 2>/dev/null)
+if [ "$N" = 1 ]; then ok "10 watch.restarts overwritten with 1"; else bad "10 expected watch.restarts=1, got '$N'"; fi
+
+# ------------------------------- 11. tonight's OWN finished still ends the watch ---
+touch "$ND/finished"        # mtime now => newer than started_epoch
+OUT=$(run_watch "$ND"); RC=$?
+check "11 fresh finished: FINISHED" " FINISHED " "$OUT"
+if [ "$RC" = 0 ]; then ok "11 exit 0 on a fresh finished"; else bad "11 expected exit 0, got $RC"; fi
+
+# --------------------------------- 12. tonight's OWN STOP still stops the watch ---
+ND=$(mkenv fresh-stop); touch "$ND/heartbeat"; : >"$WT/stub.calls"
+printf 'kill switch\n' >"$ND/STOP"
+OUT=$(run_watch "$ND"); RC=$?
+check "12 fresh STOP + dead runner: STOPPED" " STOPPED " "$OUT"
+sleep 0.3
+if [ -s "$WT/stub.calls" ]; then bad "12 a stopped run was restarted"; else ok "12 no restart after a fresh STOP"; fi
+
+# ------------------------------------------- 13. an undatable run = fail closed ---
+# No run.meta (or no sane started_epoch) means the watcher cannot tell tonight's
+# markers from an older night's. It says UNKNOWN and restarts NOTHING.
+ND=$(mkenv nometa); touch "$ND/heartbeat"; : >"$WT/stub.calls"
+rm -f "$ND/run.meta"
+OUT=$(run_watch "$ND"); RC=$?
+check "13 no run.meta: UNKNOWN" " UNKNOWN " "$OUT"
+sleep 0.3
+if [ -s "$WT/stub.calls" ]; then bad "13 restarted a run it cannot date"; else ok "13 no restart without run.meta"; fi
+# An ISO timestamp in started_epoch squeezed through tr -dc digits becomes a huge
+# number that would make EVERY marker look stale for ever: it is not an epoch.
+printf 'mode=queue\nstarted_epoch=2026-09-18T01:00:00Z\n' >"$ND/run.meta"
+OUT=$(run_watch "$ND"); RC=$?
+check "13 unusable started_epoch: UNKNOWN" " UNKNOWN " "$OUT"
+
+# ------------------------------------------ 14. DEFERRED-* is never counted done ---
+# run.sh adds tokens over time (DEFERRED-needs, -quota, -quota-weekly, -alive):
+# the counting is PREFIX based, so a new one needs no change here.
+ND=$(mkenv deferred-alive); hold "$ND"; touch "$ND/heartbeat"
+printf '%s\n' \
+  "s1 DEFERRED-alive 2026-09-18T01:00:00Z previous session still alive" \
+  "s2 0 2026-09-18T02:00:00Z" >"$ND/state-2026-09-18.txt"
+OUT=$(run_watch "$ND")
+check "14 DEFERRED-alive counts as not done" " queue=1/2 deferred=1" "$OUT"
+
+# --------------------------- 15. single-instance guard + a TERM that lands fast ---
+# The guard must look at WHAT the pid is, not at a substring: a process merely
+# NAMED night-watch.sh, watching some other run, once blocked every new watcher.
+ND=$(mkenv guard); hold "$ND"; touch "$ND/heartbeat"
+( exec -a night-watch.sh sleep 300 ) &
+DECOY=$!
+printf '%s\n' "$DECOY" >"$ND/watch.pid"
+OUT=$(run_watch "$ND"); RC=$?
+check "15 a same-named process on another run does not block" " OK runner=alive" "$OUT"
+case "$OUT" in *"already watching"*) bad "15 the decoy blocked a real watcher";; *) ok "15 the decoy is treated as a stale pid";; esac
+kill "$DECOY" 2>/dev/null; wait "$DECOY" 2>/dev/null
+
+# A REAL second watcher on the SAME config must decline, quietly, with exit 0.
+rm -f "$ND/watch.pid"
+PATH="$WT/bin:$PATH" UM_LOG="$WT/um.log" "$WATCH" --config "$ND/config.env" --interval 120 >"$WT/guard.log" 2>&1 &
+W1=$!
+# Wait for W1's OWN pid in the file — any leftover would make this a race.
+i=0; while [ "$(head -1 "$ND/watch.pid" 2>/dev/null)" != "$W1" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
+OUT=$(run_watch "$ND"); RC=$?
+check "15 a real second watcher on the same config declines" "already watching" "$OUT"
+if [ "$RC" = 0 ]; then ok "15 exit 0 when another watcher owns the dir"; else bad "15 expected exit 0, got $RC"; fi
+
+# The TERM trap must not wait out the current 60 s sleep slice.
+T0=$(date +%s)
+kill -TERM "$W1" 2>/dev/null
+i=0; while kill -0 "$W1" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
+wait "$W1" 2>/dev/null
+ELAPSED=$(( $(date +%s) - T0 ))
+if kill -0 "$W1" 2>/dev/null; then bad "15 the watcher ignored TERM"
+elif [ "$ELAPSED" -le 3 ]; then ok "15 TERM stops the watcher in ${ELAPSED}s (sleep is interruptible)"
+else bad "15 TERM took ${ELAPSED}s — the sleep slice is not interruptible"; fi
+if [ -f "$ND/watch.pid" ]; then bad "15 watch.pid survived the TERM"; else ok "15 watch.pid removed on TERM"; fi
+
+# ------------------ 16. the budget survives the runner the watcher restarts ---
+# A LIVE watcher against a runner that behaves like the real one: the restarted
+# run.sh DELETES watch.restarts at queue start and republishes run.meta with a
+# fresh started_epoch, seconds after the spawn. Re-reading the file per tick
+# therefore counted 0 again after every restart — WATCH_MAX_RESTARTS was never
+# reached and the restarts were unbounded. The count is the WATCHER'S OWN, so
+# exactly two restarts happen and the third tick says DEAD.
+ND=$(mkenv budget); touch "$ND/heartbeat"
+: >"$WT/stub2.calls"
+cat >"$WT/skill/run-clear.sh" <<EOS
+#!/usr/bin/env bash
+printf 'RAN %s\n' "\$*" >>"$WT/stub2.calls"
+rm -f "$ND/watch.restarts"
+now=\$(date +%s)
+{ printf 'pgid=1\n'
+  printf 'started_epoch=%s\n' "\$now"
+  printf 'deadline_epoch=%s\n' "\$(( now + 36000 ))"
+  printf 'run_date=2026-09-18\nbase=$ND/base\nnight_dir=$ND\nskill_dir=$WT/skill\nconfig=$ND/config.env\nmode=queue\n'
+} >"$ND/run.meta"
+EOS
+chmod +x "$WT/skill/run-clear.sh"
+printf '%s\n' "$WT/skill/run-clear.sh" "--config" "$ND/config.env" >"$ND/run.args"
+PATH="$WT/bin:$PATH" UM_LOG="$WT/um.log" "$WATCH" --config "$ND/config.env" --interval 2 >"$WT/budget.log" 2>&1 &
+W2=$!
+i=0; while ! /usr/bin/grep -q " DEAD runner=dead" "$WT/budget.log" 2>/dev/null && [ $i -lt 200 ]; do sleep 0.1; i=$((i+1)); done
+kill -TERM "$W2" 2>/dev/null; wait "$W2" 2>/dev/null
+BUD=$(cat "$WT/budget.log")
+check "16 live watcher: RESTART 1/2" "RESTART 1/2" "$BUD"
+check "16 live watcher: RESTART 2/2" "RESTART 2/2" "$BUD"
+check "16 then the budget is spent: DEAD" " DEAD runner=dead" "$BUD"
+N=$(/usr/bin/grep -c "^RAN " "$WT/stub2.calls")
+if [ "$N" = 2 ]; then ok "16 exactly 2 restarts although the runner cleared watch.restarts"
+else bad "16 expected 2 restarts, got $N (the budget reset after a restart)"; fi
+
+# -------------- 17. a STOP dropped just before a RESTART still stops the run ---
+# The restarted runner writes a NEW started_epoch, so a STOP the owner placed in
+# the seconds before that restart is OLDER than it — and run.sh honours it (it
+# only tests for the file) while the watcher, dating everything against
+# started_epoch alone, called it yesterday's and kept restarting the night. STOP
+# is therefore dated against the EARLIER of started_epoch and the watcher's own
+# start. (The runner's own half of this is tests/lock-race.sh (vi): a pre-placed
+# STOP survives the start of the run and stops the night before the first story.)
+ND=$(mkenv stop-after-restart); touch "$ND/heartbeat"
+printf 'WATCH_MAX_RESTARTS="0"\n' >>"$ND/config.env"   # no restarts: this is about STOP
+T0=$(date +%s)
+PATH="$WT/bin:$PATH" UM_LOG="$WT/um.log" "$WATCH" --config "$ND/config.env" --interval 2 >"$WT/stopafter.log" 2>&1 &
+W3=$!
+i=0; while ! /usr/bin/grep -q " DEAD runner=dead" "$WT/stopafter.log" 2>/dev/null && [ $i -lt 200 ]; do sleep 0.1; i=$((i+1)); done
+sleep 6                                    # so that now-5 is after this watcher started
+NOWS=$(date +%s)
+sed -i "s/^started_epoch=.*/started_epoch=$NOWS/" "$ND/run.meta"   # the restarted runner
+printf 'owner stop\n' >"$ND/STOP"; touch -d "@$(( NOWS - 5 ))" "$ND/STOP"
+SM=$(stat -c %Y "$ND/STOP")
+if [ "$SM" -lt "$NOWS" ] && [ "$SM" -ge "$T0" ]; then
+  ok "17 precondition: STOP is older than started_epoch and newer than the watcher's start"
+else
+  bad "17 precondition failed: STOP=$SM started_epoch=$NOWS watcher_start=$T0"
+fi
+i=0; while kill -0 "$W3" 2>/dev/null && [ $i -lt 200 ]; do sleep 0.1; i=$((i+1)); done
+if kill -0 "$W3" 2>/dev/null; then
+  bad "17 the watcher ignored a STOP older than started_epoch"
+  kill -TERM "$W3" 2>/dev/null; wait "$W3" 2>/dev/null
+else
+  wait "$W3"; RC=$?
+  SA=$(cat "$WT/stopafter.log")
+  check "17 STOP across a restart: STOPPED" " STOPPED " "$SA"
+  if [ "$RC" = 0 ]; then ok "17 exit 0 on STOPPED"; else bad "17 expected exit 0, got $RC"; fi
+  case "$SA" in *"ignoring stale STOP"*) bad "17 the STOP was treated as an earlier night's";; *) ok "17 the STOP was not called stale";; esac
+fi
+
 # ------------------------------------------------------------- teardown -----
 for p in $HOLDERS; do kill "$p" 2>/dev/null; done
 sleep 0.5
 for p in $HOLDERS; do kill -9 "$p" 2>/dev/null; done
 sleep 0.3
+for p in $HOLDERS; do
+  if kill -0 "$p" 2>/dev/null; then bad "teardown: flock holder $p survived"; fi
+done
 LEFT=$(/usr/bin/pgrep -f "$WT" 2>/dev/null | /usr/bin/grep -v "^$$\$")
 if [ -n "$LEFT" ]; then
   bad "teardown: processes left behind under $WT: $(printf '%s' "$LEFT" | tr '\n' ' ')"
