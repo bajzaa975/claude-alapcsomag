@@ -9,9 +9,9 @@ Fixture: temp HOME, temp cwd, a fake plugin root whose
 `skills/mode/DAY-RUN-RULES.md` is a symlink to the real file, and a `PATH`
 shim `claude` that exits 99 and drops a marker -- the real CLI never runs.
 
-Cases 1-3 pull the write sequence and read command verbatim out of SKILL.md
-with sed/grep and execute those exact strings, so drift from the hook fails
-the test. Cases 4-9 run the real `day-run-mode.sh` hook.
+Cases 1-3 execute SKILL.md's own documented snippet strings (pulled out with
+sed/grep); cases 4-9 run the real `day-run-mode.sh` hook. It does not compare
+the two texts against each other.
 
 1. `day-run` write: target file is exactly `day-run\n`.
 2. `normal` write overwrites it; no stray `.bajzi-mode.*` temp file remains.

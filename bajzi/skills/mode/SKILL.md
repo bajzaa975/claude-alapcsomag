@@ -17,11 +17,15 @@ argument: print `day-run | normal | status [--project]` and stop - do nothing el
 
 ## Where the mode lives
 
-- `--project` given -> write/read `<repo>/runtime/bajzi-mode`.
+- `--project` given -> `<repo>` is the output of `/usr/bin/git rev-parse --show-toplevel`; if that
+  fails (not inside a repo), refuse `--project` with a one-line message and stop. Otherwise
+  write/read `<repo>/runtime/bajzi-mode`.
 - `--project` not given -> write/read `$HOME/.claude/bajzi-mode`.
 - Resolution order when reading the EFFECTIVE mode (for `status`, and mirrored by the hook): the
   project file wins. Check `runtime/bajzi-mode` first; only if it is absent or empty, fall back
   to `$HOME/.claude/bajzi-mode`.
+- The hook reads the project override from the SESSION'S cwd (`<cwd>/runtime/bajzi-mode`), so an
+  override written with `--project` only applies once the session starts at that repo's root.
 
 ## Reading a mode file
 
@@ -66,7 +70,8 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
 Day-run dispatches sub-agents using the four templates in
 `skills/mode/templates/dispatch-{explore,implement,review,fix}.md`, and appends one line per
 dispatch to `runtime/DAY-RUN.log` in the format
-`<ISO time> <task-class> model=<name> rounds=<n> result=<pass|fail|park|direct>`.
+`<ISO time> <task-class> model=<name> rounds=<n> result=<pass|fail|park|direct>`. Before the first
+append in a session, run `mkdir -p runtime`.
 
 ## Standing constraints (this skill, always)
 

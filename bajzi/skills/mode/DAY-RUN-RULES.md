@@ -25,6 +25,7 @@ CONTEXT DISCIPLINE: sub-agent reports <=40 lines, paths and counts only, never f
 test output or diffs. Main thread never opens a file over 300 lines. At 40% context: finish the
 slice, write the handoff, ask to clear. Parallel fixers own disjoint files, then one consistency
 pass. One task per session.
+STARTUP INJECTIONS cost ORCH price too: keep SessionStart hook output small; memory plugin caps at 5 obs on owner machines (CLAUDE_MEM_CONTEXT_OBSERVATIONS=5).
 FABLE DEPLETION: on the session-limit message, start nothing new, write the handoff, say "Fable
 limit reached. Restart with Opus." Next session: claude --model claude-opus-5. Same rules reload;
 ORCH is Opus; no rung spends Fable.
