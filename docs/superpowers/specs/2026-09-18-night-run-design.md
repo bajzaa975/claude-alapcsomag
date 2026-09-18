@@ -175,7 +175,8 @@ TODO/FIXME scanning and lint debt — it maps to no milestone and burns a slot.
 One screen, the only question the skill asks:
 
 - the ordered queue, each item with its size and one line of why it is in;
-- what the run may merge into the base branch unattended;
+- what the run may merge into the base branch unattended, and the reminder that
+  every item passes the section 10 review loop before it can be merged;
 - what was deferred and why;
 - any blocker found in PHASE A.
 
@@ -202,9 +203,11 @@ gives the runner its own session, so it survives.
 ### PHASE F — Morning follow-through (`report` mode)
 
 - Read `REPORT-<date>.md` and `state.txt`.
-- Review every PR still open with one sub-agent each; never review in the main
-  thread.
-- Merge the green ones under the NIGHT-RULES merge policy.
+- Review every PR still open with one Opus sub-agent each, using the section 10
+  verdict format; never review in the main thread.
+- Merge only PRs that are both review-green and CI-green, under the NIGHT-RULES
+  merge policy. A PR the night parked for review is re-reviewed here, not
+  waved through because it is morning.
 - Run the post-merge invariants from NIGHT-RULES after each merge.
 - Clean up the run's worktrees per section 8 — dirty or parked trees are kept,
   not removed.
@@ -240,13 +243,18 @@ The ruleset established over the two innotel-bss nights, templated:
   heavy step; never read a file over 300 lines in the main thread.
 - Per-story recipe: own worktree created off the remote base ref per section 8,
   TDD, one PR per story; resume in the tree if it already exists.
+- Review loop: every story ends in the independent Opus review-and-fix loop of
+  section 10, capped at 3 rounds. Nothing is reported done without a review-green
+  verdict.
 - Merge gate: only a `pull_request`-event CI run counts; merge the base branch
   into the branch first; run the post-merge invariants; squash-merge only when
-  green; otherwise leave the PR open and PARK it with a reason.
+  the run is BOTH review-green and CI-green; otherwise leave the PR open and
+  PARK it with a reason.
 - Model policy: orchestrator per `model:`, sub-agent models chosen per task.
 - Never ask questions — the owner is asleep. Park instead of guessing.
 - Never develop in the deployed tree.
-- Finish with one machine-readable line: `RESULT <id> <state> PR#<n>`.
+- Finish with one machine-readable line:
+  `RESULT <id> <state> PR#<n> review=<pass|parked> rounds=<n>`.
 
 ## 8. Worktree lifecycle
 
@@ -348,7 +356,8 @@ It is an orchestrator, not a worker. In its own context it may only:
 | locate code, explore layout | Haiku      | paths plus <= 10 lines, no file contents |
 | implement a slice, TDD      | run model  | files changed, test counts, <= 15 lines  |
 | run a test suite            | Haiku      | pass/fail counts, failing test names only|
-| review a diff               | Opus       | findings list only, <= 20 lines          |
+| review a diff               | Opus, always | the section 10 verdict, <= 20 lines    |
+| fix review findings         | run model  | what changed, <= 10 lines                |
 | write a document > 100 lines| Sonnet     | the path plus <= 5 lines                 |
 
 Every dispatch prompt ends with an explicit line budget and the sentence: never
@@ -393,12 +402,116 @@ consolidating a night's worth of results never competes with story work for
 context. PHASE F in the owner's morning session follows the same rules: one
 sub-agent per PR review, never a review in the main thread.
 
-## 10. Out of scope
+## 10. The review-and-fix loop
+
+No story is ever reported done on the implementer's word. Every development
+story ends in a loop driven by the orchestrator, in which an INDEPENDENT Opus
+sub-agent reviews the work and the loop repeats until the review comes back
+clean. This is the difference between a night run that produces PRs and one that
+produces correct PRs.
+
+### Roles, and why they are separate agents
+
+| role        | model                    | sees                                   |
+|-------------|--------------------------|----------------------------------------|
+| implementer | the run model            | the story, the code                    |
+| reviewer    | Opus 5, ALWAYS           | the diff and the acceptance criteria   |
+| fixer       | the run model            | the findings, the code                 |
+
+- The reviewer is **always Opus 5**, even when `model:opus` already makes the
+  orchestrator Opus. Independence here means a separate context that never saw
+  the implementer's reasoning — not a different model name.
+- The reviewer reviews **the diff against the base ref**, never the
+  implementer's summary of it. An agent grading its own homework from its own
+  notes is not a review.
+- The fixer is never the reviewer. A reviewer that fixes its own findings
+  reviews its own work in the next round.
+- Each round gets a FRESH reviewer. It receives the previous round's findings
+  as a checklist to verify as fixed, not as a conclusion to trust.
+
+### The loop
+
+1. Implementer finishes a slice; tests pass locally.
+2. Orchestrator dispatches a reviewer with: the story id and its acceptance
+   criteria from the queue note, the base ref, and the previous round's findings
+   if any. The reviewer reads the diff itself.
+3. Reviewer returns a structured verdict, at most 20 lines:
+
+       VERDICT <pass|fail>  ROUND <n>
+       BLOCKING  <n>   - one line each: file:line, what is wrong, why it matters
+       NON-BLOCKING <n> - one line each
+       EVIDENCE: tests run and their counts, files actually read
+
+   "Looks good" is not a verdict. A pass with no evidence line is treated as a
+   fail and the round is re-run.
+4. BLOCKING findings > 0 → orchestrator dispatches a fixer with the findings,
+   then returns to step 2 with a fresh reviewer.
+5. BLOCKING findings = 0 → the story is review-green. Non-blocking findings are
+   recorded in the PR body and the night report; they never gate the loop, or a
+   nitpick would keep the story spinning until the timeout.
+
+### Green means two things
+
+- **review-green**: an independent Opus reviewer returned zero blocking findings.
+- **CI-green**: the required `pull_request`-event check passed.
+
+Both are required. review-green gates the PR being offered for merge; CI-green
+gates the merge itself (section 5, merge gate). A story that is CI-green but not
+review-green is NOT merged and NOT reported done.
+
+### Forbidden ways to reach green
+
+The fixer may not make a finding disappear by weakening what detects it.
+Specifically forbidden: deleting or skipping a failing test, loosening an
+assertion, widening a type to silence a checker, catching and swallowing an
+error, or lowering a coverage or lint threshold. If a finding is genuinely
+wrong, the fixer says so with its reasoning and the orchestrator decides,
+records the decision with `brain note decision:`, and the decision goes in the
+report. Disagreement is resolved on the technical merits and recorded — never by
+silent compliance and never by deleting the check.
+
+### Termination — the loop must end
+
+"Loop until everything is green" needs a floor, or a story eats the night:
+
+- **Maximum 3 review rounds.** Still blocking after round 3 → the story is
+  PARKED, not merged, not reported done. The PR stays open with the outstanding
+  findings in its body, and the report lists it first under what the owner
+  should look at.
+- The loop is also bounded by `PER_STORY_TIMEOUT` and by the context park
+  thresholds in section 9. Whichever floor is hit first wins, and the park
+  reason names which one it was: `review`, `timeout` or `context`.
+- A reviewer that returns the same blocking finding twice with no change in the
+  diff means the fixer is stuck. Do not spend round 3 on it — park immediately
+  and say so.
+- Parked-for-review is a normal outcome. It is re-queued the next night and
+  resumes in its existing worktree with the findings in the handoff.
+
+### What the orchestrator must never delegate
+
+The orchestrator dispatches the agents, reads their compact verdicts and takes
+the decision itself. It never lets a sub-agent decide that a story is done, and
+it never writes a `RESULT` line from an implementer's claim. The result line
+carries the evidence:
+
+    RESULT <id> <merged|open|parked|blocked> PR#<n> review=<pass|parked> rounds=<n>
+
+A story reported `merged` or `open` with `review=parked` is a contradiction the
+report must flag.
+
+### Cost
+
+Each round is a fresh sub-agent, so the loop costs the orchestrator only the
+verdicts — roughly 20 lines per round, three rounds at worst. The loop is
+therefore compatible with section 9: it buys correctness without growing the
+orchestrator's context.
+
+## 11. Out of scope
 
 TODO/FIXME mining; more than one project per night; a systemd timer or
 scheduler; changing the classifier's behaviour. The owner launches at bedtime.
 
-## 11. Migration of innotel-bss
+## 12. Migration of innotel-bss
 
 `/home/ubuntu/night/` is in use by a live runner and is not touched while it
 runs. After the queue finishes, innotel-bss moves to `~/night-runs/innotel-bss/` with
