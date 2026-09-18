@@ -1,0 +1,36 @@
+{
+  "_comment": "OPT-IN, the owner's call. Rendered by /bajzi:night-run to ~/night-runs/<project>/settings.local.json, then installed by the OWNER in PHASE E as <BASE>/.claude/settings.local.json (mkdir -p the .claude folder first). Claude Code loads it as project settings for every session started in that worktree, which is exactly the per-story night sessions: the allow list skips the auto-mode classifier for these command shapes, the deny list blocks these shapes outright, and everything else still goes through the classifier. Deleting the file reverts the machine to plain auto mode; nothing else has to be undone.",
+  "_comment_deny": "CORRECTNESS FIX vs the hand-written original: file deny rules are written as Edit(<glob>), NOT Write(<glob>). The harness warns that Write(...) rules are not consulted by the file permission checks, so a Write-only deny silently permits the edit it was meant to block; an Edit(<glob>) rule covers ALL file-editing tools for that path. Keep every path rule below in the Edit(...) form.",
+  "_comment_placeholders": "Replace every <angle-bracket> value. <BASE_BRANCH>, <git user.name> and <git user.email> come from config.env and `git config`. Add one Edit(...) deny line per forbidden path from docs/NIGHT-RULES.md section 3, and one Read(...) deny line per secret file. Remove any line that does not apply — a rule naming a path this project does not have is noise, not safety.",
+  "permissions": {
+    "allow": [
+      "Bash(/usr/bin/git fetch:*)",
+      "Bash(/usr/bin/git worktree add:*)",
+      "Bash(/usr/bin/git merge origin/<BASE_BRANCH>:*)",
+      "Bash(/usr/bin/git push:*)",
+      "Bash(/usr/bin/git -c user.name=<git user.name> -c user.email=<git user.email> commit:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(brain:*)",
+      "Bash(update-monitor note:*)"
+    ],
+    "deny": [
+      "Bash(/usr/bin/git push --force:*)",
+      "Bash(/usr/bin/git push -f:*)",
+      "Bash(/usr/bin/git rebase:*)",
+      "Bash(/usr/bin/git reset --hard:*)",
+      "Bash(/usr/bin/git stash:*)",
+      "Bash(gh pr merge <PR number the run must never merge>:*)",
+      "Bash(sudo:*)",
+      "Bash(docker:*)",
+      "Bash(systemctl:*)",
+      "Edit(.github/**)",
+      "Edit(<absolute path of the deployed tree>/**)",
+      "Read(<absolute path of the deployed tree>/.env)",
+      "Read(**/.env)"
+    ]
+  }
+}

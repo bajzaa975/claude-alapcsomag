@@ -103,24 +103,31 @@ stops. Sections:
 
 Refuse to plan if a run is already alive for this project.
 
-- Detect with `pgrep -af "bash .*/run\.sh$"`, NEVER with a bare `ps`. The `$`
-  anchor is load-bearing: an unanchored pattern also matches the wrapper process
-  running the check itself, which reports phantom extra runners. This was
-  observed, not theorised — the unanchored form returned three pgids for one
-  live runner. On this
-  machine `rtk` rewrites `ps`, the output format changes, and a pattern match
-  silently finds nothing — which on 2026-09-18 made a healthy runner look dead
-  and nearly caused a second one to be started. The skill states this trap in
-  one line.
-- One runner = ONE distinct pgid among the matches; the parent plus its subshell
-  are two processes in one group. Compare pgids, not process counts. `pgrep -af`
-  cannot print pgids (`-g` matches them, it never displays them), so read them
-  from procfs, which `rtk` does not touch:
+- Detect a live runner from its ARGV, not from a command-line pattern and not
+  from pgids. Read `/proc/<pid>/cmdline`, split on NUL, and require `argv[1]`
+  (or `argv[0]` when the script is executed directly) to basename to `run.sh`:
 
-      for p in $(pgrep -f "bash .*/run\.sh$"); do awk '{print $5}' /proc/$p/stat; done | sort -u
+      for p in $(pgrep -f "run\.sh"); do
+        a1=$(tr '\0' '\n' < /proc/$p/cmdline 2>/dev/null | sed -n 2p)
+        case "${a1##*/}" in run.sh) awk '{print $5}' /proc/$p/stat;; esac
+      done | sort -u
 
   More than one line means more than one runner: stop and report, never launch.
   Verified against the live 2026-09-18 runner: one line, `1453420`.
+- Three simpler forms were tried and all three are WRONG. A bare `ps | grep`
+  finds nothing at all, because `rtk` rewrites `ps` and the output format
+  changes — on 2026-09-18 this made a healthy runner look dead and nearly caused
+  a second one to be started. `pgrep -af "bash .*/run\.sh$"` works only for a
+  runner launched with no arguments; this runner is launched with
+  `--config <path>`, so the `$` anchor never matches and it reports no runner
+  every time. `pgrep -af "bash .*/run\.sh( |$)"` matches the with-arguments
+  runner but ALSO matches the shell running the check, because that shell's own
+  command line contains the string. Excluding the caller's own pgid to fix that
+  breaks the lock instead: two runners sharing a process group — any launch
+  without `setsid` — each filter themselves out, so the second one judges the
+  first one's lock stale and takes it over, putting two sessions in one
+  worktree. The argv test has none of these failure modes: a shell that merely
+  mentions run.sh has `argv[1] == "-c"`.
 - Cross-check `run.lock`: if it holds a pgid that is still alive, a run is live.
 - `git fetch`, then confirm the base branch is not behind its own remote.
 - Disk headroom check; refuse below `DISK_FLOOR_GB`. On this VM the build cache
