@@ -12,7 +12,9 @@
   Placeholders substituted at render time (all of them, no others):
 
     PROJECT              project name, e.g. the Brain's project key
-    REPO                 absolute path of the canonical repo checkout
+    REPO                 GitHub repository as owner/name — a gh ARGUMENT ONLY
+                         (`gh pr create --repo <owner>/<name>`), NEVER a path on
+                         disk; the checkout directory is BASE
     BASE                 absolute path of the base worktree every story
                          session is started from
     BASE_BRANCH          branch stories branch off and merge into
@@ -113,7 +115,7 @@ to resume. Finishing early and parked is strictly better than late and dead.
 2. **Your output's very last line is the `RESULT` line, alone, exactly:**
 
    ```
-   RESULT <id> <merged|open|parked|blocked> PR#<n or -> review=<pass|parked> rounds=<n> reason=<review|timeout|context|ci|forbidden|tests|->
+   RESULT <id> <merged|open|parked|blocked> PR#<n or -> review=<pass|parked> rounds=<n> reason=<review|timeout|context|ci|forbidden|merge-forbidden|tests|->
    ```
 
    Every field is defined in section 9, item 5. Nothing follows that line.
@@ -122,7 +124,9 @@ to resume. Finishing early and parked is strictly better than late and dead.
 
 ## 1. Where you are, who else is on the machine, what you never touch
 
-- You start in `{{BASE}}`, the base worktree of `{{REPO}}` on `{{BASE_BRANCH}}`.
+- You start in `{{BASE}}`, the base worktree of the GitHub repo `{{REPO}}` on
+  `{{BASE_BRANCH}}`. `{{REPO}}` is an owner/name string for `gh` ONLY, never a
+  path; every directory in this brief is `{{BASE}}` or `{{NIGHT_DIR}}`.
   `{{BASE}}` is a BASE ONLY. You do not develop in it. Every story gets its own
   worktree under `{{NIGHT_DIR}}/wt/<id>/` (section 3).
 - The night run's own state lives in `{{NIGHT_DIR}}`: `queue.txt`,
@@ -145,7 +149,7 @@ to resume. Finishing early and parked is strictly better than late and dead.
   change: read `~/infra/INVENTORY.md` and `~/infra/PORTS.md`. Never stop a
   container that does not belong to {{PROJECT}}. If you change machine state,
   log it with `update-monitor note "..."` in English.
-- Never run `git` in `{{REPO}}` for anything except `fetch`, `worktree`,
+- Never run `git` in `{{BASE}}` for anything except `fetch`, `worktree`,
   `branch` and `tag`: if it is also a deployed tree, developing in it can ship
   untested code to a live service. Worktrees are created FROM it, never in it.
 - Never touch a worktree this story did not create — another story, session or
@@ -247,10 +251,10 @@ Paths and names are fixed:
     worktree   {{NIGHT_DIR}}/wt/<id>/
     branch     feat/{{BRANCH_PREFIX}}-<id>-<slug>        slug <= 5 words, lowercase, hyphenated
 
-Always `git fetch` first, from `{{REPO}}`:
+Always `git fetch` first, from `{{BASE}}` (the checkout on disk):
 
 ```bash
-/usr/bin/git -C "{{REPO}}" fetch origin --prune
+/usr/bin/git -C "{{BASE}}" fetch origin --prune
 ```
 
 `git worktree add -b` exits non-zero when the branch already exists, so DECIDE
@@ -268,11 +272,11 @@ the story dies on its first line.
 test -d "{{NIGHT_DIR}}/wt/<id>" && echo TREE_EXISTS
 
 # 2 does the branch exist on the remote?
-/usr/bin/git -C "{{REPO}}" ls-remote --exit-code --heads origin \
+/usr/bin/git -C "{{BASE}}" ls-remote --exit-code --heads origin \
   "feat/{{BRANCH_PREFIX}}-<id>-<slug>" && echo REMOTE_BRANCH
 
 # 3 does it exist locally?
-/usr/bin/git -C "{{REPO}}" rev-parse --verify --quiet \
+/usr/bin/git -C "{{BASE}}" rev-parse --verify --quiet \
   "refs/heads/feat/{{BRANCH_PREFIX}}-<id>-<slug>" && echo LOCAL_BRANCH
 ```
 
@@ -310,7 +314,7 @@ Then take EXACTLY ONE of three cases:
 2. **No tree, but `REMOTE_BRANCH` or `LOCAL_BRANCH` printed** → attach it:
 
    ```bash
-   /usr/bin/git -C "{{REPO}}" worktree add "{{NIGHT_DIR}}/wt/<id>" "feat/{{BRANCH_PREFIX}}-<id>-<slug>"
+   /usr/bin/git -C "{{BASE}}" worktree add "{{NIGHT_DIR}}/wt/<id>" "feat/{{BRANCH_PREFIX}}-<id>-<slug>"
    ```
 
    Never invent a suffixed second branch (`-v2`, `-new`). Two branches for one
@@ -319,7 +323,7 @@ Then take EXACTLY ONE of three cases:
    ref, never from whatever the local base branch happens to point at:
 
    ```bash
-   /usr/bin/git -C "{{REPO}}" worktree add "{{NIGHT_DIR}}/wt/<id>" -b "feat/{{BRANCH_PREFIX}}-<id>-<slug>" "origin/{{BASE_BRANCH}}"
+   /usr/bin/git -C "{{BASE}}" worktree add "{{NIGHT_DIR}}/wt/<id>" -b "feat/{{BRANCH_PREFIX}}-<id>-<slug>" "origin/{{BASE_BRANCH}}"
    ```
 
 Immediately after creating a tree, append one tab-separated row to
@@ -357,6 +361,10 @@ uncommitted work once.
   which first checks for unpushed commits and ignored files; a mid-run removal
   has already destroyed uncommitted work once. Leaving a directory on disk is
   always the cheaper mistake.
+  The ONE exception is section 5.3 step 3: after YOUR OWN PR merged green and
+  the `archive/` tag is VERIFIED on the remote, you remove YOUR OWN tree with
+  a plain `git worktree remove` — never `--force`, never `prune`, never
+  another story's tree, and never when a later queue entry names that tree.
 - **Pin the commit identity on EVERY commit, from the ENVIRONMENT.** The runner
   exported this story's author identity — `{{GIT_USER_NAME}}`,
   `{{GIT_USER_EMAIL}}` — into your environment as `GIT_AUTHOR_NAME`,
@@ -578,7 +586,10 @@ round, 60 at worst. Skipping a round saves nothing and costs correctness.
 You take this decision yourself. You never let a sub-agent decide a story is
 done.
 
-Squash-merge your own PR into `{{BASE_BRANCH}}` ONLY when BOTH hold:
+Squash-merge your own PR into `{{BASE_BRANCH}}` ONLY when ALL THREE hold:
+
+0. **merge-allowed** — section 6 (`docs/NIGHT-RULES.md`) does not forbid this
+   session from merging. Check this FIRST, before you spend a CI wait on it.
 
 1. **review-green** — section 4 returned `VERDICT pass` with zero blocking
    findings AND an EVIDENCE line.
@@ -622,9 +633,45 @@ gh run list --branch "feat/{{BRANCH_PREFIX}}-<id>-<slug>" --event pull_request -
    `pull_request`-event run before merging.
 4. Merge: `gh pr merge <n> --squash`. Never `--delete-branch`: deleting a branch
    that still has a worktree attached fails mid-merge and leaves the repo
-   half-done. Branch deletion is the owner's call.
+   half-done. Section 5.3 below does the deletion, tag-first.
 
-### 5.3 When not green
+### 5.3 Clean up after a green merge — archive-tag FIRST, then delete
+
+CLEAN UP AFTER A GREEN MERGE, in this order, in the same session (squash-merge
+makes the branch's real commits unreachable once the branch is gone, so the tag
+is the only copy). The story's branch is `feat/{{BRANCH_PREFIX}}-<id>-<slug>`;
+write it in full everywhere `<branch>` appears below, in DOUBLE quotes.
+
+1. `/usr/bin/git -C "{{BASE}}" fetch origin`, then tag the merged tip
+   `/usr/bin/git -C "{{BASE}}" tag "archive/<branch>-<YYYYMMDD>" "origin/<branch>"`
+   and push it with
+   `/usr/bin/git -C "{{BASE}}" push origin "refs/tags/archive/<branch>-<YYYYMMDD>"`;
+2. verify it:
+   `/usr/bin/git -C "{{BASE}}" ls-remote --tags origin "archive/<branch>-<YYYYMMDD>"`
+   must print the tag. If the tag push failed (GH007 email privacy or anything
+   else): STOP here, keep the branch and the worktree, write DO-NOT-DELETE + the
+   error in the report;
+3. only then delete the remote branch
+   `/usr/bin/git -C "{{BASE}}" push origin --delete "<branch>"`, remove the
+   worktree
+   `/usr/bin/git -C "{{BASE}}" worktree remove "{{NIGHT_DIR}}/wt/<id>"` (never
+   `--force`, never `worktree prune`; a dirty tree means something was not
+   committed — push it first) and delete the local branch
+   `/usr/bin/git -C "{{BASE}}" branch -D "<branch>"`.
+
+Skip step 3's worktree removal when a later queue entry names this worktree.
+Never delete an `archive/*` tag. List tag / remote-deleted / worktree-removed in
+the AUTOPILOT-REPORT section. A PR left open or PARKED gets NO cleanup.
+
+### 5.4 When merging is not allowed
+
+If section 6 forbids this session from merging, finish the story anyway: push,
+open the PR, get it review-green and CI-green, write the handoff, and leave the
+PR OPEN for the owner's morning sweep. Report state `open`, `review=pass` and
+`reason=merge-forbidden` (section 9). Do NOT park it as `review` or `ci` — the
+story is done; only the merge is the owner's.
+
+### 5.5 When not green
 
 Leave the PR OPEN and PARK with the reason. An open, green, reviewed PR is a
 SUCCESS, not a failure. Merging something you are unsure about while the owner
@@ -637,7 +684,10 @@ sleeps is the only real failure here.
 The rules below come from `docs/NIGHT-RULES.md` in {{PROJECT}} — the owner's
 rulings. Where they conflict with anything else in this brief, THEY WIN. Where
 they forbid something, it is forbidden even if a story seems to need it: that
-story is BLOCKED (`reason=forbidden`) and you say so.
+story is BLOCKED (`reason=forbidden`) and you say so. The ONE exception is a rule
+that forbids MERGING: that does not block the story, it only stops the last
+step — finish it, leave the green PR open and report `reason=merge-forbidden`
+(sections 5.4 and 9).
 
 {{NIGHT_RULES}}
 
@@ -727,7 +777,7 @@ morning cannot use.
 5. **The final line.** The very last line of your output, alone, exactly:
 
    ```
-   RESULT <id> <merged|open|parked|blocked> PR#<n or -> review=<pass|parked> rounds=<n> reason=<review|timeout|context|ci|forbidden|tests|->
+   RESULT <id> <merged|open|parked|blocked> PR#<n or -> review=<pass|parked> rounds=<n> reason=<review|timeout|context|ci|forbidden|merge-forbidden|tests|->
    ```
 
    - `<id>` is your queue id. `PR#-` when no PR was opened.
@@ -735,7 +785,8 @@ morning cannot use.
      evidence line. Otherwise `review=parked`.
    - `rounds=<n>` is the number of review rounds actually run.
    - `reason=` says WHY. It is exactly one token from this closed list, and
-     every `parked` or `blocked` state MUST carry one of the six real ones:
+     every `parked` or `blocked` state MUST carry one of the real ones,
+     and `merge-forbidden` is the one real token that goes with state `open`:
 
      | token       | when                                                        |
      |-------------|-------------------------------------------------------------|
@@ -744,10 +795,14 @@ morning cannot use.
      | `context`   | the section 2 context threshold fired first                  |
      | `ci`        | the CI wait bound was reached with the run still queued or running |
      | `forbidden` | the story requires a change in a forbidden zone — section 1 or section 6 — so it is `blocked`, not parked |
+     | `merge-forbidden` | the story is BOTH review-green and CI-green, but merging is not allowed — section 6 / `docs/NIGHT-RULES.md` forbids this session from merging (or the owner granted no merge for this project tonight). The PR is pushed, green and LEFT OPEN for the morning sweep; the state is `open`, `review=pass`, and nothing is merged. This is a SUCCESS, not a failure |
      | `tests`     | tests fail and cannot be made to pass without a forbidden route to green (section 4.4) |
      | `-`         | nothing was parked or blocked; valid ONLY with `merged`      |
 
      `parked ... reason=-` and `blocked ... reason=-` are malformed lines.
+     `merge-forbidden` may never appear with `merged`: if you merged, merging
+     was allowed. It carries state `open` and `review=pass`, never `blocked` —
+     nothing about the story is broken, only the merge permission is absent.
    - Use this exact grammar everywhere the `RESULT` line appears: the top of
      this brief and sections 2, 4.5 and 8 all refer to the same line.
    - `merged` or `open` together with `review=parked` is a CONTRADICTION. Never
@@ -772,9 +827,10 @@ morning cannot use.
 - **Never write to another story's handoff file**, and never to a shared
   `night.md`. Your handoff is `night-<id>.md` and nothing else.
 - **Section 1's forbidden list stands unchanged and is not repeated here**: the
-  deployed tree `{{REPO}}`, `.github/**` and CI workflows, secrets, credentials
-  and `.env` files, another session's worktree, branch or stash entry, ANY
-  worktree removal or prune including your own, and any PR you did not open.
+  deployed tree `{{BASE}}`, `.github/**` and CI workflows, secrets, credentials
+  and `.env` files, another session's worktree, branch or stash entry, any
+  worktree removal or prune except your own tree in section 5.3 step 3 after a
+  verified archive tag, and any PR you did not open.
   Section 6 overrides everything, including this brief.
 - Keep every artefact you write in English — report, handoff, commit messages,
   PR bodies, brain notes, code comments.
