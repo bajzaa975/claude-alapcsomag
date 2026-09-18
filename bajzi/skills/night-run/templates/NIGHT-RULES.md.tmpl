@@ -6,10 +6,17 @@
   scaffolds it from this template when it is missing.
 
   WHY IT EXISTS: it is the one input a night run cannot derive from the code or
-  from the Brain. Its whole body is inlined verbatim into the rendered BRIEF
-  ({{NIGHT_RULES}}), where it OVERRIDES EVERYTHING ELSE IN THE BRIEF. Where it
-  forbids something, that thing is forbidden even if a story appears to need it —
-  that story is BLOCKED and the session says so.
+  from the Brain. Its whole body is inlined verbatim into section 6 of the
+  rendered BRIEF (the placeholder named NIGHT_RULES — written here WITHOUT its
+  braces on purpose, because this file is inlined AFTER substitution and a live
+  token in this comment would re-inject an unrendered placeholder into the brief
+  and trip the PHASE C placeholder gate). There it OVERRIDES EVERYTHING ELSE IN
+  THE BRIEF: where it forbids something, that thing is forbidden even if a story
+  appears to need it — that story is BLOCKED and the session says so.
+
+  NOTHING STRIPS THIS COMMENT. Unlike BRIEF.md.tmpl, this file is copied into the
+  brief as-is, comment included, so keep it free of placeholder tokens. You may
+  delete this comment block once the file is filled in; that is optional.
 
   A MISSING FILE BLOCKS THE RUN: PHASE A scaffolds it from this template, shows it
   to the owner and STOPS. Nothing is queued and nothing is launched until the
@@ -39,10 +46,16 @@ Story ids the run must never pick up, each with the reason. PHASE B subtracts th
 ## 3. Forbidden paths
 
 Paths no night session may create, edit or delete, whatever the story says.
+This section is ENFORCED, not merely written down: PHASE C turns every entry
+below into an `Edit(<glob>)` deny line (and every secret into a `Read(<glob>)`
+deny line) in the generated `settings.local.json`. So write each entry as a real
+glob, repo-relative for paths inside the repo and with a DOUBLED leading slash
+or a `~/` for anything outside it — `/x/**` alone is read as repo-relative and
+would silently match nothing.
 
 - `<.github/**>` — `<CI config is daylight-only work>`
-- `<path/to/secrets>`, `<**/.env>` — `<credentials>`
-- `<another product's tree>` — `<not this project>`
+- `<path/to/secrets/**>`, `<**/.env>` — `<credentials>`
+- `<~/another-product-tree/**>` — `<not this project>`
 
 ## 4. Migration policy
 
@@ -61,6 +74,9 @@ Facts about this repo's CI that a session cannot infer and will otherwise get wr
   `workflow_dispatch` run does NOT count, however green it looks.
 - Tooling quirks: `<e.g. "gh pr checks" fails with the configured token — read CI
   with "gh run list --event pull_request --json name,conclusion,headBranch" instead>`
+- How long a story may wait for CI is NOT set here. It is `CI_WAIT_MINUTES` in
+  `config.env` (default 45) — the runner reads config.env only, never this file,
+  so a number written here would be silently ignored.
 
 ## 6. Post-merge invariants
 
