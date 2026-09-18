@@ -30,8 +30,10 @@
                          a session's Bash calls — a `FINALIZE=...` computed in
                          one call is empty in the next, the test errors, and
                          the session is killed mid-write
-    CI_WAIT_MINUTES      bounded CI wait in minutes; default 45, overridable by
-                         the project's NIGHT-RULES (NEW)
+    CI_WAIT_MINUTES      bounded CI wait in minutes; it comes from the run's
+                         config.env (default 45) and from nowhere else — run.sh
+                         never reads docs/NIGHT-RULES.md, so a CI-wait number
+                         written there is silently ignored (NEW)
     GIT_USER_NAME        git author name every story commit is pinned to (NEW)
     GIT_USER_EMAIL       git author email every story commit is pinned to (NEW)
     NIGHT_RULES          full body of the project's docs/NIGHT-RULES.md,
@@ -123,10 +125,16 @@ to resume. Finishing early and parked is strictly better than late and dead.
 - You start in `{{BASE}}`, the base worktree of `{{REPO}}` on `{{BASE_BRANCH}}`.
   `{{BASE}}` is a BASE ONLY. You do not develop in it. Every story gets its own
   worktree under `{{NIGHT_DIR}}/wt/<id>/` (section 3).
-- The night run's own state lives in `{{NIGHT_DIR}}`: `queue.txt`, `state.txt`,
-  `worktrees.tsv`, `logs/`, `run.lock`, `STOP`. You append to your own rows and
-  your own log. You never edit another story's rows, and you never delete
-  `run.lock` or `STOP`.
+- The night run's own state lives in `{{NIGHT_DIR}}`: `queue.txt`,
+  `state-{{RUN_DATE}}.txt`, `worktrees.tsv`, `logs/`, `run.lock`, `STOP`. The
+  state file is PER RUN: `state.txt` is kept as a symlink to tonight's
+  `state-{{RUN_DATE}}.txt`, so the old name still resolves, and a real
+  `state.txt` left by an older runner was moved aside as
+  `state-before-{{RUN_DATE}}.txt`, never deleted. One queue line can have MORE
+  THAN ONE row there (a deferred row from the first pass and a terminal row
+  from the second), and the LAST row for an id is its outcome. You append to
+  your own rows and your own log. You never edit another story's rows, and you
+  never delete `run.lock` or `STOP`.
 - This is a SHARED machine running several unrelated services and, possibly,
   other Claude sessions. Before any port, container, service or reverse-proxy
   change: read `~/infra/INVENTORY.md` and `~/infra/PORTS.md`. Never stop a

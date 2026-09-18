@@ -76,8 +76,10 @@ report it at the PHASE D gate, do not stop.
 
 The read-only subset of PHASE A: safe while a run is live, creates nothing, launches
 nothing. Print and stop — runner alive plus its pgid (step 1); the current story and how
-long it has run (`tail ~/night-runs/<project>/logs/runner.log`); the `state.txt` rows so
-far; `gh pr list --state open`; free disk.
+long it has run (`tail ~/night-runs/<project>/logs/runner.log`); this run's
+`~/night-runs/<project>/state-<date>.txt` rows so far (`state.txt` is a symlink to that
+file, so the old name still works) — an id may have more than one row, and its LAST row is
+its outcome; `gh pr list --state open`; free disk.
 
 ## PHASE B — Collect
 
@@ -294,12 +296,38 @@ with `hours:8` puts eight hours of work into a 5.5-hour window and the rest is s
 
 ## PHASE F — Morning follow-through (`report` mode)
 
-Per spec section 5: read `REPORT-<date>.md` and `state.txt`; review every still-open PR with
+Per spec section 5: read `REPORT-<date>.md` and this run's
+`~/night-runs/<project>/state-<date>.txt` — `state.txt` is only a symlink to it, and a real
+`state.txt` left by an older runner was preserved as `state-before-<date>.txt`, which is NOT
+tonight's run and must not be read as it; review every still-open PR with
 ONE Opus sub-agent each in the spec's verdict format, never in the main thread; merge only
 PRs that are BOTH review-green and CI-green under the NIGHT-RULES merge policy — a PR the
 night PARKED is re-reviewed, not waved through because it is morning; run the post-merge
 invariants after each merge; clean up worktrees per spec section 8, KEEPING anything dirty,
 unpushed or parked; refresh the deck and update the owner's single runbook list in place.
+
+**Reading the rows.** A row is `<id> <rc|TOKEN> <ISO time> [reason]`. One id can have
+SEVERAL rows — a `DEFERRED-needs` row from pass one plus a terminal row from pass two — and
+**the LAST row for an id is its outcome**; the earlier rows are its history. Every id in the
+file belongs in the report, none may be dropped. A numeric second field is a story that ran,
+and the number is its exit code. Every other second field is a runner-side outcome:
+
+- `BLOCKED-queue` — malformed queue line (bad id charset, missing or invalid slug). Fix the
+  line before re-queueing it.
+- `BLOCKED-criteria` — the queue line carried no acceptance criteria, so the story was never
+  launched. Write real criteria into the line, then re-queue.
+- `BLOCKED-needs` — the `needs` column held no PR number. A configuration error: fix the
+  column.
+- `BLOCKED-needs-unknown` — `gh` failed, so the runner could NOT tell whether the dependency
+  PR merged. This is NOT "not merged": check the PR yourself, fix the `gh` auth, re-queue.
+- `BLOCKED-brief` — the per-story brief could not be rendered, so the story never started.
+  A render bug: no code was written, fix the render and re-queue.
+- `BLOCKED-deadline` — no time left before the hard deadline. Re-queue it at the front of
+  tomorrow's queue.
+- `DEFERRED-needs` — the dependency PR was not merged in time. Non-terminal: if no later row
+  for that id follows, the story never ran tonight and goes back into the queue unchanged.
+- `INTERRUPTED` — the runner was signalled and that story was killed mid-flight. Its worktree
+  may be dirty or half-pushed, so keep it, inspect it, and re-queue the story.
 
 ## Closing report
 
