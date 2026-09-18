@@ -68,6 +68,18 @@ only where the `owner/name` value is wanted. There is no third spelling.
    bad field. `REPO` and `BASE` are the two that must not be confused; see the paragraph
    above.
 
+   Six more keys are OPTIONAL — absent is fine, every one has a default, and an older
+   `config.env` still starts (`templates/config.env.tmpl` carries the same list, commented
+   out):
+
+   - `WATCH_INTERVAL` (900) — seconds between watchdog ticks; `0` turns the watchdog off.
+   - `WATCH_MAX_RESTARTS` (2) — how many times the watchdog may restart a dead runner.
+   - `WATCH_NOTIFY_CMD` (none) — a command called with ONE argument, the message.
+   - `QUOTA_MARGIN_SEC` (180) — seconds added to the announced usage-limit reset before a
+     session is launched again; `run.sh` applies it once, when it writes `quota-until`.
+   - `QUOTA_MAX_WAITS` (3) — how many usage-limit waits ONE run may take before it finishes.
+   - `QUOTA_FALLBACK_WAIT_SEC` (1800) — the wait used when the reset time cannot be parsed.
+
    **`FIRST RUN`** → create it here, before step 3, and never later:
 
    ```bash
@@ -123,29 +135,31 @@ only where the `owner/name` value is wanted. There is no third spelling.
    as `NIGHT_CONFIG=… bash ./run.sh` carries NO config path in argv at all and is invisible
    here. PROVEN on this machine 2026-09-18 — the live runner's whole argv was `bash ./run.sh`
    and nothing else. So "no line" means *no runner NAMED this config*, never "no runner";
-   only step 2's `run.lock` cross-check can tell those apart, and it must always be run.
+   only step 2's `run.flock` cross-check can tell those apart, and it must always be run.
 
    No line, rc 0 or 1: continue TO STEP 2. ONE line: a live run for this project — STOP. TWO OR MORE:
    STOP and report it loudly, that is two runners sharing one worktree. Never a bare `ps | grep`:
    `rtk` rewrites `ps`, the format changes, the pattern silently finds nothing, and on
    2026-09-18 that made a healthy runner look dead.
-2. **Cross-check the lock — always, whatever step 1 printed.** Read it in a way that tells
-   "no lock" apart from "stale lock": a bare `cat` prints `No such file or directory` for a
-   MISSING run.lock, which is the same phrase `ls -d /proc/<pgid>` prints for a stale one,
-   and a clean first run then gets reported as a phantom blocker.
+2. **Cross-check the lock — always, whatever step 1 printed.** `run.flock` is THE lock: the
+   runner holds `flock(2)` on it for the whole run, the kernel releases it the instant the
+   runner dies, and the file is never unlinked — so there is no such thing as a stale
+   `run.flock` and there is never anything to clean up. `run.lock` is a REPORT, not a lock:
+   one line carrying the live runner's pgid, for humans and for this check. Ask the kernel,
+   never the file:
 
    ```bash
-   LOCK=~/night-runs/<project>/run.lock
-   if [ ! -e "$LOCK" ]; then echo "NO LOCK"; else echo "LOCK PGID=$(cat "$LOCK")"; fi
+   ND=~/night-runs/<project>
+   exec 9>>"$ND/run.flock"
+   if flock -n 9; then flock -u 9; echo "NO RUNNER"; else echo "RUNNER ALIVE (run.lock says pgid $(cat "$ND/run.lock" 2>/dev/null || echo '-'))"; fi
+   exec 9>&-
    ```
 
-   **`NO LOCK`** — no run has ever started, or the last one cleaned up after itself. Nothing
-   to report: continue, and do NOT carry this to the gate.
-   **`LOCK PGID=<pgid>`** — if that pgid is in step 1's output, a run is live: STOP. If it is
-   not, test the group leader WITHOUT signalling anything: `ls -d /proc/<pgid>` — the runner
-   is started with `setsid`, so its pgid is also its pid. A directory means it is alive:
-   STOP — and note that this is exactly the case step 1 cannot see on its own. "No such
-   file" means a stale lock: report it at the gate, and never delete it yourself.
+   **`NO RUNNER`** — nobody holds the lock: continue, and carry NOTHING to the gate. A
+   `run.lock` left behind next to a free `run.flock` is stale bookkeeping, not a blocker;
+   never delete it yourself. **`RUNNER ALIVE`** — a run for this project is live: STOP. This
+   is also exactly the case step 1 cannot see on its own when the runner was started as
+   `NIGHT_CONFIG=… bash ./run.sh`.
 3. **Git.** Quote the path exactly as written — the allowlist's scoped `-C` rules match the
    raw command text, and a bare or differently quoted path falls through to the classifier:
 
@@ -455,6 +469,15 @@ with `hours:8` puts eight hours of work into a 5.5-hour window and the rest is s
 > `ls -l ~/night-runs/<project>/config.env`, then re-run the launch line with the real one.
 > **Kill switch, any time:** `touch ~/night-runs/<project>/STOP`, checked between stories.
 
+**The watchdog starts itself.** `run.sh` spawns `night-watch.sh` (next to it) detached as soon
+as it holds the run lock — the owner launches nothing extra. It is pure bash and costs ZERO
+model tokens, on purpose: a Claude-based watcher would spend the very quota it is there to
+watch. Every `WATCH_INTERVAL` seconds (900 by default; `WATCH_INTERVAL="0"` in `config.env`
+turns it off) it appends one status line to `~/night-runs/<project>/watch.log` — runner alive
+or dead, heartbeat age, free disk, quota wait, queue progress — restarts a dead runner up to
+`WATCH_MAX_RESTARTS` times from `run.args`, and creates `STOP` if free disk falls under
+`DISK_FLOOR_GB`. It never deletes anything and never signals a story process.
+
 ## PHASE F — Morning follow-through (`report` mode)
 
 Per spec section 5: read `~/night-runs/<project>/REPORT-<date>.md` and this run's
@@ -489,6 +512,12 @@ night PARKED is re-reviewed, not waved through because it is morning; run the po
 invariants after each merge; clean up worktrees per spec section 8, KEEPING anything dirty,
 unpushed or parked; refresh the deck and update the owner's single runbook list in place.
 
+**Read `~/night-runs/<project>/watch.log` before the rows.** One line per watcher tick; what
+matters is the STATUS TRANSITIONS — `QUOTA-WAIT`, `RESTARTED`, `DEAD`, `STALLED`, `DISK-LOW`,
+`FINISHED`/`STOPPED`/`EXPIRED`, plus any `orphan sid=` lines. A night whose state rows stop
+mid-queue is explained there, not in `state-<date>.txt`, and every transition belongs in the
+morning report.
+
 **Reading the rows.** A row is `<id> <rc|TOKEN> <ISO time> [reason]`. One id can have
 SEVERAL rows — a `DEFERRED-needs` row from pass one plus a terminal row from pass two — and
 **the LAST row for an id is its outcome**; the earlier rows are its history. Every id in the
@@ -509,8 +538,24 @@ and the number is its exit code. Every other second field is a runner-side outco
   tomorrow's queue.
 - `DEFERRED-needs` — the dependency PR was not merged in time. Non-terminal: if no later row
   for that id follows, the story never ran tonight and goes back into the queue unchanged.
+- `DEFERRED-quota` — the model's usage limit cut that session short; the reason column
+  carries `resets=<ISO-8601 UTC>`. NON-TERMINAL: the runner waits and re-picks the story in
+  a later pass, so if a terminal row for that id follows, it ran. If none follows, it never
+  ran tonight and goes back into the queue unchanged.
+- `DEFERRED-quota-weekly` — the same, but the WEEKLY limit. Also non-terminal, and no night
+  can wait it out: do NOT re-run before the weekly reset named in the reason column.
 - `INTERRUPTED` — the runner was signalled and that story was killed mid-flight. Its worktree
   may be dirty or half-pushed, so keep it, inspect it, and re-queue the story.
+
+**Reading the report.** `REPORT-<date>.md` is written in two layers. `run.sh` writes the
+facts itself, with no model involved, so they exist even when the night ended on a usage
+limit or a crash: `## Counts`, `## Stories` (one row per id, its LAST row), `## Quota` (the
+`DEFERRED-quota*` lines and the moment launches were allowed again) and `## Runner facts`.
+`## Narrative` is appended afterwards by one Claude session, and it is **absent when the
+limit was still in force** — an absent narrative is not a failed report, it is the limit.
+Finally, `~/night-runs/<project>/finished` (one epoch) is written as the LAST act of a real
+run, after the report: no `finished` file means the run did not end on its own, so read
+`watch.log` for what happened to it.
 
 ## Closing report
 
