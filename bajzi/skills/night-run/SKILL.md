@@ -26,10 +26,64 @@ goes into generated files under `~/night-runs/<project>/`.
 
 ## PHASE A — Preflight
 
-Run all of it before planning anything. Exactly two findings STOP the skill on the spot,
-because nothing past them is worth planning: a live runner FOR THIS PROJECT (steps 1-2) and
-a missing `docs/NIGHT-RULES.md` (step 6). Every other failure is a BLOCKER — carry it and
-report it at the PHASE D gate, do not stop.
+Run all of it before planning anything, and run step 0 FIRST — steps 3, 4 and 5, and the
+whole of PHASE C, read values out of `config.env`, so it has to exist and be checked before
+anything reads it. Exactly two findings STOP the skill on the spot, because nothing past
+them is worth planning: a live runner FOR THIS PROJECT (steps 1-2) and a missing
+`docs/NIGHT-RULES.md` (step 6). Every other failure is a BLOCKER — carry it and report it at
+the PHASE D gate, do not stop.
+
+**`<REPO>` and `<BASE>` are TWO DIFFERENT THINGS and this skill decides both.** `REPO` is
+`owner/name` — a GitHub coordinate, the argument `gh` takes after `-R`; `run.sh` refuses at
+startup anything without a `/` in it. `BASE` is an absolute FILESYSTEM PATH, the repo
+checkout directory the run works from: `run.sh` tests `[ -d "$BASE" ]`, requires
+`$BASE/.claude/settings.local.json`, and runs `df` on it. **Never pass `REPO` to `-C`, to
+`df`, or as the first half of a path** — `git -C bajzaa975/innotel-bss fetch` dies with
+`fatal: cannot change to …: No such file or directory`, and `<REPO>/docs/NIGHT-RULES.md`
+opens nothing. Anywhere below that a path is meant, it is spelled `<BASE>`; `<REPO>` appears
+only where the `owner/name` value is wanted. There is no third spelling.
+
+0. **`config.env` — resolve and validate it BEFORE anything reads it.** It is the single
+   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the twelve
+   PHASE C placeholders, and `BASE` in particular is the directory the allowlist is
+   installed into and every story session starts from — an invented value points the whole
+   night at the wrong tree.
+
+   ```bash
+   CFG=~/night-runs/<project>/config.env
+   [ -f "$CFG" ] && echo "CONFIG PRESENT" || echo "FIRST RUN — no config.env yet"
+   ```
+
+   **`CONFIG PRESENT`** → load it and check it before anything uses it:
+
+   ```bash
+   set -a; . "$CFG"; set +a
+   case "$REPO" in */*) :;; *) echo "BLOCKER: REPO is not owner/name: '$REPO'";; esac
+   [ -d "$BASE" ]      || echo "BLOCKER: BASE is not a directory: '$BASE'"
+   [ -d "$NIGHT_DIR" ] || echo "BLOCKER: NIGHT_DIR is not a directory: '$NIGHT_DIR'"
+   case "$DISK_FLOOR_GB" in ''|*[!0-9]*) echo "BLOCKER: DISK_FLOOR_GB is not a number";; esac
+   ```
+
+   Any line of output is a gate BLOCKER — carry it, and never substitute a guess for the
+   bad field. `REPO` and `BASE` are the two that must not be confused; see the paragraph
+   above.
+
+   **`FIRST RUN`** → create it here, before step 3, and never later:
+
+   ```bash
+   mkdir -p ~/night-runs/<project>/logs
+   cp <absolute path of templates/config.env.tmpl> ~/night-runs/<project>/config.env
+   ```
+
+   Then fill in every `<...>` with a value you RESOLVED, and say where each came from:
+   `REPO` and `BASE_BRANCH` from `gh repo view --json nameWithOwner,defaultBranchRef`;
+   `NIGHT_DIR` from the template's own convention; `BASE` from the existing checkout of
+   `REPO` on this machine — find it, do not guess it:
+   `/usr/bin/git -C "<candidate>" remote get-url origin` must name `REPO`. If NO checkout
+   resolves, or MORE THAN ONE does, `BASE` is the one value you may not settle yourself:
+   leave it unfilled, carry it as the first line of the PHASE D gate, and plan nothing that
+   depends on it. A freshly written `config.env` is a gate item in its own right — show the
+   owner the whole file at PHASE D, because everything below was derived from it.
 
 1. **Is a runner already alive FOR THIS PROJECT?** Identify a runner by its ARGV, never by a
    `pgrep` pattern. The spec names `pgrep -af "bash .*/run\.sh( |$)"` as one of three WRONG
@@ -38,7 +92,10 @@ report it at the PHASE D gate, do not stop.
    `argv[0]`, when run.sh is executed directly) basenames to `run.sh`; a shell that merely
    mentions run.sh has `argv[1] == "-c"` and is excluded. Scope it to THIS project by
    requiring this project's config path in the same argv — another project's runner must
-   never block this project's plan. `is_runner_pid` in `run.sh` is the same test.
+   never block this project's plan. `is_runner_pid` in `run.sh` is the same ARGV test, but
+   only that half: `run.sh`'s `live_runner_pgids` applies NO config scoping, so its own fence
+   counts EVERY `run.sh` on the machine. The two answer different questions — never read one
+   as a proxy for the other.
 
    ```bash
    CFG=~/night-runs/<project>/config.env           # THIS project's config, absolute
@@ -58,22 +115,50 @@ report it at the PHASE D gate, do not stop.
    result means nothing — refuse and report it as a STOP, never read it as "no runner". This
    is `run.sh`'s own rule at `live_runner_pgids`, whose comment records that reading an
    erroring pgrep as "nobody home" has started a second runner in one worktree three times.
-   No line, rc 0 or 1: continue. ONE line: a live run for this project — STOP. TWO OR MORE:
+
+   **This test is deliberately narrow and it has a known blind spot — step 2 is what covers
+   it, so step 2 is NOT optional.** `grep -qxF "$CFG"` demands the config path as its own
+   argv word, which only a `--config <path>` launch produces. `run.sh:91` also accepts
+   `CONFIG=${NIGHT_CONFIG:-}`, and `config.env.tmpl` advertises that form: a runner started
+   as `NIGHT_CONFIG=… bash ./run.sh` carries NO config path in argv at all and is invisible
+   here. PROVEN on this machine 2026-09-18 — the live runner's whole argv was `bash ./run.sh`
+   and nothing else. So "no line" means *no runner NAMED this config*, never "no runner";
+   only step 2's `run.lock` cross-check can tell those apart, and it must always be run.
+
+   No line, rc 0 or 1: continue TO STEP 2. ONE line: a live run for this project — STOP. TWO OR MORE:
    STOP and report it loudly, that is two runners sharing one worktree. Never a bare `ps | grep`:
    `rtk` rewrites `ps`, the format changes, the pattern silently finds nothing, and on
    2026-09-18 that made a healthy runner look dead.
-2. **Cross-check the lock.** `cat ~/night-runs/<project>/run.lock` — it holds one pgid. If
-   that pgid is in step 1's output, a run is live: STOP. If it is not, test the group leader
-   WITHOUT signalling anything: `ls -d /proc/<pgid>` — the runner is started with `setsid`,
-   so its pgid is also its pid. A directory means it is alive: STOP. "No such file" means a
-   stale lock: report it at the gate, and never delete it yourself.
-3. **Git.** `/usr/bin/git -C <REPO> fetch origin --prune`, then confirm the base branch is
-   not behind its remote — a non-zero right-hand count is a gate blocker:
-   `/usr/bin/git -C <REPO> rev-list --left-right --count <BASE_BRANCH>...origin/<BASE_BRANCH>`
-4. **Disk.** `df -BG --output=avail <BASE> | tail -1` must be at or above `DISK_FLOOR_GB`
+2. **Cross-check the lock — always, whatever step 1 printed.** Read it in a way that tells
+   "no lock" apart from "stale lock": a bare `cat` prints `No such file or directory` for a
+   MISSING run.lock, which is the same phrase `ls -d /proc/<pgid>` prints for a stale one,
+   and a clean first run then gets reported as a phantom blocker.
+
+   ```bash
+   LOCK=~/night-runs/<project>/run.lock
+   if [ ! -e "$LOCK" ]; then echo "NO LOCK"; else echo "LOCK PGID=$(cat "$LOCK")"; fi
+   ```
+
+   **`NO LOCK`** — no run has ever started, or the last one cleaned up after itself. Nothing
+   to report: continue, and do NOT carry this to the gate.
+   **`LOCK PGID=<pgid>`** — if that pgid is in step 1's output, a run is live: STOP. If it is
+   not, test the group leader WITHOUT signalling anything: `ls -d /proc/<pgid>` — the runner
+   is started with `setsid`, so its pgid is also its pid. A directory means it is alive:
+   STOP — and note that this is exactly the case step 1 cannot see on its own. "No such
+   file" means a stale lock: report it at the gate, and never delete it yourself.
+3. **Git.** Quote the path exactly as written — the allowlist's scoped `-C` rules match the
+   raw command text, and a bare or differently quoted path falls through to the classifier:
+
+   ```bash
+   /usr/bin/git -C "<BASE>" fetch origin --prune
+   /usr/bin/git -C "<BASE>" rev-list --left-right --count <BASE_BRANCH>...origin/<BASE_BRANCH>
+   ```
+
+   A non-zero right-hand count (the base branch is behind its remote) is a gate blocker.
+4. **Disk.** `df -BG --output=avail "<BASE>" | tail -1` must be at or above `DISK_FLOOR_GB`
    from `config.env` — the build cache has filled this VM's root twice.
 5. **Is the base branch red?** The latest `REQUIRED_CHECK` run on the base branch:
-   `gh run list -R <owner/repo> --branch <BASE_BRANCH> --limit 3 --json name,conclusion,event`.
+   `gh run list -R <REPO> --branch <BASE_BRANCH> --limit 3 --json name,conclusion,event`.
    Red = the top blocker; do not queue filler work around a red base.
 6. **`docs/NIGHT-RULES.md` gate.** Missing in the project repo → copy
    `templates/NIGHT-RULES.md.tmpl` there, show the owner that it needs their rulings, STOP.
@@ -113,7 +198,9 @@ story slot a real backlog item needed. Do not scan for them.
 - **Deferred items are listed WITH their reason** (budget, dependency, forbidden by the
   rules). Never drop an item silently.
 
-First create the run directory — nothing else does. `config.env` says `NIGHT_DIR` "must
+PHASE A step 0 already created the run directory and `config.env`; re-assert the directory
+here (`mkdir -p` is idempotent) so this phase still works when step 0's output is out of
+sight. NOTHING ELSE creates it. `config.env` says `NIGHT_DIR` "must
 already exist", and PHASE E's launch line opens `logs/console.log` in the OWNER'S shell,
 before run.sh's own `mkdir -p` can run, so a missing `logs/` kills the night before it
 starts and leaves no console.log to diagnose it from:
@@ -160,7 +247,7 @@ Then write into `~/night-runs/<project>/`:
   with LITERAL string replacement instead, which has no metacharacters at all:
 
   ```bash
-  python3 - ~/night-runs/<project>/BRIEF.md <REPO>/docs/NIGHT-RULES.md <<'PY'
+  python3 - ~/night-runs/<project>/BRIEF.md <BASE>/docs/NIGHT-RULES.md <<'PY'
   import sys
   brief, rules = sys.argv[1], sys.argv[2]
   body = open(rules).read()                   # verbatim: newlines, &, backslashes and all
@@ -222,11 +309,13 @@ Then write into `~/night-runs/<project>/`:
   token. Re-do step 1 with the literal-replace method above — a `sed` that met the body's
   newlines or an `&` is the usual cause. Check the project's own file only after that, and
   only because an OLD hand-edited one may still carry it:
-  `/usr/bin/grep -n '{{NIGHT_RULES}}' <REPO>/docs/NIGHT-RULES.md` — a hit there does
+  `/usr/bin/grep -n '{{NIGHT_RULES}}' <BASE>/docs/NIGHT-RULES.md` — a hit there does
   re-inject a live placeholder, and must be deleted from the project's file.
 
-Also render `config.env` from `templates/config.env.tmpl` if it is not there yet, and
-`settings.local.json` from `templates/settings.local.json.tmpl`, for PHASE E to install.
+`config.env` is NOT rendered here — PHASE A step 0 created and validated it, because steps
+3-5 and the twelve placeholders above read it. If it is still missing at this point, step 0
+was skipped: go back and do it, do not improvise values. Render only
+`settings.local.json`, from `templates/settings.local.json.tmpl`, for PHASE E to install.
 The JSON template is NOT copy-ready and its own `_comment_placeholders` says what it needs:
 
 - `<BASE_BRANCH>` and `<BRANCH_PREFIX>` from `config.env`, `<project>` from `PROJECT`, and
@@ -250,12 +339,13 @@ python3 -c "import json;json.load(open('/home/ubuntu/night-runs/<project>/settin
 python3 - /home/ubuntu/night-runs/<project>/settings.local.json <<'PY'
 import json, re, sys
 perms = json.load(open(sys.argv[1]))["permissions"]
-bad = [r for r in perms.get("allow", []) + perms.get("deny", []) if re.search(r"<[A-Za-z]", r)]
+rules = perms.get("allow", []) + perms.get("deny", []) + perms.get("ask", [])
+bad = [r for r in rules if re.search(r"<[A-Za-z]", r)]
 for r in bad:
     print("UNRENDERED RULE:", r)
 sys.exit(1 if bad else 0)
 PY
-echo "rules rc=$?"   # 0 = every allow/deny entry is rendered; anything else = the lines above
+echo "rules rc=$?"   # 0 = every allow/deny/ask entry is rendered; anything else = the lines above
 ```
 
 **The check is scoped to the RULES, never to the whole file, and that is load-bearing.** A
@@ -282,7 +372,7 @@ for hours while the owner sleeps, so the gate is not optional. Show:
 3. what was deferred, and why; 4. every blocker PHASE A found;
 5. one line that the PHASE C render gate came back clean: no leftover `{{placeholder}}` in
    `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
-   `permissions.allow + permissions.deny` printed no `UNRENDERED RULE:` line (`rules rc=0`).
+   `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:` line (`rules rc=0`).
    Say it in those words. The `_comment*` keys of `settings.local.json` DO still contain
    `<angle-bracket>` text and that is correct — they are documentation, they are not rules,
    and they are outside the check on purpose. If the rules check did not come back 0, you
@@ -379,14 +469,19 @@ newest `state-2*.txt` (that glob cannot match `state-before-…`):
 ```bash
 ND=~/night-runs/<project>
 tgt=$(readlink "$ND/state.txt" 2>/dev/null)          # empty when it is not a symlink
-if [ -n "$tgt" ]; then STATE="$ND/${tgt##*/}"; else STATE=$(ls -1t "$ND"/state-2*.txt 2>/dev/null | head -1); fi
+STATE=""
+[ -n "$tgt" ] && [ -f "$ND/${tgt##*/}" ] && STATE="$ND/${tgt##*/}"   # a DANGLING link is not a state file
+[ -n "$STATE" ] || STATE=$(ls -1t "$ND"/state-2*.txt 2>/dev/null | head -1)
 REPORT=$(ls -1t "$ND"/REPORT-2*.md 2>/dev/null | head -1)
 RUN_DATE=${STATE##*/state-}; RUN_DATE=${RUN_DATE%.txt}
 echo "state=$STATE report=$REPORT run_date=$RUN_DATE"
 ```
 
 Empty `STATE` means no run wrote rows: say exactly that in the report and read nothing else
-as a substitute. A `STATE` whose name contains `before` means the fallback was mis-typed —
+as a substitute. The `[ -f ... ]` test is what makes that branch reachable — a DANGLING
+`state.txt` (the run was cleaned up under it) still gives `readlink` a non-empty name, and
+without the test `STATE` would name a file that does not exist, the "no rows" branch would
+be skipped, and the morning report would quietly read nothing. A `STATE` whose name contains `before` means the fallback was mis-typed —
 stop and resolve it by hand. Then: review every still-open PR with
 ONE Opus sub-agent each in the spec's verdict format, never in the main thread; merge only
 PRs that are BOTH review-green and CI-green under the NIGHT-RULES merge policy — a PR the
