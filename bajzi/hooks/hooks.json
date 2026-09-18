@@ -1,5 +1,5 @@
 {
-  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers) + noisy-output filter",
+  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers) + day-run working-mode injection + noisy-output filter",
   "hooks": {
     "SessionStart": [
       {
@@ -18,6 +18,16 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/methodology-guard.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "startup|clear|compact|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/day-run-mode.sh\"",
             "timeout": 5
           }
         ]

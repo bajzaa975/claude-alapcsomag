@@ -9,7 +9,7 @@ Install the project layer of the token-efficient base package into this project.
 IDEMPOTENT: extend an existing file, do not overwrite it; leave finished items alone. A terse report at the end.
 
 **First determine what environment you are running in** (is there a Bash tool, is there a repo root):
-- **Claude Code** (Bash + repo): steps 1-6 all apply.
+- **Claude Code** (Bash + repo): steps 1-7 all apply.
 - **Cowork / Desktop** (no shell or no git repo): SKIP steps 1 and 4 —
   there the MCP connectors are handled by the plugin or by Customize → Connectors, not by the repo's
   `.mcp.json`. Steps 2-4 and 6 must be done there too.
@@ -141,5 +141,18 @@ And the second section:
 ## 6. Verification
 
 The two MCPs start (`uvx … --help`); point out that the MCP/hook change takes effect at the NEXT
-session start; in a new session `/context` baseline < 20%, `/mcp` clean.
+session start; in a new session `/context` baseline < 20%, `/mcp` clean, and `/bajzi:mode status`
+reports the mode set in step 7 (or an existing choice, left untouched).
 Terse closing report: what was done, what was left to manual work.
+
+## 7. Default working mode
+
+If `$HOME/.claude/bajzi-mode` does not already exist, create it with `day-run` — never overwrite an
+existing choice:
+
+```bash
+[ -e "$HOME/.claude/bajzi-mode" ] || { mkdir -p "$HOME/.claude"; printf 'day-run\n' > "$HOME/.claude/bajzi-mode"; }
+```
+
+This is what makes the plugin's day-run injection safe: the owner's machines opt in by default,
+everyone else's stay silent. `/bajzi:mode status` (skill `mode`) checks or switches it later.
