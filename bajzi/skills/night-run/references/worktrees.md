@@ -106,15 +106,133 @@ Cleanup runs in the morning phase, never mid-run. **It is a dry run by
 default**: without `--apply` it decides and prints and removes nothing. A
 cleanup tool that deletes by default is a bug, not a convenience.
 
-**The flags cannot be set from `config.env`.** The file is parsed for facts
-(`PROJECT`, `NIGHT_DIR`, `REPO`, `GH_BIN`) and `APPLY` / `FETCH` / `PRUNE` are
-re-asserted from the command line immediately after it is sourced. Sourcing used
-to happen *after* the argument loop, so an `APPLY=1` line in the config turned a
-bare, flagless invocation into a run that removed trees, and a `PRUNE=1` line
-made it run a repo-wide prune — the one way `--prune` could fire without anyone
-typing it, in a repository the night runner shares with other projects' live
-worktrees. The shipped template defines none of those names, but the gating has
-to be structural rather than a convention about what the template contains.
+**The destructive modes can only be turned on by a literal flag in the
+invocation.** No config file, environment variable or file a config sources can
+set or override `--apply` or `--prune`. The three parts below are **not** three
+interchangeable defences — one is the guarantee, the others are isolation and
+belt, and saying otherwise is how a decorative check gets counted as a defence:
+
+1. **The guarantee: what the config produces is parsed, never executed.**
+   `config.env` is sourced in a separate `bash` process, which writes back
+   NUL-terminated `name=value` records. The deciding shell reads them with
+   `read -r -d ''` and assigns **only** `PROJECT`, `NIGHT_DIR`, `REPO`, `GH_BIN`
+   (with `printf -v`); **every other name is discarded**, and a record with no
+   `=` in it is skipped rather than turned into a variable named after itself.
+   Those four are the config's own fields, so even a completely forged stream
+   gains the file nothing. Nothing derived from the config is
+   `eval`ed, sourced or run here — which matters because the stream is built by
+   a child that has just sourced the config and cannot be assumed honest. The
+   child emits with `builtin printf`, so an ordinary hostile config does not
+   even get to shape the bytes; that is belt, and the whitelist is what holds.
+2. **Isolation: the sourcing happens in another process.** Anything the file
+   assigns, unsets, marks `readonly`, defines as a function or switches on with
+   `set` dies with that process and never exists in the deciding shell. This is
+   what lets 1 be a four-name whitelist rather than a hunt for every name a
+   config might abuse. Before the file is sourced the child runs
+   `exec 9>&1 1>&2`, so the import channel is fd 9 and the child's stdout is
+   this run's stderr: a stray `echo "PROJECT=x"` in a config is *printed*, not
+   imported. That is tidiness, **not** a containment claim — the config runs in
+   that same shell and can write to fd 9 deliberately. It gains nothing by it:
+   fd 9 carries data, and the whitelist in 1 takes only the config's own four
+   fields from it.
+   *(The `readonly CLI_APPLY CLI_FETCH CLI_PRUNE` line in the script is belt on
+   the belt, not a third defence: with the sourcing in a child there is nothing
+   left in this shell for it to stop. It is kept only to make a stray assignment
+   in the script itself fail loudly.)*
+3. **Belt: `APPLY` / `FETCH` / `PRUNE` are hard-reset to their safe defaults
+   (`0` / `1` / `0`) *after* the config has been read** and re-derived by
+   re-scanning the literal argv the process started with, so the only path to
+   `APPLY=1` or `PRUNE=1` is a flag someone typed. Cheap and independent, but on
+   its own it only covers the names it re-derives.
+
+**"Ran to its end" is the child PROCESS'S EXIT STATUS, never a record.** The
+`bash -c` writes its records into a temporary file and the deciding shell gates
+on `$?` of that process: a config with a syntax error, one whose `source`
+returns non-zero, one that cannot be read, and one whose **last command merely
+fails** all give a non-zero status and **exit 2** —
+`could not be read to its end (rc=…)`, nothing removed, nothing read. A config
+that legitimately ends in a command that may fail must end with a `:` line.
+
+Unless the config chooses its own exit status, which it can: it runs in that
+child, so `trap 'builtin exit 0' EXIT` makes even a syntax-error config look
+complete. The gate proves the child's exit status, not that the file was read
+to its end; see the residuals below.
+
+This used to be an in-band `CONFIG_SOURCED=1` marker in the stream, and the
+marker was **forgeable**. `. "$CFG" >&2` is a redirection *on the source
+command*, so for its duration bash parks the child's real stdout on a spare
+descriptor — fd 10, visible from the config, which runs in that very shell. A
+file that wrote its own `PROJECT=… NIGHT_DIR=… CONFIG_SOURCED=1` records to
+`>&10` and then contained a syntax error got the parent to see a complete,
+marked stream and proceed (flagless DRY RUN, **exit 0**) where it had to exit 2.
+`exec 9>&1 1>&2` now runs first and permanently, so no redirection is left on
+the `.` command and bash parks nothing for a config to find; an exit status is
+not something bytes in a channel can forge -- though the child process, and
+therefore the config running inside it, chooses that status itself; the gate
+defends against forged DATA, not against a config that lies about its own
+completion. `builtin exit`/`builtin printf` are
+used in the child so a config defining an `exit` function cannot no-op the gate
+— and one that shadows `builtin` itself only silences its own emitter, which
+produces no records and is rejected by the required-field check below. A
+config that sets `BASH_XTRACEFD=9` and `set -x` can likewise spill its own
+xtrace text into the record file -- the four-name whitelist below still
+decides what, if anything, survives. There is also no timeout on the child: a
+config that simply stops itself (a blocking read, a loop that never reaches
+its first `printf`) hangs the run -- the caller's problem, not something this
+gate is meant to catch.
+
+**The residuals, stated plainly.** A config that calls `exit 0` early is
+indistinguishable from one that ran to its end: the child dies before the
+emitter, so it produces **no records**, and the required-field check rejects it
+with **exit 2** (`missing required field(s): PROJECT NIGHT_DIR REPO`) —
+verified. And any config can *claim* completion, by ending with `:` or by
+installing an `EXIT` trap; it gains nothing, because the only thing it can then
+deliver is its own four fields. This holds even when the file goes on to a
+syntax error: a `trap 'builtin exit 0' EXIT` set before the broken line still
+fires, `cfg_rc` reads 0, and the run proceeds on half a config -- but only on
+the four fields (PROJECT, NIGHT_DIR, REPO, GH_BIN) the config wrote to fd 9
+itself before it broke. APPLY and PRUNE stay unreachable from any config,
+forged exit status or not, because they come only from typed argv, never from
+anything sourced or read here. A config that backgrounds a process
+(`sleep 300 &`, or a sleeper that writes to fd 9 three seconds later) neither
+stalls the tool — the deciding shell waits for `bash -c`, not for its
+grandchildren, and reads a *file*, not a pipe: measured at 2s to a normal
+exit 0 — nor injects anything, because the file is read once, *after* the gate,
+and a late write could still only reach those same four fields. (A *caller* that
+pipes this tool's output is a separate matter: the config's background process
+inherited that stdout, so the pipe stays open until it ends, exactly as with any
+other program.)
+
+The config path is sourced with a `./` prefix when it is not already absolute or
+dot-relative, so a path starting with `-` is not parsed as an option and a bare
+name is not a `PATH` lookup.
+
+This hole has been closed four times (the fourth — the forgeable
+`CONFIG_SOURCED` marker — is above). Sourcing originally happened *after* the
+argument loop, so an `APPLY=1` line in the config turned a bare, flagless
+invocation into a run that removed trees and a `PRUNE=1` line made it run a
+repo-wide prune — the one way `--prune` could fire without anyone typing it, in
+a repository the night runner shares with other projects' live worktrees. Moving
+the sourcing *above* the re-assertion only pushed the hole one level deeper: the
+re-assertion then read `CLI_APPLY` / `CLI_PRUNE` / `CLI_FETCH`, names a config
+file can assign just as easily. The third was the subtlest: the import stream
+was `printf %q`-quoted and **`eval`ed**, so a config that merely defined a
+`printf` function wrote the stream itself —
+
+    printf(){ builtin printf '%s\n' "PROJECT=..." "CONFIG_SOURCED=1" \
+                                    "trap 'APPLY=1;PRUNE=1' DEBUG"; }
+
+— and with **no flag at all** the run went to APPLY, removed a merged tree and
+ran a repo-wide prune, without ever assigning one of the guarded names. A guard
+that reads correctly and does not hold is the bug class this file is about; a
+doc asserting a guarantee the code does not provide is worse than the bug.
+
+Provable in one command each, all verified against a throwaway lab repo:
+`APPLY=1 PRUNE=1 FETCH=1 ACT=1 CLI_APPLY=1 CLI_PRUNE=1 CLI_FETCH=1` in the
+config and **no flag**; the `printf`-forging config above; and a config whose
+forged stream delivers real NUL records (`APPLY=1`, `PRUNE=1`, `ACT=1`,
+`CLI_APPLY=1`, a `trap ... DEBUG` line) — every one prints
+`DRY RUN (nothing will be removed)`, removes nothing and exits 0.
 
 For each recorded tree the script evaluates the rules in order and stops at the
 first KEEP. Every KEEP line in the summary names the rule that produced it.
@@ -208,9 +326,23 @@ would not, and was indistinguishable from a completely broken run. It now:
 - leaves those branches out of the merged-branch suggestions, because a
   branch-delete suggestion off stale refs is exactly the advice to withhold.
 
-`--no-fetch --apply` is rejected at argument parsing with **exit 2**. It used to
-exit 1, which reads as "trees need your attention" when it actually means "you
-asked for an impossible combination".
+**A run without a fetch never removes anything.** `--no-fetch` may list and
+report, and that is all it may do. `--no-fetch --apply` and `--no-fetch
+--prune` are both rejected with **exit 2**, before any repository is touched:
+without refreshed `origin/*` refs, "pushed" and "merged" cannot be proven, and
+an irreversible action taken on an unprovable judgement is exactly the bug class
+this file exists to prevent (it is also the owner's git-hygiene rule —
+remote-tracking refs go stale *silently*, so a clean answer off a stale tree
+means nothing). `--prune` is refused alongside `--apply` because a repo-wide
+prune on top of a run that proved nothing is never what anyone meant. The
+rejection used to exit 1, which reads as "trees need your attention" when it
+actually means "you asked for an impossible combination".
+
+The rejection is checked **twice**: once on the parsed flags, so the user is
+told before anything else happens, and again after the config has been read, on
+the values independently re-derived from argv. Behind both, `ACT` (the effective
+apply) is forced to 0 whenever `FETCH` is 0, so no code path in the loop can
+remove a tree judged against refs that were never refreshed.
 
 There is deliberately **no** trust-the-caller path and no `--assume-fetched`.
 `git fetch --quiet origin` on a current repository costs about 200ms and is
@@ -323,7 +455,7 @@ answer is "in use" — the check that cannot be performed fails towards KEEP.
 |------|---------|
 | 0 | nothing was kept that the owner has to look at |
 | 1 | at least one tree was kept dirty, unpushed, parked or blocked — PHASE F lists these in the report under "what the owner should look at" |
-| 2 | usage or config error, including `--no-fetch --apply` (an impossible combination, not a run that kept everything) |
+| 2 | usage or config error, including `--no-fetch --apply` and `--no-fetch --prune` (impossible combinations, not a run that kept everything), and a `config.env` that cannot be read to its end |
 
 So a caller can branch on "needs attention" without parsing the table.
 

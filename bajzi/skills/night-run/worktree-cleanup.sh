@@ -16,8 +16,11 @@
 #               is labelled WOULD-REMOVE (unverified) and the run is FORCED to a
 #               dry run, so nothing is ever removed under --no-fetch. The flag
 #               used to KEEP every tree, which printed N identical lines and was
-#               indistinguishable from a totally broken run. `--no-fetch
-#               --apply` is a contradiction and is rejected with exit 2.
+#               indistinguishable from a totally broken run. `--no-fetch` with
+#               `--apply` or with `--prune` is a contradiction and is rejected
+#               with exit 2 before any repository is touched: without refreshed
+#               refs "pushed"/"merged" cannot be proven, so nothing may be
+#               removed and nothing may be de-registered.
 #   --prune     ALSO run `git worktree prune` in the repos we removed from.
 #               OFF by default and rarely wanted: prune is REPO-WIDE, not
 #               per-project, and de-registers every worktree of that repo whose
@@ -84,15 +87,44 @@
 set -u
 
 # ---------------------------------------------------------------- arguments --
-# The flags are parsed into CLI_* and RE-ASSERTED after config.env is sourced.
-# config.env is a facts file (PROJECT / NIGHT_DIR / REPO / GH_BIN) and must
-# never be able to switch on a destructive mode. It used to be able to: the
-# sourcing happened AFTER this loop, so an `APPLY=1` line in the config made a
-# bare, flagless invocation remove trees and a `PRUNE=1` line made it run a
-# REPO-WIDE prune — the one way --prune could fire without the flag, in a repo
-# the night runner shares with other projects' live worktrees. "A cleanup tool
-# that deletes by default is a bug", so the gating is structural, not a
-# convention about what the shipped template happens to define.
+# THE DESTRUCTIVE MODES CAN ONLY BE TURNED ON BY A LITERAL FLAG IN THIS argv.
+# Nothing a file can write — config.env, the environment, anything the config
+# sources — reaches APPLY / FETCH / PRUNE. These are NOT three interchangeable
+# defences: one is the guarantee, the others are isolation and belt.
+#   1. THE GUARANTEE: config.env is sourced in a SEPARATE PROCESS and what comes
+#      back is PARSED, NEVER EXECUTED — NUL-terminated name=value records, of
+#      which only PROJECT / NIGHT_DIR / REPO / GH_BIN are assigned; every other
+#      name, and every record carrying no `=` at all, is discarded. Those four
+#      are the config's own fields, so even a fully forged stream gains the file
+#      nothing. This is the only mechanism that holds on its own. Whether the
+#      config RAN TO ITS END is a separate question, answered by the child
+#      PROCESS'S EXIT STATUS — never by a record inside the stream.
+#   2. ISOLATION: the sourcing happens in another process, so nothing the file
+#      assigns, unsets, marks readonly or defines as a function exists in this
+#      shell at all. That is what lets 1 be a four-name whitelist instead of a
+#      hunt for every name a config might abuse.
+#   3. BELT: APPLY / FETCH / PRUNE are hard-reset to their SAFE defaults
+#      (0 / 1 / 0) AFTER the config has been read and re-derived by re-scanning
+#      the saved literal argv, so whatever anything set in between is
+#      overwritten. Cheap, and independent of 1 and 2 — but on its own it only
+#      covers the names it re-derives.
+# The history that earns all three: the sourcing once happened AFTER this loop,
+# so an `APPLY=1` line in the config made a bare, flagless invocation remove
+# trees and a `PRUNE=1` line made it run a REPO-WIDE prune — the one way --prune
+# could fire without the flag, in a repo the night runner shares with other
+# projects' live worktrees. Moving the sourcing up only pushed the hole one
+# level deeper: the re-assertion then read CLI_APPLY / CLI_PRUNE / CLI_FETCH,
+# names a config file can assign just as easily, and a config carrying
+# `CLI_APPLY=1 CLI_PRUNE=1` still produced a flagless repo-wide prune. The third
+# reopening was subtler: the child's import stream was `eval`ed, so a config
+# defining a `printf` function wrote the stream itself and ran a `trap ... DEBUG`
+# in THIS shell — flagless APPLY plus a repo-wide prune again, from a file that
+# never assigned a single one of the guarded names. "A cleanup tool that deletes
+# by default is a bug", so the gating cannot be a convention about which names
+# the template avoids, nor a hope that the child's builtins are still the real
+# ones: what the config produces is DATA, and the whitelist parse is where that
+# is enforced.
+ARGV_LITERAL=("$@")
 CONFIG=${NIGHT_CONFIG:-}
 CLI_APPLY=0
 CLI_FETCH=1
@@ -110,7 +142,7 @@ Usage:
                     against the refs already on disk and the real verdict is
                     printed, but a removal verdict is labelled
                     WOULD-REMOVE (unverified) and the run is forced to a dry
-                    run. Rejected together with --apply.
+                    run. Rejected together with --apply or --prune (exit 2).
   --prune           ALSO run `git worktree prune` in the repos we removed from.
                     OFF by default: prune is REPO-WIDE and de-registers every
                     worktree of that repo whose directory it cannot see,
@@ -136,28 +168,175 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# Belt on the belt, and NOT a defence against a config: frozen the instant
+# parsing ends, so a stray assignment in THIS file is a fatal error rather than a
+# silent override. It stops nothing config.env can do — the config is sourced in
+# another process and never reaches these names — and the real gating is the
+# re-derivation from ARGV_LITERAL below. Kept because it costs nothing and
+# catches our own future edits.
+readonly CLI_APPLY CLI_FETCH CLI_PRUNE
 
-# Nothing can be removed without a fetch, so asking for both is an impossible
-# combination, not a run that "kept everything for you". It must exit 2 (usage
-# error) and not 1 (trees need your attention) — PHASE F branches on exactly
-# that difference.
-if [ $CLI_FETCH -eq 0 ] && [ $CLI_APPLY -eq 1 ]; then
-  echo "worktree-cleanup.sh: --no-fetch and --apply are mutually exclusive. Without a fetch nothing can be proven pushed or merged, so nothing may be removed; drop one of the two flags." >&2
-  exit 2
-fi
+# Nothing can be removed without a fetch, so combining --no-fetch with a
+# destructive flag is an impossible combination, not a run that "kept everything
+# for you". It must exit 2 (usage error) and not 1 (trees need your attention)
+# — PHASE F branches on exactly that difference. Stale origin/* refs make every
+# "pushed" and "merged" judgement unprovable, and an irreversible action taken
+# on an unprovable judgement is the entire bug class this file exists to avoid,
+# so --prune is refused alongside --apply.
+# Checked TWICE: here, so the user is told before anything else happens, and
+# again after the config has been read, on the independently re-derived values.
+no_fetch_conflict(){ # <fetch> <apply> <prune> — 0 = refuse, message on stderr
+  [ "$1" -eq 0 ] || return 1
+  if [ "$2" -eq 1 ]; then
+    echo "worktree-cleanup.sh: --no-fetch and --apply are mutually exclusive. Without a fetch nothing can be proven pushed or merged, so nothing may be removed; drop one of the two flags." >&2
+    return 0
+  fi
+  if [ "$3" -eq 1 ]; then
+    echo "worktree-cleanup.sh: --no-fetch and --prune are mutually exclusive. Without a fetch nothing is removed, and a REPO-WIDE prune on top of a run that proved nothing is never what you meant; drop one of the two flags." >&2
+    return 0
+  fi
+  return 1
+}
+if no_fetch_conflict "$CLI_FETCH" "$CLI_APPLY" "$CLI_PRUNE"; then exit 2; fi
 
 if [ -z "$CONFIG" ]; then
   echo "worktree-cleanup.sh: no config — pass --config <path/to/config.env> or set NIGHT_CONFIG." >&2
   exit 2
 fi
 [ -f "$CONFIG" ] || { echo "worktree-cleanup.sh: config file not found: $CONFIG" >&2; exit 2; }
-# shellcheck source=/dev/null
-. "$CONFIG"
 
-# The CLI wins, unconditionally, whatever the file just set.
-APPLY=$CLI_APPLY
-FETCH=$CLI_FETCH
-PRUNE=$CLI_PRUNE
+# Mechanism 1 — THE GUARANTEE. config.env is sourced in a SEPARATE bash PROCESS
+# and what comes back is PARSED, never executed: NUL-terminated `name=value`
+# records, of which this shell assigns ONLY the four facts the config owns
+# (PROJECT / NIGHT_DIR / REPO / GH_BIN). Every other name — and every record
+# that carries no `=` at all — is DISCARDED. Nothing derived from the config is
+# `eval`ed, sourced or run here, so the worst a stream can do is set the four
+# fields it was allowed to set anyway.
+#
+# That whitelist is the guarantee precisely because the stream CANNOT be
+# trusted: it is built by the child, after the config has had a chance to
+# redefine every builtin the child uses. This code replaced an
+# `eval "$CONFIG_IMPORT"` of a `printf %q` stream, under which
+#     printf(){ builtin printf '%s\n' ... "trap 'APPLY=1;PRUNE=1' DEBUG"; }
+# in a config forged the import, ran ARBITRARY CODE in this shell and turned a
+# flagless invocation into an APPLY run with a REPO-WIDE prune.
+# `builtin printf` in the child is belt, not braces: it bypasses a config's
+# `printf` function so the ordinary hostile file never even shapes the stream —
+# but nothing below depends on the child having stayed honest.
+#
+# The separate process is ISOLATION, not the guarantee: a config that sets
+# APPLY, PRUNE, ACT, FETCH, CLI_APPLY or any other name sets it in a process
+# that then exits; nothing it assigns, unsets, marks readonly, defines as a
+# function or switches on with `set` exists in the deciding shell at all. (A
+# plain `( . )` subshell is NOT enough for the reverse direction either: it
+# inherits this shell's readonly attributes, so a config merely mentioning
+# CLI_APPLY would abort mid-file. A separate process makes the two worlds
+# genuinely disjoint.)
+#
+# "RAN TO ITS END" IS THE CHILD PROCESS'S EXIT STATUS — NEVER A RECORD.
+# It used to be an in-band CONFIG_SOURCED=1 marker in the stream, and the marker
+# was FORGEABLE: `. "$CFG" >&2` is a redirection ON the source command, so for
+# its duration bash parks the child's real stdout on a spare descriptor (fd 10)
+# — reachable from the config, which runs in that very shell. A file that did
+#     builtin printf 'PROJECT=…\0…\0CONFIG_SOURCED=1\0' >&10
+# and then contained a syntax error got the parent to see a full, marked stream,
+# believe the config had run to its end and proceed (flagless DRY RUN, exit 0)
+# where it had to exit 2. Bytes in a channel the writer can reach are not
+# evidence about the writer. So now:
+#   - `exec 9>&1 1>&2` runs FIRST and PERMANENTLY, before the config is read.
+#     No redirection is left on the `.` command, so bash parks nothing anywhere
+#     for the config to find, and everything the file prints lands on this run's
+#     stderr.
+#   - fd 9 — the collection file — is the only way out, and what travels it is
+#     still only DATA, filtered by the four-name whitelist below.
+#   - the gate is `cfg_rc`, the exit status of the `bash -c` PROCESS. A syntax
+#     error, a `.` that returns non-zero, an unreadable file, a config whose
+#     LAST command merely fails: all non-zero, all exit 2 here -- UNLESS the
+#     config sets its own exit status first: a `trap 'builtin exit 0' EXIT`
+#     installed before the broken line still fires, so cfg_rc reads 0 and the
+#     run proceeds on half a config -- but only on the PROJECT / NIGHT_DIR /
+#     REPO / GH_BIN it already wrote to fd 9 itself; see the residuals below.
+#     `builtin exit 17` and `builtin printf` are used so a config that
+#     defines an `exit` function cannot no-op the gate; a config that shadows
+#     `builtin` itself silences its own emitter instead, producing no records,
+#     which the required-field check below turns into exit 2 just the same.
+# The residuals, stated plainly: a config that calls `exit 0` early is
+# indistinguishable from one that ran to its end — the child dies before the
+# emitter, so it produces NO records and the required-field check rejects it
+# with exit 2 ("missing required field(s): PROJECT NIGHT_DIR REPO"). And a
+# config can always CLAIM completion (end with `:`, or install an EXIT trap):
+# that gains it nothing, because the only thing it can then deliver is its own
+# four fields. A config that legitimately ends in a command that may fail must
+# end with a `:` line.
+#
+# `./` prefix: `. -foo.env` would be parsed as an option, and a bare name with
+# no slash is a PATH lookup, not the file the caller meant.
+case "$CONFIG" in
+  /*|./*|../*) CONFIG_SRC=$CONFIG;;
+  *)           CONFIG_SRC=./$CONFIG;;
+esac
+PROJECT=""
+NIGHT_DIR=""
+REPO=""
+GH_BIN=""
+cfg_tmp=$(mktemp) || { echo "worktree-cleanup.sh: could not create a temporary file for the config import" >&2; exit 2; }
+# Removed on EVERY exit path — the exit-2 branches below included.
+trap 'rm -f "$cfg_tmp"' EXIT
+# `${!v}` indirect expansion over a HARD-CODED list of four names: the lookup
+# needs no `eval`, so not even the emitter re-reads anything as code.
+NIGHT_CLEANUP_CFG=$CONFIG_SRC bash -c '
+  exec 9>&1 1>&2
+  # shellcheck source=/dev/null
+  . "$NIGHT_CLEANUP_CFG" || builtin exit 17
+  for v in PROJECT NIGHT_DIR REPO GH_BIN; do
+    builtin printf "%s=%s\0" "$v" "${!v:-}" >&9
+  done
+' > "$cfg_tmp" 2>&2
+cfg_rc=$?
+if [ "$cfg_rc" -ne 0 ]; then
+  rm -f "$cfg_tmp"
+  echo "worktree-cleanup.sh: $CONFIG could not be read to its end (rc=$cfg_rc — syntax error, it calls exit, it cannot be read, or its last command failed; end it with a ':' line if that is intended) — refusing to run on half a config." >&2
+  exit 2
+fi
+# The records are read from the FILE, once, AFTER the gate has been decided. A
+# background grandchild that outlived `bash -c` still holds fd 9, but it cannot
+# change the verdict — that was settled by a process exit status — and anything
+# it appends can still only land in the same four config-owned fields.
+while IFS= read -r -d '' cfg_rec; do
+  # No `=` at all is not a `name=value` record: `${cfg_rec%%=*}` would set the
+  # NAME to the record's own literal text. Skip it.
+  case "$cfg_rec" in *=*) :;; *) continue;; esac
+  cfg_name=${cfg_rec%%=*}
+  cfg_val=${cfg_rec#*=}
+  case "$cfg_name" in
+    PROJECT|NIGHT_DIR|REPO|GH_BIN) printf -v "$cfg_name" '%s' "$cfg_val";;
+    *) :;;   # not ours to take — including APPLY, PRUNE, ACT, FETCH, CLI_*
+  esac
+done < "$cfg_tmp"
+rm -f "$cfg_tmp"
+
+# Mechanism 3: the destructive modes are derived HERE — after the config, from
+# SAFE defaults — by re-scanning the literal argv this process started with.
+# The three resets below overwrite anything set in between, so the ONLY way to
+# reach APPLY=1 or PRUNE=1 is to have typed the flag in the invocation. This is
+# deliberately independent of the CLI_* values: two derivations of the same
+# answer, neither of which a file can reach. The skip dance mirrors the parse
+# loop's `shift`, so `--config --apply` (a path that happens to spell a flag)
+# is not mistaken for the flag itself.
+APPLY=0
+FETCH=1
+PRUNE=0
+argv_skip=0
+for arg in ${ARGV_LITERAL[@]+"${ARGV_LITERAL[@]}"}; do
+  if [ $argv_skip -eq 1 ]; then argv_skip=0; continue; fi
+  case "$arg" in
+    --config)   argv_skip=1;;
+    --apply)    APPLY=1;;
+    --no-fetch) FETCH=0;;
+    --prune)    PRUNE=1;;
+  esac
+done
+if no_fetch_conflict "$FETCH" "$APPLY" "$PRUNE"; then exit 2; fi
 # ACT is the EFFECTIVE apply. --no-fetch hard-forces a dry run here, so no code
 # path below can remove a tree judged against refs that were never refreshed —
 # belt and braces behind the argument-level rejection above.
