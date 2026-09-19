@@ -82,6 +82,13 @@ the manifest's `deliberately_skipped` list — those are not missing by accident
    the statusline.
 7. **rtk:** per the manifest's `rtk` block. Not required. Add the hook ONLY if
    the `check` command works.
+8. **Default working mode:** if `~/.claude/bajzi-mode` does not already exist, create it with
+   `day-run` — never overwrite an existing choice:
+   ```
+   [ -e "$HOME/.claude/bajzi-mode" ] || { mkdir -p "$HOME/.claude"; printf 'day-run\n' > "$HOME/.claude/bajzi-mode"; }
+   ```
+   This is what makes the plugin's day-run injection safe: the owner's machines opt in, a
+   stranger's machine stays silent.
 
 ## PHASE E — Verification, specifically for duplicates
 
@@ -90,7 +97,8 @@ the manifest's `deliberately_skipped` list — those are not missing by accident
   plugin skill (check separately: alapcsomag, autopilot, handoff)
 - every `settings.json` hook command must point at an existing file
 - tell them to start a new session and verify: `/bajzi:handoff` exists, `/context`
-  baseline under 20%
+  baseline under 20%, `/bajzi:mode status` reports the mode set in PHASE D step 8 (or an
+  existing choice, left untouched)
 
 ## Closing report
 
