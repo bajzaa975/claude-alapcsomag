@@ -8,9 +8,9 @@
   "plugins": [
     {
       "name": "bajzi",
-      "version": "1.5.14",
+      "version": "1.5.15",
       "source": "./bajzi",
-      "description": "Token-efficient working method: machine setup from a manifest, project-layer installer, methodology selector, autopilot mode, HANDOFF session handover, plus two SessionStart hooks and a PreToolUse noisy-output filter.",
+      "description": "Token-efficient working method: machine setup from a manifest, project-layer installer, methodology selector, autopilot mode, day-run mode skill, night-run overnight story runner, HANDOFF session handover, plus three SessionStart hooks and a PreToolUse noisy-output filter.",
       "category": "productivity"
     }
   ]
