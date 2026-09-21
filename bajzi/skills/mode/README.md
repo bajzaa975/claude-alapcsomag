@@ -19,6 +19,8 @@ task routing plus stricter session discipline), `normal` (no routing changes), o
 A project file wins over the global file when both exist. A missing file means
 normal mode: the plugin behaves exactly as it did before this skill existed.
 
+Saver mode: while day-run is on and `~/.claude/worker-mode` says `glm`, `SAVER-RULES.md` is injected too and the cheap rungs run on a headless GLM worker (`worker --set claude` turns it off).
+
 ## Turning injection off
 
 Delete the mode file, or write `normal` into it (`/bajzi:mode normal`). Either
