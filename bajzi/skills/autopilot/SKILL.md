@@ -42,6 +42,9 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    (with test status), a summary of the decisions made on the user's behalf (referencing DECISIONS.md),
    PARKED and BLOCKED items, and a "LET'S REVIEW THIS TOGETHER" list in priority order.
    Give a terse extract of the same in the chat.
+   - If `~/.claude/worker-mode` is `glm` and `worker` is on PATH, run `worker --usage
+     <session start ISO>` and include its last two lines under a "Token usage (GLM vs
+     Anthropic)" heading; skip silently if the command is missing.
 
 **Turning it off:** if the user writes at any point "autopilot off" — you immediately return to normal
 (question-asking) mode, and briefly summarize where you are.

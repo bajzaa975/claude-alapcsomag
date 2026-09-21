@@ -600,6 +600,10 @@ own, so read `watch.log` for what happened to it. Check its CONTENTS, not just i
 — an epoch older than this run's `started_epoch` is a marker the runner never cleared (the
 watcher ignores it for exactly that reason).
 
+**Token usage.** If `~/.claude/worker-mode` is `glm` and `worker` is on PATH, run
+`worker --usage $RUN_DATE` and add its last two lines to the morning report under a
+"Token usage (GLM vs Anthropic)" heading; skip silently if the command is missing.
+
 ## Closing report
 
 Table: what was queued (id · size · why) · what was deferred and why · PHASE A blockers ·

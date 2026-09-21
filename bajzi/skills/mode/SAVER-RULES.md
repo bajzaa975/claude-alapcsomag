@@ -9,3 +9,4 @@ UNCHANGED, still Anthropic exactly as in the table: risk-bearing slices (opus), 
 every review (Opus 5), and all ORCHESTRATOR-ONLY work.
 ESCALATION LADDER becomes: glm r1 -> sonnet r2 -> opus r3 -> ORCH r4 -> park.
 Dispatch first line: model: glm -- saver mode.   DAY-RUN.log: model=glm.
+CLOSING REPORT: run `worker --usage <session start ISO>` and paste its last two lines.
