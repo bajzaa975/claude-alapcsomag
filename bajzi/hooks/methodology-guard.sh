@@ -11,8 +11,9 @@
 #   superpowers  -> the superpowers skills lead
 #   none         -> neither; plain work, do not force a methodology
 #
-# No marker file + git repo = the hook asks the model to ask the user ONCE.
-# In a non-git repo it stays silent.
+# No marker file = the owner's global DEFAULT applies: superpowers. The hook
+# never asks (standing decision, 2026-09-20); a marker file still overrides.
+# In a non-git repo with no marker it stays silent.
 #
 # DEPENDENCY-FREE: bash, sed, awk, tr. It must never fail, never slow anything down.
 
@@ -59,7 +60,10 @@ case "$choice" in
     emit "" "METHODOLOGY in this repo: neither. Do not start a GSD, superpowers or claude-mem make-plan/do process on your own; work directly, as the task requires. The user decided this once, do not ask again."
     ;;
   *)
-    emit "The leading methodology has not been chosen yet in this repo (GSD or superpowers). At the first substantive task Claude will ask once — or run: /bajzi:modszertan" \
-         "WARNING: there is no .claude/METHODOLOGY marker file in this repo, and both GSD and superpowers may be installed. The two cover the same ground, so at THE FIRST task that requires planning, multi-step execution, code review or systematic debugging, ask the user ONCE which one should lead in this repo (gsd / superpowers / neither — claude-mem make-plan/do steps back in both cases), then write their answer as a single word into the .claude/METHODOLOGY file. Do not ask for a small, one-step task — just do it."
+    # No marker file. The owner's standing decision (2026-09-20) is that
+    # superpowers is the DEFAULT everywhere, so this branch no longer asks and
+    # no longer warns. An explicit marker still wins -- that is what the cases
+    # above are for, including "none" when a repo really wants no methodology.
+    emit "" "METHODOLOGY: this repo has no .claude/METHODOLOGY marker, so the owner's global default applies: superpowers. Do the planning/execution/review/debug work with the superpowers skills (brainstorming, writing-plans, executing-plans, subagent-driven-development, systematic-debugging, requesting-code-review, verification-before-completion). Do NOT use the gsd-* skills or the claude-mem planning skills (make-plan, do) here, and do not create a .planning/ structure. New work starts with planning, not code: brainstorm, then a written plan, then implementation. This is a STANDING decision -- do NOT ask the user which methodology to use, in this or any other repo."
     ;;
 esac
