@@ -24,6 +24,28 @@ goes into generated files under `~/night-runs/<project>/`.
     status           Bare mode: read-only health check (below). Changes nothing.
     report           Bare mode: PHASE F, the morning follow-through (spec section 5).
 
+## Review loop — when an item is actually done
+
+Every queue item goes through the review-and-fix loop, and the reviewer is **always Opus 5** —
+whatever the per-story orchestrator is, and whatever model wrote the code. The reviewer model is
+not a variable, and it never drops a tier because a diff looks small.
+
+The loop does not stop after one pass. Findings go to a FIXER sub-agent — never the reviewer that
+raised them — and the fix gets a NEW Opus 5 review round. Fix → review → fix → review, until it
+comes back clean. A single fix wave is not a loop.
+
+**Clean** means zero Critical AND zero Important findings AND the repo's own gate green. Minor and
+cosmetic findings are collected into the morning report for the owner, never looped on — style nits
+regenerate forever and would burn the night without making anything safer.
+
+Nothing is reported DONE, and nothing is merged, before that loop terminates clean. "The tests
+pass" is not done. "The implementer says it works" is not done. A clean review round plus a green
+gate is done; anything short of it is PARKED, with its open findings named.
+
+Watch for tests that pass for the wrong reason. A test asserting only that *something* was refused
+stays green after the check it exists to guard is deleted, because the code has several refusal
+paths. A reviewer that cannot say WHICH path refused has not verified that test.
+
 ## PHASE A — Preflight
 
 Run all of it before planning anything, and run step 0 FIRST — steps 3, 4 and 5, and the
