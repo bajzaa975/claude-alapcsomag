@@ -54,7 +54,7 @@ test('baseline: worker in claude mode passes no z.ai URL', () => {
 test('seam: invalid JSON in CC_CLAUDE_PREFIX_ARGS is ignored (worker --status still exits 0)', () => {
   const r = run('worker', ['--status'], { CC_CLAUDE_PREFIX_ARGS: 'notjson' });
   assert.strictEqual(r.code, 0, r.stderr);
-  assert.match(r.stdout, /router\s+v1\.1\.0/);   // the admin path ran to completion: which success this is
+  assert.match(r.stdout, /router\s+v1\.2\.0/);   // the admin path ran to completion: which success this is
 });
 test('seam: valid JSON that is not an array (5) is ignored on the spawn path', () => {
   const script = 'console.log("ARGS", JSON.stringify(process.argv.slice(1)))';
@@ -74,4 +74,35 @@ test('seam: invalid JSON on the spawn path starts the child with no prefix args'
   assert.strictEqual(r.code, 0, r.stderr);
   assert.match(r.stdout, /ARGS \["zzz"\]/);
   assert.ok(!r.stderr.includes('concat'), r.stderr);   // a non-array PREFIX would die on PREFIX.concat
+});
+
+const LEVELS = [['0', 'claude'], ['1', 'light'], ['2', 'glm'], ['3', 'tight']];
+for (const [n, name] of LEVELS) {
+  test('worker --level ' + n + ' writes ' + name, () => {
+    const r = run('worker', ['--level', n]);
+    assert.strictEqual(r.code, 0, r.stderr);
+    assert.strictEqual(fs.readFileSync(path.join(r.dir, 'worker-mode'), 'utf8'), name + '\n');
+    assert.match(r.stdout, new RegExp('level L' + n + ' \\(' + name + '\\)'));
+  });
+}
+test('worker --level 4 is refused with exit 64 and names the valid levels', () => {
+  const r = run('worker', ['--level', '4']);
+  assert.strictEqual(r.code, 64);
+  assert.match(r.stderr, /usage: worker --level 0\|1\|2\|3/);
+});
+test('CC_WORKER_MODE=light is accepted and routes worker to Claude', () => {
+  const r = run('worker', ['-p', 'x'], { CC_WORKER_MODE: 'light' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, undefined);
+});
+test('CC_WORKER_MODE=tight routes worker to GLM', () => {
+  const r = run('worker', ['-p', 'x'], { CC_WORKER_MODE: 'tight' });
+  assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic');
+});
+test('--status prints the level line', () => {
+  const r = run('worker', ['--status'], { CC_WORKER_MODE: 'tight' });
+  assert.match(r.stdout, /^level\s+L3 \(tight\)/m);
+});
+test('--set glm still works (L2 spelling unchanged)', () => {
+  const r = run('worker', ['--set', 'glm']); assert.strictEqual(r.code, 0);
 });

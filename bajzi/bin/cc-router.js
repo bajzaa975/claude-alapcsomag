@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // cc-router.js - per-process model routing for Claude Code. No proxy, no daemon, no global settings.
 // Entry points (thin shims next to this file set CC_ROUTER_ENTRY):
-//   worker ...     follows the saver switch: claude = plain Claude subscription, glm = Z.ai GLM
+//   worker ...     follows the saver switch: claude|light = plain Claude subscription, glm|tight = Z.ai GLM
 //   glm ...        always GLM
 //   ccr code ...   compatibility with the old claude-code-router launcher: always non-Claude
 //                  (--model deepseek-* goes to DeepSeek, everything else to GLM)
 // In GLM mode the Claude aliases are remapped, so callers never change their arguments:
 //   --model sonnet|opus -> glm_model      --model haiku -> glm_fast_model
-// State (all under ~/.claude):  worker-mode (claude|glm)   cc-router.json (models)   cc-router.log
+// State (all under ~/.claude):  worker-mode (claude|light|glm|tight)   cc-router.json (models)   cc-router.log
 'use strict';
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs'), os = require('os'), path = require('path');
 
@@ -18,7 +18,9 @@ const MODE_FILE = process.env.CC_WORKER_MODE_FILE || path.join(DIR, 'worker-mode
 const CONF_FILE = process.env.CC_ROUTER_CONFIG || path.join(DIR, 'cc-router.json');
 const ENV_FILE = path.join(DIR, 'cc-router.env');       // optional KEY=VALUE lines, keep it chmod 600
 const LOG_FILE = process.env.CC_ROUTER_LOG || path.join(DIR, 'cc-router.log');
-const MODES = ['claude', 'glm'];
+const MODES = ['claude', 'light', 'glm', 'tight'];            // L0..L3; 'glm' stays the L2 spelling
+const LEVEL_OF = { claude: 0, light: 1, glm: 2, tight: 3 };
+const GLM_MODES = ['glm', 'tight'];                            // modes whose MAIN session runs on GLM
 const DEFAULTS = { glm_model: 'glm-5.3', glm_fast_model: 'glm-4.7' };
 const entry = (process.env.CC_ROUTER_ENTRY || 'worker').toLowerCase();
 let args = process.argv.slice(2);
@@ -205,6 +207,12 @@ function workerAdmin() {
     const m = (args[1] || '').toLowerCase(); if (!MODES.includes(m)) die('usage: worker --set ' + MODES.join('|'), 64);
     fs.mkdirSync(path.dirname(MODE_FILE), { recursive: true }); fs.writeFileSync(MODE_FILE, m + '\n'); console.log('worker mode = ' + m); return true;
   }
+  if (a0 === 'level') {
+    const n = args[1]; const name = MODES[Number(n)];
+    if (!/^[0-3]$/.test(n || '') || !name) die('usage: worker --level 0|1|2|3   (0 claude, 1 light, 2 glm, 3 tight)', 64);
+    fs.mkdirSync(path.dirname(MODE_FILE), { recursive: true }); fs.writeFileSync(MODE_FILE, name + '\n');
+    console.log('worker mode = ' + name + '   level L' + n + ' (' + name + ')'); return true;
+  }
   if (a0 === 'set-model' || a0 === 'set-fast-model') {
     if (!okModel(args[1])) die('usage: worker --' + a0 + ' <model-id>   e.g. worker --' + a0 + ' glm-5.4', 64);
     const c = readConf(); c[a0 === 'set-model' ? 'glm_model' : 'glm_fast_model'] = args[1]; writeConf(c);
@@ -218,7 +226,9 @@ function workerAdmin() {
   }
   if (a0 === 'status') {
     const m = models(), envMode = process.env.CC_WORKER_MODE;
-    console.log('mode            ' + readMode() + (envMode ? '   (forced by CC_WORKER_MODE for this shell)' : ''));
+    const md = readMode();
+    console.log('level           L' + LEVEL_OF[md] + ' (' + md + ')' + (envMode ? '   (forced by CC_WORKER_MODE for this shell)' : ''));
+    console.log('mode            ' + md);
     console.log('glm model       ' + m.big + (process.env.GLM_MODEL ? '   (forced by GLM_MODEL)' : ''));
     console.log('glm fast model  ' + m.fast + (process.env.GLM_FAST_MODEL ? '   (forced by GLM_FAST_MODEL)' : ''));
     console.log('ZAI_API_KEY     ' + (secret('ZAI_API_KEY') ? 'found' : 'MISSING'));
@@ -228,7 +238,7 @@ function workerAdmin() {
     return true;
   }
   if (a0 === 'router-help') {
-    console.log('worker --status | --mode | --set claude|glm | --set-model <id> | --set-fast-model <id> | --log [n] | --usage [since] [--json]\nanything else is passed to Claude Code unchanged, e.g.  worker -p "..." --model sonnet'); return true;
+    console.log('worker --status | --mode | --level 0|1|2|3 | --set claude|light|glm|tight | --set-model <id> | --set-fast-model <id> | --log [n] | --usage [since] [--json]\nanything else is passed to Claude Code unchanged, e.g.  worker -p "..." --model sonnet'); return true;
   }
   return false;
 }
@@ -249,7 +259,7 @@ if (entry === 'ccr') {
     console.log('ccr shim (cc-router v' + VERSION + '): no router service is needed; "ccr code" routes per process. Nothing to ' + (sub || 'do') + '.'); process.exit(0);
   } else die('this is the cc-router shim; only "ccr code [claude args]" is supported (got: ' + (sub || 'nothing') + ')', 64);
 } else if (entry === 'glm') { provider = 'glm'; }
-else { if (workerAdmin()) process.exit(0); provider = readMode(); }
+else { if (workerAdmin()) process.exit(0); provider = GLM_MODES.includes(readMode()) ? 'glm' : 'claude'; }
 
 const env = Object.assign({}, process.env);
 for (const k of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_CODE_SUBAGENT_MODEL$|CLAUDECODE$|CC_ROUTER_ENTRY$)/.test(k)) delete env[k];
