@@ -36,7 +36,7 @@ test('seam: without CC_CLAUDE_PREFIX_ARGS the claude args pass through unchanged
 });
 test('baseline: worker --set glm writes the mode file', () => {
   const r = run('worker', ['--set', 'glm']);
-  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.code, 0, r.stderr);
   assert.strictEqual(fs.readFileSync(path.join(r.dir, 'worker-mode'), 'utf8'), 'glm\n');
 });
 test('baseline: glm entry routes to z.ai and maps haiku to the fast model', () => {
@@ -44,6 +44,7 @@ test('baseline: glm entry routes to z.ai and maps haiku to the fast model', () =
   assert.strictEqual(r.code, 0, r.stderr);
   assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic');
   assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-4.7');   // DEFAULTS; the live config says glm-5.3-flash
+  assert.deepStrictEqual(r.childArgv, ['-p', 'x', '--model', 'haiku']);      // caller args reach the child unchanged, in order
 });
 test('baseline: worker in claude mode passes no z.ai URL', () => {
   const r = run('worker', ['-p', 'x']);
@@ -54,4 +55,23 @@ test('seam: invalid JSON in CC_CLAUDE_PREFIX_ARGS is ignored (worker --status st
   const r = run('worker', ['--status'], { CC_CLAUDE_PREFIX_ARGS: 'notjson' });
   assert.strictEqual(r.code, 0, r.stderr);
   assert.match(r.stdout, /router\s+v1\.1\.0/);   // the admin path ran to completion: which success this is
+});
+test('seam: valid JSON that is not an array (5) is ignored on the spawn path', () => {
+  const script = 'console.log("ARGS", JSON.stringify(process.argv.slice(1)))';
+  const r = run('worker', ['-e', script, 'zzz'], { CC_CLAUDE_PREFIX_ARGS: '5' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.match(r.stdout, /ARGS \["zzz"\]/);   // no prefix, no crash in PREFIX.concat
+});
+test('seam: valid JSON that is not an array ({}) is ignored on the spawn path', () => {
+  const script = 'console.log("ARGS", JSON.stringify(process.argv.slice(1)))';
+  const r = run('worker', ['-e', script, 'zzz'], { CC_CLAUDE_PREFIX_ARGS: '{}' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.match(r.stdout, /ARGS \["zzz"\]/);
+});
+test('seam: invalid JSON on the spawn path starts the child with no prefix args', () => {
+  const script = 'console.log("ARGS", JSON.stringify(process.argv.slice(1)))';
+  const r = run('worker', ['-e', script, 'zzz'], { CC_CLAUDE_PREFIX_ARGS: 'notjson' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.match(r.stdout, /ARGS \["zzz"\]/);
+  assert.ok(!r.stderr.includes('concat'), r.stderr);   // a non-array PREFIX would die on PREFIX.concat
 });

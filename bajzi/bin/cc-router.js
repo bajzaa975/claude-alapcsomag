@@ -237,8 +237,9 @@ function claudeExe() {
   if (process.platform === 'win32') { const p = path.join(os.homedir(), '.local', 'bin', 'claude.exe'); if (fs.existsSync(p)) return p; }
   return 'claude';
 }
-let PREFIX = [];   // test seam: prefix args for the fake claude; inert when unset; bad JSON is ignored
+let PREFIX = [];   // test seam: prefix args for the fake claude; inert when unset; bad JSON or a non-array is ignored
 if (process.env.CC_CLAUDE_PREFIX_ARGS) { try { PREFIX = JSON.parse(process.env.CC_CLAUDE_PREFIX_ARGS); } catch (_) { PREFIX = []; } }
+if (!Array.isArray(PREFIX)) PREFIX = [];
 
 let provider;
 if (entry === 'ccr') {
