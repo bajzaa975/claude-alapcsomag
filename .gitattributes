@@ -3,4 +3,4 @@
 *.sh text eol=lf
 *.json text eol=lf
 *.md text eol=lf
-bajzi/bin/*.js text eol=lf
+bajzi/bin/**/*.js text eol=lf
