@@ -459,6 +459,9 @@ expect "11n' userinfo trick (api.anthropic.com@evil.example) -> L3" \
   "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" 'ANTHROPIC_BASE_URL=https://api.anthropic.com@evil.example/')" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
 expect "11n'' lookalike host (notanthropic.com) -> L3" \
   "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://notanthropic.com)" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+# Node's URL parser reads `\` as `/` for http(s), so this one connects to evil.com.
+expect "11n''' backslash trick (evil.com<backslash>@api.anthropic.com) -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" 'ANTHROPIC_BASE_URL=https://evil.com\@api.anthropic.com/')" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
 
 # 11o: a leading UTF-8 BOM on the worker-mode file is ignored.
 printf '\357\273\277glm\r\n' > "$FAKE_HOME/.claude/worker-mode"

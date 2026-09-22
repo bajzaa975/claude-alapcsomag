@@ -34,7 +34,8 @@
 #      non-Anthropic model) can never be handed the L0-L2 text, which promises
 #      Opus reviews it cannot reach.
 #   NON-ANTHROPIC = ANTHROPIC_BASE_URL is set and, lowercased, its HOST (scheme,
-#   userinfo, path, query, fragment and port stripped) is neither anthropic.com
+#   userinfo, path, query, fragment and port stripped; a backslash ends the host
+#   like a slash, as it does for Node's URL parser) is neither anthropic.com
 #   nor a subdomain of it. So z.ai, cc-router's deepseek route, and a URL that
 #   only mentions anthropic.com in its query or userinfo all count. Unset or
 #   empty = Anthropic.
@@ -57,10 +58,10 @@
 # The hook reads NOTHING besides the two mode files, $HOME/.claude/worker-mode,
 # the rules files above and those three env vars.
 #
-# KEEP IN SYNC: the mode-file read below
-#   head -1 "$f" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'
-# must stay BYTE-IDENTICAL to the read in skills/mode/SKILL.md. If the two
-# drift, the skill and this hook disagree about the current mode.
+# SHARED RESOLVER: the gate, the provider check, the mode-file read and the level
+# resolution live in hooks/lib-saver-level.sh (saver_resolve), which
+# routing-counter.sh sources too. Its mode-file read must stay BYTE-IDENTICAL to
+# the read in skills/mode/SKILL.md (see the lib's KEEP IN SYNC note).
 #
 # DEPENDENCY-FREE: bash, sed, awk, tr, head. It must never fail: every path
 # exits 0 with valid JSON on stdout.
@@ -88,37 +89,23 @@ emit() { # $1 = systemMessage (may be empty), $2 = additionalContext
     printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$m" "$c"
 }
 
-# Provider check: host of ANTHROPIC_BASE_URL, lowercased, must be anthropic.com or
-# a subdomain; anything else set there is a non-Anthropic session.
-nonanth="no"
-url=$(printf '%s' "${ANTHROPIC_BASE_URL:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-if [ -n "$url" ]; then
-    host="${url#*://}"      # scheme
-    host="${host%%[/?#]*}"  # path, query, fragment
-    host="${host##*@}"      # userinfo
-    host="${host%%:*}"      # port
-    case "$host" in
-        anthropic.com | *.anthropic.com) ;;
-        *) nonanth="yes" ;;
-    esac
+# Gate, provider and level come from the shared resolver (also used by
+# routing-counter.sh), found next to this file -- NOT via CLAUDE_PLUGIN_ROOT, which
+# the tests point at a fake root. Missing lib = stay silent, never fail.
+lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-saver-level.sh"
+# shellcheck source=lib-saver-level.sh
+if ! . "$lib" 2>/dev/null || ! saver_resolve "$cwd"; then
+    printf '{}'
+    exit 0
 fi
-env_level=$(printf '%s' "${CC_WORKER_MODE:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-
-f=""
-if [ -f "$cwd/runtime/bajzi-mode" ]; then
-    f="$cwd/runtime/bajzi-mode"
-elif [ -f "${HOME:-}/.claude/bajzi-mode" ]; then
-    f="${HOME:-}/.claude/bajzi-mode"
-fi
-dayrun="no"
-if [ -n "$f" ]; then
-    mode=$(head -1 "$f" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-    [ "$mode" = "day-run" ] && dayrun="yes"
-fi
+nonanth="$SAVER_NON_ANTHROPIC"
+host="$SAVER_HOST"
+f="$SAVER_DAYRUN_FILE"
+dayrun="$SAVER_DAYRUN"
 
 # Gate: day-run on, a level forced by the runner, or a non-Anthropic provider (a
 # glm-started session is L3 whatever the mode files say). None of the three -> silent.
-if [ "$dayrun" = "no" ] && [ -z "$env_level" ] && [ "$nonanth" = "no" ]; then
+if [ "$SAVER_GATE_OPEN" = "no" ]; then
     printf '{}'
     exit 0
 fi
@@ -138,15 +125,7 @@ if [ "$nonanth" = "yes" ] && [ "${CC_ROUTER_WORKER:-}" = "1" ]; then
     exit 0
 fi
 
-level="$env_level"
-if [ -z "$level" ] && [ -f "${HOME:-}/.claude/worker-mode" ]; then
-    raw=$(head -1 "${HOME:-}/.claude/worker-mode" 2>/dev/null)
-    raw="${raw#$'\357\273\277'}"   # a leading UTF-8 BOM (Notepad, PowerShell 5 Out-File)
-    level=$(printf '%s' "$raw" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-fi
-[ -z "$level" ] && level="claude"
-# Mechanical: a non-Anthropic session can never get the L0-L2 text.
-[ "$nonanth" = "yes" ] && level="tight"
+level="$SAVER_LEVEL"   # env, else worker-mode file, else claude; tight when non-Anthropic
 warn=""
 case "$level" in
     claude | light | glm | tight) ;;

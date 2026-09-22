@@ -30,7 +30,7 @@ argument: print `day-run | normal | status [--project]` and stop - do nothing el
 ## Reading a mode file
 
 Read exactly like this. This read must stay byte-identical to the read in
-`bajzi/hooks/day-run-mode.sh` - if the two drift apart, the skill and the hook will disagree
+`bajzi/hooks/lib-saver-level.sh` (sourced by the hooks) - if the two drift apart, the skill and the hook will disagree
 about which mode is currently active:
 
 `head -1 "<file>" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'`
