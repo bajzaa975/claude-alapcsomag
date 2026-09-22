@@ -6,7 +6,8 @@
 # Cases 1-3 pull the documented write sequence and read command verbatim out
 # of SKILL.md with sed/grep and execute those exact strings against a temp
 # fixture, so this test fails if SKILL.md's snippet drifts from the hook's.
-# Cases 4-11 run the real hook script against a fake plugin root.
+# Cases 4-11 run the real hook script against a fake plugin root; case 12 runs
+# the PostToolUse routing counter (hooks/routing-counter.sh).
 #
 # The real `claude` CLI is never invoked: PATH is prefixed with a shim that
 # exits 99 and drops a marker file; case 8 checks the marker never appeared.
@@ -472,6 +473,76 @@ rm -f "$FAKE_HOME/.claude/worker-mode"
 # 11p: the env level is normalised like the file.
 expect "11p CC_WORKER_MODE=TIGHT -> L3" \
   "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=TIGHT)" 'SAVER LEVEL L3' 'treated as L0'
+
+# --- case 12: routing-violation counter (PostToolUse on Agent) ---
+#
+# Same gate and level as the SessionStart hook (both source hooks/lib-saver-level.sh).
+# A violation = haiku at L1/L2/L3, or sonnet at L2/L3, unless a GLM peak refusal was
+# logged in the last 10 min. The counter must print {} and exit 0 on EVERY path.
+CNT="$BAJZI_DIR/hooks/routing-counter.sh"
+viol="$FAKE_CWD/runtime/routing-violations.log"; rm -f "$viol" "$TMP/peak.log"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$FAKE_HOME/.claude/worker-mode"
+agent() { printf '{"tool_name":"Agent","tool_input":{"model":"%s"},"cwd":"%s"}' "$1" "$FAKE_CWD"; }
+cnt_raw() { # stdin = payload, then env pairs
+    env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$FAKE_HOME" CC_PEAK_LOG="$TMP/peak.log"         CLAUDE_PROJECT_DIR="$TMP/nocwd" "$@" bash "$CNT"; }
+cnt() { # $1 model, then env pairs
+    local m="$1"; shift; agent "$m" | cnt_raw "$@"; }
+out=$(cnt haiku CC_WORKER_MODE=light); rc=$?
+[ "$out" = "{}" ] && [ "$rc" -eq 0 ] && pass "12a counter prints {} and exits 0" || fail "12a" "rc=$rc $out"
+grep -q 'level=light model=haiku' "$viol" 2>/dev/null && pass "12b L1 + haiku is logged" || fail "12b" "no line"
+rm -f "$viol"; cnt sonnet CC_WORKER_MODE=light >/dev/null
+[ ! -s "$viol" ] && pass "12c L1 + sonnet is NOT a violation" || fail "12c" "$(cat "$viol")"
+cnt sonnet CC_WORKER_MODE=glm >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "12d L2 + sonnet is logged" || fail "12d" "missing"
+rm -f "$viol"; cnt opus CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12e opus is never a violation" || fail "12e" "$(cat "$viol")"
+rm -f "$viol"; printf '%s entry=glm\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" > "$TMP/peak.log"
+cnt haiku CC_WORKER_MODE=light >/dev/null
+[ ! -s "$viol" ] && pass "12f within 10 min of a peak refusal -> not logged" || fail "12f" "$(cat "$viol")"
+rm -f "$viol"; printf '%s entry=glm\n' "$(date -u -d '-11 minutes' +%Y-%m-%dT%H:%M:%S.000Z)" > "$TMP/peak.log"
+cnt haiku CC_WORKER_MODE=light >/dev/null
+grep -q 'model=haiku' "$viol" 2>/dev/null && pass "12f' peak refusal older than 10 min -> logged" || fail "12f'" "no line"
+rm -f "$viol" "$TMP/peak.log"; cnt haiku CC_WORKER_MODE=claude >/dev/null
+[ ! -s "$viol" ] && pass "12g L0 never logs" || fail "12g" "$(cat "$viol")"
+# 12h: gate closed. The worker-mode FILE says glm (a violation level) but day-run is
+# off and neither CC_WORKER_MODE nor a non-Anthropic provider is set.
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"; printf 'glm\n' > "$FAKE_HOME/.claude/worker-mode"
+rm -rf "$FAKE_CWD/runtime"
+out=$(cnt haiku); [ "$out" = "{}" ] && pass "12h gate closed (day-run off, no env, Anthropic) prints {}" || fail "12h" "$out"
+[ ! -e "$FAKE_CWD/runtime" ] && pass "12h' gate closed -> nothing written, not even runtime/" || fail "12h'" "$(ls -la "$FAKE_CWD/runtime" 2>&1)"
+mkdir -p "$FAKE_CWD/runtime"
+# 12i: same files, but the provider is non-Anthropic -> gate open, level forced to tight.
+cnt sonnet CC_WORKER_MODE=light ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic >/dev/null
+grep -q 'level=tight model=sonnet' "$viol" 2>/dev/null && pass "12i non-Anthropic provider opens the gate and counts as tight" || fail "12i" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+cnt sonnet ANTHROPIC_BASE_URL='https://evil.com\@api.anthropic.com/' >/dev/null
+grep -q 'level=tight model=sonnet' "$viol" 2>/dev/null && pass "12i' backslash host trick is non-Anthropic for the counter too" || fail "12i'" "$(cat "$viol" 2>&1)"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$viol" "$FAKE_HOME/.claude/worker-mode"
+# 12j: no model on the dispatch = the session default. The built-in Explore agent
+# INHERITS the session model (Claude Code docs, sub-agents, since v2.1.198), so a
+# model-less Explore dispatch is NOT a haiku dispatch.
+printf '{"tool_name":"Agent","tool_input":{"subagent_type":"Explore"},"cwd":"%s"}' "$FAKE_CWD" | cnt_raw CC_WORKER_MODE=light >/dev/null
+[ ! -s "$viol" ] && pass "12j no model + subagent_type=Explore -> session default, not logged" || fail "12j" "$(cat "$viol")"
+# 12k: only tool_input.model counts -- a "model" key in tool_response, or the word
+# inside the prompt text, must not be read as the dispatch model.
+printf '{"tool_name":"Agent","tool_input":{"prompt":"use \\"model\\":\\"haiku\\" here","subagent_type":"Explore"},"tool_response":{"model":"haiku"},"cwd":"%s"}' "$FAKE_CWD" \
+    | cnt_raw CC_WORKER_MODE=light >/dev/null
+[ ! -s "$viol" ] && pass "12k model outside tool_input is ignored" || fail "12k" "$(cat "$viol")"
+printf '{"tool_response":{"model":"opus"},"tool_input":{"description":"x","model":"haiku"},"cwd":"%s"}' "$FAKE_CWD" \
+    | cnt_raw CC_WORKER_MODE=light >/dev/null
+grep -q 'model=haiku' "$viol" 2>/dev/null && pass "12k' tool_input.model found whatever the key order" || fail "12k'" "no line"
+rm -f "$viol"
+# 12l: never fails, never blocks.
+for bad in '' 'not json' '{"tool_input":{"model":"haiku"' '{"tool_input":{"model":"hai\'; do
+    out=$(printf '%s' "$bad" | cnt_raw CC_WORKER_MODE=light); rc=$?
+    [ "$out" = "{}" ] && [ "$rc" -eq 0 ] || { fail "12l malformed stdin '$bad'" "rc=$rc $out"; continue; }
+    pass "12l malformed stdin '${bad:0:24}' -> {} exit 0"
+done
+# 12m: a model value cannot inject extra log lines.
+rm -f "$viol"
+printf '{"tool_input":{"model":"haiku\\nFAKE level=x"},"cwd":"%s"}' "$FAKE_CWD" | cnt_raw CC_WORKER_MODE=light >/dev/null
+[ "$(wc -l < "$viol" 2>/dev/null)" = "1" ] && ! grep -q '^FAKE' "$viol" && pass "12m one line per dispatch, no injection" || fail "12m" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
 
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.

@@ -1,5 +1,5 @@
 {
-  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers) + day-run working-mode injection + noisy-output filter",
+  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers) + day-run working-mode injection + noisy-output filter + saver routing-violation counter",
   "hooks": {
     "SessionStart": [
       {
@@ -40,6 +40,18 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/noise-filter.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/routing-counter.sh\"",
             "timeout": 5
           }
         ]
