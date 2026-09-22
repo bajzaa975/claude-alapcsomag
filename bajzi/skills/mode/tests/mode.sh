@@ -543,6 +543,55 @@ rm -f "$viol"
 printf '{"tool_input":{"model":"haiku\\nFAKE level=x"},"cwd":"%s"}' "$FAKE_CWD" | cnt_raw CC_WORKER_MODE=light >/dev/null
 [ "$(wc -l < "$viol" 2>/dev/null)" = "1" ] && ! grep -q '^FAKE' "$viol" && pass "12m one line per dispatch, no injection" || fail "12m" "$(cat "$viol" 2>&1)"
 rm -f "$viol"
+# 12n: no model on the dispatch -> the agent DEFINITION's frontmatter model counts.
+# Lookup order: <cwd>/.claude/agents, $HOME/.claude/agents, then for plugin:name the
+# plugin dirs under $HOME/.claude/plugins (cache/*/<plugin>/*/agents, marketplaces/*/plugins/<plugin>/agents).
+# inherit / no model line / no file = the session model, never counted.
+mkagent() { # $1 file, $2 model line ('' = none)
+    mkdir -p "$(dirname "$1")"
+    { printf -- '---\nname: x\ndescription: d\n'; [ -n "$2" ] && printf '%s\n' "$2"; printf -- '---\n\nbody\n'; } > "$1"; }
+sub() { printf '{"tool_name":"Agent","tool_input":{"description":"d","subagent_type":"%s","prompt":"p"},"cwd":"%s"}' "$1" "$FAKE_CWD"; }
+mkagent "$FAKE_CWD/.claude/agents/proj-rev.md" 'model: sonnet'
+mkagent "$FAKE_HOME/.claude/agents/home-fast.md" 'model: "haiku"'
+mkagent "$FAKE_HOME/.claude/agents/inh.md" 'model: inherit'
+mkagent "$FAKE_HOME/.claude/agents/nomodel.md" ''
+mkagent "$FAKE_HOME/.claude/agents/shadow.md" 'model: sonnet'
+mkagent "$FAKE_CWD/.claude/agents/shadow.md" 'model: inherit'
+printf -- '---\nname: late\n---\nmodel: sonnet\n' > "$FAKE_HOME/.claude/agents/late.md"
+mkagent "$FAKE_HOME/.claude/plugins/cache/mk1/fakeplug/1.2.3/agents/code-reviewer.md" 'model: sonnet'
+mkagent "$FAKE_HOME/.claude/plugins/marketplaces/mk2/plugins/mktplug/agents/scout.md" 'model: haiku'
+mkagent "$FAKE_HOME/.claude/plugins/cache/mk1/otherplug/1.0.0/agents/pinned.md" 'model: sonnet'
+rm -f "$viol"; sub proj-rev | cnt_raw CC_WORKER_MODE=glm >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "12n <cwd>/.claude/agents sonnet-pinned at L2 -> logged" || fail "12n" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; sub home-fast | cnt_raw CC_WORKER_MODE=light >/dev/null
+grep -q 'level=light model=haiku' "$viol" 2>/dev/null && pass "12n2 ~/.claude/agents haiku-pinned (quoted) at L1 -> logged" || fail "12n2" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; sub inh | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12o model: inherit -> session model, not logged" || fail "12o" "$(cat "$viol")"
+sub nomodel | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12o2 no model line -> not logged" || fail "12o2" "$(cat "$viol")"
+sub late | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12o3 model: after the frontmatter is ignored" || fail "12o3" "$(cat "$viol")"
+sub shadow | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12o4 project agent shadows the home agent of the same name" || fail "12o4" "$(cat "$viol")"
+sub does-not-exist | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12p missing agent file -> not logged" || fail "12p" "$(cat "$viol")"
+sub 'fakeplug:pinned' | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12p2 plugin name narrows the search (otherplug's agent not used)" || fail "12p2" "$(cat "$viol")"
+sub '../agents/proj-rev' | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12p3 a path in subagent_type resolves nothing" || fail "12p3" "$(cat "$viol")"
+sub 'fakeplug:code-reviewer' | cnt_raw CC_WORKER_MODE=glm >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "12q plugin:name resolves via plugins/cache" || fail "12q" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; sub 'mktplug:scout' | cnt_raw CC_WORKER_MODE=light >/dev/null
+grep -q 'level=light model=haiku' "$viol" 2>/dev/null && pass "12q2 plugin:name resolves via plugins/marketplaces" || fail "12q2" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+# an explicit tool_input.model wins over the definition.
+printf '{"tool_input":{"subagent_type":"proj-rev","model":"opus"},"cwd":"%s"}' "$FAKE_CWD" | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12r explicit tool_input.model overrides the frontmatter" || fail "12r" "$(cat "$viol")"
+rm -rf "$FAKE_CWD/.claude" "$FAKE_HOME/.claude/agents" "$FAKE_HOME/.claude/plugins" "$viol"
+# 12s: the hook fires for both tool names (Agent; Task on older CLI builds).
+HOOKS_JSON="$BAJZI_DIR/hooks/hooks.json"
+tr -d ' \n\r' < "$HOOKS_JSON" | grep -qF '"PostToolUse":[{"matcher":"Agent|Task","hooks":[{"type":"command","command":"bash\"${CLAUDE_PLUGIN_ROOT}/hooks/routing-counter.sh\""' \
+    && pass "12s hooks.json PostToolUse matcher is Agent|Task -> routing-counter.sh" || fail "12s" "matcher/command not found"
 
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.

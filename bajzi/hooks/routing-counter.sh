@@ -11,9 +11,20 @@
 # opus is never a violation. Model names match as substrings, so a full id
 # (claude-haiku-4-5) counts like the alias.
 #
-# NO MODEL on the dispatch = the session's own model, never a violation. The
-# built-in Explore agent INHERITS the session model (Claude Code docs,
-# "Subagents", since v2.1.198), so it is not counted as haiku either.
+# NO MODEL on the dispatch = the model the AGENT DEFINITION pins. For
+# tool_input.subagent_type=<name> (or <plugin>:<name>) the hook reads ONLY the
+# YAML frontmatter `model:` line of the first <name>.md found in, in order:
+#   <cwd>/.claude/agents/            (project agents)
+#   $HOME/.claude/agents/            (user agents)
+#   $HOME/.claude/plugins/cache/*/<plugin>/*/agents/          (plugin:name only)
+#   $HOME/.claude/plugins/marketplaces/*/plugins/<plugin>/agents/
+# Fixed-depth globs, no recursive find, so the lookup stays bounded.
+# `model: inherit`, no model line, or no file found = the session's own model,
+# never a violation. Built-ins (Explore, general-purpose, Plan) have no file:
+# Explore INHERITS the session model (Claude Code docs, "Subagents", since
+# v2.1.198), so it is not counted as haiku. KNOWN GAP: agents defined some other
+# way (--agents JSON, managed settings, a plugin installed outside these dirs)
+# resolve to nothing and are not counted -- an under-count, never an over-count.
 #
 # GATE and LEVEL come from lib-saver-level.sh, the resolver the SessionStart
 # hook (day-run-mode.sh) uses, so the two agree by construction: the counter
@@ -28,7 +39,7 @@
 # line starts with the refusal's ISO time (cc-router writes toISOString()).
 #
 # stdin is parsed by a small JSON-aware awk scanner, not a regex over the whole
-# payload: only tool_input.model and the TOP-LEVEL
+# payload: only tool_input.model, tool_input.subagent_type and the TOP-LEVEL
 # cwd count, so a "model" key in tool_response or in the prompt text is ignored.
 #
 # DEPENDENCY-FREE: bash, awk, tr, head, tail, cut, date.
@@ -37,13 +48,14 @@ set -uo pipefail
 
 input=$(cat 2>/dev/null || true)
 
-# Prints two lines: tool_input.model, top-level cwd.
+# Prints three lines: tool_input.model, top-level cwd, tool_input.subagent_type.
 fields=$(printf '%s' "$input" | awk '
 function val(d, k, v) {
     gsub(/[\r\n\t]/, " ", v)
     if (d == 1 && k == "cwd" && !have_cwd) { cwd = v; have_cwd = 1 }
     if (d == 2 && isobj[2] && parent[2] == "tool_input" && isobj[1]) {
         if (k == "model" && !have_model) { model = v; have_model = 1 }
+        if (k == "subagent_type" && !have_sub) { stype = v; have_sub = 1 }
     }
 }
 { s = s $0 "\n" }
@@ -81,11 +93,11 @@ END {
         }
         i++
     }
-    print model; print cwd
+    print model; print cwd; print stype
 }' 2>/dev/null) || fields=""
 
-model="" cwd=""
-{ IFS= read -r model; IFS= read -r cwd; } <<< "$fields" || true
+model="" cwd="" sub=""
+{ IFS= read -r model; IFS= read -r cwd; IFS= read -r sub; } <<< "$fields" || true
 # Log-safe model: lowercase, a conservative charset, capped.
 model=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-' | head -c 64)
 [ -z "$cwd" ] && cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -102,7 +114,38 @@ if [ "$SAVER_GATE_OPEN" != "yes" ]; then
 fi
 level="$SAVER_LEVEL"
 
-# No model = the session default (Explore included, see the header): never counted.
+# Frontmatter `model:` of an agent file: only between the opening --- (line 1)
+# and the closing ---, first 40 lines at most. Prints the raw value or nothing.
+fm_model() {
+    head -n 40 "$1" 2>/dev/null | tr -d '\r' | awk '
+        NR == 1 { if ($0 !~ /^---[ \t]*$/) exit; next }
+        /^---[ \t]*$/ { exit }
+        /^model[ \t]*:/ { sub(/^model[ \t]*:[ \t]*/, ""); gsub(/["\047]/, ""); sub(/[ \t]+#.*$/, ""); sub(/[ \t]+$/, ""); print; exit }'
+}
+# No model on the dispatch: resolve the subagent type's definition (see header).
+if [ -z "$model" ] && [ -n "$sub" ]; then
+    # Names only: no path separators can reach a glob.
+    sub=$(printf '%s' "$sub" | tr -cd 'A-Za-z0-9._:-' | head -c 128)
+    name="${sub##*:}" plug=""
+    case "$sub" in *:*) plug="${sub%:*}"; plug="${plug##*:}" ;; esac
+    case "$name$plug" in *..* | .*) name="" ;; esac
+    if [ -n "$name" ]; then
+        h="${HOME:-/nonexistent}/.claude"
+        set -- "$cwd/.claude/agents/$name.md" "$h/agents/$name.md"
+        if [ -n "$plug" ]; then
+            set -- "$@" "$h"/plugins/cache/*/"$plug"/*/agents/"$name.md" \
+                "$h"/plugins/marketplaces/*/plugins/"$plug"/agents/"$name.md"
+        fi
+        for f in "$@"; do
+            [ -f "$f" ] || continue
+            model=$(fm_model "$f" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-' | head -c 64)
+            break
+        done
+        [ "$model" = "inherit" ] && model=""
+    fi
+fi
+
+# Still no model = the session default (inherit, built-ins, not found): never counted.
 v="no"
 case "$level:$model" in
     light:*haiku* | glm:*haiku* | tight:*haiku* | glm:*sonnet* | tight:*sonnet*) v="yes" ;;
