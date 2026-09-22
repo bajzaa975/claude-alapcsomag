@@ -288,10 +288,10 @@ printf '%s\n' "day-run" > "$FAKE_HOME/.claude/bajzi-mode"
 
 printf '%s\n' "glm" > "$WM"
 out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "bash")"
-if printf '%s' "$out" | grep -q 'SAVER MODE ON'; then
-    pass "10a day-run + worker-mode=glm -> SAVER MODE ON"
+if printf '%s' "$out" | grep -q 'SAVER LEVEL L2'; then
+    pass "10a day-run + worker-mode=glm -> SAVER LEVEL L2"
 else
-    fail "10a day-run + worker-mode=glm" "no SAVER MODE ON in additionalContext"
+    fail "10a day-run + worker-mode=glm" "no SAVER LEVEL L2 in additionalContext"
 fi
 if printf '%s' "$out" | grep -q 'model: glm -- saver mode'; then
     pass "10a saver block carries the glm dispatch line"
@@ -311,24 +311,24 @@ fi
 
 printf '%s\n' "claude" > "$WM"
 out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "bash")"
-if [ "$out" != "{}" ] && ! printf '%s' "$out" | grep -q 'SAVER MODE'; then
-    pass "10b worker-mode=claude -> day-run block, no SAVER MODE"
+if [ "$out" != "{}" ] && ! printf '%s' "$out" | grep -q 'SAVER LEVEL'; then
+    pass "10b worker-mode=claude -> day-run block, no SAVER LEVEL"
 else
     fail "10b worker-mode=claude" "$out"
 fi
 
 rm -f "$WM"
 out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "bash")"
-if [ "$out" != "{}" ] && ! printf '%s' "$out" | grep -q 'SAVER MODE'; then
-    pass "10c no worker-mode file -> day-run block, no SAVER MODE"
+if [ "$out" != "{}" ] && ! printf '%s' "$out" | grep -q 'SAVER LEVEL'; then
+    pass "10c no worker-mode file -> day-run block, no SAVER LEVEL"
 else
     fail "10c no worker-mode file" "$out"
 fi
 
 printf '%s\n' "glm" > "$WM"
 out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "definitely-not-a-command-xyz")"
-if [ "$out" != "{}" ] && ! printf '%s' "$out" | grep -q 'SAVER MODE'; then
-    pass "10d worker-mode=glm but launcher absent -> no SAVER MODE"
+if [ "$out" != "{}" ] && ! printf '%s' "$out" | grep -q 'SAVER LEVEL'; then
+    pass "10d worker-mode=glm but launcher absent -> no SAVER LEVEL"
 else
     fail "10d launcher absent" "$out"
 fi
@@ -352,15 +352,15 @@ else
     fail "10f missing SAVER-RULES.md: invalid JSON" "$out"
 fi
 if printf '%s' "$out" | grep -q 'DAY-RUN MODE' \
-    && ! printf '%s' "$out" | grep -q 'SAVER MODE'; then
-    pass "10f missing SAVER-RULES.md -> day-run block, no SAVER MODE"
+    && ! printf '%s' "$out" | grep -q 'SAVER LEVEL'; then
+    pass "10f missing SAVER-RULES.md -> day-run block, no SAVER LEVEL"
 else
     fail "10f missing SAVER-RULES.md" "$out"
 fi
-if ! printf '%s' "$out" | grep -q 'saver mode ON'; then
+if ! printf '%s' "$out" | grep -q 'saver L'; then
     pass "10f systemMessage is the plain day-run one"
 else
-    fail "10f systemMessage claims saver mode" \
+    fail "10f systemMessage claims a saver level" \
         "$(printf '%s' "$out" | sed -n 's/.*"systemMessage":"\([^"]*\)".*/\1/p')"
 fi
 rm -f "$WM"
