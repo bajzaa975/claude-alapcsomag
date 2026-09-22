@@ -137,3 +137,59 @@ test('--until without a value is refused', () => {
   const r = run('worker', ['--usage', '1h', '--until']);
   assert.strictEqual(r.code, 64); assert.match(r.stderr, /--until needs a time/);
 });
+
+// --- A4: Z.ai peak-window refusal (06:00-10:00 UTC = 14:00-18:00 UTC+8) and the child-worker marker ---
+const peakEnv = now => ({ CC_GLM_PEAK_OK: '', CC_ROUTER_NOW: now, CC_PEAK_LOG: path.join(os.tmpdir(), 'peak-' + process.pid + '-' + Math.random()) });
+test('glm inside the window (07:00 UTC) exits 75 and logs the refusal', () => {
+  const e = peakEnv('2026-09-23T07:00:00Z');
+  const r = run('glm', ['-p', 'x'], e);
+  assert.strictEqual(r.code, 75);
+  assert.match(r.stderr, /peak window/);
+  assert.strictEqual(r.childEnv, null);                 // claude never started
+  assert.match(fs.readFileSync(e.CC_PEAK_LOG, 'utf8'), /^2026-09-23T07:00:00/);
+});
+test('glm at 06:00 UTC (first minute of the window) is refused', () => {
+  const r = run('glm', ['-p', 'x'], peakEnv('2026-09-23T06:00:00Z'));
+  assert.strictEqual(r.code, 75);
+  assert.match(r.stderr, /peak window/);
+  assert.strictEqual(r.childEnv, null);
+});
+test('glm at 05:59 UTC and at 10:00 UTC starts', () => {
+  for (const t of ['2026-09-23T05:59:00Z', '2026-09-23T10:00:00Z']) {
+    const r = run('glm', ['-p', 'x'], peakEnv(t));
+    assert.strictEqual(r.code, 0, t + ' ' + r.stderr);
+    assert.notStrictEqual(r.childEnv, null, t);
+  }
+});
+test('CC_GLM_PEAK_OK=1 bypasses the refusal', () => {
+  const r = run('glm', ['-p', 'x'], Object.assign(peakEnv('2026-09-23T07:00:00Z'), { CC_GLM_PEAK_OK: '1' }));
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.notStrictEqual(r.childEnv, null);
+});
+test('worker at L3 is refused in the window too; worker at L1 is not', () => {
+  const t = run('worker', ['-p', 'x'], Object.assign(peakEnv('2026-09-23T07:00:00Z'), { CC_WORKER_MODE: 'tight' }));
+  assert.strictEqual(t.code, 75);
+  assert.match(t.stderr, /peak window/);
+  assert.strictEqual(t.childEnv, null);
+  const l = run('worker', ['-p', 'x'], Object.assign(peakEnv('2026-09-23T07:00:00Z'), { CC_WORKER_MODE: 'light' }));
+  assert.strictEqual(l.code, 0, l.stderr);
+  assert.strictEqual(l.childEnv.ANTHROPIC_BASE_URL, undefined);
+});
+test('ccr code (GLM provider) is refused in the window', () => {
+  const r = run('ccr', ['code', '-p', 'x'], peakEnv('2026-09-23T07:00:00Z'));
+  assert.strictEqual(r.code, 75);
+  assert.match(r.stderr, /peak window/);
+  assert.strictEqual(r.childEnv, null);
+});
+test('an unparsable CC_ROUTER_NOW falls back to the real clock instead of disabling the check', () => {
+  const inWindow = (h => h >= 6 && h < 10)(new Date().getUTCHours());
+  const r = run('glm', ['-p', 'x'], peakEnv('not-a-date'));
+  assert.strictEqual(r.code, inWindow ? 75 : 0, r.stderr);
+});
+test('launched from inside Claude Code -> child gets CC_ROUTER_WORKER=1; from a plain shell -> not', () => {
+  assert.strictEqual(run('glm', ['-p', 'x'], { CLAUDECODE: '1' }).childEnv.CC_ROUTER_WORKER, '1');
+  assert.strictEqual(run('glm', ['-p', 'x'], { CLAUDECODE: '' }).childEnv.CC_ROUTER_WORKER, undefined);
+});
+test('a CC_ROUTER_WORKER inherited from a plain shell is not passed on', () => {
+  assert.strictEqual(run('glm', ['-p', 'x'], { CC_ROUTER_WORKER: '1' }).childEnv.CC_ROUTER_WORKER, undefined);
+});

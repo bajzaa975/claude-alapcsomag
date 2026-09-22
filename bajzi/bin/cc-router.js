@@ -268,8 +268,22 @@ if (entry === 'ccr') {
 } else if (entry === 'glm') { provider = 'glm'; }
 else { if (workerAdmin()) process.exit(0); provider = GLM_MODES.includes(readMode()) ? 'glm' : 'claude'; }
 
+const insideClaude = !!process.env.CLAUDECODE;   // read BEFORE the scrub below deletes it
+function peakOpen(now) { const h = now.getUTCHours(); return h >= 6 && h < 10; }   // 14:00-18:00 UTC+8, Z.ai 3x quota
+if (provider === 'glm' && process.env.CC_GLM_PEAK_OK !== '1') {
+  let now = process.env.CC_ROUTER_NOW ? new Date(process.env.CC_ROUTER_NOW) : new Date();   // CC_ROUTER_NOW: test clock (ISO)
+  if (isNaN(now.getTime())) now = new Date();   // a garbage override must not silently disable the check
+  if (peakOpen(now)) {
+    const log = process.env.CC_PEAK_LOG || path.join(DIR, 'glm-peak-refusals.log');
+    try { fs.mkdirSync(path.dirname(log), { recursive: true }); fs.appendFileSync(log, now.toISOString() + ' entry=' + entry + '\n'); } catch (_) {}
+    die('GLM refused: Z.ai peak window 14:00-18:00 UTC+8 (' + fmtLocal(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 6))) +
+        '-' + fmtLocal(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 10))) + ' local) costs 3x quota. ' +
+        'Do this task on Claude instead, or set CC_GLM_PEAK_OK=1 to override.', 75);
+  }
+}
+
 const env = Object.assign({}, process.env);
-for (const k of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_CODE_SUBAGENT_MODEL$|CLAUDECODE$|CC_ROUTER_ENTRY$)/.test(k)) delete env[k];
+for (const k of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_CODE_SUBAGENT_MODEL$|CLAUDECODE$|CC_ROUTER_ENTRY$|CC_ROUTER_WORKER$)/.test(k)) delete env[k];
 const asked = modelArg(args);
 
 if (provider === 'glm') {
@@ -288,6 +302,7 @@ if (provider === 'glm') {
     CLAUDE_CODE_SUBAGENT_MODEL: m, API_TIMEOUT_MS: '3000000', ENABLE_TOOL_SEARCH: 'false', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
   if (!asked) env.ANTHROPIC_MODEL = m;
 }   // provider === 'claude': plain Claude Code on the subscription; env already scrubbed of ANTHROPIC_*
+if (insideClaude) env.CC_ROUTER_WORKER = '1';   // B2: tells a Claude-spawned `glm -p` worker from a main session
 
 logLaunch(provider, asked);
 const exe = claudeExe();
