@@ -237,6 +237,8 @@ function claudeExe() {
   if (process.platform === 'win32') { const p = path.join(os.homedir(), '.local', 'bin', 'claude.exe'); if (fs.existsSync(p)) return p; }
   return 'claude';
 }
+let PREFIX = [];   // test seam: prefix args for the fake claude; inert when unset; bad JSON is ignored
+if (process.env.CC_CLAUDE_PREFIX_ARGS) { try { PREFIX = JSON.parse(process.env.CC_CLAUDE_PREFIX_ARGS); } catch (_) { PREFIX = []; } }
 
 let provider;
 if (entry === 'ccr') {
@@ -271,7 +273,7 @@ if (provider === 'glm') {
 
 logLaunch(provider, asked);
 const exe = claudeExe();
-const child = spawn(exe, args, { stdio: 'inherit', env });
+const child = spawn(exe, PREFIX.concat(args), { stdio: 'inherit', env });
 for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(s, () => { try { child.kill(s); } catch (_) {} });
 child.on('error', e => die('cannot start ' + exe + ': ' + e.message, 127));
 child.on('exit', (code, sig) => process.exit(sig ? 1 : (code === null ? 1 : code)));
