@@ -6,7 +6,7 @@
 # Cases 1-3 pull the documented write sequence and read command verbatim out
 # of SKILL.md with sed/grep and execute those exact strings against a temp
 # fixture, so this test fails if SKILL.md's snippet drifts from the hook's.
-# Cases 4-10 run the real hook script against a fake plugin root.
+# Cases 4-11 run the real hook script against a fake plugin root.
 #
 # The real `claude` CLI is never invoked: PATH is prefixed with a shim that
 # exits 99 and drops a marker file; case 8 checks the marker never appeared.
@@ -14,6 +14,7 @@
 # Everything lives under one mktemp -d, removed on exit by the trap.
 
 set -uo pipefail
+unset ANTHROPIC_BASE_URL CC_WORKER_MODE CC_ROUTER_WORKER   # the test process may itself run in a GLM/night-run env
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -298,7 +299,7 @@ if printf '%s' "$out" | grep -q 'model: glm -- saver mode'; then
 else
     fail "10a saver dispatch line missing" "no 'model: glm -- saver mode' line"
 fi
-if printf '%s' "$out" | grep -q 'saver mode ON (worker-mode=glm)'; then
+if printf '%s' "$out" | grep -q 'saver L2 (glm)'; then
     pass "10a systemMessage reports saver mode"
 else
     fail "10a systemMessage" "$(printf '%s' "$out" | sed -n 's/.*"systemMessage":"\([^"]*\)".*/\1/p')"
@@ -364,6 +365,66 @@ else
         "$(printf '%s' "$out" | sed -n 's/.*"systemMessage":"\([^"]*\)".*/\1/p')"
 fi
 rm -f "$WM"
+
+# --- case 11: saver levels ---
+#
+# The level comes from CC_WORKER_MODE (runner), else $HOME/.claude/worker-mode;
+# a z.ai provider (ANTHROPIC_BASE_URL) forces L3, or the GLM-worker block when
+# CC_ROUTER_WORKER=1. run_hook_env scrubs all three and sets only what the case
+# passes. Every output must also be valid JSON (the hook must never fail).
+run_hook_env() { # $1 = cwd, $2 = home, $3 = plugin root, then KEY=VALUE pairs
+    local c="$1" h="$2" r="$3"; shift 3
+    printf '{"cwd":"%s"}' "$c" | env -u ANTHROPIC_BASE_URL -u CC_ROUTER_WORKER -u CC_WORKER_MODE \
+        HOME="$h" CLAUDE_PLUGIN_ROOT="$r" BAJZI_SAVER_LAUNCHER=bash "$@" bash "$HOOK_SH"
+}
+for f in SAVER-L1.md SAVER-L3.md GLM-WORKER.md; do ln -sf "$MODE_DIR/$f" "$FAKE_ROOT/skills/mode/$f"; done
+ZAI=ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+rm -f "$FAKE_CWD/runtime/bajzi-mode"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+expect() { # $1 name, $2 output, $3 must-contain, $4 must-not-contain (optional); also asserts valid JSON
+    if printf '%s' "$2" | grep -q -- "$3" && { [ -z "${4:-}" ] || ! printf '%s' "$2" | grep -q -- "$4"; } \
+        && printf '%s' "$2" | json_ok; then pass "$1"; else fail "$1" "$2"; fi
+}
+# expect_msg: the same must / must-not check on the systemMessage alone (not JSON, so no json_ok).
+expect_msg() { # $1 name, $2 full hook output, $3 must-contain, $4 must-not-contain (optional)
+    local m; m=$(printf '%s' "$2" | sed -n 's/.*"systemMessage":"\([^"]*\)".*/\1/p')
+    if printf '%s' "$m" | grep -q -- "$3" && { [ -z "${4:-}" ] || ! printf '%s' "$m" | grep -q -- "$4"; }; then
+        pass "$1"; else fail "$1" "$m"; fi
+}
+printf 'light\n' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11a file=light -> L1 block" "$out" 'SAVER LEVEL L1' 'SAVER LEVEL L2'
+expect "11a day-run table kept alongside L1" "$out" 'ROUTING TABLE'
+expect_msg "11a systemMessage names L1" "$out" 'saver L1 (light)'
+printf 'glm\n' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11b file=glm -> L2 block" "$out" 'SAVER LEVEL L2' 'SAVER LEVEL L1'
+expect "11c env beats file" "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=light)" 'SAVER LEVEL L1' 'SAVER LEVEL L2'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=light "$ZAI")"
+expect "11d z.ai provider beats level=light -> L3" "$out" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect_msg "11d systemMessage names L3" "$out" 'saver L3 (tight)'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI" CC_ROUTER_WORKER=1)"
+expect "11e z.ai + CC_ROUTER_WORKER=1 -> GLM worker, no day-run table" "$out" 'GLM WORKER' 'ROUTING TABLE'
+expect "11e worker gets no saver level block" "$out" 'GLM WORKER' 'SAVER LEVEL'
+expect_msg "11e systemMessage names the GLM worker" "$out" 'GLM worker'
+expect "11e' CC_ROUTER_WORKER=1 on Claude provider -> ignored, L2 as usual" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_ROUTER_WORKER=1)" 'SAVER LEVEL L2' 'GLM WORKER'
+expect "11e'' Claude session at tight -> L3 text" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)" 'SAVER LEVEL L3' 'SAVER LEVEL L2'
+printf 'banana\n' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11f garbage level on Claude -> no saver block + warning" "$out" 'treated as L0' 'SAVER LEVEL'
+expect "11f day-run table still injected" "$out" 'ROUTING TABLE'
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
+expect "11g day-run off but runner set CC_WORKER_MODE=tight -> L3 still injected" "$out" 'SAVER LEVEL L3' 'ROUTING TABLE'
+expect_msg "11g systemMessage does not claim day-run" "$out" 'CC_WORKER_MODE' 'day-run mode active'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+[ "$out" = "{}" ] && pass "11h day-run off, no env -> {} (bare install stays silent)" || fail "11h" "$out"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
+expect "11i day-run off, no env, z.ai provider -> L3 block, no day-run table" "$out" 'SAVER LEVEL L3' 'ROUTING TABLE'
+expect_msg "11i systemMessage credits the GLM provider" "$out" 'GLM provider'
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$FAKE_HOME/.claude/worker-mode"
 
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.
