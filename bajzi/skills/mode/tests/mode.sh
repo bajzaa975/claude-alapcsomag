@@ -429,7 +429,7 @@ printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$FAKE_HOME/.claude/
 
 # 11j: FAIL CLOSED. Non-Anthropic provider, day-run on, but no SAVER-L3.md /
 # GLM-WORKER.md in the plugin root (NOSAVER_ROOT has DAY-RUN-RULES.md only):
-# the day-run table ("review -> OPUS 5") must NOT reach a GLM session.
+# the day-run table ("review a diff -> OPUS 5.5") must NOT reach a GLM session.
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$NOSAVER_ROOT" "$ZAI")"
 expect "11j z.ai + day-run on + L3 file absent -> no day-run table" "$out" 'L3 rules missing' 'ROUTING TABLE'
 expect "11j no DAY-RUN MODE text either" "$out" 'withheld' 'DAY-RUN MODE'

@@ -192,7 +192,7 @@ check something" IS the failure mode this section prevents: delegate it.
 | locate code, explore layout   | Haiku        | paths plus <= 10 lines, no file contents   |
 | implement a slice, TDD        | `{{MODEL}}`  | files changed, test counts, <= 15 lines    |
 | run a test suite              | Haiku        | pass/fail counts, failing test names only  |
-| review a diff                 | Opus 5, always | the section 4 verdict, <= 20 lines       |
+| review a diff                 | Opus 5.5, always | the section 4 verdict, <= 20 lines     |
 | fix review findings           | `{{MODEL}}`  | what changed, <= 10 lines                  |
 | write a document > 100 lines  | Sonnet       | the path plus <= 5 lines                   |
 
@@ -415,10 +415,10 @@ that produces PRs and one that produces CORRECT PRs.
 | role        | model                | sees                                  |
 |-------------|----------------------|---------------------------------------|
 | implementer | `{{MODEL}}`          | the story, the code                   |
-| reviewer    | **Opus 5, ALWAYS**   | the diff, and the criteria it reads itself |
+| reviewer    | **Opus 5.5, ALWAYS** | the diff, and the criteria it reads itself |
 | fixer       | `{{MODEL}}`          | the findings, the code                |
 
-- The reviewer is **always Opus 5**, even when `{{MODEL}}` is already Opus.
+- The reviewer is **always Opus 5.5**, even when `{{MODEL}}` is already Opus.
   Independence means a separate context that never saw the implementer's
   reasoning — not a different model name. Pass the model explicitly on every
   reviewer dispatch; do not rely on inheriting it.
@@ -454,7 +454,7 @@ that produces PRs and one that produces CORRECT PRs.
 ### 4.2 The loop
 
 1. The implementer finishes a slice and its tests pass locally.
-2. You dispatch a FRESH Opus 5 reviewer with exactly: the story id, the path of
+2. You dispatch a FRESH Opus 5.5 reviewer with exactly: the story id, the path of
    THIS brief so it can read its own criteria, the base ref
    `origin/{{BASE_BRANCH}}`, the worktree path, and the previous round's
    findings if any. Tell it to read the diff AND the criteria itself, for
@@ -697,7 +697,7 @@ step — finish it, leave the green PR open and report `reason=merge-forbidden`
 
 - **You, the orchestrator**, run on `{{MODEL}}`. The runner set this; do not
   attempt to change it.
-- **The reviewer is ALWAYS Opus 5**, on every round, regardless of `{{MODEL}}`
+- **The reviewer is ALWAYS Opus 5.5**, on every round, regardless of `{{MODEL}}`
   (section 4.1). Pass the model explicitly.
 - **Every other sub-agent's model is your choice**, per the table in section 2:
   `{{MODEL}}` for implementation, TDD, fixes and any judgment call the story

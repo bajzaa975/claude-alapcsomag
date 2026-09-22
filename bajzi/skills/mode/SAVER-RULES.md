@@ -8,7 +8,7 @@ The worker cannot see this session: give it the repo path, file paths, acceptanc
 <=40-line report contract in the prompt.
 If no day-run routing table is in your context, everything not listed here stays on your session's model.
 UNCHANGED, still Anthropic exactly as in the table: risk-bearing slices (opus), debugging (opus),
-every review (Opus 5), and all ORCHESTRATOR-ONLY work.
+every review (Opus 5.5), and all ORCHESTRATOR-ONLY work.
 ESCALATION LADDER for the GLM-rung classes becomes: glm r1 -> sonnet r2 -> opus r3 -> ORCH r4 -> park. Risk-bearing slices still start at opus.
 PEAK: if `glm` exits 75 (Z.ai peak window), do that task on the Claude model the day-run table names
 (flash classes -> haiku, glm classes -> sonnet); do not retry GLM until the window closes.

@@ -65,26 +65,42 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
   2. which file it came from (`runtime/bajzi-mode`, `~/.claude/bajzi-mode`, or "none"),
   3. whether a project override is in force (a `runtime/bajzi-mode` present and different from
      the user-level file - yes/no),
-  4. the saver state, read from `$HOME/.claude/worker-mode` with the same read as above
-     (`head -1 "<file>" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'`): `glm` prints
-     `saver: on (worker-mode=glm)`, any other word prints `saver: off`, and a missing file
-     prints `saver: off (no worker-mode file)`. Never write that file from this skill.
+  4. the saver level, read from `$HOME/.claude/worker-mode` with the same read as above:
+     `light`, `glm` and `tight` print `saver: L1 (light)` / `saver: L2 (glm)` /
+     `saver: L3 (tight)`, `claude` prints `saver: off`, and a missing file prints
+     `saver: off (no worker-mode file)`. Never write that file from this skill.
 
-## Saver mode (GLM rung)
+## Saver levels (GLM rungs under day-run)
 
-Saver mode adds one cheaper rung UNDER the day-run routing table: the task classes listed in
-`skills/mode/SAVER-RULES.md` (locate/map, tests/lint/build, big reads, long documents, specified
-slices, fix round 1) are dispatched to a headless GLM worker via `glm -p "<task>"` instead of the
-Agent tool, so they cost no Anthropic quota. Risk-bearing slices, debugging, every review and all
-ORCHESTRATOR-ONLY work stay exactly where the table puts them.
+Saver mode adds cheaper GLM rungs UNDER the day-run routing table: the task classes a level
+lists are dispatched to a headless GLM worker via `glm -p "<task>"` instead of the Agent
+tool, so they cost no Anthropic quota. Task classes, ordered by risk (how far a mistake
+travels before something catches it): 1 search/locate, 2 tests/lint/build, 3 long-file
+summaries, 4 first-round fixes, 5 implementing.
 
-- Switch it on / off: `worker --set glm` / `worker --set claude`; `worker --status` shows it.
-  Those commands come from the owner's `worker` wrapper, not from this plugin - this skill only
+| Level | GLM flash (`glm-5.3-flash`) | GLM big (`glm-5.3`) | Stays on Claude | Target GLM share |
+|---|---|---|---|---|
+| **L0 Claude** | - | - | everything | 0% |
+| **L1 Light** | 1-3 (replaces haiku) | - | 4-5 (sonnet), orchestration + every review (Opus) | 20-30% |
+| **L2 Balanced** | 1-3 | 4-5 | orchestration, every review, risk-bearing slices (Opus) | 60-70% |
+| **L3 Tight** | 1-3 | 4-5, orchestration, Tier-2 findings | Tier-1 + final whole-branch reviews - **queued** (SAVER-L3.md) | 85-90% build-phase |
+
+Fixed rules, all levels: flash never writes code (classes 4-5); risk-bearing slices never
+start on GLM below L3; GLM never reviews GLM's code as a substitute for an Opus review -
+where no Opus review is available the review is queued, never downgraded; the GLM
+peak-window ban applies at every level that uses GLM (L1-L3), enforced by the shim.
+
+- `worker --level N` sets the level (0=claude, 1=light, 2=glm, 3=tight); `worker --status`
+  prints the level, the GLM models and the state files; `worker --usage <since> --until <t>`
+  reports the Anthropic/GLM weighted-token split since a time. Those commands come from the
+  owner's `worker` wrapper (`bin/cc-router.js`), not from this plugin - this skill only
   READS `$HOME/.claude/worker-mode` and never writes it.
-- It only applies while day-run is on. In normal mode the SessionStart hook emits `{}` and
-  saver mode has no effect at all.
-- The hook injects `SAVER-RULES.md` only when `worker-mode` says `glm` AND the `glm` launcher is
-  on PATH, so a machine without the wrapper never gets told to call a command it does not have.
+- Levels apply only while day-run is on. In normal mode the SessionStart hook emits `{}` and
+  saver mode has no effect at all. A non-Anthropic provider forces L3 whatever the file says.
+- The hook injects the level's rules text (`SAVER-L1.md`, `SAVER-RULES.md` as the L2 text,
+  `SAVER-L3.md`) only when `worker-mode` names a level AND the `glm` launcher is on PATH AND
+  the text exists, so a machine without the wrapper never gets told to call a command it
+  does not have.
 
 ## Pointers
 

@@ -15,9 +15,10 @@ goes into generated files under `~/night-runs/<project>/`.
 
     project:<name>   REQUIRED. A project the Brain knows. Verify with `brain next <name>`;
                      if it does not resolve, STOP and list the projects the Brain does know.
-    model:opus       Orchestrator model = `claude-opus-5`; omitted = `claude-fable-5-1`.
-                     Use it when the Fable budget is spent. It sets ONLY the per-story
-                     orchestrator — the review-and-fix loop's reviewer is ALWAYS Opus 5.
+    model:opus       Orchestrator model = `claude-opus-5-5`; omitted = `claude-opus-5-5`
+                     too — the night-run orchestrator is Opus 5.5, never Fable. It sets
+                     ONLY the per-story orchestrator — the review-and-fix loop's reviewer
+                     is ALWAYS Opus 5.5.
     hours:<n>        Queue budget in hours, default 8. It SIZES the queue, and PHASE E's
                      `--deadline` — the hard stop — is DERIVED from it: launch time plus
                      `hours:`, capped at 07:30. They are one number, never two.
@@ -26,12 +27,12 @@ goes into generated files under `~/night-runs/<project>/`.
 
 ## Review loop — when an item is actually done
 
-Every queue item goes through the review-and-fix loop, and the reviewer is **always Opus 5** —
+Every queue item goes through the review-and-fix loop, and the reviewer is **always Opus 5.5** —
 whatever the per-story orchestrator is, and whatever model wrote the code. The reviewer model is
 not a variable, and it never drops a tier because a diff looks small.
 
 The loop does not stop after one pass. Findings go to a FIXER sub-agent — never the reviewer that
-raised them — and the fix gets a NEW Opus 5 review round. Fix → review → fix → review, until it
+raised them — and the fix gets a NEW Opus 5.5 review round. Fix → review → fix → review, until it
 comes back clean. A single fix wave is not a loop.
 
 **Clean** means zero Critical AND zero Important findings AND the repo's own gate green. Minor and
