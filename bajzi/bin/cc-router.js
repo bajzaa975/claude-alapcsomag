@@ -70,7 +70,7 @@ const okModel = s => /^[A-Za-z0-9._:\[\]-]{2,64}$/.test(s || '');
 
 // --- usage report: approximates how many tokens went to GLM/Z.ai instead of Anthropic,
 // by scanning Claude Code's own local transcripts. Zero LLM calls. ---
-const USAGE_HELP = 'usage: worker --usage [since] [--json]   since: 24h | 30m | 8h | 2d | today | 2026-09-21 | 2026-09-21T18:00 (default 24h)';
+const USAGE_HELP = 'usage: worker --usage [since] [--until <t>] [--json]   since: 24h | 30m | 8h | 2d | today | 2026-09-21 | 2026-09-21T18:00 (default 24h)';
 function parseSince(raw) {
   const now = new Date();
   if (!raw) raw = '24h';
@@ -114,7 +114,7 @@ function listJsonl(dir) {
   }
   return out;
 }
-function collectUsage(root, since) {
+function collectUsage(root, since, until) {
   const files = listJsonl(root);
   const dedup = new Map();
   for (const f of files) {
@@ -127,7 +127,7 @@ function collectUsage(root, since) {
       if (!msg || typeof msg.usage !== 'object' || msg.usage === null) continue;
       if (typeof obj.timestamp !== 'string') continue;
       const t = new Date(obj.timestamp);
-      if (isNaN(t.getTime()) || t < since) continue;
+      if (isNaN(t.getTime()) || t < since || (until && t >= until)) continue;
       const u = msg.usage;
       const key = obj.requestId || msg.id || obj.uuid || Symbol('line');
       dedup.set(key, {
@@ -162,6 +162,13 @@ function usageBuckets(models) {
   };
 }
 function cmdUsage(rest) {
+  const ui = rest.indexOf('--until');
+  let until = null;
+  if (ui >= 0) {
+    until = parseSince(rest[ui + 1]);
+    if (!rest[ui + 1] || rest[ui + 1].startsWith('--') || !until) die('--until needs a time\n' + USAGE_HELP, 64);
+    rest = rest.slice(0, ui).concat(rest.slice(ui + 2));
+  }
   const bad = rest.find(x => x.startsWith('--') && x !== '--json');
   if (bad) die('unknown option ' + bad + '\n' + USAGE_HELP, 64);
   const jsonMode = rest.includes('--json');
@@ -169,12 +176,12 @@ function cmdUsage(rest) {
   const since = parseSince(sinceRaw);
   if (!since) die(USAGE_HELP, 64);
   const root = process.env.CC_PROJECTS_DIR || path.join(DIR, 'projects');
-  const { files, entries } = collectUsage(root, since);
+  const { files, entries } = collectUsage(root, since, until);
   const models = usageModels(entries);
   const bk = usageBuckets(models);
   const requests = entries.length;
   if (jsonMode) {
-    const out = { since: fmtLocal(since), since_iso: since.toISOString(), files, requests, models: Object.create(null),
+    const out = { since: fmtLocal(since), since_iso: since.toISOString(), until: until ? fmtLocal(until) : null, until_iso: until ? until.toISOString() : null, files, requests, models: Object.create(null),
       buckets: { anthropic: { weighted: Math.round(bk.anthropic.weighted), share: bk.anthropic.share },
         glm: { weighted: Math.round(bk.glm.weighted), share: bk.glm.share },
         other: { weighted: Math.round(bk.other.weighted), share: bk.other.share } },
@@ -186,7 +193,7 @@ function cmdUsage(rest) {
     console.log(JSON.stringify(out, null, 2));
     return true;
   }
-  console.log('usage since ' + fmtLocal(since) + ' (local)   files=' + files + ' requests=' + requests);
+  console.log('usage since ' + fmtLocal(since) + ' (local)' + (until ? '  until ' + fmtLocal(until) : '') + '   files=' + files + ' requests=' + requests);
   console.log(padR('model', NAME_W) + padL('reqs', 7) + padL('input', 12) + padL('cache_cr', 12) + padL('cache_rd', 12) + padL('output', 11) + padL('weighted', 13));
   const names = Object.keys(models).sort((a, b) => models[b].weighted - models[a].weighted);
   for (const name of names.slice(0, MAX_ROWS)) {
