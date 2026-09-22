@@ -55,8 +55,15 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
   Then apply it to THIS session: read
   `${CLAUDE_PLUGIN_ROOT}/skills/mode/DAY-RUN-RULES.md` (it is capped at 80 lines - never read a
   bigger file in its place) and restate its rules as the active rules for the rest of this
-  session. If saver mode is on (see below), also read
-  `${CLAUDE_PLUGIN_ROOT}/skills/mode/SAVER-RULES.md` and apply it on top.
+  session. If a saver level is in force (see "Saver levels" below), also apply its text on
+  top. Resolve the level exactly as the SessionStart hook does (`bajzi/hooks/lib-saver-level.sh`,
+  `day-run-mode.sh:138-146`): level = `$CC_WORKER_MODE` if set, else the content of
+  `$HOME/.claude/worker-mode`; if `ANTHROPIC_BASE_URL` is set and its host is not
+  `*.anthropic.com`, the level is `tight` whatever the file says. Then read ONE file from
+  `${CLAUDE_PLUGIN_ROOT}/skills/mode/`: `light` -> `SAVER-L1.md`, `glm` -> `SAVER-RULES.md` (the
+  L2 text), `tight` -> `SAVER-L3.md` (its PRECEDENCE line overrides the day-run review rows);
+  `claude` or a missing file -> no saver text. Fail closed like the hook: at `tight`, if
+  `SAVER-L3.md` is missing, say so and apply NO day-run review rows as if they were met.
 - `normal`: write `normal` to the resolved target file. State plainly that the day-run rules no
   longer apply in this session.
 - `status`: print exactly four short lines, no file dumps:
@@ -65,10 +72,12 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
   2. which file it came from (`runtime/bajzi-mode`, `~/.claude/bajzi-mode`, or "none"),
   3. whether a project override is in force (a `runtime/bajzi-mode` present and different from
      the user-level file - yes/no),
-  4. the saver level, read from `$HOME/.claude/worker-mode` with the same read as above:
-     `light`, `glm` and `tight` print `saver: L1 (light)` / `saver: L2 (glm)` /
-     `saver: L3 (tight)`, `claude` prints `saver: off`, and a missing file prints
-     `saver: off (no worker-mode file)`. Never write that file from this skill.
+  4. the saver level, resolved exactly as the `day-run` switch above resolves it
+     (`$CC_WORKER_MODE` if set, else `$HOME/.claude/worker-mode` read the same way as above;
+     a non-Anthropic `ANTHROPIC_BASE_URL` forces tight): `light`, `glm` and `tight` print
+     `saver: L1 (light)` / `saver: L2 (glm)` / `saver: L3 (tight)`, `claude` prints
+     `saver: off`, a missing file prints `saver: off (no worker-mode file)`, and any other
+     word prints `saver: unknown (<word>)`. Never write that file from this skill.
 
 ## Saver levels (GLM rungs under day-run)
 
@@ -95,12 +104,14 @@ peak-window ban applies at every level that uses GLM (L1-L3), enforced by the sh
   reports the Anthropic/GLM weighted-token split since a time. Those commands come from the
   owner's `worker` wrapper (`bin/cc-router.js`), not from this plugin - this skill only
   READS `$HOME/.claude/worker-mode` and never writes it.
-- Levels apply only while day-run is on. In normal mode the SessionStart hook emits `{}` and
-  saver mode has no effect at all. A non-Anthropic provider forces L3 whatever the file says.
-- The hook injects the level's rules text (`SAVER-L1.md`, `SAVER-RULES.md` as the L2 text,
-  `SAVER-L3.md`) only when `worker-mode` names a level AND the `glm` launcher is on PATH AND
-  the text exists, so a machine without the wrapper never gets told to call a command it
-  does not have.
+- The hook injects saver text when day-run is on OR `$CC_WORKER_MODE` names a level
+  (a runner-forced level) OR the provider is non-Anthropic; in plain normal mode with none of
+  those it emits `{}` and saver mode has no effect at all. A non-Anthropic provider forces L3
+  whatever the file says.
+- The level's rules text (`SAVER-L1.md`, `SAVER-RULES.md` as the L2 text, `SAVER-L3.md`) is
+  injected only if the text exists, and L1/L2 only when the launcher (`$BAJZI_SAVER_LAUNCHER`,
+  default `glm`) is on PATH, so a machine without the wrapper never gets told to call a command
+  it does not have; the L3 text needs no launcher.
 
 ## Pointers
 

@@ -20,7 +20,7 @@ run is configuration, not a rewrite.
 ## 2. Invocation
 
     /bajzi:night-run project:<name>              plan tonight's run
-    /bajzi:night-run project:<name> model:opus   Opus 5 orchestrator
+    /bajzi:night-run project:<name> model:opus   Opus 5.5 orchestrator
     /bajzi:night-run project:<name> hours:6      fit the queue to a 6 h window
     /bajzi:night-run project:<name> status       is a run alive, and where
     /bajzi:night-run project:<name> report       morning follow-through
@@ -32,8 +32,8 @@ does not resolve, the skill stops and lists the projects the Brain does know.
 
 | value              | model id              | when                         |
 |--------------------|-----------------------|------------------------------|
-| omitted (default)  | `claude-fable-5-1`    | normal                       |
-| `model:opus`       | `claude-opus-5`       | the Fable budget is used up  |
+| omitted (default)  | `claude-opus-5-5`     | normal; Fable is not used     |
+| `model:opus`       | `claude-opus-5-5`     | explicit choice               |
 
 Each story session still picks its own sub-agent models itself, per the model
 policy section of the rendered BRIEF.
@@ -422,10 +422,10 @@ produces correct PRs.
 | role        | model                    | sees                                   |
 |-------------|--------------------------|----------------------------------------|
 | implementer | the run model            | the story, the code                    |
-| reviewer    | Opus 5, ALWAYS           | the diff and the acceptance criteria   |
+| reviewer    | Opus 5.5, ALWAYS         | the diff and the acceptance criteria   |
 | fixer       | the run model            | the findings, the code                 |
 
-- The reviewer is **always Opus 5**, even when `model:opus` already makes the
+- The reviewer is **always Opus 5.5**, even when `model:opus` already makes the
   orchestrator Opus. Independence here means a separate context that never saw
   the implementer's reasoning — not a different model name.
 - The reviewer reviews **the diff against the base ref**, never the
