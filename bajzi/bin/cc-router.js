@@ -70,7 +70,7 @@ const okModel = s => /^[A-Za-z0-9._:\[\]-]{2,64}$/.test(s || '');
 
 // --- usage report: approximates how many tokens went to GLM/Z.ai instead of Anthropic,
 // by scanning Claude Code's own local transcripts. Zero LLM calls. ---
-const USAGE_HELP = 'usage: worker --usage [since] [--until <t>] [--json]   since: 24h | 30m | 8h | 2d | today | 2026-09-21 | 2026-09-21T18:00 (default 24h)';
+const USAGE_HELP = 'usage: worker --usage [since] [--until <t>] [--json]   since: 24h | 30m | 8h | 2d | today | 2026-09-21 | 2026-09-21T18:00 (default 24h)   --until <t>: exclusive upper bound; relative forms (2h) mean that long ago';
 function parseSince(raw) {
   const now = new Date();
   if (!raw) raw = '24h';

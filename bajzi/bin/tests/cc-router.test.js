@@ -122,16 +122,18 @@ test('CC_WORKER_MODE=bogus is refused with exit 64 and names the valid modes', (
 test('--until bounds the window', () => {
   const sb0 = run('worker', ['--status']);   // just for a sandbox dir
   const pj = path.join(sb0.dir, 'projects', 'p'); fs.mkdirSync(pj, { recursive: true });
-  const rec = (h, model, id) => JSON.stringify({ type: 'assistant', requestId: id,
-    timestamp: new Date(2026, 8, 21, h, 0, 0).toISOString(), message: { model, usage: { output_tokens: 100 } } });
-  fs.writeFileSync(path.join(pj, 'x.jsonl'), [rec(10, 'glm-5.3', 'a'), rec(11, 'claude-opus-5-5', 'b'), rec(12, 'glm-5.3', 'c')].join('\n'));
+  const rec = (h, m, model, id) => JSON.stringify({ type: 'assistant', requestId: id,
+    timestamp: new Date(2026, 8, 21, h, m, 0).toISOString(), message: { model, usage: { output_tokens: 100 } } });
+  fs.writeFileSync(path.join(pj, 'x.jsonl'), [rec(10, 0, 'glm-5.3', 'a'), rec(11, 0, 'claude-opus-5-5', 'b'), rec(11, 30, 'glm-5.3', 'd'), rec(12, 0, 'glm-5.3', 'c')].join('\n'));
   const r = run('worker', ['--usage', '2026-09-21T09:30', '--until', '2026-09-21T11:30', '--json'], { CC_PROJECTS_DIR: path.join(sb0.dir, 'projects') });
   assert.strictEqual(r.code, 0, r.stderr);
   const j = JSON.parse(r.stdout);
-  assert.strictEqual(j.requests, 2);
+  assert.strictEqual(j.until, '2026-09-21T11:30');
+  assert.strictEqual(typeof j.until_iso, 'string');
+  assert.strictEqual(j.requests, 2);   // the 11:30 record 'd' is excluded: --until is exclusive
   assert.strictEqual(j.glm_share_pct, 50);
 });
 test('--until without a value is refused', () => {
   const r = run('worker', ['--usage', '1h', '--until']);
-  assert.strictEqual(r.code, 64); assert.match(r.stderr, /--until/);
+  assert.strictEqual(r.code, 64); assert.match(r.stderr, /--until needs a time/);
 });
