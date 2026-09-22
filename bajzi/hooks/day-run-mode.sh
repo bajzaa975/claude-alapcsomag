@@ -25,16 +25,26 @@
 #
 # SAVER LEVELS. After the day-run rules the hook appends AT MOST ONE saver block
 # from skills/mode/, chosen in this order:
-#   1. provider is z.ai (ANTHROPIC_BASE_URL contains api.z.ai) and
-#      CC_ROUTER_WORKER=1 (set by cc-router on a `glm -p` spawned from a Claude
-#      session)                   -> GLM-WORKER.md ONLY, no day-run table: a
+#   1. provider is NON-ANTHROPIC and CC_ROUTER_WORKER=1 (set by cc-router on a
+#      `glm -p` spawned from a Claude session)
+#                                 -> GLM-WORKER.md ONLY, no day-run table: a
 #                                    dispatched worker must not orchestrate.
-#   2. provider is z.ai otherwise -> SAVER-L3.md, whatever the level says. This is
-#      the MECHANICAL check: a session served by GLM can never be handed the
-#      L0-L2 text, which promises Opus reviews it cannot reach.
+#   2. provider is non-Anthropic otherwise -> SAVER-L3.md, whatever the level
+#      says. This is the MECHANICAL check: a session served by GLM (or any other
+#      non-Anthropic model) can never be handed the L0-L2 text, which promises
+#      Opus reviews it cannot reach.
+#   NON-ANTHROPIC = ANTHROPIC_BASE_URL is set and, lowercased, its HOST (scheme,
+#   userinfo, path, query, fragment and port stripped) is neither anthropic.com
+#   nor a subdomain of it. So z.ai, cc-router's deepseek route, and a URL that
+#   only mentions anthropic.com in its query or userinfo all count. Unset or
+#   empty = Anthropic.
+#   FAIL CLOSED: on a non-Anthropic session whose worker/L3 file is missing or
+#   empty, the hook emits a warning-only systemMessage and NEVER the day-run
+#   table, which would tell a GLM session its reviews are Opus.
 #   3. level = CC_WORKER_MODE (night runner), else first line of
-#      $HOME/.claude/worker-mode (`worker` wrapper); same normalization as the
-#      mode read: claude -> none, light -> SAVER-L1.md, glm -> SAVER-RULES.md (L2),
+#      $HOME/.claude/worker-mode (`worker` wrapper, a leading UTF-8 BOM is
+#      dropped); same normalization as the mode read: claude -> none,
+#      light -> SAVER-L1.md, glm -> SAVER-RULES.md (L2),
 #      tight -> SAVER-L3.md (a Claude session at tight must queue, not review).
 #   4. any other level -> no saver block, and the systemMessage says
 #      "worker-mode unreadable, treated as L0".
@@ -43,7 +53,7 @@
 # block do not, the session is already on GLM.
 #
 # GATE. Anything is emitted only when day-run is on, OR CC_WORKER_MODE is set, OR
-# the provider is z.ai. A bare install with none of the three prints {}.
+# the provider is non-Anthropic. A bare install with none of the three prints {}.
 # The hook reads NOTHING besides the two mode files, $HOME/.claude/worker-mode,
 # the rules files above and those three env vars.
 #
@@ -78,7 +88,20 @@ emit() { # $1 = systemMessage (may be empty), $2 = additionalContext
     printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$m" "$c"
 }
 
-is_glm="no"; case "${ANTHROPIC_BASE_URL:-}" in *api.z.ai*) is_glm="yes";; esac
+# Provider check: host of ANTHROPIC_BASE_URL, lowercased, must be anthropic.com or
+# a subdomain; anything else set there is a non-Anthropic session.
+nonanth="no"
+url=$(printf '%s' "${ANTHROPIC_BASE_URL:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+if [ -n "$url" ]; then
+    host="${url#*://}"      # scheme
+    host="${host%%[/?#]*}"  # path, query, fragment
+    host="${host##*@}"      # userinfo
+    host="${host%%:*}"      # port
+    case "$host" in
+        anthropic.com | *.anthropic.com) ;;
+        *) nonanth="yes" ;;
+    esac
+fi
 env_level=$(printf '%s' "${CC_WORKER_MODE:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 
 f=""
@@ -93,34 +116,37 @@ if [ -n "$f" ]; then
     [ "$mode" = "day-run" ] && dayrun="yes"
 fi
 
-# Gate: day-run on, a level forced by the runner, or the provider itself is GLM (a
+# Gate: day-run on, a level forced by the runner, or a non-Anthropic provider (a
 # glm-started session is L3 whatever the mode files say). None of the three -> silent.
-if [ "$dayrun" = "no" ] && [ -z "$env_level" ] && [ "$is_glm" = "no" ]; then
+if [ "$dayrun" = "no" ] && [ -z "$env_level" ] && [ "$nonanth" = "no" ]; then
     printf '{}'
     exit 0
 fi
 
 mdir="$root/skills/mode"
 
-# A dispatched GLM worker gets the worker block and nothing else.
-if [ "$is_glm" = "yes" ] && [ "${CC_ROUTER_WORKER:-}" = "1" ]; then
+# A dispatched worker on a non-Anthropic provider gets the worker block and nothing
+# else -- and, fail-closed, never the day-run table when that block is missing.
+if [ "$nonanth" = "yes" ] && [ "${CC_ROUTER_WORKER:-}" = "1" ]; then
     wb=""
     [ -f "$mdir/GLM-WORKER.md" ] && wb=$(head -20 "$mdir/GLM-WORKER.md" 2>/dev/null)
     if [ -n "$wb" ]; then
         emit "GLM worker (dispatched headless worker)." "$wb"
     else
-        printf '{}'
+        emit "GLM worker: GLM-WORKER.md is missing or empty; no rules injected (day-run rules withheld on a non-Anthropic provider)." ""
     fi
     exit 0
 fi
 
 level="$env_level"
 if [ -z "$level" ] && [ -f "${HOME:-}/.claude/worker-mode" ]; then
-    level=$(head -1 "${HOME:-}/.claude/worker-mode" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    raw=$(head -1 "${HOME:-}/.claude/worker-mode" 2>/dev/null)
+    raw="${raw#$'\357\273\277'}"   # a leading UTF-8 BOM (Notepad, PowerShell 5 Out-File)
+    level=$(printf '%s' "$raw" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 fi
 [ -z "$level" ] && level="claude"
-# Mechanical: a GLM-served session can never get the L0-L2 text.
-[ "$is_glm" = "yes" ] && level="tight"
+# Mechanical: a non-Anthropic session can never get the L0-L2 text.
+[ "$nonanth" = "yes" ] && level="tight"
 warn=""
 case "$level" in
     claude | light | glm | tight) ;;
@@ -151,6 +177,13 @@ $saver_block"
     fi
 fi
 
+# FAIL CLOSED: a non-Anthropic session without its L3 text gets a warning only --
+# never the day-run table on its own, which says every review is Opus.
+if [ "$nonanth" = "yes" ] && [ -z "$saver_block" ]; then
+    emit "saver L3 rules missing ($mdir/SAVER-L3.md absent or empty) on a non-Anthropic provider; day-run rules withheld. Reinstall the bajzi plugin." ""
+    exit 0
+fi
+
 if [ -z "$block" ]; then
     if [ -n "$warn" ]; then
         if [ "$dayrun" = "yes" ]; then emit "day-run mode active ($f).$warn" ""; else emit "saver off:$warn" ""; fi
@@ -163,9 +196,10 @@ if [ "$dayrun" = "no" ]; then
     # No day-run mode file behind us: the level came from CC_WORKER_MODE or the
     # provider check. Do NOT claim "day-run mode active" -- no day-run table is in context.
     src="CC_WORKER_MODE"
-    [ "$is_glm" = "yes" ] && src="the GLM provider"
+    [ "$nonanth" = "yes" ] && src="a non-Anthropic provider ($host)"
     emit "saver $name (set by $src).$warn worker --level 0 to turn saver off." "$block"
 elif [ -n "$saver_block" ]; then
+    [ "$nonanth" = "yes" ] && name="$name, forced by a non-Anthropic provider ($host)"
     emit "day-run mode active ($f), saver $name.$warn /bajzi:mode normal to turn day-run off; worker --level 0 to turn saver off." "$block"
 else
     emit "day-run mode active ($f).$warn /bajzi:mode normal to turn it off." "$block"

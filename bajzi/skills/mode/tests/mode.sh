@@ -423,8 +423,52 @@ out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
 [ "$out" = "{}" ] && pass "11h day-run off, no env -> {} (bare install stays silent)" || fail "11h" "$out"
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
 expect "11i day-run off, no env, z.ai provider -> L3 block, no day-run table" "$out" 'SAVER LEVEL L3' 'ROUTING TABLE'
-expect_msg "11i systemMessage credits the GLM provider" "$out" 'GLM provider'
+expect_msg "11i systemMessage credits the non-Anthropic provider" "$out" 'non-Anthropic provider (api.z.ai)'
 printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$FAKE_HOME/.claude/worker-mode"
+
+# 11j: FAIL CLOSED. Non-Anthropic provider, day-run on, but no SAVER-L3.md /
+# GLM-WORKER.md in the plugin root (NOSAVER_ROOT has DAY-RUN-RULES.md only):
+# the day-run table ("review -> OPUS 5") must NOT reach a GLM session.
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$NOSAVER_ROOT" "$ZAI")"
+expect "11j z.ai + day-run on + L3 file absent -> no day-run table" "$out" 'L3 rules missing' 'ROUTING TABLE'
+expect "11j no DAY-RUN MODE text either" "$out" 'withheld' 'DAY-RUN MODE'
+expect_msg "11j systemMessage says the L3 rules are missing" "$out" 'L3 rules missing'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$NOSAVER_ROOT" "$ZAI" CC_ROUTER_WORKER=1)"
+expect "11j' worker + worker file absent -> warning, no day-run table" "$out" 'GLM-WORKER.md is missing' 'ROUTING TABLE'
+
+# 11k-11n: provider detection = the HOST of ANTHROPIC_BASE_URL, lowercased.
+L1ENV=CC_WORKER_MODE=light
+expect "11k uppercase z.ai URL -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=HTTPS://API.Z.AI/api/anthropic)" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect "11k' uppercase Anthropic URL -> still Anthropic (L1)" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=HTTPS://API.ANTHROPIC.COM)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic)"
+expect "11l api.deepseek.com -> L3" "$out" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect_msg "11l systemMessage names the deepseek host" "$out" 'api.deepseek.com'
+expect "11l' deepseek + CC_ROUTER_WORKER=1 -> worker block" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic CC_ROUTER_WORKER=1)" 'GLM WORKER' 'ROUTING TABLE'
+expect "11m https://api.anthropic.com -> normal level resolution (L1)" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://api.anthropic.com)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+expect "11m' anthropic.com with port and path -> L1" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://api.anthropic.com:443/v1)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+expect "11m'' userinfo on the real Anthropic host (user:pw@api.anthropic.com) -> L1" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://user:pw@api.anthropic.com/v1)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+expect "11n query-string trick (?u=api.anthropic.com) -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" 'ANTHROPIC_BASE_URL=https://evil.example/?u=api.anthropic.com')" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect "11n' userinfo trick (api.anthropic.com@evil.example) -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" 'ANTHROPIC_BASE_URL=https://api.anthropic.com@evil.example/')" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect "11n'' lookalike host (notanthropic.com) -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://notanthropic.com)" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+
+# 11o: a leading UTF-8 BOM on the worker-mode file is ignored.
+printf '\357\273\277glm\r\n' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11o BOM-prefixed 'glm' worker-mode -> L2" "$out" 'SAVER LEVEL L2' 'treated as L0'
+rm -f "$FAKE_HOME/.claude/worker-mode"
+
+# 11p: the env level is normalised like the file.
+expect "11p CC_WORKER_MODE=TIGHT -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=TIGHT)" 'SAVER LEVEL L3' 'treated as L0'
 
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.
