@@ -357,7 +357,7 @@ if printf '%s' "$out" | grep -q 'DAY-RUN MODE' \
 else
     fail "10f missing SAVER-RULES.md" "$out"
 fi
-if ! printf '%s' "$out" | grep -q 'saver L'; then
+if ! printf '%s' "$out" | grep -qi 'saver'; then
     pass "10f systemMessage is the plain day-run one"
 else
     fail "10f systemMessage claims a saver level" \
