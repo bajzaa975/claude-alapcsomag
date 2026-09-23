@@ -41,7 +41,7 @@ Every review brief carries code-review-graph output for its range (detect-change
 get_review_context_tool + detect_changes_tool); the reviewer reads only what the blast radius flags.
 A fix or re-review brief carries the finding, file:line, the code excerpt and the test command
 INLINE -- never "read the brief / the full review". Re-reviews are delta-only: the fix diff plus
-the graph output. Over 6000 chars for a fix or re-review means you pasted history -- cut it.
+the graph output. Over 24576 chars (24 KB) for a fix or re-review means you pasted history -- cut it.
 DIRECT-EDIT THRESHOLD -- all four required, else delegate:
 <=20 changed lines, one file; no new logic; the file is already in context; not a forbidden zone
 (deploy, secrets, CI config, migrations, history rewrite).

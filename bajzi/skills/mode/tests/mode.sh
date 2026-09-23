@@ -600,7 +600,7 @@ tr -d ' \n\r' < "$HOOKS_JSON" | grep -qF '"PostToolUse":[{"matcher":"Agent|Task"
 # (description + first 600 chars of prompt say "review", or subagent_type does)
 # must carry code-review-graph output or 'GRAPH: n/a single-file <path>' (R1); a
 # fix/re-review must not send the fixer to a full -brief.md / -review*.md (R2)
-# and stays <= 6000 chars (R3). Every deny test asserts WHICH rule refused.
+# and stays <= 24576 chars (R3). Every deny test asserts WHICH rule refused.
 DG="$BAJZI_DIR/hooks/dispatch-guard.sh"
 dlog="$FAKE_CWD/runtime/dispatch-sizes.log"
 dg_raw() { # stdin = payload, then env pairs
@@ -659,14 +659,20 @@ is_allow "$out" && pass "13h re-review with task-B3-report.md + graph -> allow" 
 # 13i-13j: fix rounds.
 out=$(dg 'fix round 1 B3' 'general-purpose' 'Finding: x.sh:12 drops the exit code. Excerpt: foo || true. Test: bash t.sh' $G)
 is_allow "$out" && pass "13i fix round without graph -> allow (R1 exempt)" || fail "13i" "$out"
-p6000=$(head -c 6000 /dev/zero | tr '\0' a)
-out=$(dg 'fix r2 B3' 'general-purpose' "${p6000}b" $G)
-is_deny "$out" R3 && pass "13j fix prompt of 6001 chars -> deny R3" || fail "13j" "${out:0:200}"
-[ "$(logf 4)" = "6001" ] && [ "$(logf 5)" = "deny:R3" ] && pass "13j' log: 6001 ... deny:R3" || fail "13j'" "$(lastlog)"
-out=$(dg 'fix r2 B3' 'general-purpose' "$p6000" $G)
-is_allow "$out" && pass "13j2 fix prompt of exactly 6000 chars -> allow" || fail "13j2" "${out:0:200}"
-out=$(dg 're-review B3 fix' 'general-purpose' "detect-changes ${p6000}" $G)
-is_deny "$out" R3 && pass "13j3 re-review over 6000 chars with graph -> deny R3" || fail "13j3" "${out:0:200}"
+# R3 cap = 24576 characters (24 KB; interim, so a batched fix with a full findings list fits).
+p24k=$(head -c 24576 /dev/zero | tr '\0' a)
+out=$(dg 'fix r2 B3' 'general-purpose' "${p24k}b" $G)
+is_deny "$out" R3 && pass "13j fix prompt of 24577 chars -> deny R3" || fail "13j" "${out:0:200}"
+[ "$(logf 4)" = "24577" ] && [ "$(logf 5)" = "deny:R3" ] && pass "13j' log: 24577 ... deny:R3" || fail "13j'" "$(lastlog)"
+out=$(dg 'fix r2 B3' 'general-purpose' "$p24k" $G)
+is_allow "$out" && pass "13j2 fix prompt of exactly 24576 chars -> allow" || fail "13j2" "${out:0:200}"
+out=$(dg 're-review B3 fix' 'general-purpose' "detect-changes ${p24k}" $G)
+is_deny "$out" R3 && pass "13j3 re-review over 24576 chars with graph -> deny R3" || fail "13j3" "${out:0:200}"
+out=$(dg 'fix r2 B3' 'general-purpose' "$(head -c 6001 /dev/zero | tr '\0' a)" $G)
+is_allow "$out" && pass "13j4 fix prompt of 6001 chars (the old cap) -> allow" || fail "13j4" "${out:0:200}"
+# characters, not bytes: 24576 x e-acute is 49152 bytes and still passes.
+out=$(dg 'fix r2 B3' 'general-purpose' "$(printf '%s' "$p24k" | LC_ALL=C sed 's/a/é/g')" $G)
+is_allow "$out" && [ "$(logf 4)" = "24576" ] && pass "13j5 24576 two-byte chars (49152 bytes) -> allow" || fail "13j5" "${out:0:200} $(lastlog)"
 # 13k: OTHER.
 rm -f "$dlog"
 out=$(dg 'implement task B5' 'general-purpose' 'Implement the parser. No preview needed.' $G)
@@ -740,6 +746,10 @@ case "$pre" in
             *) fail "13m" "noise filter entry lost" ;; esac ;;
     *) fail "13m" "PreToolUse dispatch-guard entry not found" ;;
 esac
+# 13m2: the merged hooks.json wires every hook of both branches exactly once per event.
+wired=$(node -e 'const h=require(process.argv[1]).hooks;const o=[];for(const[e,a]of Object.entries(h))for(const m of a)for(const c of m.hooks)o.push(e+":"+c.command.replace(/.*\/hooks\//,"").replace(/"$/,""));console.log(o.sort().join(" "))' "$BAJZI_DIR/hooks/hooks.json" 2>&1)
+want="PostToolUse:node/context-guard.js PostToolUse:node/injection-scan.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/context-guard.js PreToolUse:node/secret-guard.js PreToolUse:noise-filter.sh SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"
+[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 10 hooks of both branches wired exactly once" || fail "13m2" "got: $wired"
 # 13n: non-ASCII prompt -- characters, not bytes, under both locales; \u escape = 1 char.
 for loc in C C.UTF-8; do
     rm -f "$dlog"

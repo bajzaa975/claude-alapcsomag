@@ -40,7 +40,8 @@
 #       then at most 24 chars without . ; : , then to|into (never "in"), then
 #       only whitespace/quotes/backticks.
 #       A -report.md path is fine (the fixer appends there).
-#   R3  FIX, REREVIEW: deny if the prompt is over 6000 characters.
+#   R3  FIX, REREVIEW: deny if the prompt is over 24576 characters (24 KB; an
+#       interim cap so a batched fix with the full findings list fits).
 #   R4  every dispatch with the gate open appends one line to
 #       <cwd>/runtime/dispatch-sizes.log:
 #       <ISO-UTC>\t<class>\t<subagent_type>\t<prompt chars>\t<allow|deny:R1|R2|R3>
@@ -147,7 +148,7 @@ esac
 case "$decision:$class" in allow:FIX | allow:REREVIEW)
     if reads_full_doc; then
         decision="deny:R2"
-    elif [ "$chars" -gt 6000 ]; then
+    elif [ "$chars" -gt 24576 ]; then
         decision="deny:R3"
     fi ;;
 esac
@@ -166,6 +167,6 @@ deny() {
 case "$decision" in
     deny:R1) deny "dispatch-guard R1: a review brief must carry code-review-graph output (detect-changes --brief or get_review_context_tool) or the line 'GRAPH: n/a single-file <path>'." ;;
     deny:R2) deny "dispatch-guard R2: a fix/re-review brief carries the finding, file:line, the code excerpt and the test command inline -- do not send the sub-agent to read the full brief or review file." ;;
-    deny:R3) deny "dispatch-guard R3: fix/re-review brief over 6000 chars -- pass only the findings and the delta." ;;
+    deny:R3) deny "dispatch-guard R3: fix/re-review brief over 24576 chars (24 KB) -- pass only the findings and the delta." ;;
 esac
 allow

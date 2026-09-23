@@ -68,12 +68,12 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Status-line fields/order | `bajzi/hooks/node/statusline.js:51-78` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). GLM share only rendered at level ≥ 1. |
 | Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js:38` `matchProtected`, `:169` `commandReadsProtected`; `manifest.json:294` `secret_patterns` | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | Globs, brace lists, PowerShell comma arrays and `rtk` wrappers must all stay covered (§6.7). The pipe-into-reader rule must fire only when the right-hand side reads paths from stdin (§6.7). |
 | Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js:4-20` `REGEX_RULES`, `:54` `scan`, `:27` `RULE_IDS` (17 ids), `:34` `sanitize`; `bajzi/hooks/node/injection-scan.js:31` `decide` | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Warn-only by design — `addContext` only, never `deny()`; never wire it to block. Every rule regex avoids the `\s*X?\s*` quadratic shape (§6.8); excerpts/source run through `sanitize()`. |
-| Saver-level routing table (task class → model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh` (rules read, `head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh:saver_resolve` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh` rules read) must stay above the file's real line count (currently 54) or the tail silently drops with no error. The table says REVIEWER, never a model id: the hook appends the REVIEWER MODELS line (next row). |
+| Saver-level routing table (task class → model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh` (rules read, `head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh:saver_resolve` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh` rules read) must stay above the file's real line count (currently 60) or the tail silently drops with no error. The table says REVIEWER, never a model id: the hook appends the REVIEWER MODELS line (next row). |
 | Reviewer allow-list (who may review; the launch default) | `~/.claude/bajzi/config.json` `reviewer_models` (the owner, or `/bajzi:setup` from `manifest.json` `bajzi_config`); validators `bajzi/hooks/node/lib/reviewer-models.js:load` and claude-orchestrator `scripts/review_queue.py:_reviewer_models`; readers `bajzi/hooks/day-run-mode.sh` (REVIEWER MODELS line), `bajzi/skills/setup/check.js:checkAll`, `bajzi/skills/night-run/SKILL.md` (`MODEL`, `{{REVIEWER_MODEL}}`), `nightrun-lib.ps1:Get-DrainLaunch`, `review_queue.py:_drain_verdict`; tripwire `nightrun-lib.ps1:Get-ReviewerConfigHash` | `node --test bajzi/hooks/node/tests/reviewer-models.test.js bajzi/skills/setup/tests/check.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (case 15); `python -m pytest -q tests/test_review_queue_drain.py`; Pester `tests/ps/nightrun-drain.Tests.ps1`, `nightrun-guards.Tests.ps1` | 1 | Two validators (node, python) must agree on the id regex and the whole-list-invalid rule. Never add a default id to code: the manifest is the only default. A reviewer swap is a config edit; a manifest edit also changes the default every `/bajzi:setup` writes. |
 | GLM model mapping (`--model sonnet\|opus` → `glm_model`) | `bajzi/bin/cc-router.js:54` `effective()`, `:289-296` glm env block | `node --test bajzi/bin/tests/*.test.js` | 1 | `-ClaudeBin glm` maps `CLAUDE_CODE_SUBAGENT_MODEL` too — the whole session incl. sub-agents runs on GLM (§6.2, §9.1). |
 | Z.ai peak window | `cc-router.js:272` `peakOpen()`, refusal `:273-283` (exit 75); mirrored independently in claude-orchestrator `nightrun-lib.ps1:205` `Test-GlmPeakSoon`, `:214` `Get-GlmStartDecision`; display-only copy `bajzi/hooks/node/lib/peak.js` | `node --test bajzi/bin/tests/*.test.js`; `Invoke-Pester tests/ps/nightrun-lib.Tests.ps1` | 1 | Three implementations (shim, runner, status-line display). Changing the window means editing all three, or the shim and the runner disagree about when GLM is refused. |
 | `worker`/`glm`/`ccr` admin commands | `cc-router.js:210-251` `workerAdmin()` | `node --test bajzi/bin/tests/*.test.js` | 2 | The launcher **scripts** (`worker`, `glm`, `ccr` + `.cmd` twins in `~/.local/bin`) that set `CC_ROUTER_ENTRY` are hand-maintained, **not in any repo**; their exact content is in §8.1 step 4 — back them up before touching. |
-| Dispatch-guard rules (R1/R2/R3/R4) | `bajzi/hooks/dispatch-guard.sh:128` `reads_full_doc()`, decision block `:141-153` | `bash bajzi/skills/mode/tests/mode.sh` (case 13x) | 1 | Fails open by design ("a discipline guard, not a security boundary", `:13-15`); never describe a rule as a security boundary. |
+| Dispatch-guard rules (R1/R2/R3/R4) | `bajzi/hooks/dispatch-guard.sh:reads_full_doc` (R2), the `decision=` block after it (R1-R3; the R3 cap is the `-gt 24576` literal, also named in the R3 deny text and in `bajzi/skills/mode/DAY-RUN-RULES.md` DISPATCH BRIEF), wired in `bajzi/hooks/hooks.json` PreToolUse `Agent\|Task` | `bash bajzi/skills/mode/tests/mode.sh` (case 13; R3 boundary 13j-13j5, wiring 13m/13m2) | 1 | Fails open by design ("a discipline guard, not a security boundary", header comment); never describe a rule as a security boundary. R3 counts UTF-8 **characters**, not bytes. The 24576 cap is interim (so a batched fix with a full findings list fits); the R1'/R2' rewrite and a findings-file format belong to the agents-and-cadence plan. Changing the cap means the script, its deny text, DAY-RUN-RULES.md and the 13j cases together. |
 | Night-run launcher parameters | claude-orchestrator `scripts/nightrun.ps1:16-35` (param block), `scripts/nightrun-releaseB.ps1:54-72`, `scripts/nightrun-lib.ps1:41` `Assert-LaunchArgs`, `:4` `ConvertFrom-LevelSpec` | `pwsh -NoProfile -c "Invoke-Pester tests/ps -Output Minimal"` | 1 | `-MaxHours` is a hard **kill** wall (§6.11.8). `-Levels` and `-ClaudeBin` are mutually exclusive. `nightrun.ps1`'s own `-PermissionMode` default is `auto`; pass `bypassPermissions` explicitly. |
 | Usage-limit / transient detection, degrade | `nightrun-lib.ps1:122` `Get-LimitKind`, `:179` `Get-SessionOutcome`, `:197` `Test-DegradePossible`; `nightrun.ps1:236` `Step-Degrade` | Pester `tests/ps/nightrun-lib.Tests.ps1` | 1 | Only the CLI's own records are evidence (rate_limit_event status, result `api_error_status`, result string prose). A model that *quotes* "usage limit reached" must never degrade the night (§6.11.3). |
 | Guard tripwire (what a session may not touch) | `nightrun-lib.ps1:$script:GuardPathPatterns`, `nightrun-lib.ps1:Get-LooseGuardHashes` (also hashes the out-of-repo reviewer allow-list, `Get-ReviewerConfigHash`), `nightrun-lib.ps1:Get-SessionSnapshot`, `nightrun-lib.ps1:Compare-RefSnapshot`, `nightrun-lib.ps1:Test-SessionGuards`; `nightrun.ps1:Complete-GuardTrip` | Pester `tests/ps/nightrun-guards.Tests.ps1` | 1 | Guard **files** are checked only at effective L2/L3; refs at every level. It compares working-tree hashes, so an index flag such as `skip-worktree` can hide an edit; the pinned guard set closes that (§9.3). |
@@ -427,7 +427,7 @@ suite).
 
 ### 6.4 Dispatch guard — technical
 
-`bajzi/hooks/dispatch-guard.sh` (171 lines). It exists because the routing rules alone did not
+`bajzi/hooks/dispatch-guard.sh` (172 lines). It exists because the routing rules alone did not
 hold in practice: a 6-file review went
 out without `code-review-graph`, and a two-finding fix round was told to "read the brief, the
 report and the whole review" — exactly the context-burning failure mode the day-run rules exist
@@ -443,22 +443,27 @@ from the classified text first so "per task-B3-review.md" isn't read as intent):
 `(fix|address|apply|resolve) ... findings?`) → `REVIEW` (the word `review`/`reviews`, not
 `reviewer`; `subagent_type` containing `review`) → `OTHER`.
 
-**Rules, first deny wins** (`:141-153`):
+**Rules, first deny wins** (the `decision=` block):
 - **R1** (`REVIEW`, `REREVIEW`): deny unless the full prompt carries a graph marker
   (`code-review-graph`, `detect-changes`, `detect_changes_tool`, `get_review_context_tool`, or a
   `graph-*.json` path) or the explicit opt-out `GRAPH: n/a single-file <path>`.
 - **R2** (`FIX`, `REREVIEW`): deny if the prompt sends the sub-agent to **read** a full brief
   (`-brief.md`) or review/re-review file, unless the text within ~24 characters before that path
   token is a write target (`write|append|save|output ... to|into`, stopping at `.;:`,
-  `reads_full_doc()`, `:128-139`) — a `-report.md` path is fine, the fixer appends there.
-- **R3** (`FIX`, `REREVIEW`): deny if the prompt exceeds 6000 characters — pass only the finding,
-  `file:line`, the excerpt and the test command inline.
+  `dispatch-guard.sh:reads_full_doc`) — a `-report.md` path is fine, the fixer appends there.
+- **R3** (`FIX`, `REREVIEW`): deny if the prompt exceeds **24576 characters** (24 KB) — pass only
+  the findings, `file:line`, the excerpts and the test command inline. The unit is UTF-8
+  characters of the decoded prompt (continuation bytes dropped, locale-independent), so 24576
+  two-byte characters still pass. The cap is interim: it was 6000 until batched fix dispatches
+  carrying a full findings list were denied; the proper R1'/R2' rewrite and a findings-file
+  format are the agents-and-cadence plan's.
 - **R4**: every dispatch with the gate open logs one TSV line to
   `<cwd>/runtime/dispatch-sizes.log` regardless of the decision (§7.2).
 
 **Outputs**: `{}` to allow, or `{"hookSpecificOutput":{"hookEventName":"PreToolUse",
 "permissionDecision":"deny","permissionDecisionReason":"dispatch-guard R<n>: <fix instruction>"}}`.
-**Failure behaviour**: fails open (`dispatch-guard.sh:13-15`). **Tests**: `mode.sh` case 13x.
+**Failure behaviour**: fails open (`dispatch-guard.sh:13-15`). **Tests**: `mode.sh` case 13 (R3 boundary 13j-13j5; `hooks.json` wiring 13m, and 13m2: every hook
+of the merged branches wired exactly once per event).
 **Accepted limit**: R2's write-target test looks only at the ~24 characters before the path, so a
 read phrase that ends in `to`/`into` there ("according to", "refer to") passes R2.
 
@@ -1491,11 +1496,10 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
   guard, injection scanner, setup drift checker and project-setup; not merged, not pushed; both
   manifests say 1.8.0 (`6caf01b`), not released. §6/§7 line numbers are pinned to `e4ef6f4` (this document's own commits change no
   code).
-- Worktree `D:/AI/projektek/ClaudeCode/bajzi-b4b`, branch **`saver-levels`** @ `809bc18`
-  (`origin/saver-levels` = `655a271`): the dispatch guard. Not merged into `env-unify` or `main`.
-  Its `hooks.json` has diverged from `env-unify`'s (only it has the `PreToolUse(Agent|Task)` →
-  `dispatch-guard.sh` entry; only `env-unify`'s has the node guards), so the merge needs a manual
-  reconciliation of that file, not a blind merge.
+- Branch **`saver-levels`** @ `809bc18` (the dispatch guard; worktree
+  `D:/AI/projektek/ClaudeCode/bajzi-b4b`) is **merged into `env-unify`** (`--no-ff`, `hooks.json`
+  reconciled by hand: every hook of both branches wired exactly once, `mode.sh` case 13m2). The
+  branches no longer diverge; `saver-levels` is not merged into `main`.
 - `claude-orchestrator` branch **`workspace`** @ `7893acd` (the night-run code of §6.11 ends at
   `5382aa6`; `7893acd` adds a CLAUDE.md pointer to this file). 54 commits ahead of
   `origin/workspace`, nothing pushed (`git rev-list --left-right --count workspace...origin/workspace`
@@ -1512,8 +1516,9 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
   `--settings` semantics, the `rate_limit_event` record and the status-line
   `remaining_percentage` depend on it; tested with `2.1.281`. A night-run preflight that refuses an
   unknown version is open (next plan). Verify: `claude --version` → `2.1.281 (Claude Code)`.
-- **Review delta 2026-09-23** — reviewer allow-list, dispatch-guard findings-file format,
-  pre-commit gate, semgrep pre-pass, launchers in the repo: planned as Tasks 9–14 of the
+- **Review delta 2026-09-23** — reviewer allow-list (Task 9, built), dispatch-guard merge +
+  interim 24 KB R3 cap (Task 10, built; the findings-file format moved to the agents-and-cadence
+  plan), pre-commit gate, semgrep pre-pass, launchers in the repo: planned as Tasks 9–14 of the
   env-unification plan, not built. Verify: the plan's "Review delta 2026-09-23" table.
 
 **Components**
@@ -1531,7 +1536,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Secret guard (§6.7) | `env-unify` | **no** — GSD's `gsd-secret-read-guard.js` runs | minors m1 (**fix before release**: pipe rule fires on listing commands, `secret-rules.js:186-190`), m2 wildcard forms (`:70`), m3 `timeout -k` (`:140`), m4 `xargs -a`, m5 `rtk` sub-wrappers / `rtk -v`, m6 nested braces / `@('.env')` — the forms §6.7 requires | same grep for `secret-guard` → `0` |
 | Injection scanner (§6.8) | `env-unify` | **no** — GSD's `gsd-read-injection-scanner.js` (`Read` only) runs | m1 `sanitize` misses C1 controls and U+061C/00AD/200D/FFF9-FFFB; m2 the comment at `injection-rules.js:30` self-fires `fake-system-tag` | same grep for `injection-scan` → `0` |
 | Setup drift checker + `SKILL.md` (§6.9, §8.2) | `env-unify` (retained-hook rule in PHASE C step 4 since `e4ef6f4`) | runs from the checkout only | M1 a wrong-typed manifest block gives a stack trace, exit 1 not 2; M2 `BAJZI_HOME` alone still reads the real `%APPDATA%` rtk config; M3 `exclude_commands` matched anywhere, not only under `[hooks]`; M4 PHASE B/step numbering; M5 `laptop_retained_hooks.files` bare names; M6 zero drift needs `PONYTAIL_DEFAULT_MODE=lite` | `node bajzi/skills/setup/check.js; echo $?` → `setup --check: 27 drift item(s)`, exit 1 (4 `setting-drift`, `statusline-foreign`, `statusline-file-missing`, `mcp-missing code-review-graph`, 8 `rtk-exclude-missing`, 10 `leftover`, 2 `leftover-setting`) |
-| Dispatch guard (§6.4) | `saver-levels` @ `809bc18` | **no** | merge into `env-unify` with the `hooks.json` reconciliation above | `git -C D:/AI/projektek/ClaudeCode/bajzi-b4b log -1 --oneline` → `809bc18`; `grep -c dispatch-guard …/1.7.0/hooks/hooks.json` → `0` |
+| Dispatch guard (§6.4) | `env-unify` (merged from `saver-levels` @ `809bc18`; R3 cap 24576 chars) | **no** | release 1.8.0; the R1'/R2' rewrite + findings-file format (agents-and-cadence plan) | `git merge-base --is-ancestor 809bc18 env-unify` → exit 0; `grep -c dispatch-guard …/1.7.0/hooks/hooks.json` → `0` |
 | project-setup + profile (§6.10) | `env-unify` (bajzi 1.8.0 in both manifests, not released) | no | claude-orchestrator's profile (§8.5 step 10) | `node --test bajzi/skills/project-setup/tests/*.test.js` → `# fail 0` |
 | `alapcsomag` removal (§6.10) | `env-unify` (directory deleted, no references left) | still shipped by the installed 1.7.0 | release 1.8.0 | `ls bajzi/skills/alapcsomag` → absent |
 | GSD migration (§8.5) | — | **not run**: `~/.claude/gsd-core/`, `hooks/gsd-{prompt-guard,read-injection-scanner,secret-read-guard,statusline}.js`, `hooks/lib/` present; 3 GSD hooks + the status line wired; manifest still has `gsd.laptop_retained_hooks` and `gsd.machine_exception` | the whole of §8.5 on the laptop and the VM | `ls ~/.claude/gsd-core ~/.claude/hooks` |
