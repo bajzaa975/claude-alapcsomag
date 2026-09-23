@@ -62,7 +62,7 @@ line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-settin
 2. **Foreign marketplaces:** `claude plugin marketplace remove <name>`.
 3. **Non-plugin skills/commands/agents:** under `~/.claude/{skills,commands,agents}`
    everything is to be deleted that was not installed by a plugin. **Pay special
-   attention** to the names `alapcsomag`, `autopilot`, `handoff` and to `hooks/handoff-load.sh`: these
+   attention** to the names `autopilot`, `handoff` and to `hooks/handoff-load.sh`: these
    are replaced by the `bajzi` plugin, both would load as duplicates. Before deleting, list what
    you are going to delete.
 4. **settings.json:** remove the orphan hooks (pointing at non-existent scripts), the
@@ -129,7 +129,7 @@ line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-settin
 - `node "${CLAUDE_PLUGIN_ROOT}/skills/setup/check.js"` prints `setup --check: clean`. Every
   remaining `DRIFT` line goes into the report with the reason it stayed.
 - there must be no name that exists both under `~/.claude/{commands,skills}` AND as a
-  plugin skill (check separately: alapcsomag, autopilot, handoff)
+  plugin skill (check separately: autopilot, handoff)
 - every `settings.json` hook command must point at an existing file
 - tell them to start a new session and verify: the status line shows `L<n>` and the context bar,
   `/bajzi:handoff` exists, `/context` baseline under 20%, `/bajzi:mode status` reports the mode set

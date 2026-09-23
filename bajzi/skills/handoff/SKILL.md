@@ -34,8 +34,16 @@ all of them give `default`. That is correct, do not try to work around it with s
 `runtime/handoff/<slug>.md` as part of this write — `git mv` if it is tracked, otherwise `mv`.
 The hook still reads the old path, so nothing breaks if you skip it, but do not leave both.
 
-**Gitignore:** handovers are session scratch and must never be committed. If `runtime/` is not
-already ignored, append `runtime/` to `.gitignore` before writing.
+**Directory and gitignore (first write):** handovers are session scratch and must never be
+committed. Before writing, run exactly this from the repo root. It creates the directory, and adds
+the ignore rule only inside a git work tree and only when git does not already ignore the path:
+
+```bash
+mkdir -p runtime/handoff
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git check-ignore -q runtime/handoff/probe.md || printf '\nruntime/handoff/\n' >> .gitignore
+fi
+```
 
 ## Do not overwrite a live peer
 

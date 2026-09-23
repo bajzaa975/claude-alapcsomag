@@ -1,7 +1,7 @@
 {
   "name": "bajzi",
-  "version": "1.7.0",
-  "description": "Token-efficient working method for Claude Code and Cowork: /bajzi:alapcsomag project-layer installer, /bajzi:autopilot unattended mode, /bajzi:handoff session handover, /bajzi:mode day-run working mode, /bajzi:night-run overnight story runner with watchdog, plus a SessionStart hook that reloads the HANDOFF after /clear and a PreToolUse noisy-output filter.",
+  "version": "1.8.0",
+  "description": "Token-efficient working method for Claude Code and Cowork: /bajzi:setup machine setup and --check drift report, /bajzi:project-setup per-repo profile, /bajzi:autopilot unattended mode, /bajzi:handoff session handover, /bajzi:mode day-run working mode, /bajzi:night-run overnight story runner, plus SessionStart hooks (HANDOFF reload, methodology, day-run), a status line, a context guard (40% warn, 50% block), a secret-read guard, a prompt-injection scanner and a noisy-output filter.",
   "author": {
     "name": "Bajza Andras"
   },

@@ -1,27 +1,36 @@
 # bajzi-plugins — my own Claude Code / Cowork marketplace
 
-A single plugin (`bajzi`) that gives the same working method in both environments. Five skills and two SessionStart hooks:
+A single plugin (`bajzi`) that gives the same working method in both environments, and the same
+Claude Code environment on every machine.
 
 | Component | What it gives | Claude Code | Cowork |
 |---|---|---|---|
-| `alapcsomag` skill | token-efficient project layer (MCP, hook, HANDOFF skeleton) | ✅ | ✅ (MCP part skipped) |
+| `setup` skill | machine setup per `manifest.json` (plugins, settings, rtk, status line, user MCPs) + `--check` drift report | ✅ | ❌ — manages the Claude Code CLI's state |
+| `project-setup` skill | applies / checks the repo's `.claude/project-profile.json` | ✅ | ❌ — assumes a repo |
 | `autopilot` skill | unsupervised work session with a decision log | ✅ | ✅ |
-| `handoff` skill | `runtime/HANDOFF.md` + suggested opening prompt | ✅ | ✅ |
+| `handoff` skill | `runtime/handoff/<branch>.md` + suggested opening prompt | ✅ | ✅ |
 | `modszertan` skill | per-repo METHODOLOGY marker (gsd/superpowers/none) | ✅ | ❌ — assumes a repo and a SessionStart hook |
-| `setup` skill | machine setup per `manifest.json` | ✅ | ❌ — manages the Claude Code CLI's state |
-| SessionStart hooks | HANDOFF reload after `/clear` + methodology guard | ✅ | depends on hooks being enabled |
+| `mode`, `night-run` skills | day-run working mode, overnight runner | ✅ | ❌ |
+| SessionStart hooks | HANDOFF reload after `/clear` + methodology guard + day-run | ✅ | depends on hooks being enabled |
+| node hooks + status line | status line, context guard (40% warn / 50% block), secret-read guard, injection scanner | ✅ | ❌ |
 | `shared/CLAUDE.md` | global token-budget rules | by hand into `~/.claude/CLAUDE.md` | `shared/cowork-preferences.md` → Global instructions |
 
-Invoking the skills: `/bajzi:alapcsomag`, `/bajzi:autopilot`, `/bajzi:handoff`, `/bajzi:modszertan`,
-`/bajzi:setup` — or simply
-ask in words ("do a handoff"), they also start by themselves based on the description.
+Invoking the skills: `/bajzi:setup`, `/bajzi:setup --check`, `/bajzi:project-setup`,
+`/bajzi:autopilot`, `/bajzi:handoff`, `/bajzi:modszertan`, `/bajzi:mode`, `/bajzi:night-run` —
+or simply ask in words ("do a handoff"), they also start by themselves based on the description.
 
-## Installation — Claude Code (laptop)
+## Installation — Claude Code (every machine: laptop, VM, new machines)
 
-```bash
-claude plugin marketplace add bajzaa975/claude-alapcsomag   # or: a local path
-claude plugin install bajzi@bajzi-plugins
-```
+1. Once per machine, in a terminal:
+   ```bash
+   claude plugin marketplace add bajzaa975/claude-alapcsomag   # or: a local path
+   claude plugin install bajzi@bajzi-plugins
+   ```
+2. Once per machine, in a new Claude Code session: `/bajzi:setup` (marketplaces, plugins, rtk,
+   settings, status line, `~/.claude/bajzi-mode`, user-scope MCPs).
+3. Any time: `/bajzi:setup --check` — one line per drift item, changes nothing.
+4. Per repo, only when the repo carries `.claude/project-profile.json`: `/bajzi:project-setup`
+   (`--check` diffs it).
 
 Then the global rules:
 
@@ -55,5 +64,5 @@ loads it automatically under the name `bajzi@skills-dir`.
 
 ## Updating
 
-Push to the repo → Claude Code: `claude plugin update bajzi` · Cowork: **Update** at the
-marketplace, then update the plugin.
+Push to the repo → Claude Code: `claude plugin update bajzi`, then `/bajzi:setup` (refreshes the
+status line copy) · Cowork: **Update** at the marketplace, then update the plugin.

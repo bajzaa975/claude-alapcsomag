@@ -725,7 +725,8 @@ writes, creates or deletes anything (test `check.js is read-only: no file under 
 
 ### 6.10 project-setup + `.claude/project-profile.json` — technical
 
-Replaces `/bajzi:alapcsomag` (the whole `bajzi/skills/alapcsomag/` directory goes). Design source:
+`bajzi/skills/project-setup/profile.js` (the mechanism) + `bajzi/skills/project-setup/SKILL.md`
+(`/bajzi:project-setup`, `--check`). The package has no `alapcsomag` skill. Design source:
 `docs/superpowers/specs/2026-09-23-bajzi-env-unification-design.md`. The profile is
 **committed in the target repo** — project data lives with the project, bajzi supplies only the
 mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
@@ -739,21 +740,35 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
   "instructions": ["relative/path.md"]
 }
 ```
-- **Interfaces**: `validate(profile)`, `plan(profile, repoRoot, {home})`,
-  `apply(profile, repoRoot, {home, run})` (throws `ProfileError` with `.errors` **before writing
-  anything** if invalid — "nothing half-applied"), `check(profile, repoRoot, {home})`,
-  `main(argv, env)`; CLI `bajzi/skills/project-setup/profile.js [--dry-run|--check]`. Unknown keys
-  or a newer `version` than this bajzi supports → refuse with a named reason.
-- **Apply semantics**: install listed plugins at project scope; merge `.mcp.json` entries
-  (**never delete foreign entries**); write `.claude/METHODOLOGY`; symlink skills into
-  `.claude/skills/`; append an instructions import block into `.claude/CLAUDE.md` between named
-  markers. Exception: repos whose runner passes `--strict-mcp-config --mcp-config .mcp.json`
+- **Interfaces**: `profile.js:validate` → `{ok, errors}`; unknown keys, a newer `version` than
+  this bajzi supports, a non-integer `version`, bad `methodology`/plugin id/marketplace slug,
+  an MCP entry without `command` (stdio) or `url` (http/sse), and absolute or `..` paths in
+  `skills`/`instructions` are refused, each with a named reason. `profile.js:plan` → the
+  missing actions (`methodology`, `mcp`, `marketplace`, `plugin`, `skill`, `instructions`);
+  an empty plan = in the profile state. `profile.js:apply` validates, plans, then runs
+  `profile.js:preflight` (invalid `.mcp.json`, missing skill source, a non-link already at the
+  skill target, missing instruction file) and throws `ProfileError` with `.errors` **before
+  writing anything** — nothing is ever half-applied. `profile.js:check` → `DRIFT <kind> <target>`
+  lines. `profile.js:main`: CLI `node profile.js [--check|--dry-run] [--repo <path>]`, env
+  `BAJZI_HOME` overrides the home directory; exit 0 = applied / clean / no profile, 1 = drift or a
+  failed `claude plugin` call, 2 = REFUSED.
+- **Apply semantics**: file changes first, `claude plugin` calls last. Writes `.claude/METHODOLOGY`;
+  merges `.mcp.json` entries (**never deletes foreign entries**); links each skill directory as
+  `.claude/skills/<dirname>` (a junction on Windows); writes an `@../<path>` import block into
+  `.claude/CLAUDE.md` between `<!-- bajzi:project-setup instructions begin/end -->` markers,
+  keeping text outside the block; then `claude plugin marketplace add <owner/repo>` for a missing
+  marketplace and `claude plugin install <id> --scope project` for each plugin not installed at
+  project scope for this repo (`installed_plugins.json`). A failed `claude plugin` call is
+  reported as `FAILED` and does not undo the file changes. Every step is idempotent. Exception
+  to the user-scope default: repos whose runner passes `--strict-mcp-config --mcp-config .mcp.json`
   (claude-orchestrator's night runs) **keep** a project `.mcp.json` declared in their own profile
-  — the default for everyone else is a user-scope MCP installed once by `/bajzi:setup`.
-- **Tests**: `bajzi/skills/project-setup/tests/profile.test.js`, `release.test.js`.
-- **One graph server name**: the package uses `code-review-graph serve` (manifest `user_mcps`,
-  `manifest.json:307`) everywhere; `better-code-review-graph`, which `alapcsomag` used, is not
-  part of the end state.
+  — everyone else gets MCPs at user scope from `/bajzi:setup`.
+- **Tests**: `bajzi/skills/project-setup/tests/profile.test.js` (validation, plan, apply,
+  preflight refusal, plugin runner, drift, CLI exit codes), `release.test.js` (plugin and
+  marketplace versions agree, no `alapcsomag` reference left, README states the guard limits,
+  every node hook command in `hooks.json` points at an existing file).
+- **One graph server name**: the package uses `uvx code-review-graph serve` (manifest
+  `user_mcps`) everywhere; no other graph server name is part of the package.
 
 ### 6.11 Night-run integration in claude-orchestrator — functional then technical
 
@@ -1475,8 +1490,8 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Injection scanner (§6.8) | `env-unify` | **no** — GSD's `gsd-read-injection-scanner.js` (`Read` only) runs | m1 `sanitize` misses C1 controls and U+061C/00AD/200D/FFF9-FFFB; m2 the comment at `injection-rules.js:30` self-fires `fake-system-tag` | same grep for `injection-scan` → `0` |
 | Setup drift checker + `SKILL.md` (§6.9, §8.2) | `env-unify` (retained-hook rule in PHASE C step 4 since `e4ef6f4`) | runs from the checkout only | M1 a wrong-typed manifest block gives a stack trace, exit 1 not 2; M2 `BAJZI_HOME` alone still reads the real `%APPDATA%` rtk config; M3 `exclude_commands` matched anywhere, not only under `[hooks]`; M4 PHASE B/step numbering; M5 `laptop_retained_hooks.files` bare names; M6 zero drift needs `PONYTAIL_DEFAULT_MODE=lite` | `node bajzi/skills/setup/check.js; echo $?` → `setup --check: 27 drift item(s)`, exit 1 (4 `setting-drift`, `statusline-foreign`, `statusline-file-missing`, `mcp-missing code-review-graph`, 8 `rtk-exclude-missing`, 10 `leftover`, 2 `leftover-setting`) |
 | Dispatch guard (§6.4) | `saver-levels` @ `809bc18` | **no** | merge into `env-unify` with the `hooks.json` reconciliation above | `git -C D:/AI/projektek/ClaudeCode/bajzi-b4b log -1 --oneline` → `809bc18`; `grep -c dispatch-guard …/1.7.0/hooks/hooks.json` → `0` |
-| project-setup + profile (§6.10) | **not built** | no | the whole skill, then claude-orchestrator's profile (§8.5 step 10) | `ls bajzi/skills/project-setup` → absent |
-| `alapcsomag` removal (§6.10) | not done | still shipped | delete `bajzi/skills/alapcsomag/` when project-setup lands | `ls bajzi/skills/alapcsomag` → `SKILL.md` |
+| project-setup + profile (§6.10) | `env-unify` (bajzi 1.8.0 in both manifests, not released) | no | claude-orchestrator's profile (§8.5 step 10) | `node --test bajzi/skills/project-setup/tests/*.test.js` → `# fail 0` |
+| `alapcsomag` removal (§6.10) | `env-unify` (directory deleted, no references left) | still shipped by the installed 1.7.0 | release 1.8.0 | `ls bajzi/skills/alapcsomag` → absent |
 | GSD migration (§8.5) | — | **not run**: `~/.claude/gsd-core/`, `hooks/gsd-{prompt-guard,read-injection-scanner,secret-read-guard,statusline}.js`, `hooks/lib/` present; 3 GSD hooks + the status line wired; manifest still has `gsd.laptop_retained_hooks` and `gsd.machine_exception` | the whole of §8.5 on the laptop and the VM | `ls ~/.claude/gsd-core ~/.claude/hooks` |
 | Night-run inner layer (§6.11, §9.2) | `workspace` | **yes** in the live checkout; `core.hooksPath` = `.githooks` | the drain banner at `nr:380` still prints `(WorkerMode glm)` (cosmetic; the launch is L0) | `git -C D:/AI/projektek/ClaudeCode/claude-orchestrator config core.hooksPath` → `.githooks` |
 | Night-run pinned guard set (§9.2-§9.3) | **not built, not designed** | no | all of §9.3. **Owner decision 2026-09-23: no night run happens before it is built and review-clean.** The `skip-worktree` flag is set on claude-orchestrator's `.claude/settings.json` (owner to clear) | `grep -c 'python -I' scripts/nightrun.ps1` → `0`; `git ls-files -v .claude/settings.json` → `S .claude/settings.json` (both in claude-orchestrator) |

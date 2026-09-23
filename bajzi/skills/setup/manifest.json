@@ -18,7 +18,7 @@
   "plugins": [
     {
       "id": "bajzi@bajzi-plugins",
-      "why": "own: alapcsomag/autopilot/handoff + HANDOFF hook"
+      "why": "own: setup/project-setup/handoff/autopilot/mode/night-run + hooks (HANDOFF reload, status line, context/secret/injection guards)"
     },
     {
       "id": "superpowers@claude-plugins-official",
