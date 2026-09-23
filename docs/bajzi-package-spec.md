@@ -1446,8 +1446,8 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
   (`git merge-base --is-ancestor origin/main env-unify` → exit 0). The local `main` ref is stale
   (`90c2030`, 1.6.1).
 - `bajzi-plugins-dev` branch **`env-unify`** carries the status line, context guard, secret
-  guard, injection scanner and setup drift checker; not merged, not pushed; both manifests still
-  say 1.7.0. §6/§7 line numbers are pinned to `e4ef6f4` (this document's own commits change no
+  guard, injection scanner, setup drift checker and project-setup; not merged, not pushed; both
+  manifests say 1.8.0 (`6caf01b`), not released. §6/§7 line numbers are pinned to `e4ef6f4` (this document's own commits change no
   code).
 - Worktree `D:/AI/projektek/ClaudeCode/bajzi-b4b`, branch **`saver-levels`** @ `809bc18`
   (`origin/saver-levels` = `655a271`): the dispatch guard. Not merged into `env-unify` or `main`.
@@ -1478,7 +1478,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 
 | Component | Built (where) | Installed on the laptop | Not yet built / open | Verify (command → expected today) |
 |---|---|---|---|---|
-| bajzi plugin release | `origin/main` = 1.7.0 | **1.7.0**, scope user, enabled, from GitHub | 1.8.0 release (double bump, §8.3), then §8.5 | `claude plugin list` → `Version: 1.7.0`, `Status: ✔ enabled` |
+| bajzi plugin release | `origin/main` = 1.7.0; `env-unify` = 1.8.0 (unreleased) | **1.7.0**, scope user, enabled, from GitHub | 1.8.0 release (double bump, §8.3), then §8.5 | `claude plugin list` → `Version: 1.7.0`, `Status: ✔ enabled` |
 | `cc-router.js` shim (§6.2) | yes, 1.7.0 | **yes**, v1.2.0 (+ `.bak`) | — | `sha256sum ~/.local/bin/cc-router.js bajzi/bin/cc-router.js ~/.claude/plugins/cache/bajzi-plugins/bajzi/1.7.0/bin/cc-router.js` → three identical hashes |
 | `worker`/`glm`/`ccr` launchers | not in any repo (§8.1 step 4) | **yes**, + `.cmd` twins | — | `which glm worker ccr` → `/c/Users/andra/.local/bin/…` |
 | Saver mode | — | **L0**; `glm_fast_model` = `glm-5.3-flash` | — | `worker --status` → `level           L0 (claude)`, `ZAI_API_KEY     found` |
