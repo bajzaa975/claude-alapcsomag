@@ -16,9 +16,12 @@ Code unchanged. State lives under `~/.claude`: `worker-mode` (the level word),
 
 ## install.sh
 
-`bash bajzi/bin/install.sh` runs the shim's tests first (`node --test` on
-`bajzi/bin/tests/`) and copies `cc-router.js` over `~/.local/bin/cc-router.js` only when
-they pass, keeping the previous copy as `~/.local/bin/cc-router.js.bak`.
+`bash bajzi/bin/install.sh` runs the shim's tests first (`node --test
+bajzi/bin/tests/cc-router.test.js`) and, only when they pass, copies `cc-router.js` and the six
+launchers in `launchers/` (`worker`, `glm`, `ccr` + `.cmd` twins) into `~/.local/bin`. An
+identical destination is left untouched; a different one is kept as `<name>.bak` first. The
+launchers are tracked byte-for-byte (`.gitattributes`: `-text`), so edit them here, not in
+`~/.local/bin`. `tests/install.test.js` exercises the installer against a decoy `HOME`.
 
 ## Environment variables
 

@@ -6,3 +6,5 @@
 bajzi/bin/**/*.js text eol=lf
 bajzi/hooks/node/**/*.js text eol=lf
 bajzi/skills/**/*.js text eol=lf
+# Launchers ship byte-for-byte (bash ones LF, .cmd twins CRLF): no eol conversion at all.
+bajzi/bin/launchers/** -text
