@@ -4265,8 +4265,12 @@ Source: `docs/review/2026-09-23-fable-spec-review.md` (Fable second opinion) + o
 **No NOW item.** Task 7 hardcodes no model id, touches no gate tool, no dispatch-guard rule and no
 `install.sh`, so it is not built on an assumption the delta changes. Task 7 starts next.
 
-**Execution order:** Task 7 -> 9 -> 10 -> 11 -> 12 -> 13 -> (14, optional) -> whole-branch review
-(reviewer allow-list model, Claude only) -> Task 8 cut-over. Growth: ~1 day (3 M + 3 S).
+**Execution order:** Task 7 -> 9 -> 10 -> 13 -> whole-branch review (reviewer allow-list model,
+Claude only) -> Task 8 cut-over. env-unify ends at 1.8.0 + GSD migration; nothing else is added.
+**Scope correction 2026-09-24 (owner):** Task 10 keeps only the dispatch-guard merge (+ an interim
+R3 cap raise); the findings-file format, the pre-commit gate (old T11), semgrep (old T12) and
+`ccusage` (old T14) move to `docs/superpowers/plans/2026-09-bajzi-agents-and-cadence-plan.md`
+(its T7 and §8). The table rows below keep their original decision text for the record.
 
 | id | decision | target | size | files touched |
 |---|---|---|---|---|
@@ -4314,30 +4318,13 @@ Review tier 1. Size M. Repos: `bajzi-plugins-dev` and `claude-orchestrator`.
 - Readers: the day-run rule injection (`bajzi/hooks/day-run-mode.sh` + `bajzi/skills/mode/DAY-RUN-RULES.md`), the drain launch (`claude-orchestrator/scripts/nightrun.ps1` drain block) and the drain-verdict check (`claude-orchestrator/scripts/review_queue.py`, `DRAIN_MODEL` and its exact-match check).
 - Acceptance: a grep for `claude-opus-5-5` / `claude-fable` over code, prompts, rules files and both CLAUDE.md files finds nothing outside the config file, the manifest default and tests; the drain verdict is accepted iff the served model is in the list; a GLM id in the list is refused at load; a missing file / empty list / malformed JSON fails closed for the drain, and day-run text falls back to a stated default. Spec Invariant 3 already states the end state.
 
-### Task 10: Dispatch-guard merge + findings-file format + batch-sized R2/R3
+### Task 10: Dispatch-guard merge (+ interim R3 cap)
 
-Review tier 1. Size M. Repo: `bajzi-plugins-dev` (merge `saver-levels` @ `809bc18`, worktree `D:/AI/projektek/ClaudeCode/bajzi-b4b`, into `env-unify`).
+Review tier 1. Size S. Repo: `bajzi-plugins-dev` (merge `saver-levels` @ `809bc18`, worktree `D:/AI/projektek/ClaudeCode/bajzi-b4b`, into `env-unify`).
 
 - Reconcile `bajzi/hooks/hooks.json` by hand (the branches diverged, spec §11), never a blind merge.
-- Findings-file format: one structured file per review, one line per finding `file:line · severity · finding · test`, size-capped; the one document R2 lets a fixer read.
-- R3 is sized for a full findings batch (raise the cap or exempt the size-capped findings file), not for one finding.
-- Acceptance: `bash bajzi/skills/mode/tests/mode.sh` green incl. new cases: a fixer reading a valid findings file is allowed; an over-cap findings file and any other review document are denied (R2); a dispatch carrying 15 findings passes R3. Spec §6.4 + change-map row updated in the same commit.
-
-### Task 11: Pre-commit mechanical gate (both repos)
-
-Review tier 1 (gitleaks is the write-side secret guard). Size M.
-
-- `claude-orchestrator/.githooks/pre-commit` (exists; guard file, owner-approved edit in this task) and a new `bajzi-plugins-dev/.githooks/pre-commit`: `gitleaks protect --staged`; ruff + pyright on staged Python; eslint + `tsc --noEmit` on staged files under claude-orchestrator `web/`. Node tests stay the task gate, not the hook (too slow).
-- Each tool is a `manifest.json` entry (Invariant 5) and a `check.js` drift line when missing; a missing tool makes the hook FAIL with its install one-liner, never skip silently.
-- Adds the VM equivalents of the owner install steps to Task 8 Step 15.
-- Acceptance: staging a fake-key fixture is refused; a ruff error is refused; a clean commit passes; `core.hooksPath` in `bajzi-plugins-dev` is set by its project profile, not by hand.
-
-### Task 12: semgrep Tier-1 pre-pass
-
-Review tier 2. Size S.
-
-- A small ruleset (`bajzi/skills/setup/semgrep/tier1.yml`: subprocess/shell, path handling, auth) the controller runs before a Tier-1 review; its output goes into the review brief as a mechanical RESULT.
-- Acceptance: each rule fires on its fixture and on none of the current `bajzi/hooks/node/lib/*.js`; manifest entry for semgrep.
+- Interim R3: raise the dispatch size cap to 24 KB so a batched fix dispatch (full findings list) is not denied. No findings-file format here; the proper R1'/R2' rewrite and the findings format are the follow-up plan's.
+- Acceptance: `bash bajzi/skills/mode/tests/mode.sh` green incl. new cases: a dispatch just under 24 KB passes R3, one over it is denied; the merged `hooks.json` wires every hook of both branches exactly once. Spec §6.4 + change-map row updated in the same commit.
 
 ### Task 13: Launchers into the repo (P5)
 
@@ -4345,13 +4332,6 @@ Review tier 1 (`install.sh` writes `~/.local/bin`). Size S.
 
 - `worker`, `glm`, `ccr` and their `.cmd` twins move into `bajzi/bin/launchers/`; `bajzi/bin/install.sh` installs them next to `cc-router.js`, backing up an existing different file.
 - Acceptance: the installed files are byte-identical (`cmp`) to the laptop's current six; a second `install.sh` run changes nothing; spec §8.1 step 4 then points at the repo files instead of inline content.
-
-### Task 14 (optional, low priority): `ccusage` cross-check
-
-Review tier 3. Size S. First task to cut if the plan runs over.
-
-- A documented cross-check of `worker --usage`'s weighted GLM share against `npx ccusage@latest` for the same window; no code in any hot path.
-- Acceptance: one recorded comparison in the plan's closing notes; the manifest marks `ccusage` optional.
 
 ### Owner install steps
 
@@ -4367,6 +4347,7 @@ Run each line, then its check. No session installs these.
 
 ### Carried to next plan
 
+- **Removed from this plan 2026-09-24 (owner), owned by `docs/superpowers/plans/2026-09-bajzi-agents-and-cadence-plan.md`:** findings-file format + R1'/R2' rewrite (its T2/T6), pre-commit gate (old T11 -> its T7), semgrep Tier-1 pre-pass (old T12 -> its §8), `ccusage` cross-check (old T14 -> its §8). The owner install steps above for gitleaks, semgrep, pyright, eslint and ccusage serve those tasks; the tools are already installed.
 - **Saver-level acceptance plan (stub).** Starts after this plan closes (1.8.0 released, GSD migrated).
   - Prerequisite A, before any L1+ sprint: F2 peak margin in the shim, F4 routing-counter excuse by clock, S1 `head -80` line-count test, S2 deepseek path deleted or tested, G4 peak-window parity test.
   - Phase 1: day-run L0, L1, L2 - 2-3 real sprints EACH on the claude-orchestrator application backlog (the pre-fork feature work), measured with `worker --usage` (L2 target: GLM share >= 60-70%), reviewed per the new cadence. Green -> spec §11 "Day-run ready" MET.
