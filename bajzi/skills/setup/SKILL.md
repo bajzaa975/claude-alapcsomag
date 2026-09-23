@@ -74,9 +74,12 @@ the manifest's `deliberately_skipped` list — those are not missing by accident
    This skill does NOT use the `claude plugin enable` command. If the manifest's entry has a
    `windows` field and you are running on this platform, read it and follow it — that is where it is
    written which plugin is known to be problematic and what to do.
-4. **GSD:** interactive installer, **do NOT start it yourself**. Print the manifest's
-   `gsd.install` command to the user, and what to choose at the prompts (`runtime`, `scope`,
-   `profile`). Wait until they say it is done.
+4. **GSD:** `gsd.default_install` is `false` — SKIP this step, UNLESS this machine is the VM
+   working on Innotel-bss (`gsd.machine_exception`). On that machine only: interactive installer,
+   **do NOT start it yourself**. Print the manifest's `gsd.install` command to the user, and what
+   to choose at the prompts (`runtime`, `scope`, `profile`). Wait until they say it is done. On
+   every other machine, if GSD is already present, do NOT remove it yourself either — report it,
+   do not decide for the owner.
 5. **Global rules:** per the manifest's `global_rules` field.
 6. **settings.json merge:** the manifest's `settings_merge` object. Do not touch the GSD hooks and
    the statusline.

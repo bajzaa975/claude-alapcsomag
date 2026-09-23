@@ -1,6 +1,6 @@
 {
   "_comment": "The desired Claude Code state. ADDING A NEW ITEM = ONLY THIS FILE NEEDS EDITING.",
-  "updated": "2026-09-15",
+  "updated": "2026-09-23",
   "marketplaces": [
     {
       "source": "anthropics/claude-plugins-official",
@@ -82,6 +82,24 @@
     }
   ],
   "gsd": {
+    "default_install": false,
+    "why_removed_from_default": "2026-09-23: GSD 1.13.0 removed from the owner's Windows laptop (backup: D:/AI/backup/gsd-removed-20260923/). The owner uses superpowers as the methodology everywhere; GSD's global install (46 skills, 29 agents, 17 hooks running on nearly every tool call) is a large always-on cost for near-zero everyday use outside one repo.",
+    "machine_exception": {
+      "where": "VM only, and ONLY for the Innotel-bss repo — not a blanket VM install, and not a reason to install it elsewhere",
+      "status": "pending: owner has not yet decided whether superpowers+bajzi should replace GSD there too",
+      "setup_rule": "On that VM, for Innotel-bss: install/update GSD per the fields below, and setup must NOT remove an existing GSD install there. On every other machine (including this laptop): setup does NOT install GSD, and does not remove a pre-existing install either — flag it in the report, do not decide for the owner."
+    },
+    "laptop_retained_hooks": {
+      "why": "2026-09-23: these 4 GSD hooks are kept temporarily on the Windows laptop after the GSD plugin itself was removed, until they are ported into bajzi.",
+      "files": [
+        "gsd-secret-read-guard.js",
+        "gsd-read-injection-scanner.js",
+        "gsd-prompt-guard.js",
+        "hooks/lib/ (shared by the three above)",
+        "gsd-statusline.js"
+      ],
+      "action": "Do NOT delete these during cleanup on the laptop even though the GSD plugin itself is gone from that machine."
+    },
     "install": "npx @opengsd/gsd-core@latest",
     "runtime": "Claude Code",
     "scope": "global install, TRIMMED surface — see shared/gsd-trim.md",
