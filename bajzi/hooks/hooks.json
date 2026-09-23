@@ -1,5 +1,5 @@
 {
-  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers) + day-run working-mode injection + noisy-output filter + saver routing-violation counter + context guard (40% warn, 50% block) + secret-read guard",
+  "description": "Automatic HANDOFF loading + per-repo methodology selection + day-run working-mode injection + noisy-output filter + saver routing-violation counter + context guard (40% warn, 50% block) + secret-read guard + prompt-injection scanner",
   "hooks": {
     "SessionStart": [
       {
@@ -82,6 +82,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/context-guard.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read|WebFetch|WebSearch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/injection-scan.js\"",
             "timeout": 5
           }
         ]
