@@ -116,8 +116,12 @@ like `hooks/lib-saver-level.sh`; a shared table of cases is run against both.
 - PreToolUse, used >= 50: deny every tool call except Write/Edit on `runtime/handoff/**` and
   `runtime/HANDOFF.md`, Read of those files, and Bash/PowerShell `git status|diff|log`
   (read-only, no pipes to other commands). Deny reason: write the handoff, then tell the user to
-  run /clear. Applies to Agent/Task too. Headless night-run sessions are blocked the same way
-  (the runner records INCOMPLETE).
+  run /clear. Applies to Agent/Task too. Also allowed above 50%: `Skill(bajzi:handoff)` and the
+  handoff skill's own Bash snippets; the deny reason names the computed handoff path.
+  Amendment (preflight I2): the bridge is written only by the status line, which does not run in
+  headless `claude -p`; there the guard sees no reading and allows. Night runs are therefore not
+  blocked by this guard; a transcript-based fallback is backlog (the context window size per
+  model is not in the hook input, and a wrong guess would kill a night sprint).
 
 ### 3.3 Secret guard `secret-guard.js`
 - PreToolUse on Read, Grep, Glob, Bash, PowerShell.
