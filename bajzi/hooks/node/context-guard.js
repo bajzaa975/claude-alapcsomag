@@ -59,39 +59,49 @@ function tokens(cmd) {
   return out;
 }
 
+// Repo-relative runtime/... only: an absolute path names SOME runtime/handoff, not this repo's.
+const REPO_REL = /^(?:\.\/)?runtime\//i;
+// Every whitespace-separated word of a mkdir / mv / git mv: plain path characters, optionally
+// wrapped whole in one pair of quotes. Anything else (embedded quotes, \ escapes under Bash, {} brace
+// expansion, ?*[] globs, ~, drive colons) lets the shell produce a path norm() never sees.
+const PLAIN_WORD = { Bash: /^(["']?)[A-Za-z0-9._/-]+\1$/, PowerShell: /^(["']?)[A-Za-z0-9._/\\-]+\1$/ };
+
 function mvRule(args) {
   if (args.length !== 2 || args.some(a => a.startsWith('-'))) return null;
+  if (args.some(a => norm(a).startsWith('/'))) return { refused: 'path-scope' };
   const [src, dst] = args;
+  if (!REPO_REL.test(norm(src)) || !REPO_REL.test(norm(dst))) return null;
   const srcOk = HANDOFF_FILE.test(norm(src)) ? isHandoffPath(src) : isHandoffDirFile(src);
   return srcOk && isHandoffDirFile(dst) ? 'ctx-allow-handoff-mv' : null;
 }
 
 // {rule} when the command is an allowed handoff snippet, else {refused}: 'shell-meta',
-// 'backslash' (Bash mkdir/mv args only) or 'not-allowlisted'.
+// 'path-chars' (a mkdir/mv word outside PLAIN_WORD), 'path-scope' (absolute path or git -C on a
+// mkdir/mv) or 'not-allowlisted'.
 function commandCheck(command, tool) {
   let cmd = typeof command === 'string' ? command.trim() : '';
   cmd = cmd.replace(DEVNULL_TAIL, '');
   if (!cmd || SHELL_META.test(cmd)) return { refused: 'shell-meta' };
-  const r = commandRule(tokens(cmd), tool);
+  const t = tokens(cmd);
+  const mutating = t[0] === 'mkdir' || t[0] === 'mv' || (GIT_BIN.test(t[0] || '') && t.includes('mv'));
+  if (mutating && !cmd.split(/\s+/).every(w => PLAIN_WORD[tool].test(w))) return { refused: 'path-chars' };
+  const r = commandRule(t);
   return typeof r === 'string' ? { rule: r } : { refused: r ? r.refused : 'not-allowlisted' };
 }
 
-function commandRule(t, tool) {
-  // bash un-escapes backslashes (.\. -> ..) that norm() has already turned into separators, so a
-  // backslash in a path-mutating command is never trusted under Bash. PowerShell keeps them as
-  // separators, where norm() and the '..' check see what the shell sees.
-  const mutating = t[0] === 'mkdir' || t[0] === 'mv' || (GIT_BIN.test(t[0] || '') && t.includes('mv'));
-  if (tool === 'Bash' && mutating && t.some(a => a.includes('\\'))) return { refused: 'backslash' };
+function commandRule(t) {
   if (t[0] === 'mkdir') {
     const rest = t.slice(1).filter(a => a !== '-p');
+    if (rest.some(a => norm(a).startsWith('/'))) return { refused: 'path-scope' };
     return rest.length === 1 && t.length - 1 <= 2 && HANDOFF_DIR_ONLY.test(norm(rest[0])) ? 'ctx-allow-handoff-mkdir' : null;
   }
   if (t[0] === 'mv') return mvRule(t.slice(1));
   if (!GIT_BIN.test(t[0] || '')) return null;
   let i = 1;
+  let otherDir = false;
   // Global options: only -C <dir> and two harmless flags. Never -c (core.fsmonitor/pager run commands).
   while (i < t.length && t[i].startsWith('-')) {
-    if (t[i] === '-C' && i + 1 < t.length) i += 2;
+    if (t[i] === '-C' && i + 1 < t.length) { otherDir = true; i += 2; }
     else if (t[i] === '--no-pager' || t[i] === '--no-optional-locks') i += 1;
     else return null;
   }
@@ -104,7 +114,7 @@ function commandRule(t, tool) {
     const refs = args.filter(a => !['--quiet', '-q', '--short'].includes(a));
     return refs.length === 1 && refs[0] === 'HEAD' ? 'ctx-allow-git-read' : null;
   }
-  if (sub === 'mv') return mvRule(args);
+  if (sub === 'mv') return otherDir ? { refused: 'path-scope' } : mvRule(args);
   return null;
 }
 
@@ -228,7 +238,8 @@ function decide(input, { nowMs = Date.now(), dir } = {}) {
     if (rule) return { kind: 'allow', rule };
     const file = handoffFile(input);
     const why = refused === 'shell-meta' ? ' This command was refused for a shell metacharacter (; & | < > ` $ ( ) or a line break).'
-      : refused === 'backslash' ? ' This command was refused for a backslash in a mkdir/mv argument: use forward slashes.' : '';
+      : refused === 'path-chars' ? ' This command was refused: mkdir/mv arguments may only hold letters, digits and . _ / - (Bash: forward slashes only; no quotes inside a word, braces, globs, ~ or drive letters).'
+      : refused === 'path-scope' ? ' This command was refused: mkdir/mv paths must be relative to the repo root (runtime/...), with no git -C.' : '';
     return {
       kind: 'deny',
       rule: 'ctx-block-50',

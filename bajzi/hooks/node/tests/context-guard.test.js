@@ -111,16 +111,42 @@ function refusedBy(refused, d, label) {
   assert.strictEqual(d.refused, refused, label);
 }
 
-test('I-1: a bash backslash escape never reaches the mv / git mv / mkdir allowances', () => {
-  // bash un-escapes .\. to .. : these would overwrite src/app.py or move it away.
-  for (const cmd of [
-    'mv runtime/HANDOFF.md runtime/handoff/.\\./.\\./src/app.py',
-    'mv runtime/handoff/.\\./.\\./src/app.py runtime/handoff/x.md',
-    'git mv runtime/HANDOFF.md runtime/handoff/.\\./.\\./src/app.py',
-    'git mv runtime/handoff/.\\./.\\./src/app.py runtime/handoff/x.md',
-    'mkdir -p runtime\\handoff',
+test('I-1: shell escapes, quotes, braces and globs never reach the mv / git mv / mkdir allowances', () => {
+  // The shell turns each of these into '..' (or a glob match) that norm() and the '..' check never see:
+  // they would overwrite src/app.py or move it away. Only plain path characters are accepted.
+  for (const [tool, cmd] of [
+    ['Bash', 'mv runtime/HANDOFF.md runtime/handoff/.\\./.\\./src/app.py'],
+    ['Bash', 'mv runtime/handoff/.\\./.\\./src/app.py runtime/handoff/x.md'],
+    ['Bash', 'git mv runtime/HANDOFF.md runtime/handoff/.\\./.\\./src/app.py'],
+    ['Bash', 'git mv runtime/handoff/.\\./.\\./src/app.py runtime/handoff/x.md'],
+    ['Bash', 'mkdir -p runtime\\handoff'],
+    ['Bash', "mv runtime/HANDOFF.md runtime/handoff/'..'/'..'/src/app.py"],
+    ['Bash', 'mv runtime/HANDOFF.md runtime/handoff/".."/".."/src/app.py'],
+    ['Bash', "mv runtime/HANDOFF.md runtime/handoff/.''./.''./src/app.py"],
+    ['Bash', "git mv runtime/HANDOFF.md runtime/handoff/'..'/'..'/src/app.py"],
+    ['Bash', "mv runtime/handoff/'..'/'..'/src/app.py runtime/handoff/x.md"],
+    ['Bash', 'mv runtime/handoff/{y,.}./{y,.}./src/app.py runtime/handoff/{y,.}./{y,.}./other'],
+    ['Bash', 'mv runtime/HANDOFF.md runtime/handoff/.?/.?/src/app.py'],
+    ['Bash', 'mv runtime/HANDOFF.md runtime/handoff/.[.]/.[.]/src/app.py'],
+    ['Bash', "mkdir -p 'runtime'/handoff"],
+    ['PowerShell', "mv runtime/HANDOFF.md runtime/handoff/'..'/'..'/src/app2.py"],
+    ['Bash', 'mv runtime/HANDOFF.md ~/runtime/handoff/x.md'],
+    ['Bash', 'mkdir -p ~/runtime/handoff'],
+    ['Bash', 'mv runtime/HANDOFF.md C:/other/runtime/handoff/x.md'],
+    ['PowerShell', 'mv runtime\\HANDOFF.md C:\\other\\runtime\\handoff\\x.md'],
   ]) {
-    refusedBy('backslash', at(55, pre('Bash', { command: cmd })), cmd);
+    refusedBy('path-chars', at(55, pre(tool, { command: cmd })), `${tool} ${cmd}`);
+  }
+  // Repo-relative only: absolute paths and git -C point at SOME runtime/handoff, not this repo's.
+  for (const [tool, cmd] of [
+    ['Bash', 'mv runtime/HANDOFF.md /d/other/runtime/handoff/x.md'],
+    ['Bash', 'mv /d/other/runtime/HANDOFF.md runtime/handoff/x.md'],
+    ['Bash', 'git mv /d/other/runtime/HANDOFF.md runtime/handoff/x.md'],
+    ['Bash', 'mkdir -p /d/other/runtime/handoff'],
+    ['Bash', 'git -C .. mv runtime/HANDOFF.md runtime/handoff/x.md'],
+    ['PowerShell', 'git -C ../other mv runtime/HANDOFF.md runtime/handoff/x.md'],
+  ]) {
+    refusedBy('path-scope', at(55, pre(tool, { command: cmd })), `${tool} ${cmd}`);
   }
   // '.' and empty segments inside runtime/handoff/ are refused on their own too (any shell).
   for (const tool of ['Bash', 'PowerShell']) {
