@@ -30,10 +30,27 @@ function readInput() {
   }
 }
 
+// Writes the whole buffer to stdout, looping on short writes. A write failure (EPIPE when the
+// reader went away, EAGAIN on a non-blocking pipe, ...) is swallowed: fail open even outside runHook.
+function writeAll(text) {
+  try {
+    const buf = Buffer.from(text, 'utf8');
+    let off = 0;
+    let stalls = 0;
+    while (off < buf.length) {
+      const n = fs.writeSync(1, buf, off, buf.length - off);
+      if (n > 0) { off += n; stalls = 0; } else if (++stalls > 100) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function write(obj) {
   if (emitted) return;
   emitted = true;
-  fs.writeSync(1, JSON.stringify(obj));
+  writeAll(JSON.stringify(obj));
 }
 
 function allow() {
@@ -80,7 +97,22 @@ function logError(name, err, home = os.homedir()) {
   }
 }
 
+let handlersInstalled = false;
+
+// fn MUST be synchronous: runHook awaits nothing and sets exitCode as soon as fn returns.
+// As a safety net it also installs process-level uncaughtException / unhandledRejection handlers,
+// so a stray async failure (a rejected promise, a throw in a timer) still exits 0 with no
+// stdout/stderr and one log line -- but whatever that async work meant to emit is lost.
 function runHook(name, fn) {
+  if (!handlersInstalled) {
+    handlersInstalled = true;
+    const bail = err => {
+      logError(name, err);
+      process.exit(0);
+    };
+    process.on('uncaughtException', bail);
+    process.on('unhandledRejection', bail);
+  }
   try {
     fn();
   } catch (err) {
@@ -90,5 +122,5 @@ function runHook(name, fn) {
 }
 
 module.exports = {
-  parseInput, readInput, allow, deny, addContext, denyPayload, contextPayload, logError, runHook, LOG_CAP,
+  parseInput, readInput, allow, deny, addContext, denyPayload, contextPayload, logError, runHook, writeAll, LOG_CAP,
 };

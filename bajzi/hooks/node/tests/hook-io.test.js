@@ -73,3 +73,43 @@ test('logError caps the log at LOG_CAP and keeps the newest line', () => {
   assert.match(after, / cap newest\n$/);
   assert.match(after, /^x{99}\n/);   // cut on a line boundary, not mid-line
 });
+
+test('M1: runHook fails open on an async rejection (exit 0, silent, logged)', () => {
+  const home = tmpDir('bajzi-io-');
+  const r = child("io.runHook('probe', () => { Promise.reject(new Error('async boom')); })", '', home);
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.stdout, '');
+  assert.strictEqual(r.stderr, '');
+  const log = fs.readFileSync(path.join(home, '.claude', 'bajzi', 'hook-errors.log'), 'utf8');
+  assert.match(log, / probe async boom\n$/);
+});
+
+test('M1: runHook fails open on a throw inside setTimeout', () => {
+  const home = tmpDir('bajzi-io-');
+  const r = child("io.runHook('probe', () => { setTimeout(() => { throw new Error('late boom'); }, 5); })", '', home);
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.stdout, '');
+  assert.strictEqual(r.stderr, '');
+  const log = fs.readFileSync(path.join(home, '.claude', 'bajzi', 'hook-errors.log'), 'utf8');
+  assert.match(log, / probe late boom\n$/);
+});
+
+test('M2: an EPIPE on the stdout write stays fail-open outside runHook', () => {
+  const home = tmpDir('bajzi-io-');
+  const patch = "const fs = require('fs'); const w = fs.writeSync; fs.writeSync = (fd, ...a) => { " +
+    "if (fd === 1) { const e = new Error('EPIPE: broken pipe'); e.code = 'EPIPE'; throw e; } return w(fd, ...a); };";
+  const r = child(patch + " io.deny('x', 'r'); w(2, 'alive')", '', home);
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.stderr, 'alive');
+  assert.strictEqual(r.stdout, '');
+});
+
+test('M2: short writes are looped until the whole payload is out', () => {
+  const home = tmpDir('bajzi-io-');
+  const patch = "const fs = require('fs'); const w = fs.writeSync; fs.writeSync = (fd, buf, off, len, pos) => { " +
+    "if (fd !== 1) return w(fd, buf, off, len, pos); const b = Buffer.isBuffer(buf) ? buf : Buffer.from(String(buf)); " +
+    "return w(1, b, off || 0, Math.min(1, len === undefined ? b.length : len)); };";
+  const r = child(patch + " io.addContext('PostToolUse', 'a longer payload é')", '', home);
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, 'a longer payload é');
+});

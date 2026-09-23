@@ -66,3 +66,22 @@ test('RF1: unsafe session ids never write or read outside the dir', () => {
   assert.deepStrictEqual(fs.readdirSync(dir), []);
   assert.deepStrictEqual(fs.readdirSync(root).sort(), ['bajzi-ctx-x.json', 'sub']);
 });
+
+test('M4: a pre-planted temp path is never followed or overwritten', () => {
+  const dir = tmpDir('bajzi-br-');
+  const planted = path.join(dir, `bajzi-ctx-s.json.${process.pid}.tmp`);
+  fs.writeFileSync(planted, 'planted');
+  const victim = path.join(dir, 'victim.txt');
+  fs.writeFileSync(victim, 'victim');
+  const link = path.join(dir, `bajzi-ctx-l.json.${process.pid}.tmp`);
+  let linked = true;
+  try { fs.symlinkSync(victim, link); } catch { linked = false; }   // needs privileges on Windows
+  assert.strictEqual(b.writeBridge('s', 33, 1000, dir), true);
+  assert.strictEqual(b.readBridge('s', 1000, 60, dir), 33);
+  assert.strictEqual(fs.readFileSync(planted, 'utf8'), 'planted');
+  if (linked) {
+    assert.strictEqual(b.writeBridge('l', 44, 1000, dir), true);
+    assert.strictEqual(fs.readFileSync(victim, 'utf8'), 'victim');
+  }
+  assert.deepStrictEqual(fs.readdirSync(dir).filter(n => n.endsWith('.tmp') && !n.includes(String(process.pid))), []);
+});

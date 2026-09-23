@@ -1,10 +1,13 @@
 'use strict';
 // The status line -> context guard bridge: <tmpdir>/bajzi-ctx-<session_id>.json = {used_pct, ts}.
 // session_id becomes part of a file name, so it must match SAFE_ID; anything else = no bridge
-// at all (never written, never read). Writes are atomic: tmp file in the same dir + rename.
+// at all (never written, never read). Writes are atomic: tmp file in the same dir + rename. The tmp
+// name is random and opened with 'wx' (O_CREAT|O_EXCL), so a pre-planted file or symlink at that
+// path is never followed or overwritten -- the write just fails open.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const FUTURE_TOLERANCE_MS = 5000;
@@ -24,13 +27,15 @@ function warnPath(sessionId, dir = os.tmpdir()) {
 function writeBridge(sessionId, usedPct, nowMs = Date.now(), dir = os.tmpdir()) {
   const p = bridgePath(sessionId, dir);
   if (!p || typeof usedPct !== 'number' || !Number.isFinite(usedPct)) return false;
-  const tmp = `${p}.${process.pid}.tmp`;
+  const tmp = `${p}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  let created = false;
   try {
-    fs.writeFileSync(tmp, JSON.stringify({ used_pct: usedPct, ts: nowMs }));
+    fs.writeFileSync(tmp, JSON.stringify({ used_pct: usedPct, ts: nowMs }), { flag: 'wx' });
+    created = true;
     fs.renameSync(tmp, p);
     return true;
   } catch {
-    try { fs.unlinkSync(tmp); } catch { /* nothing to clean up */ }
+    if (created) { try { fs.unlinkSync(tmp); } catch { /* nothing to clean up */ } }
     return false;
   }
 }

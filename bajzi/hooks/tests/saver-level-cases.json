@@ -22,6 +22,10 @@
     {"name": "no-scheme-anthropic", "base_url": "api.anthropic.com", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
     {"name": "whitespace-url-is-unset", "base_url": "   ", "worker_mode_env": null, "worker_mode_file": "light\n", "expect_word": "light", "expect_level": 1},
     {"name": "scheme-only-url", "base_url": "https://", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3},
-    {"name": "env-level-then-provider", "base_url": "https://api.z.ai", "worker_mode_env": "claude", "worker_mode_file": null, "expect_word": "tight", "expect_level": 3}
+    {"name": "env-level-then-provider", "base_url": "https://api.z.ai", "worker_mode_env": "claude", "worker_mode_file": null, "expect_word": "tight", "expect_level": 3},
+    {"name": "query-right-after-host", "base_url": "https://api.anthropic.com?x=1", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
+    {"name": "fragment-right-after-host", "base_url": "https://api.anthropic.com#frag", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
+    {"name": "query-hides-userinfo-trick", "base_url": "https://evil.com?@api.anthropic.com", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3},
+    {"name": "fragment-hides-userinfo-trick", "base_url": "https://evil.com#@api.anthropic.com", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3}
   ]
 }
