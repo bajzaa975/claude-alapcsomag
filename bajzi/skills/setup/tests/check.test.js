@@ -17,6 +17,7 @@ const MANIFEST = {
   settings_merge: { theme: 'dark', permissions: { defaultMode: 'auto', deny: ['Read(.env)'] }, env: { PONYTAIL_DEFAULT_MODE: 'lite' } },
   user_mcps: { 'token-savior': {}, 'code-review-graph': {} },
   rtk: { required: false, exclude_commands: ['ssh', 'curl'] },
+  bajzi_config: { path: '~/.claude/bajzi/config.json', reviewer_models: ['claude-a-1', 'claude-b-2'] },
   forbidden_leftovers: {
     paths: ['~/.claude/hooks/gsd-*', '~/.claude/gsd-core', '~/.claude-mem'],
     settings_substrings: ['gsd-', '.planning/'],
@@ -44,6 +45,7 @@ function machine() {
     statusLine: { type: 'command', command: `node "${statusFile.split(path.sep).join('/')}"` } });
   w('.claude.json', { mcpServers: { 'token-savior': {}, 'code-review-graph': {} } });
   w('.claude/bajzi-mode', 'day-run\n');
+  w('.claude/bajzi/config.json', { reviewer_models: ['claude-a-1', 'claude-b-2'] });
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin, 'rtk'), '');
@@ -202,6 +204,24 @@ test('check.js is read-only: no file under HOME changes', () => {
   assert.deepStrictEqual(snap(), before);
 });
 
+test('reviewer allow-list: invalid (missing, GLM id) and drifted from the manifest', () => {
+  const m = machine();
+  const cfg = path.join(m.c, 'bajzi', 'config.json');
+  fs.writeFileSync(cfg, JSON.stringify({ reviewer_models: ['claude-b-2', 'claude-a-1'] }));
+  assert.match(run(m).out, /^DRIFT reviewer-models-drift have claude-b-2,claude-a-1, manifest claude-a-1,claude-b-2$/m);
+  fs.writeFileSync(cfg, JSON.stringify({ reviewer_models: ['claude-a-1', 'glm-5.3'] }));
+  assert.match(run(m).out, /^DRIFT reviewer-models-invalid .*glm-5\.3/m);
+  fs.rmSync(cfg);
+  assert.match(run(m).out, /^DRIFT reviewer-models-invalid .*missing/m);
+});
+
+test('real manifest: reviewer allow-list default is a valid, non-empty claude- list at ~/.claude/bajzi/config.json', () => {
+  const m = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8'));
+  assert.strictEqual(m.bajzi_config.path, '~/.claude/bajzi/config.json');
+  assert.ok(m.bajzi_config.reviewer_models.length > 0);
+  for (const id of m.bajzi_config.reviewer_models) assert.match(id, /^claude-[A-Za-z0-9._-]+$/);
+});
+
 test('real manifest: new blocks present, GSD retired, no GSD permissions left', () => {
   const m = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8'));
   assert.strictEqual(m.gsd.default_install, false);
@@ -225,6 +245,7 @@ test('setup SKILL.md documents --check, the status line step and user MCPs', () 
   assert.match(s, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/setup\/check\.js"/);
   assert.match(s, /node "\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/setup\/install-statusline\.js"/);
   assert.match(s, /claude mcp add-json --scope user/);
+  assert.match(s, /bajzi_config\.reviewer_models/);
   assert.doesNotMatch(s, /LEAVE the GSD hooks/);
   assert.doesNotMatch(s, /Do not touch the GSD hooks/);
 });

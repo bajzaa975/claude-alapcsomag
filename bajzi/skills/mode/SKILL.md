@@ -57,7 +57,7 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
   bigger file in its place) and restate its rules as the active rules for the rest of this
   session. If a saver level is in force (see "Saver levels" below), also apply its text on
   top. Resolve the level exactly as the SessionStart hook does (`bajzi/hooks/lib-saver-level.sh`,
-  `day-run-mode.sh:138-146`): level = `$CC_WORKER_MODE` if set, else the content of
+  `day-run-mode.sh` level block): level = `$CC_WORKER_MODE` if set, else the content of
   `$HOME/.claude/worker-mode`; if `ANTHROPIC_BASE_URL` is set and its host is not
   `*.anthropic.com`, the level is `tight` whatever the file says. Then read ONE file from
   `${CLAUDE_PLUGIN_ROOT}/skills/mode/`: `light` -> `SAVER-L1.md`, `glm` -> `SAVER-RULES.md` (the

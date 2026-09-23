@@ -7,6 +7,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const reviewerModels = require('../../hooks/node/lib/reviewer-models');
 
 function readJson(p) {
   try {
@@ -125,6 +126,13 @@ function checkAll({ home, manifest, env = process.env }) {
   }
 
   if (!fs.existsSync(path.join(c, 'bajzi-mode'))) d.push(['bajzi-mode-missing', '~/.claude/bajzi-mode']);
+
+  const wantRm = isObj(manifest.bajzi_config) ? manifest.bajzi_config.reviewer_models : undefined;
+  if (Array.isArray(wantRm)) {
+    const rm = reviewerModels.load(home);
+    if (!rm.ok) d.push(['reviewer-models-invalid', rm.why]);
+    else if (rm.ids.join(',') !== wantRm.join(',')) d.push(['reviewer-models-drift', `have ${rm.ids.join(',')}, manifest ${wantRm.join(',')}`]);
+  }
 
   const fl = manifest.forbidden_leftovers || {};
   for (const pat of fl.paths || []) {

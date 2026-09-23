@@ -593,6 +593,37 @@ HOOKS_JSON="$BAJZI_DIR/hooks/hooks.json"
 tr -d ' \n\r' < "$HOOKS_JSON" | grep -qF '"PostToolUse":[{"matcher":"Agent|Task","hooks":[{"type":"command","command":"bash\"${CLAUDE_PLUGIN_ROOT}/hooks/routing-counter.sh\""' \
     && pass "12s hooks.json PostToolUse matcher is Agent|Task -> routing-counter.sh" || fail "12s" "matcher/command not found"
 
+# --- case 15: the reviewer allow-list line (spec Invariant 3) ---
+# day-run on a Claude session appends REVIEWER MODELS from $HOME/.claude/bajzi/config.json; an
+# invalid list (GLM id, missing, malformed, empty) gets the stated Opus fallback + a setup warning;
+# a non-Anthropic session never gets the line.
+rm -f "$FAKE_CWD/runtime/bajzi-mode" "$FAKE_HOME/.claude/worker-mode"
+printf 'day-run
+' > "$FAKE_HOME/.claude/bajzi-mode"
+RMCFG="$FAKE_HOME/.claude/bajzi/config.json"
+mkdir -p "$FAKE_HOME/.claude/bajzi"
+printf '{"reviewer_models": ["claude-a-1", "claude-b-2"]}' > "$RMCFG"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME=)"
+expect "15a valid list -> REVIEWER MODELS line, in order" "$out" 'REVIEWER MODELS (reviewer allow-list; launch the first): claude-a-1, claude-b-2' 'REVIEWER = Opus'
+expect "15a rules tail still intact" "$out" 'Day-run never merges\.'
+expect_msg "15a no setup warning on a valid list" "$out" 'day-run mode active' 'bajzi:setup'
+printf '{"reviewer_models": ["claude-a-1", "glm-5.3"]}' > "$RMCFG"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME=)"
+expect "15b GLM id voids the list -> Opus fallback" "$out" 'REVIEWER = Opus (no version id' 'launch the first): claude-a-1'
+expect_msg "15b warns: run /bajzi:setup" "$out" 'reviewer allow-list invalid, run /bajzi:setup'
+for bad in '{"reviewer_models": [' '{"reviewer_models": []}' '{"other": 1}'; do
+    printf '%s' "$bad" > "$RMCFG"
+    out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME=)"
+    expect "15c invalid list ($bad) -> Opus fallback" "$out" 'REVIEWER = Opus (no version id'
+done
+rm -f "$RMCFG"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME=)"
+expect "15d missing config -> Opus fallback" "$out" 'REVIEWER = Opus (no version id'
+printf '{"reviewer_models": ["claude-a-1"]}' > "$RMCFG"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME= "$ZAI")"
+expect "15e non-Anthropic session: no REVIEWER MODELS line" "$out" 'SAVER LEVEL L3' 'launch the first)'
+rm -rf "$FAKE_HOME/.claude/bajzi"
+
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.
 if [ ! -e "$MARKER" ]; then

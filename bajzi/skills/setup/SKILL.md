@@ -123,6 +123,14 @@ line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-settin
     ```
     claude mcp add-json --scope user <name> '<the user_mcps entry as one-line JSON>'
     ```
+11. **Reviewer allow-list** (`~/.claude/bajzi/config.json`, the manifest's `bajzi_config`): when
+    the check reports `reviewer-models-invalid` (a missing file included), write the manifest's
+    `bajzi_config.reviewer_models` there:
+    ```
+    node -e "const fs=require('fs'),p=require('path'),os=require('os');const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const d=p.join(os.homedir(),'.claude','bajzi');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(p.join(d,'config.json'),JSON.stringify({reviewer_models:m.bajzi_config.reviewer_models},null,2)+'\n')" "${CLAUDE_PLUGIN_ROOT}/skills/setup/manifest.json"
+    ```
+    `reviewer-models-drift` is a valid list that differs from the manifest (the owner's local
+    swap): overwrite it only when the owner says so in this chat, else report it as "manual".
 
 ## PHASE E — Verification, specifically for duplicates
 

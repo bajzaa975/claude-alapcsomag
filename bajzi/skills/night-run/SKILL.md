@@ -15,10 +15,13 @@ goes into generated files under `~/night-runs/<project>/`.
 
     project:<name>   REQUIRED. A project the Brain knows. Verify with `brain next <name>`;
                      if it does not resolve, STOP and list the projects the Brain does know.
-    model:opus       Orchestrator model = `claude-opus-5-5`; omitted = `claude-opus-5-5`
-                     too — the night-run orchestrator is Opus 5.5, never Fable. It sets
-                     ONLY the per-story orchestrator — the review-and-fix loop's reviewer
-                     is ALWAYS Opus 5.5.
+    model:opus       Orchestrator model = entry [0] of the reviewer allow-list; omitted =
+                     the same. Read it with
+                     `node "${CLAUDE_PLUGIN_ROOT}/hooks/node/lib/reviewer-models.js" --first`
+                     (`reviewer_models` in `~/.claude/bajzi/config.json`); exit 1 = the list
+                     is invalid, a BLOCKER at the PHASE D gate ("run /bajzi:setup"), never a
+                     guessed id. It sets ONLY the per-story orchestrator — the review-and-fix
+                     loop's reviewer is ALWAYS a model on that allow-list.
     hours:<n>        Queue budget in hours, default 8. It SIZES the queue, and PHASE E's
                      `--deadline` — the hard stop — is DERIVED from it: launch time plus
                      `hours:`, capped at 07:30. They are one number, never two.
@@ -67,7 +70,7 @@ opens nothing. Anywhere below that a path is meant, it is spelled `<BASE>`; `<RE
 only where the `owner/name` value is wanted. There is no third spelling.
 
 0. **`config.env` — resolve and validate it BEFORE anything reads it.** It is the single
-   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the twelve
+   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the thirteen
    PHASE C placeholders, and `BASE` in particular is the directory the allowlist is
    installed into and every story session starts from — an invented value points the whole
    night at the wrong tree.
@@ -267,11 +270,12 @@ Then write into `~/night-runs/<project>/`:
   references resolve against. `queue.txt` keeps `note`; the markdown header says `criteria`.
 - `BRIEF.md`, rendered from `templates/BRIEF.md.tmpl` in three steps, in this order.
 
-  **1. Substitute these TWELVE placeholders, and only these twelve.**
+  **1. Substitute these THIRTEEN placeholders, and only these thirteen.**
   `{{PROJECT}} {{REPO}} {{BASE}} {{BASE_BRANCH}} {{BRANCH_PREFIX}} {{NIGHT_DIR}} {{MODEL}}
   {{REQUIRED_CHECK}} {{PER_STORY_TIMEOUT}}` come from the same-named `config.env` fields;
   `{{NIGHT_RULES}}` is the full body of the project's `docs/NIGHT-RULES.md`, verbatim;
   `{{RUN_DATE}}` is `date +%F` of the night being planned;
+  `{{REVIEWER_MODEL}}` is entry [0] of the reviewer allow-list (the `--first` read above);
   `{{QUEUE_TABLE}}` is the ordered queue as a markdown table whose header row is exactly
   `| id | size | needs | criteria |` —
   **escape every `|` inside a cell as `\|`**. Criteria routinely contain pipes
@@ -293,7 +297,7 @@ Then write into `~/night-runs/<project>/`:
   src  = open(brief).read()
   assert src.count('{{NIGHT_RULES}}') == 1, 'expected exactly one {{NIGHT_RULES}}'
   src = src.replace('{{NIGHT_RULES}}', body)  # str.replace: BOTH sides literal
-  # ... the other eleven single-line values exactly the same way, e.g.
+  # ... the other twelve single-line values exactly the same way, e.g.
   # src = src.replace('{{PROJECT}}', project)
   open(brief, 'w').write(src)
   PY
@@ -352,7 +356,7 @@ Then write into `~/night-runs/<project>/`:
   re-inject a live placeholder, and must be deleted from the project's file.
 
 `config.env` is NOT rendered here — PHASE A step 0 created and validated it, because steps
-3-5 and the twelve placeholders above read it. If it is still missing at this point, step 0
+3-5 and the thirteen placeholders above read it. If it is still missing at this point, step 0
 was skipped: go back and do it, do not improvise values. Render only
 `settings.local.json`, from `templates/settings.local.json.tmpl`, for PHASE E to install.
 The JSON template is NOT copy-ready and its own `_comment_placeholders` says what it needs:

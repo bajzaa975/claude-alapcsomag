@@ -56,15 +56,17 @@
 # GATE. Anything is emitted only when day-run is on, OR CC_WORKER_MODE is set, OR
 # the provider is non-Anthropic. A bare install with none of the three prints {}.
 # The hook reads NOTHING besides the two mode files, $HOME/.claude/worker-mode,
-# the rules files above and those three env vars.
+# the rules files above, those three env vars and -- under the day-run table on an
+# Anthropic session -- the reviewer allow-list, $HOME/.claude/bajzi/config.json.
 #
 # SHARED RESOLVER: the gate, the provider check, the mode-file read and the level
 # resolution live in hooks/lib-saver-level.sh (saver_resolve), which
 # routing-counter.sh sources too. Its mode-file read must stay BYTE-IDENTICAL to
 # the read in skills/mode/SKILL.md (see the lib's KEEP IN SYNC note).
 #
-# DEPENDENCY-FREE: bash, sed, awk, tr, head. It must never fail: every path
-# exits 0 with valid JSON on stdout.
+# DEPENDENCY-FREE: bash, sed, awk, tr, head; node (already required by the other
+# bajzi hooks) only for the reviewer allow-list, whose absence yields the stated
+# fallback. It must never fail: every path exits 0 with valid JSON on stdout.
 
 set -uo pipefail
 
@@ -134,6 +136,22 @@ esac
 
 block=""
 [ "$dayrun" = "yes" ] && [ -f "$mdir/DAY-RUN-RULES.md" ] && block=$(head -80 "$mdir/DAY-RUN-RULES.md" 2>/dev/null)
+
+# REVIEWER MODELS (spec Invariant 3): the table's REVIEWER is the reviewer allow-list, validated by
+# hooks/node/lib/reviewer-models.js (the one bajzi validator; BAJZI_HOME defaults to this hook's HOME so
+# the tests' fake home holds). Only on an Anthropic session -- a GLM one queues reviews (SAVER-L3.md).
+# Invalid or unreadable list, or no node -> a stated Opus fallback plus a /bajzi:setup warning.
+if [ -n "$block" ] && [ "$nonanth" = "no" ]; then
+    if rv=$(BAJZI_HOME="${BAJZI_HOME:-$HOME}" node "$(dirname "$lib")/node/lib/reviewer-models.js" 2>/dev/null) && [ -n "$rv" ]; then
+        block="$block
+REVIEWER MODELS (reviewer allow-list; launch the first): $rv"
+    else
+        block="$block
+REVIEWER MODELS: the reviewer allow-list is invalid (${rv:-node unavailable}). Until /bajzi:setup fixes it,
+REVIEWER = Opus (no version id: the newest Opus the account serves), never GLM."
+        warn="$warn reviewer allow-list invalid, run /bajzi:setup."
+    fi
+fi
 
 launcher="${BAJZI_SAVER_LAUNCHER:-}"
 [ -z "$launcher" ] && launcher="glm"

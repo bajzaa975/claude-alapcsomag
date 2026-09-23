@@ -298,6 +298,11 @@
     "id_ed25519*",
     "credentials.json"
   ],
+  "bajzi_config": {
+    "path": "~/.claude/bajzi/config.json",
+    "reviewer_models": ["claude-opus-5-5"],
+    "note": "The reviewer allow-list (spec Invariant 3), the ONLY place a reviewer model id is pinned. ORDERED: entry [0] is the launch default (drain, night-run orchestrator, day-run restart). Only claude- ids; any other entry voids the whole list. /bajzi:setup writes {\"reviewer_models\": [...]} to path when it is missing or invalid; a valid file that differs is drift (the owner's local swap), overwritten only on the owner's word."
+  },
   "statusline": {
     "install": "node \"${CLAUDE_PLUGIN_ROOT}/skills/setup/install-statusline.js\"",
     "target": "~/.claude/bajzi/statusline.js",
