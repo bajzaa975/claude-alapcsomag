@@ -22,7 +22,7 @@ const BLOCK_AT = 50;
 const WARN_EVERY = 5;
 const HANDOFF_DIR = /(^|\/)runtime\/handoff\/[^/]/i;
 const HANDOFF_FILE = /(^|\/)runtime\/handoff\.md$/i;
-const HANDOFF_DIR_ONLY = /^(?:\.\/)?runtime\/handoff\/?$/;
+const HANDOFF_DIR_ONLY = /^(?:\.\/)?runtime\/handoff\/?$/i;
 const SHELL_META = /[;&|<>`$()\r\n]/;
 const DEVNULL_TAIL = /\s+2>(?:\/dev\/null|nul)$/i;
 const GIT_BIN = /^(?:\/usr\/bin\/)?git(?:\.exe)?$/i;
@@ -40,9 +40,13 @@ function isHandoffPath(p) {
   return HANDOFF_DIR.test(n) || HANDOFF_FILE.test(n);
 }
 
-// A file INSIDE runtime/handoff/ (never runtime/HANDOFF.md, never the directory itself).
+// A file INSIDE runtime/handoff/ (never runtime/HANDOFF.md, never the directory itself), with no
+// '.' or empty segment below runtime/handoff/.
 function isHandoffDirFile(p) {
-  return isHandoffPath(p) && HANDOFF_DIR.test(norm(p)) && !norm(p).endsWith('/');
+  if (!isHandoffPath(p)) return false;
+  const n = norm(p);
+  const m = HANDOFF_DIR.exec(n);
+  return !!m && n.slice(m.index + m[0].length - 1).split('/').every(seg => seg !== '' && seg !== '.');
 }
 
 // Whitespace split that keeps "..." / '...' tokens whole (quotes dropped). Only ever called on a
@@ -58,14 +62,26 @@ function tokens(cmd) {
 function mvRule(args) {
   if (args.length !== 2 || args.some(a => a.startsWith('-'))) return null;
   const [src, dst] = args;
-  return isHandoffPath(src) && isHandoffDirFile(dst) ? 'ctx-allow-handoff-mv' : null;
+  const srcOk = HANDOFF_FILE.test(norm(src)) ? isHandoffPath(src) : isHandoffDirFile(src);
+  return srcOk && isHandoffDirFile(dst) ? 'ctx-allow-handoff-mv' : null;
 }
 
-function commandRule(command) {
+// {rule} when the command is an allowed handoff snippet, else {refused}: 'shell-meta',
+// 'backslash' (Bash mkdir/mv args only) or 'not-allowlisted'.
+function commandCheck(command, tool) {
   let cmd = typeof command === 'string' ? command.trim() : '';
   cmd = cmd.replace(DEVNULL_TAIL, '');
-  if (!cmd || SHELL_META.test(cmd)) return null;
-  const t = tokens(cmd);
+  if (!cmd || SHELL_META.test(cmd)) return { refused: 'shell-meta' };
+  const r = commandRule(tokens(cmd), tool);
+  return typeof r === 'string' ? { rule: r } : { refused: r ? r.refused : 'not-allowlisted' };
+}
+
+function commandRule(t, tool) {
+  // bash un-escapes backslashes (.\. -> ..) that norm() has already turned into separators, so a
+  // backslash in a path-mutating command is never trusted under Bash. PowerShell keeps them as
+  // separators, where norm() and the '..' check see what the shell sees.
+  const mutating = t[0] === 'mkdir' || t[0] === 'mv' || (GIT_BIN.test(t[0] || '') && t.includes('mv'));
+  if (tool === 'Bash' && mutating && t.some(a => a.includes('\\'))) return { refused: 'backslash' };
   if (t[0] === 'mkdir') {
     const rest = t.slice(1).filter(a => a !== '-p');
     return rest.length === 1 && t.length - 1 <= 2 && HANDOFF_DIR_ONLY.test(norm(rest[0])) ? 'ctx-allow-handoff-mkdir' : null;
@@ -108,14 +124,18 @@ function skillRule(tool, ti) {
 }
 
 // The rule id that exempts this call from the 50% block, or null.
-function exemptRule(input) {
+function exemptCheck(input) {
   const tool = input && input.tool_name;
   const ti = input && input.tool_input && typeof input.tool_input === 'object' ? input.tool_input : {};
   if (tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit' || tool === 'Read') {
-    return isHandoffPath(ti.file_path) ? 'ctx-allow-handoff-file' : null;
+    return { rule: isHandoffPath(ti.file_path) ? 'ctx-allow-handoff-file' : null };
   }
-  if (tool === 'Bash' || tool === 'PowerShell') return commandRule(ti.command);
-  return skillRule(tool, ti);
+  if (tool === 'Bash' || tool === 'PowerShell') return commandCheck(ti.command, tool);
+  return { rule: skillRule(tool, ti) };
+}
+
+function exemptRule(input) {
+  return exemptCheck(input).rule || null;
 }
 
 function exempt(input) {
@@ -204,13 +224,16 @@ function decide(input, { nowMs = Date.now(), dir } = {}) {
   const ev = input.hook_event_name;
   if (ev === 'PreToolUse') {
     if (used < BLOCK_AT) return { kind: 'allow' };
-    const rule = exemptRule(input);
+    const { rule, refused } = exemptCheck(input);
     if (rule) return { kind: 'allow', rule };
     const file = handoffFile(input);
+    const why = refused === 'shell-meta' ? ' This command was refused for a shell metacharacter (; & | < > ` $ ( ) or a line break).'
+      : refused === 'backslash' ? ' This command was refused for a backslash in a mkdir/mv argument: use forward slashes.' : '';
     return {
       kind: 'deny',
       rule: 'ctx-block-50',
-      reason: `Context is at ${used}% (block threshold ${BLOCK_AT}%). Start no new work: write the handoff now with /bajzi:handoff, directly to ${file}, then tell the user to run /clear. Still allowed: the bajzi:handoff skill; Write/Edit/Read on runtime/handoff/** and runtime/HANDOFF.md; single commands with no chaining, pipes or substitution: git status|diff|log|rev-parse|check-ignore, git symbolic-ref --short HEAD, mkdir -p runtime/handoff, git mv runtime/HANDOFF.md ${file}.`,
+      ...(refused ? { refused } : {}),
+      reason: `Context is at ${used}% (block threshold ${BLOCK_AT}%). Start no new work: write the handoff now with /bajzi:handoff, directly to ${file}, then tell the user to run /clear. Still allowed: the bajzi:handoff skill; Write/Edit/Read on runtime/handoff/** and runtime/HANDOFF.md; single commands with no chaining, pipes or substitution: git status|diff|log|rev-parse|check-ignore, git symbolic-ref --short HEAD, mkdir -p runtime/handoff, git mv runtime/HANDOFF.md ${file}.${why}`,
     };
   }
   if (ev === 'PostToolUse') {

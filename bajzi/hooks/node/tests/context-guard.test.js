@@ -71,7 +71,6 @@ test('I1b: the handoff skill snippets are allowed as single commands', () => {
   for (const [rule, cmd] of [
     ['ctx-allow-handoff-mkdir', 'mkdir -p runtime/handoff'],
     ['ctx-allow-handoff-mkdir', 'mkdir -p runtime/handoff/'],
-    ['ctx-allow-handoff-mkdir', 'mkdir runtime\\handoff'],
     ['ctx-allow-git-read', 'git symbolic-ref --quiet --short HEAD'],
     ['ctx-allow-git-read', 'git symbolic-ref --quiet --short HEAD 2>/dev/null'],
     ['ctx-allow-git-read', 'git rev-parse --show-toplevel'],
@@ -82,6 +81,14 @@ test('I1b: the handoff skill snippets are allowed as single commands', () => {
     ['ctx-allow-handoff-mv', 'git mv "runtime/HANDOFF.md" "runtime/handoff/feat-x.md"'],
   ]) {
     allowedBy(rule, at(55, pre('Bash', { command: cmd })), cmd);
+  }
+  // PowerShell keeps backslashes as path separators: the same snippets stay allowed there.
+  for (const [rule, cmd] of [
+    ['ctx-allow-handoff-mkdir', 'mkdir runtime\\handoff'],
+    ['ctx-allow-handoff-mv', 'git mv runtime\\HANDOFF.md runtime\\handoff\\feat-x.md'],
+    ['ctx-allow-handoff-mv', 'mv runtime/HANDOFF.md runtime/handoff/feat-x.md'],
+  ]) {
+    allowedBy(rule, at(55, pre('PowerShell', { command: cmd })), cmd);
   }
 });
 
@@ -97,6 +104,42 @@ test('I1b: look-alikes and chains of the handoff snippets are denied', () => {
   ]) {
     denied(at(55, pre('Bash', { command: cmd })), cmd);
   }
+});
+
+function refusedBy(refused, d, label) {
+  denied(d, label);
+  assert.strictEqual(d.refused, refused, label);
+}
+
+test('I-1: a bash backslash escape never reaches the mv / git mv / mkdir allowances', () => {
+  // bash un-escapes .\. to .. : these would overwrite src/app.py or move it away.
+  for (const cmd of [
+    'mv runtime/HANDOFF.md runtime/handoff/.\\./.\\./src/app.py',
+    'mv runtime/handoff/.\\./.\\./src/app.py runtime/handoff/x.md',
+    'git mv runtime/HANDOFF.md runtime/handoff/.\\./.\\./src/app.py',
+    'git mv runtime/handoff/.\\./.\\./src/app.py runtime/handoff/x.md',
+    'mkdir -p runtime\\handoff',
+  ]) {
+    refusedBy('backslash', at(55, pre('Bash', { command: cmd })), cmd);
+  }
+  // '.' and empty segments inside runtime/handoff/ are refused on their own too (any shell).
+  for (const tool of ['Bash', 'PowerShell']) {
+    for (const cmd of ['mv runtime/HANDOFF.md runtime/handoff/./x.md', 'git mv runtime/HANDOFF.md runtime/handoff//x.md',
+      'mv runtime/handoff/./x.md runtime/handoff/y.md']) {
+      refusedBy('not-allowlisted', at(55, pre(tool, { command: cmd })), `${tool} ${cmd}`);
+    }
+  }
+});
+
+test('M-1: newline, CRLF and spaced ; chains are refused by the shell-metacharacter check itself', () => {
+  for (const cmd of ['git status\nrm -rf x', 'git status\r\nrm -rf x', 'git status ; rm -rf x', 'git status && rm -rf x']) {
+    refusedBy('shell-meta', at(55, pre('Bash', { command: cmd })), JSON.stringify(cmd));
+  }
+  refusedBy('not-allowlisted', at(55, pre('Bash', { command: 'git stash' })), 'git stash');
+});
+
+test('M-9: the mkdir allowance is case-insensitive like the other handoff paths', () => {
+  allowedBy('ctx-allow-handoff-mkdir', at(55, pre('Bash', { command: 'mkdir -p Runtime/Handoff' })), 'mkdir Runtime/Handoff');
 });
 
 test('I1c: the deny reason names runtime/handoff/<slug>.md for the current branch', () => {
