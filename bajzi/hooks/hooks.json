@@ -1,5 +1,5 @@
 {
-  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers) + day-run working-mode injection + noisy-output filter + saver routing-violation counter",
+  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers) + day-run working-mode injection + noisy-output filter + saver routing-violation counter + context guard (40% warn, 50% block)",
   "hooks": {
     "SessionStart": [
       {
@@ -43,6 +43,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/context-guard.js\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -52,6 +62,16 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/routing-counter.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/context-guard.js\"",
             "timeout": 5
           }
         ]
