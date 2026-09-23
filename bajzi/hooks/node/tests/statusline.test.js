@@ -137,8 +137,76 @@ test('refreshGlm reads glm_share_pct from the worker command; a failing command 
   const cache = path.join(dir, 'glm-share.json');
   parts.refreshGlm(cache, Object.assign({}, process.env, { BAJZI_WORKER_CMD: `"${process.execPath}" "${fake}"` }));
   assert.strictEqual(JSON.parse(fs.readFileSync(cache, 'utf8')).pct, 72);
+  const fresh = path.join(dir, 'glm-none.json');
+  parts.refreshGlm(fresh, Object.assign({}, process.env, { BAJZI_WORKER_CMD: 'bajzi-no-such-worker-xyz' }));
+  assert.strictEqual(JSON.parse(fs.readFileSync(fresh, 'utf8')).pct, null);
+});
+
+test('M4: a failed refresh keeps the last good GLM value (never overwrites it with null)', () => {
+  const dir = tmpDir('bajzi-w-');
+  const cache = path.join(dir, 'glm-share.json');
+  fs.writeFileSync(cache, JSON.stringify({ ts: 1000, pct: 72 }));
+  fs.writeFileSync(path.join(dir, 'bad-worker.js'), 'process.stdout.write("not json")');
   parts.refreshGlm(cache, Object.assign({}, process.env, { BAJZI_WORKER_CMD: 'bajzi-no-such-worker-xyz' }));
-  assert.strictEqual(JSON.parse(fs.readFileSync(cache, 'utf8')).pct, null);
+  assert.strictEqual(JSON.parse(fs.readFileSync(cache, 'utf8')).pct, 72);
+  parts.refreshGlm(cache, Object.assign({}, process.env, { BAJZI_WORKER_CMD: `"${process.execPath}" "${path.join(dir, 'bad-worker.js')}"` }));
+  assert.strictEqual(JSON.parse(fs.readFileSync(cache, 'utf8')).pct, 72);
+});
+
+test('M3: the refresh lock is taken with wx -- a just-created (still empty) lock suppresses a refresh', () => {
+  const home = tmpDir('bajzi-h-');
+  const cache = parts.glmCachePath(home);
+  fs.mkdirSync(path.dirname(cache), { recursive: true });
+  fs.writeFileSync(cache + '.lock', '');                          // a concurrent writer mid-create
+  let calls = 0;
+  assert.strictEqual(parts.glmShare({ nowMs: Date.now(), home, env: {}, refresh: () => { calls++; } }), null);
+  assert.strictEqual(calls, 0);
+  fs.writeFileSync(cache + '.lock', String(Date.now() - 120000));  // expired lock is taken over once
+  parts.glmShare({ nowMs: Date.now(), home, env: {}, refresh: () => { calls++; } });
+  parts.glmShare({ nowMs: Date.now(), home, env: {}, refresh: () => { calls++; } });
+  assert.strictEqual(calls, 1);
+});
+
+test('M3: 8 concurrent status lines start at most one refresh', () => {
+  const home = tmpDir('bajzi-h-');
+  const hits = path.join(home, 'hits.txt');
+  const script = path.join(home, 'race.js');
+  fs.writeFileSync(script, `const parts = require(${JSON.stringify(path.join(NODE_DIR, 'lib', 'status-parts.js'))});
+const fs = require('node:fs');
+const start = Number(process.argv[2]);
+while (Date.now() < start) { /* align the racers */ }
+parts.glmShare({ nowMs: Date.now(), home: ${JSON.stringify(home)}, env: {}, refresh: () => fs.appendFileSync(${JSON.stringify(hits)}, 'x') });
+`);
+  const { spawn } = require('node:child_process');
+  const start = Date.now() + 700;
+  const kids = [];
+  for (let i = 0; i < 8; i++) kids.push(spawn(process.execPath, [script, String(start)], { stdio: 'ignore' }));
+  return Promise.all(kids.map(k => new Promise(r => k.on('exit', r)))).then(() => {
+    assert.strictEqual(fs.readFileSync(hits, 'utf8').length, 1);
+  });
+});
+
+test('M1: a cached git-info entry that fails the schema is ignored and recomputed', () => {
+  const cwd = gitRepo('feat/x');
+  const now = Date.now();
+  for (const info of [
+    { branch: 'evil\x1b]0;pwned\x07', dirty: false },
+    { branch: 'main\r\nfake', dirty: false },
+    { branch: 42, dirty: false },
+    { branch: 'main', dirty: 'yes' },
+    { branch: '', dirty: false },
+    'main',
+    [1],
+  ]) {
+    fs.writeFileSync(parts.gitCachePath(cwd), JSON.stringify({ ts: now, info }));
+    assert.deepStrictEqual(parts.gitInfo(cwd, now), { branch: 'feat/x', dirty: false }, JSON.stringify(info));
+  }
+  fs.writeFileSync(parts.gitCachePath(cwd), JSON.stringify({ ts: now, info: { branch: 'cached', dirty: true } }));
+  assert.deepStrictEqual(parts.gitInfo(cwd, now), { branch: 'cached', dirty: true });   // a valid entry is still used
+});
+
+test('M1: control and ESC characters are stripped from branch text', () => {
+  assert.deepStrictEqual(parts.parseGitStatus('# branch.oid abc\n# branch.head ma\x1b[31min\x07\n'), { branch: 'ma[31min', dirty: false });
 });
 
 test('RF5: status line degrades to a clean single line', () => {

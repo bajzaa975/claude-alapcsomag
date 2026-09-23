@@ -19,6 +19,20 @@ function copyJs(srcDir, destDir) {
   }
 }
 
+// Never overwrites an existing backup: 'wx' + a counter suffix (-1, -2, ...) on a name clash.
+function writeBackup(base, raw) {
+  for (let i = 0; i < 1000; i++) {
+    const name = i === 0 ? base : `${base}-${i}`;
+    try {
+      fs.writeFileSync(name, raw, { flag: 'wx' });
+      return name;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
+  }
+  throw new Error('no free backup name for ' + base);
+}
+
 function install({ pluginRoot, home, now = new Date() }) {
   const src = path.join(pluginRoot, 'hooks', 'node');
   const dest = path.join(home, '.claude', 'bajzi');
@@ -43,10 +57,7 @@ function install({ pluginRoot, home, now = new Date() }) {
     return { dest, command, settingsChanged: false, backup: null };
   }
   let backup = null;
-  if (raw !== null) {
-    backup = `${settingsPath}.bak-bajzi-${stamp(now)}`;
-    fs.writeFileSync(backup, raw);
-  }
+  if (raw !== null) backup = writeBackup(`${settingsPath}.bak-bajzi-${stamp(now)}`, raw);
   settings.statusLine = want;
   const tmp = `${settingsPath}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');

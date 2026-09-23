@@ -71,3 +71,21 @@ test('the installed copy runs from ~/.claude/bajzi (relative requires resolve)',
   assert.strictEqual(r.status, 0);
   assert.match(r.stdout, /^L0/);
 });
+
+test('M6: an existing backup with the same stamp is never overwritten', () => {
+  const home = tmp('bajzi-inst-');
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  const settings = path.join(home, '.claude', 'settings.json');
+  const taken = `${settings}.bak-bajzi-${stamp(NOW)}`;
+  fs.writeFileSync(taken, 'older backup');
+  fs.writeFileSync(settings, JSON.stringify({ theme: 'a' }));
+  const r1 = install({ pluginRoot: PLUGIN_ROOT, home, now: NOW });
+  assert.strictEqual(fs.readFileSync(taken, 'utf8'), 'older backup');
+  assert.notStrictEqual(r1.backup, taken);
+  assert.strictEqual(fs.readFileSync(r1.backup, 'utf8'), JSON.stringify({ theme: 'a' }));
+  fs.writeFileSync(settings, JSON.stringify({ theme: 'b' }));
+  const r2 = install({ pluginRoot: PLUGIN_ROOT, home, now: NOW });
+  assert.ok(![taken, r1.backup].includes(r2.backup));
+  assert.strictEqual(fs.readFileSync(r1.backup, 'utf8'), JSON.stringify({ theme: 'a' }));
+  assert.strictEqual(fs.readFileSync(r2.backup, 'utf8'), JSON.stringify({ theme: 'b' }));
+});
