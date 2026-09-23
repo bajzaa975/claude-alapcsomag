@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Set up a Claude Code machine to the desired state — plugin cleanup, then installation of the marketplaces, plugins, GSD, rtk and settings per the manifest. Use it ON A NEW MACHINE, or when an existing installation needs tidying up ("set up this machine", "clean out the plugins", "make it like my other machine").
+description: Set up a Claude Code machine to the desired state, or only check it for drift — plugin cleanup, then marketplaces, plugins, rtk, settings, the bajzi status line and user-scope MCPs per the manifest. Use it ON A NEW MACHINE, when an existing installation needs tidying up ("set up this machine", "clean out the plugins", "make it like my other machine"), or with --check ("is this machine in sync", "setup --check").
 ---
 
 # Machine setup per the manifest
@@ -11,6 +11,19 @@ this file contradict each other, the manifest wins.
 
 Work phase by phase, with a one-line status at the end of each phase. On Windows `~/.claude` is
 `C:\Users\<user>\.claude`.
+
+## `--check`: report drift, change nothing
+
+If the user invoked `/bajzi:setup --check` (or asked only whether the machine is in sync), run
+exactly this and nothing else:
+
+```
+node "${CLAUDE_PLUGIN_ROOT}/skills/setup/check.js"
+```
+
+Print its output verbatim. Exit 0 = `setup --check: clean`. Exit 1 = one `DRIFT <id> <detail>`
+line per item. Exit 2 = the manifest could not be read. Fix nothing in this mode; offer a full
+`/bajzi:setup` run when there is drift.
 
 ## Blocklist
 
@@ -31,13 +44,14 @@ as `~/.claude-backup-<date>`, and report this.
 
 ## PHASE B — Inventory, BEFORE deleting anything
 
-Collect and print terse: `claude plugin list`, `claude plugin marketplace list`,
+Collect and print terse: `claude plugin list`, `claude plugin marketplace list`, `claude mcp list`,
 the contents of `~/.claude/{skills,commands,agents,hooks}`, the
-hooks/statusLine/enabledPlugins/permissions/skillOverrides blocks of `settings.json`, and whether GSD
-is present (`~/.claude/.gsd-source`).
+hooks/statusLine/enabledPlugins/permissions/skillOverrides blocks of `settings.json`, and the
+output of `node "${CLAUDE_PLUGIN_ROOT}/skills/setup/check.js"`.
 
 Mark every item: **NEEDED** (present in the manifest) or **TO DELETE**. Mark separately the ones on
-the manifest's `deliberately_skipped` list — those are not missing by accident.
+the manifest's `deliberately_skipped` list — those are not missing by accident. Every `leftover`
+and `leftover-setting` line of the check output is **TO MOVE** (PHASE C step 6).
 
 ## PHASE C — Cleanup
 
@@ -46,22 +60,29 @@ the manifest's `deliberately_skipped` list — those are not missing by accident
    would become inconsistent. Use only the CLI.
 2. **Foreign marketplaces:** `claude plugin marketplace remove <name>`.
 3. **Non-plugin skills/commands/agents:** under `~/.claude/{skills,commands,agents}`
-   everything is to be deleted that is not `gsd-*` and was not installed by a plugin. **Pay special
+   everything is to be deleted that was not installed by a plugin. **Pay special
    attention** to the names `alapcsomag`, `autopilot`, `handoff` and to `hooks/handoff-load.sh`: these
    are replaced by the `bajzi` plugin, both would load as duplicates. Before deleting, list what
    you are going to delete.
 4. **settings.json:** remove the orphan hooks (pointing at non-existent scripts), the
-   SessionStart entry calling `handoff-load.sh` (the plugin brings it), and the `skillOverrides`
-   lines pointing at a deleted plugin. LEAVE the GSD hooks and the statusline ALONE.
+   SessionStart entry calling `handoff-load.sh` (the plugin brings it), the `skillOverrides`
+   lines pointing at a deleted plugin, and every hook command or `permissions.allow` entry that
+   contains one of the manifest's `forbidden_leftovers.settings_substrings`.
    Back up first: `settings.json.bak-<date>`.
 5. **Known leftovers:** based on the manifest's `known_leftovers` list. These are large,
    orphaned data directories — the list also contains the evidence of which tool they belong to.
-6. **Do NOT clean up GSD by hand** — in phase D its own installer tidies itself up.
+6. **Forbidden leftovers (GSD is retired, `gsd.status`):** list every path the check reported as
+   `leftover`. Only after the user confirms IN THIS CHAT, MOVE (never delete) them to
+   `~/claude-backup-leftovers-<date>/`, keeping each path relative to `~`. Without that
+   confirmation leave them and put them in the "manual" list. While the manifest still has
+   `gsd.laptop_retained_hooks`, never move the files it lists (on the owner's laptop only):
+   report them as "manual" instead.
 
 ## PHASE D — Installation
 
-1. Check: `claude --version`, `node -v`, and whether `bash` is on the PATH. **On Windows
-   there is no bash without Git for Windows**, and the hooks silently do not run — report this.
+1. Check: `claude --version`, `node -v` (must be >= 18: the status line and the guards are node),
+   and whether `bash` is on the PATH. **On Windows there is no bash without Git for Windows**, and
+   the shell hooks silently do not run — report this.
 2. The manifest's `marketplaces` list: `claude plugin marketplace add <source>`.
 3. The manifest's `plugins` list:
    - not yet installed: `claude plugin install <id>`
@@ -74,17 +95,12 @@ the manifest's `deliberately_skipped` list — those are not missing by accident
    This skill does NOT use the `claude plugin enable` command. If the manifest's entry has a
    `windows` field and you are running on this platform, read it and follow it — that is where it is
    written which plugin is known to be problematic and what to do.
-4. **GSD:** `gsd.default_install` is `false` — SKIP this step, UNLESS this machine is the VM
-   working on Innotel-bss (`gsd.machine_exception`). On that machine only: interactive installer,
-   **do NOT start it yourself**. Print the manifest's `gsd.install` command to the user, and what
-   to choose at the prompts (`runtime`, `scope`, `profile`). Wait until they say it is done. On
-   every other machine, if GSD is already present, do NOT remove it yourself either — report it,
-   do not decide for the owner.
+4. **GSD:** never install it (`gsd.default_install` is `false`, `gsd.status` says retired).
 5. **Global rules:** per the manifest's `global_rules` field.
-6. **settings.json merge:** the manifest's `settings_merge` object. Do not touch the GSD hooks and
-   the statusline.
+6. **settings.json merge:** the manifest's `settings_merge` object.
 7. **rtk:** per the manifest's `rtk` block. Not required. Add the hook ONLY if
-   the `check` command works.
+   the `check` command works. Then make sure the rtk config file (`rtk.config`, per OS) has every
+   entry of `rtk.exclude_commands` in `[hooks] exclude_commands`, keeping entries already there.
 8. **Default working mode:** if `~/.claude/bajzi-mode` does not already exist, create it with
    `day-run` — never overwrite an existing choice:
    ```
@@ -92,19 +108,32 @@ the manifest's `deliberately_skipped` list — those are not missing by accident
    ```
    This is what makes the plugin's day-run injection safe: the owner's machines opt in, a
    stranger's machine stays silent.
+9. **Status line** (every run, it refreshes the copy):
+   ```
+   node "${CLAUDE_PLUGIN_ROOT}/skills/setup/install-statusline.js"
+   ```
+   It copies the status line to `~/.claude/bajzi/` and points `settings.json` `statusLine` at that
+   copy, backing `settings.json` up as `settings.json.bak-bajzi-<stamp>` first. Never write the
+   plugin cache path into settings yourself. If it prints `FAILED`, report the message and go on.
+10. **User-scope MCPs:** for every entry of the manifest's `user_mcps` object that `claude mcp list`
+    does not show, add it with the entry as JSON (Git Bash / Linux quoting shown):
+    ```
+    claude mcp add-json --scope user <name> '<the user_mcps entry as one-line JSON>'
+    ```
 
 ## PHASE E — Verification, specifically for duplicates
 
-- `claude plugin list` and `marketplace list` = exactly the manifest's content, nothing more
+- `node "${CLAUDE_PLUGIN_ROOT}/skills/setup/check.js"` prints `setup --check: clean`. Every
+  remaining `DRIFT` line goes into the report with the reason it stayed.
 - there must be no name that exists both under `~/.claude/{commands,skills}` AND as a
   plugin skill (check separately: alapcsomag, autopilot, handoff)
 - every `settings.json` hook command must point at an existing file
-- tell them to start a new session and verify: `/bajzi:handoff` exists, `/context`
-  baseline under 20%, `/bajzi:mode status` reports the mode set in PHASE D step 8 (or an
-  existing choice, left untouched)
+- tell them to start a new session and verify: the status line shows `L<n>` and the context bar,
+  `/bajzi:handoff` exists, `/context` baseline under 20%, `/bajzi:mode status` reports the mode set
+  in PHASE D step 8 (or an existing choice, left untouched)
 
 ## Closing report
 
-Table: what was deleted · what was installed (with token cost) · what was left to manual work · where
-the backup is. If something does not fit the categories above, **do not decide for the user** — put it
-in the "manual" list.
+Table: what was deleted · what was moved · what was installed (with token cost) · what was left to
+manual work · where the backup is. If something does not fit the categories above, **do not decide
+for the user** — put it in the "manual" list.

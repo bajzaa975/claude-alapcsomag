@@ -84,11 +84,6 @@
   "gsd": {
     "default_install": false,
     "why_removed_from_default": "2026-09-23: GSD 1.13.0 removed from the owner's Windows laptop (backup: D:/AI/backup/gsd-removed-20260923/). The owner uses superpowers as the methodology everywhere; GSD's global install (46 skills, 29 agents, 17 hooks running on nearly every tool call) is a large always-on cost for near-zero everyday use outside one repo.",
-    "machine_exception": {
-      "where": "VM only, and ONLY for the Innotel-bss repo — not a blanket VM install, and not a reason to install it elsewhere",
-      "status": "pending: owner has not yet decided whether superpowers+bajzi should replace GSD there too",
-      "setup_rule": "On that VM, for Innotel-bss: install/update GSD per the fields below, and setup must NOT remove an existing GSD install there. On every other machine (including this laptop): setup does NOT install GSD, and does not remove a pre-existing install either — flag it in the report, do not decide for the owner."
-    },
     "laptop_retained_hooks": {
       "why": "2026-09-23: these 4 GSD hooks are kept temporarily on the Windows laptop after the GSD plugin itself was removed, until they are ported into bajzi.",
       "files": [
@@ -115,7 +110,8 @@
       "Restore our permissions.deny (Read(.env), Read(.env.*), Read(.secrets)) — GSD 1.14 removes that block in favour of its own secret-read-guard hook.",
       "Re-measure. Expected: 9 skills (~248) + 46 commands (~1,264) + 26 agents (~1,507) = ~3,019 always-on tokens."
     ],
-    "agent_layer": "1.14 stages 29 agents (~1,648 tok always-on); 1.12 staged ZERO, which meant every agent-dispatching GSD command was spawning a non-existent agent. Keeping 26 is the owner's explicit decision: cutting them saves ~910 tok and breaks code-review, debug, ship, secure-phase, eval-review, ai-integration-phase, validate-phase, audit-milestone, profile-user."
+    "agent_layer": "1.14 stages 29 agents (~1,648 tok always-on); 1.12 staged ZERO, which meant every agent-dispatching GSD command was spawning a non-existent agent. Keeping 26 is the owner's explicit decision: cutting them saves ~910 tok and breaks code-review, debug, ship, secure-phase, eval-review, ai-integration-phase, validate-phase, audit-milestone, profile-user.",
+    "status": "retired 2026-09-23: superpowers + bajzi everywhere; the status line, context monitor, secret-read guard and read-injection scanner are ported into bajzi (hooks/node/). Setup never installs GSD."
   },
   "rtk": {
     "required": false,
@@ -135,7 +131,22 @@
         }
       ]
     },
-    "note": "Only add the hook if `rtk gain` WORKS. Name collision: reachingforthejack/rtk is a DIFFERENT tool."
+    "note": "Only add the hook if `rtk gain` WORKS. Name collision: reachingforthejack/rtk is a DIFFERENT tool.",
+    "exclude_commands": [
+      "ssh",
+      "scp",
+      "curl",
+      "keyring",
+      "deploy",
+      "release",
+      "publish",
+      "migrate"
+    ],
+    "config": {
+      "linux_mac": "~/.config/rtk/config.toml",
+      "windows": "%APPDATA%\\rtk\\config.toml",
+      "section": "[hooks] exclude_commands = [...] (merge: keep existing entries, add the missing ones)"
+    }
   },
   "defuddle": {
     "required": false,
@@ -158,13 +169,7 @@
     "agentPushNotifEnabled": true,
     "disableClaudeAiConnectors": true,
     "permissions": {
-      "allow": [
-        "Bash(npx gsd-core *)",
-        "Read(.planning/*)",
-        "Edit(.planning/*)",
-        "Read(STATE.md)",
-        "Edit(STATE.md)"
-      ],
+      "defaultMode": "auto",
       "deny": [
         "Read(.env)",
         "Read(.env.*)",
@@ -292,5 +297,58 @@
     "id_rsa*",
     "id_ed25519*",
     "credentials.json"
-  ]
+  ],
+  "statusline": {
+    "install": "node \"${CLAUDE_PLUGIN_ROOT}/skills/setup/install-statusline.js\"",
+    "target": "~/.claude/bajzi/statusline.js",
+    "settings": "statusLine = {type: command, command: node \"<abs target, forward slashes>\"}; never the versioned plugin cache path",
+    "refresh": "re-run on every /bajzi:setup"
+  },
+  "user_mcps": {
+    "code-review-graph": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "code-review-graph",
+        "serve"
+      ]
+    },
+    "token-savior": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "token-savior-recall[memory-vector]",
+        "--with",
+        "mcp",
+        "token-savior"
+      ],
+      "env": {
+        "TOKEN_SAVIOR_CLIENT": "claude-code",
+        "TOKEN_SAVIOR_PROFILE": "optimized"
+      }
+    }
+  },
+  "forbidden_leftovers": {
+    "why": "GSD retired 2026-09-23 and claude-mem removed; these must not remain on any machine. setup MOVES them to a backup after the user confirms, never deletes.",
+    "paths": [
+      "~/.claude/gsd-core",
+      "~/.claude/hooks/gsd-*",
+      "~/.claude/hooks/lib",
+      "~/.claude/skills/gsd-*",
+      "~/.claude/agents/gsd-*",
+      "~/.claude/commands/gsd",
+      "~/.claude/commands/gsd-*",
+      "~/.claude/gsd-file-manifest.json",
+      "~/.claude/gsd-install-state.json",
+      "~/.claude/.gsd-source",
+      "~/.claude/.gsd-surface.json",
+      "~/.claude-mem"
+    ],
+    "settings_substrings": [
+      "gsd-",
+      ".planning/",
+      "claude-mem"
+    ]
+  }
 }

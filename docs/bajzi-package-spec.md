@@ -69,7 +69,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js:20-22` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in the plan's Global Constraints and spec §3.2 — keep both in sync or the doc lies. |
 | What is allowed above 50% | `context-guard.js:36-153` `isHandoffPath`, `commandCheck`, `commandRule`, `mvRule`, `skillRule`, `exemptCheck` | same, tests `RF4:*`, `I1a/I1b/I1c:*`, `I-1: shell escapes...` | 1 | `PLAIN_WORD` whitelist (`:67`) only covers `mkdir`/`mv`/`git mv` argument tokens; a round-3 fix for this (commit `7280057`) just landed and its delta re-review was still in flight when this doc was written — check the ledger before trusting it's CLEAN. |
 | Status-line fields/order | `bajzi/hooks/node/statusline.js:51-78` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). GLM share only rendered at level ≥ 1. |
-| Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js:38` `matchProtected`, `:169` `commandReadsProtected`; `manifest.json:289` `secret_patterns` | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | **Built, COMPLETE, review-clean** (`9517010` + fix round 1 `39533f9`) — globs, brace lists, PS comma arrays, `rtk` wrappers all covered (§6.7). |
+| Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js:38` `matchProtected`, `:169` `commandReadsProtected`; `manifest.json:294` `secret_patterns` | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | **Built, COMPLETE, review-clean** (`9517010` + fix round 1 `39533f9`) — globs, brace lists, PS comma arrays, `rtk` wrappers all covered (§6.7). |
 | Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js:4-20` `REGEX_RULES`, `:54` `scan`, `:27` `RULE_IDS` (17 ids), `:34` `sanitize`; `bajzi/hooks/node/injection-scan.js:31` `decide` | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Built, review-clean (Task 5, `78ec163` + fix round 1). Warn-only by design — `addContext` only, never `deny()`; never wire it to block. Every rule regex avoids the `\s*X?\s*` quadratic shape (§6.8); excerpts/source run through `sanitize()`. |
 | Saver-level routing table (what task class → what model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh:136` (`head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh` `saver_resolve()` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh:21-24`) must stay above the file's real line count (currently 53) or the tail silently drops with no error. |
 | GLM model mapping (`--model sonnet\|opus` → `glm_model`) | `bajzi/bin/cc-router.js:54-59` `effective()`, `:289-296` glm env block | `node --test bajzi/bin/tests/*.test.js` | 1 | `-ClaudeBin glm` maps `CLAUDE_CODE_SUBAGENT_MODEL` too — the whole session incl. sub-agents runs on GLM (§6.2, §9.1). |
@@ -79,7 +79,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Night-run `-Levels`/`-OnQuota`/`-MaxHours` | claude-orchestrator `scripts/nightrun.ps1:16-35` (param block), `scripts/nightrun-lib.ps1:4` `ConvertFrom-LevelSpec`, `:179` `Get-SessionOutcome`, `:197` `Test-DegradePossible` | `Invoke-Pester tests/ps -Output Minimal` | 1 | `-MaxHours` is a hard **kill** wall, not a "stop starting new sprints" budget. `-Levels` and `-ClaudeBin` are mutually exclusive (`Assert-LaunchArgs:41`). |
 | Review-queue closing (mark-clean/abandon) | claude-orchestrator `scripts/review_queue.py:133` `create`, `:149` `complete`, `:176` `verify`, `:482` `abandon`, mark-clean logic ~`:400-440` | `python -m pytest -q tests/test_review_queue.py tests/test_review_queue_drain.py tests/test_review_queue_guard.py` | 1 | Only a **runner-written ledger line in the git dir** (not the worktree item file) closes an item; `abandon`/`mark-clean` refuse with exit 77 inside any Claude session (owner-only, run from a plain shell). Known open gap: wave-2 I-1, an unpinned interpreter can still forge a clean line (§9.3). |
 | Push guard | claude-orchestrator `.githooks/pre-push`, `review_queue.py` `pushed_contains_open` | `python -m pytest -q tests/test_review_queue_guard.py` | 1 | Fails **closed** on any error. Requires `core.hooksPath = .githooks` (`Assert-GitHooksInstalled`, `nightrun-lib.ps1:256`). Known gap: squash-merging several range commits into one is not caught yet (M2, §9.3). |
-| Manifest / setup drift keys | `bajzi/skills/setup/manifest.json`; **PLANNED** `bajzi/skills/setup/check.js` (Task 6) | **PLANNED** `bajzi/skills/setup/tests/check.test.js` | 1 (writes `~/.claude/settings.json`) | Adding/removing a plugin, skill or MCP without updating `manifest.json` in the same change breaks the owner's standing manifest-sync rule. |
+| Manifest / setup drift keys | `bajzi/skills/setup/manifest.json` (`settings_merge:160` incl. `permissions.defaultMode:172`, `rtk.exclude_commands:135`, `statusline:301`, `user_mcps:307`, `forbidden_leftovers:332`); `bajzi/skills/setup/check.js:77` `checkAll`, `:45` `leafDiffs`, `:138` `main` | `node --test bajzi/skills/setup/tests/check.test.js` | 1 (setup writes `~/.claude/settings.json`; `check.js` itself is read-only) | Built (Task 6, §6.9). Any new `settings_merge` key is compared automatically by `leafDiffs` — a key the owner sets on purpose but the manifest lacks is NOT drift, but one the manifest has and the machine lacks IS. Adding/removing a plugin, skill or MCP without updating `manifest.json` in the same change breaks the owner's standing manifest-sync rule. |
 | Adding a new hook | `bajzi/hooks/hooks.json` (append-only, per plan Global Constraints) | `node --test bajzi/skills/project-setup/tests/release.test.js` (checks every `node` command in `hooks.json` resolves to a real file — **planned**, Task 7) | 1 or 2 depending on what the hook does | `env-unify`'s `hooks.json` and `saver-levels`'s `hooks.json` have **diverged** (the latter has the `PreToolUse(Agent\|Task)` → `dispatch-guard.sh` entry, the former does not) — merging the branches needs a manual reconciliation pass, not a blind file merge. |
 | Releasing a new plugin version + reinstall | `bajzi/.claude-plugin/plugin.json` `version`, `.claude-plugin/marketplace.json` `version` | manual: `claude plugin update bajzi@bajzi-plugins`, then `claude plugin list` shows the new version | 3 (but treat the pitfall below as Tier-1-serious) | `claude plugin update` is a **no-op** unless **both** manifests' version move in the same commit (`manifest.json` `known_pitfalls`, the "Unknown command" entry) — this has bitten the owner before. |
 
@@ -536,7 +536,7 @@ last `/` or `\`, then after a `:` for git `ref:path`/drive letters, quotes strip
 it against: `.env`/`.env.*` (allow-listed suffixes via `ENV_ALLOWED = /\.(example|sample|
 template|dist)$/i`, `:9`), `.secrets`, plus `manifest.json`'s `secret_patterns` array (live today:
 `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`, `credentials.json`, confirmed present at
-`manifest.json:289`) via `matchProtected()`/`isProtectedPath()` (`:38,50`), **globs and brace lists**
+`manifest.json:294`) via `matchProtected()`/`isProtectedPath()` (`:38,50`), **globs and brace lists**
 via `matchGlobPattern()`/`expandBraces()`/`globToRegex()` (`:65,55,33` — `{a,b}` expansion capped at
 64 results, then each comma-separated part checked by its last segment, literal or with wildcards
 stripped, so `.env*` and PowerShell `gc .env,README.md` both match).
@@ -686,29 +686,58 @@ like "ignore all previous instructions" and `<system>...</system>` as SAMPLE DAT
 scanner's test suite. That is the scanner working as intended: a single-source match on
 documentation is expected and is not evidence of a real attempt.)*
 
-### 6.9 Setup drift checker — PLANNED (Task 6, not built)
+### 6.9 Setup drift checker — technical (`env-unify`, BUILT, Task 6)
 
-`bajzi/skills/setup/check.js` does not exist yet; only `SKILL.md`, `install-statusline.js` and the
-current `manifest.json` are in the tree. Per the plan:
+`bajzi/skills/setup/check.js` — `/bajzi:setup --check`. **Read-only**: it never writes, creates or
+deletes anything (test `check.js is read-only: no file under HOME changes`). Built on `env-unify`
+on top of `0e28057`.
 
-- **Interfaces**: `checkAll({home, manifest, env})`, `main(argv, env)` → exit `0` (clean), `1`
-  (drift found), or `2` (unreadable manifest). One `DRIFT <id> <detail>` line per item;
-  `--json` prints `{"drift":[...]}`.
-- **Drift ids**: `marketplace-missing/-extra`, `plugin-missing/-extra`, `settings-missing`,
-  `setting-drift`, `statusline-missing/-foreign/-file-missing`, `mcp-missing`, `rtk-missing`,
-  `rtk-config-missing`, `rtk-exclude-missing`, `bajzi-mode-missing`, `leftover`,
-  `leftover-setting`, `unreadable`.
-- **What it compares**: `known_marketplaces.json`/`installed_plugins.json` (user-scope plugins
-  only — project-scope ones are ignored) against `manifest.json`'s `marketplaces`/`plugins`;
-  `~/.claude/settings.json` against `manifest.json`'s `settings_merge` — **including the new key
-  `permissions.defaultMode: "auto"`** (owner decision, `progress.md:24`: the owner set this
-  laptop-wide on 2026-09-23 so every session starts in auto mode; Task 6 must add it to both the
-  manifest and the drift check or a real, intentional setting silently reads as drift forever);
-  `rtk`'s `exclude_commands` in `%APPDATA%\rtk\config.toml`; the installed status-line file and
-  command; `forbidden_leftovers` (GSD remnant paths/settings substrings).
-- **Config knobs**: env `BAJZI_HOME` (default `os.homedir()`), `BAJZI_MANIFEST`.
-- **Tests (spec'd)**: `bajzi/skills/setup/tests/check.test.js` — a synthetic "clean machine"
-  fixture plus per-drift-id mutation tests.
+- **Entry points**: `main(argv, env)` (`check.js:138`) → exit `0` = `setup --check: clean`, `1` =
+  one `DRIFT <id> <detail>` line per item then `setup --check: N drift item(s)`, `2` = the manifest
+  cannot be read (`setup --check: cannot read manifest <path>`). `--json` prints
+  `{"drift":[{"id","detail"}]}` instead. `checkAll({home, manifest, env})` (`:77`) returns the
+  `[id, detail]` array; helpers `onPath` (`:21`), `rtkConfigPath` (`:32`), `rtkExcludes` (`:39`,
+  parses `[hooks] exclude_commands = [...]`), `leafDiffs` (`:45`), `globLast` (`:62`).
+- **What it compares** (all in `checkAll`):
+  - `~/.claude/plugins/known_marketplaces.json` vs manifest `marketplaces` → `marketplace-missing`
+    (repo slug) / `marketplace-extra` (marketplace name); repo match tolerates URL/`.git` forms.
+  - `installed_plugins.json` **user-scope** entries vs manifest `plugins` → `plugin-missing` /
+    `plugin-extra`; project-scope installs are ignored.
+  - `~/.claude/settings.json` vs `settings_merge` via `leafDiffs`: scalars must be equal
+    (`setting-drift <key> is <have>, want <want>`), arrays must contain every manifest item
+    (`setting-drift <key> missing <item>`); extra user keys/items are not drift. This covers
+    **`permissions.defaultMode: "auto"`** (owner decision 2026-09-23; missing or any other value
+    = drift, test `permissions.defaultMode: missing and different values drift`). Missing file =
+    `settings-missing`, bad JSON = `unreadable` (no crash, empty stderr).
+  - `statusLine.command` must reference `/.claude/bajzi/statusline.js` → `statusline-missing` /
+    `statusline-foreign <command>`; the file itself → `statusline-file-missing`.
+  - `~/.claude.json` `mcpServers` must contain every `user_mcps` name → `mcp-missing`.
+  - `rtk` on PATH (`.exe/.cmd/.bat` on Windows) → `rtk-missing`; the rtk config
+    (`%APPDATA%\rtk\config.toml` on Windows, `$XDG_CONFIG_HOME|~/.config/rtk/config.toml`
+    elsewhere) → `rtk-config-missing`, each absent `rtk.exclude_commands` entry →
+    `rtk-exclude-missing`.
+  - `~/.claude/bajzi-mode` exists → `bajzi-mode-missing`.
+  - `forbidden_leftovers.paths` (`~`-relative, `*` only in the last segment) → `leftover
+    <path>`; `forbidden_leftovers.settings_substrings` found in `settings.hooks` or
+    `permissions.allow` → `leftover-setting <substring>`.
+- **Manifest keys it reads** (`manifest.json`): `marketplaces`, `plugins`, `settings_merge`
+  (`:160`, incl. `permissions.defaultMode` `:172`), `user_mcps` (`:307`; `code-review-graph` =
+  `uvx code-review-graph serve`, `token-savior`), `rtk.exclude_commands` (`:135`), `rtk.config`,
+  `forbidden_leftovers` (`:332`). `statusline` (`:301`) and `secret_patterns` (`:294`) are for
+  SKILL.md / the secret guard, not compared. Task 6 also removed `settings_merge.permissions.allow`
+  (GSD entries) and `gsd.machine_exception`, and set `gsd.default_install: false` +
+  `gsd.status: retired 2026-09-23`; `gsd.laptop_retained_hooks` stays until Task 8.
+- **Config knobs**: env `BAJZI_HOME` (default `os.homedir()`), `BAJZI_MANIFEST` (default the
+  `manifest.json` next to `check.js`).
+- **Tests**: `node --test bajzi/skills/setup/tests/check.test.js` (13 tests: clean fixture, one
+  test per drift family, `--json`/exit 2, read-only snapshot, real-manifest shape, SKILL.md steps).
+  Mutation check: disabling each of the 17 comparisons makes its named test fail.
+- **Expected on the owner's laptop today**: exit 1, 27 drift lines (GSD leftovers, the GSD status
+  line, 8 `rtk-exclude-missing` because the rtk exclude list is empty, missing `permissions.deny`
+  entries, `mcp-missing code-review-graph`). That is correct; Task 8 drives it to zero.
+- `SKILL.md` wires it in: `--check` mode, PHASE B inventory, PHASE C step 6 (move leftovers after
+  confirmation, never the `laptop_retained_hooks` files), PHASE D steps 9-10 (status line
+  installer, `claude mcp add-json --scope user`), PHASE E (must print `clean`).
 
 ### 6.10 project-setup + `.claude/project-profile.json` — PLANNED (Task 7, not built)
 
@@ -972,8 +1001,8 @@ residual risk pending owner review.
 | Status line + `status-parts.js` + installer (Task 2) | Built, reviewed CLEAN | bajzi-plugins-dev : `env-unify` @ `5f8521e` (+`7a2cffc`) | not installed — live `statusLine` still points at `gsd-statusline.js` |
 | Context guard (Task 3) | **Built, COMPLETE** — round-3 fix reviewed CLEAN (44 attack commands denied, 0 new Critical/Important) | bajzi-plugins-dev : `env-unify`, commits `5f8521e..7280057` | not installed (past `origin/main`) |
 | Secret guard (Task 4) | **Built, COMPLETE, review-clean** | bajzi-plugins-dev : `env-unify` @ `9517010`..`39533f9` | Fix round 1 (`39533f9`) closed review r1's 2 Important (glob/brace/PS-comma-array bypasses; missing `rtk` recognition) and 1 Minor. No Critical/Important survived the delta review. Not installed. |
-| Injection scanner (Task 5) | **Built, review-clean** — fix round 1 closed I1 (ReDoS), I2 (literal invisible/bidi chars restored to escapes), I3 (excerpt/source sanitization), I4 (this doc) | bajzi-plugins-dev : `env-unify` @ `78ec163` + this commit (fix round 1) | not installed (past `origin/main`) |
-| Setup drift checker (Task 6) | **Planned only** | — | no code |
+| Injection scanner (Task 5) | **Built, review-clean** — fix round 1 closed I1 (ReDoS), I2 (literal invisible/bidi chars restored to escapes), I3 (excerpt/source sanitization), I4 (this doc) | bajzi-plugins-dev : `env-unify` @ `78ec163` + `0e28057` (fix round 1) | not installed (past `origin/main`) |
+| Setup drift checker (Task 6) | **Built**, awaiting Tier-1 review | bajzi-plugins-dev : `env-unify`, first commit after `0e28057` | not installed (past `origin/main`); laptop reports 27 drift items today (expected, §6.9) |
 | project-setup + alapcsomag retirement (Task 7) | **Planned only** | — | no code |
 | Cut-over (Task 8) | **Planned checklist, not run** | — | — |
 | `cc-router.js` (glm/worker/ccr shim) | Built, reviewed CLEAN, **merged, pushed, installed** | bajzi-plugins-dev : `origin/main` = `f07d52a` (bajzi 1.7.0) | installed both ways: as part of plugin 1.7.0, and by hand at `~/.local/bin/cc-router.js` v1.2.0 (`install.sh`, not refreshed by a plugin update) |
