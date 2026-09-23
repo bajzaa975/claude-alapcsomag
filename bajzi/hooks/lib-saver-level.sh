@@ -2,9 +2,9 @@
 # Shared saver-level resolution for the bajzi hooks. SOURCE it, do not run it.
 # Sourcing defines functions only: no output, no filesystem access, no variables.
 #
-# Used by day-run-mode.sh (SessionStart) and routing-counter.sh (PostToolUse on
-# Agent), so both hooks agree BY CONSTRUCTION on the gate, the provider and the
-# level. Change the rules here, never in a copy.
+# Used by day-run-mode.sh (SessionStart), routing-counter.sh (PostToolUse on
+# Agent) and dispatch-guard.sh (PreToolUse on Agent), so the hooks agree BY
+# CONSTRUCTION on the gate, the provider and the level. Change the rules here, never in a copy.
 #
 # saver_resolve <cwd> sets:
 #   SAVER_HOST          lowercased host of ANTHROPIC_BASE_URL (empty when unset)

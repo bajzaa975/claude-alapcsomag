@@ -1,5 +1,5 @@
 {
-  "description": "Automatic HANDOFF loading + per-repo methodology selection + day-run working-mode injection + noisy-output filter + saver routing-violation counter + context guard (40% warn, 50% block) + secret-read guard + prompt-injection scanner",
+  "description": "Automatic HANDOFF loading + per-repo methodology selection + day-run working-mode injection + noisy-output filter + saver routing-violation counter + context guard (40% warn, 50% block) + secret-read guard + prompt-injection scanner + sub-agent dispatch guard",
   "hooks": {
     "SessionStart": [
       {
@@ -60,6 +60,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/secret-guard.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-guard.sh\"",
             "timeout": 5
           }
         ]
