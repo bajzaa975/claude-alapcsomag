@@ -70,7 +70,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | What is allowed above 50% | `context-guard.js:36-153` `isHandoffPath`, `commandCheck`, `commandRule`, `mvRule`, `skillRule`, `exemptCheck` | same, tests `RF4:*`, `I1a/I1b/I1c:*`, `I-1: shell escapes...` | 1 | `PLAIN_WORD` whitelist (`:67`) only covers `mkdir`/`mv`/`git mv` argument tokens; a round-3 fix for this (commit `7280057`) just landed and its delta re-review was still in flight when this doc was written — check the ledger before trusting it's CLEAN. |
 | Status-line fields/order | `bajzi/hooks/node/statusline.js:51-78` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). GLM share only rendered at level ≥ 1. |
 | Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js:38` `matchProtected`, `:169` `commandReadsProtected`; `manifest.json:289` `secret_patterns` | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | **Built, COMPLETE, review-clean** (`9517010` + fix round 1 `39533f9`) — globs, brace lists, PS comma arrays, `rtk` wrappers all covered (§6.7). |
-| Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js:4-20` `REGEX_RULES`, `:39` `scan`, `:27` `RULE_IDS` (17 ids); `bajzi/hooks/node/injection-scan.js:31` `decide` | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Built (Task 5, on top of `39533f9`). Warn-only by design — `addContext` only, never `deny()`; never wire it to block. |
+| Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js:4-20` `REGEX_RULES`, `:54` `scan`, `:27` `RULE_IDS` (17 ids), `:34` `sanitize`; `bajzi/hooks/node/injection-scan.js:31` `decide` | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Built, review-clean (Task 5, `78ec163` + fix round 1). Warn-only by design — `addContext` only, never `deny()`; never wire it to block. Every rule regex avoids the `\s*X?\s*` quadratic shape (§6.8); excerpts/source run through `sanitize()`. |
 | Saver-level routing table (what task class → what model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh:136` (`head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh` `saver_resolve()` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh:21-24`) must stay above the file's real line count (currently 53) or the tail silently drops with no error. |
 | GLM model mapping (`--model sonnet\|opus` → `glm_model`) | `bajzi/bin/cc-router.js:54-59` `effective()`, `:289-296` glm env block | `node --test bajzi/bin/tests/*.test.js` | 1 | `-ClaudeBin glm` maps `CLAUDE_CODE_SUBAGENT_MODEL` too — the whole session incl. sub-agents runs on GLM (§6.2, §9.1). |
 | Z.ai peak window | `cc-router.js:272-283` `peakOpen()` (exit 75); mirrored independently in claude-orchestrator `nightrun-lib.ps1:205` `Test-GlmPeakSoon`, `:214` `Get-GlmStartDecision` | `node --test bajzi/bin/tests/*.test.js`; `Invoke-Pester tests/ps/nightrun-lib.Tests.ps1` | 1 | Two independent implementations — changing the window means editing both, or the shim and the runner disagree about when GLM is refused. |
@@ -581,25 +581,44 @@ directory with no `glob` parameter. **Cut-over note**: the interim `gsd-secret-r
 still live on the laptop and must be removed at cut-over (spec line 78) or both guards fire on the
 same read.
 
+**Open minors (deferred, final review triage)** — not blockers for CLEAN, but m1 is flagged
+**fix before release**:
+- **m1 — pipe-rule false positives, fix before release**: `find . -name "*.env*" | sort`,
+  `find -name "*.pem" | head`, `ls .env* | head`, `git check-ignore .env | cat`
+  (`secret-rules.js:186-190`) — the pipe-into-reader rule should apply only when the right-hand
+  side actually reads paths from stdin (`xargs`, `Get-Content`), not to every reader piped after a
+  path-producing command.
+- **m2** — `.en?`, `*.pe?`, `.*` wildcard forms are allowed through (wildcard-strip logic, `:70`).
+- **m3** — `timeout -k 2 5 cat .env` (the `-k` kill-after form) isn't recognised (`:140`).
+- **m4** — `xargs -a .env` (reading arguments from a file) isn't recognised.
+- **m5** — `rtk json|log|smart|summary` sub-wrappers and `rtk -v read` (a flag before the reader
+  word) aren't recognised as the `rtk read` reader form.
+- **m6** — nested Bash brace expansions and PowerShell `@('.env')` array-literal syntax aren't
+  expanded.
+- Out of scope: prefix-option forms that stop the prefix-stripping walk (`sudo -u`, `env -i`,
+  `nice -n`); `ls | grep .env` (a false positive in the safe direction, not a bypass).
+
 **Tests**: `node --test bajzi/hooks/node/tests/secret-guard.test.js` — RF3 rows pin Windows/git
 forms of `.env` and the `.env.example`/`.env.sample` allow-list; see the plan's Task 4 section for
 the full fixture list.
 
-### 6.8 Injection scanner — technical (`env-unify`, BUILT, Task 5)
+### 6.8 Injection scanner — technical (`env-unify`, BUILT, Task 5, review-clean after fix round 1)
 
-**Built.** `bajzi/hooks/node/lib/injection-rules.js` (the rules) + `bajzi/hooks/node/injection-scan.js`
-(the hook), on top of base `39533f9`. Wired in `bajzi/hooks/hooks.json` as the last `PostToolUse`
-entry (`matcher: "Read|WebFetch|WebSearch|mcp__.*"`, `timeout: 5`).
+**Built and review-clean.** `bajzi/hooks/node/lib/injection-rules.js` (the rules) +
+`bajzi/hooks/node/injection-scan.js` (the hook), commits `78ec163` (initial) and this commit
+(fix round 1 — T5 review I1-I4, all closed), on top of base `39533f9`. Wired in
+`bajzi/hooks/hooks.json` as the last `PostToolUse` entry (`matcher:
+"Read|WebFetch|WebSearch|mcp__.*"`, `timeout: 5`).
 
 **Trigger + matcher**: `PostToolUse` on `Read`, `WebFetch`, `WebSearch`, `mcp__*` — `SCANNED`
 (`injection-scan.js:7`, `/^(?:Read|WebFetch|WebSearch)$|^mcp__/`).
 
-**Rules**: `scan(text)` (`injection-rules.js:39`) runs 15 regexes from `REGEX_RULES` (`:4-20`, each
+**Rules**: `scan(text)` (`injection-rules.js:54`) runs 15 regexes from `REGEX_RULES` (`:4-20`, each
 `[id, RegExp]`, at most one hit per rule via `RegExp#exec`) plus two Unicode counters — `ZERO_WIDTH`/
-`BIDI` code-point counts (`:23-24`, fires at `zw >= 3 || bidi >= 1`, `:48`) and `TAG_BLOCK`
-(`U+E0000-E007F`, fires at `>= 1`, `:50`). `excerptAt()` (`:34`) collapses whitespace and caps each
-excerpt at 100 chars, single line. `RULE_IDS` (`:27`, 17 ids, `REGEX_RULES` order then
-`invisible-unicode`, `unicode-tag-block`):
+`BIDI` code-point counts (`:23-24`, fires at `zw >= 3 || bidi >= 1`, `:62`) and `TAG_BLOCK`
+(`U+E0000-E007F`, fires at `>= 1`, `:64`). `excerptAt()` (`:49`) collapses whitespace, caps each
+excerpt at 100 chars single line, then sanitizes it (see below). `RULE_IDS` (`:27`, 17 ids,
+`REGEX_RULES` order then `invisible-unicode`, `unicode-tag-block`):
 `ignore-previous`, `new-instructions`, `role-reassign`, `pretend-role`, `jailbreak-mode`,
 `fake-system-tag`, `fake-chat-template`, `fake-role-header`, `prompt-exfil`, `secret-exfil`,
 `hide-from-user`, `tool-coercion`, `ai-directed`, `javascript-link`, `data-link`,
@@ -619,15 +638,47 @@ never blocks**: no `permissionDecision`, no `decision`, no `continue` key, unlik
 `deny()`. Same fail-open contract as every other bajzi hook (`runHook`, RF2: empty/malformed/wrong-typed
 stdin all exit 0 with no stdout).
 
-**Perf**: 500 KB of text scans in well under 100 ms (regex-only pass plus two counted Unicode
-sweeps, no backtracking-prone patterns).
+**Sanitization (T5 review I3, controller ruling overrides the brief's verbatim-excerpt intent)**:
+`sanitize()` (`injection-rules.js:34-42`) strips control (`CONTROL`, `\x00-\x08 \x0B \x0C \x0E-\x1F
+\x7F`), zero-width, bidi-override and Unicode-tag-block characters and defangs `<`/`>` to `‹`/`›`,
+before an excerpt or a `sourceOf()` value is ever concatenated into the warning text. Both
+`excerptAt()` (`:49-52`) and `sourceOf()` (`injection-scan.js:23-29`) run through it. Rationale: the
+warning becomes trusted hook context (`additionalContext`), so echoing attacker-controlled text
+verbatim — including a fake `</system-reminder>` close tag or invisible/bidi override characters —
+would let scanned tool output smuggle a payload into a higher-trust channel. Covered by
+`bajzi/hooks/node/tests/injection-scan.test.js`'s `I3:` test (crafted `</system-reminder>` +
+tag-block + zero-width input; asserts the output has no raw `<`/`>` and none of those code points).
+
+**Linear-time guarantee (T5 review I1)**: every rule regex is written so no unbounded quantifier is
+immediately adjacent to another unbounded quantifier with only an optional single token between
+them (the `\s*X?\s*` shape) — the pattern that made the original `tool-coercion` regex quadratic
+(`\s*:?\s*` → `\s*(?::\s*)?`, and the same fix applied to `fake-system-tag`'s `\s*\/?\s*` →
+`\s*(?:\/\s*)?` and to `javascript-link`/`data-link`'s `\s*["']?\s*` → `\s*(?:["']\s*)?`, merging
+the optional token and its trailing quantifier into one non-capturing group). `secret-exfil`'s two
+`[^\n]{0,60}?` gaps are bounded and lazy, not unbounded, so they were never at risk. Each of the 15
+regex rules has its own perf test in `injection-scan.test.js` (`I1 perf: rule <id> ...`): a 200 KB
+adversarial input built from that rule's own anchor plus a long non-matching run right next to its
+formerly-risky spot, asserted under 100 ms; plus one end-to-end perf test running the actual hook
+process on a 200 KB adversarial `WebFetch` response. Before the fix, the real-world measurement was
+16.4 s for a 200 KB `tool-coercion` probe — past the hook's 5 s timeout, silently dropping the
+warning.
+
+**Source hygiene (T5 review I2)**: the `\uXXXX` character-class escapes for `ZERO_WIDTH`/`BIDI`
+(`:23-24`) and the invisible/bidi/BOM characters in the test fixtures must be literal ASCII escape
+TEXT in the source files, never raw invisible/bidi/tag-block/BOM characters — those are
+unreviewable by eye (Trojan-Source class) and would make the scanner flag its own source file on a
+`Read`. Pinned by `injection-scan.test.js`'s `I2:` test, which scans the three source files by
+code point (numeric literals only, so the test itself cannot reintroduce the problem).
 
 **Tests**: `bajzi/hooks/node/tests/injection-scan.test.js` — one fixture sample per rule id (17),
 "every rule id has a sample" completeness check, a 10-case benign-text no-hit test, excerpt
 shape, `decide()` per tool shape, the end-to-end warn-never-block shape, RF2 bad-stdin survival,
-the `hooks.json` wiring assertion, and the 500 KB perf bound. Mutation-checked at implementation
-time: removing the `hide-from-user` rule and loosening the zero-width threshold each fail their
-named test.
+the `hooks.json` wiring assertion, the 500 KB benign-text perf bound, 15 per-rule adversarial perf
+tests plus one end-to-end adversarial perf test (I1), the source-hygiene scan (I2), and the
+sanitize test (I3). Mutation-checked: removing the `hide-from-user` rule and loosening the
+zero-width threshold each fail their named test (initial round); reverting each of the 4 ReDoS
+fixes (`tool-coercion`, `fake-system-tag`, `javascript-link`, `data-link`) individually fails that
+rule's own perf test (fix round 1).
 
 *(Doc note: while researching this document, reading the env-unify plan and spec files themselves
 tripped this exact class of pattern match — the plan's own test fixtures literally contain strings
@@ -921,7 +972,7 @@ residual risk pending owner review.
 | Status line + `status-parts.js` + installer (Task 2) | Built, reviewed CLEAN | bajzi-plugins-dev : `env-unify` @ `5f8521e` (+`7a2cffc`) | not installed — live `statusLine` still points at `gsd-statusline.js` |
 | Context guard (Task 3) | **Built, COMPLETE** — round-3 fix reviewed CLEAN (44 attack commands denied, 0 new Critical/Important) | bajzi-plugins-dev : `env-unify`, commits `5f8521e..7280057` | not installed (past `origin/main`) |
 | Secret guard (Task 4) | **Built, COMPLETE, review-clean** | bajzi-plugins-dev : `env-unify` @ `9517010`..`39533f9` | Fix round 1 (`39533f9`) closed review r1's 2 Important (glob/brace/PS-comma-array bypasses; missing `rtk` recognition) and 1 Minor. No Critical/Important survived the delta review. Not installed. |
-| Injection scanner (Task 5) | **Built**, tests green (25/25 own, 143/143 full node suite), not yet reviewed | bajzi-plugins-dev : `env-unify`, this commit (parent `39533f9`) | not installed (past `origin/main`) |
+| Injection scanner (Task 5) | **Built, review-clean** — fix round 1 closed I1 (ReDoS), I2 (literal invisible/bidi chars restored to escapes), I3 (excerpt/source sanitization), I4 (this doc) | bajzi-plugins-dev : `env-unify` @ `78ec163` + this commit (fix round 1) | not installed (past `origin/main`) |
 | Setup drift checker (Task 6) | **Planned only** | — | no code |
 | project-setup + alapcsomag retirement (Task 7) | **Planned only** | — | no code |
 | Cut-over (Task 8) | **Planned checklist, not run** | — | — |
