@@ -72,6 +72,61 @@ test('non-reads and look-alikes are allowed', () => {
   }
 });
 
+// Fix round 1 (review I1, I2, M1). One assertion per form, each naming the rule id.
+test('I1: a glob arg that names a protected file is refused', () => {
+  assert.strictEqual(ruleOf(bash('cat .env*')), 'env-file');
+  assert.strictEqual(ruleOf(bash('head certs/*.pem')), 'pattern:*.pem');
+  assert.strictEqual(ruleOf(bash('wc -l < .env*')), 'env-file');
+  assert.strictEqual(ruleOf(bash('cat *.md')), null);
+});
+
+test('I1: PowerShell comma arrays are split', () => {
+  assert.strictEqual(ruleOf(ps('gc .env, README.md')), 'env-file');
+  assert.strictEqual(ruleOf(ps('Get-Content README.md,.secrets')), 'secrets-file');
+  assert.strictEqual(ruleOf(ps('gc README.md, .env.example')), null);
+});
+
+test('I1: brace expansion in shell args is expanded, not a segment break', () => {
+  assert.strictEqual(ruleOf(bash('cat {.env,x}')), 'env-file');
+  assert.strictEqual(ruleOf(bash('cat cfg/{a,.secrets}')), 'secrets-file');
+  assert.strictEqual(ruleOf(bash('cat {README,CHANGELOG}.md')), null);
+  assert.deepStrictEqual(rules.segments('cat {.env,x}'), [['cat', '{.env,x}']]);
+  assert.deepStrictEqual(rules.segments('if x { gc .env }'), [['if', 'x'], ['gc', '.env']]);
+});
+
+test('I1: Grep/Glob brace lists are expanded', () => {
+  assert.strictEqual(ruleOf({ tool_name: 'Grep', tool_input: { pattern: 'K', glob: '{.env,.secrets}' } }), 'env-file');
+  assert.strictEqual(ruleOf({ tool_name: 'Grep', tool_input: { pattern: 'K', glob: '{README.md,.secrets}' } }), 'secrets-file');
+  assert.strictEqual(ruleOf({ tool_name: 'Glob', tool_input: { pattern: '**/*.{pem,key}' } }), 'pattern:*.pem');
+  assert.strictEqual(ruleOf({ tool_name: 'Glob', tool_input: { pattern: '**/*.{ts,md}' } }), null);
+});
+
+test('I2: rtk read/grep and rtk proxy/err/test unwrap to the inner command', () => {
+  assert.strictEqual(ruleOf(bash('rtk read .env')), 'env-file');
+  assert.strictEqual(ruleOf(bash('rtk read -l aggressive id_rsa')), 'pattern:id_rsa*');
+  assert.strictEqual(ruleOf(bash('rtk grep KEY .env')), 'env-file');
+  assert.strictEqual(ruleOf(bash('rtk proxy cat .env')), 'env-file');
+  assert.strictEqual(ruleOf(bash('rtk err cat .secrets')), 'secrets-file');
+  assert.strictEqual(ruleOf(bash('rtk read README.md')), null);
+  assert.strictEqual(ruleOf(bash('read -r x .env')), null);   // plain `read` is not a file reader
+});
+
+test('M1: extra readers, timeout/xargs wrappers, cmd interpreter', () => {
+  for (const c of ['diff .env .env.example', 'sort .env', 'cut -d= -f2 .env', 'jq . .env', 'hexdump -C .env',
+    'timeout 5 cat .env', 'timeout -s KILL 5s cat .env', 'xargs -n 1 cat .env', 'cmd /c type .env']) {
+    assert.strictEqual(ruleOf(bash(c)), 'env-file', c);
+  }
+  assert.strictEqual(ruleOf(ps('Format-Hex .env')), 'env-file');
+  assert.strictEqual(ruleOf(bash('timeout 5 ls .env')), null);
+});
+
+test('M1: a protected name piped into a reader is refused', () => {
+  assert.strictEqual(ruleOf(ps('Get-ChildItem .env | Get-Content')), 'env-file');
+  assert.strictEqual(ruleOf(bash('echo .secrets | xargs cat')), 'secrets-file');
+  assert.strictEqual(ruleOf(bash('echo .env || cat README.md')), null);   // || is not a pipe
+  assert.strictEqual(ruleOf(bash('echo .env | wc -l')), null);
+});
+
 test('segments: quotes group, backslashes stay literal, separators split', () => {
   assert.deepStrictEqual(rules.segments('cat "a b" && type .\\x;echo y|z'), [['cat', 'a b'], ['type', '.\\x'], ['echo', 'y'], ['z']]);
   assert.deepStrictEqual(rules.segments('wc -l < .env > out'), [['wc', '-l', '<', '.env', '>', 'out']]);

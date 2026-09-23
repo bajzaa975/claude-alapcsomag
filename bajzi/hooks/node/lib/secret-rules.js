@@ -9,11 +9,14 @@ const path = require('node:path');
 const ENV_ALLOWED = /\.(example|sample|template|dist)$/i;
 const READERS = new Set(['cat', 'less', 'more', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg', 'sed', 'awk', 'gawk',
   'source', '.', 'type', 'get-content', 'gc', 'select-string', 'sls', 'import-csv', 'bat', 'nl', 'tac', 'strings',
-  'base64', 'xxd', 'od']);
+  'base64', 'xxd', 'od', 'diff', 'sort', 'cut', 'jq', 'hexdump', 'format-hex', 'fhx']);
 const INTERPRETERS = new Set(['node', 'python', 'python3', 'py', 'ruby', 'perl', 'php', 'bash', 'sh', 'zsh', 'pwsh',
-  'powershell', 'deno', 'bun']);
+  'powershell', 'deno', 'bun', 'cmd']);
 const GIT_READ_SUBCMDS = new Set(['show', 'cat-file', 'blame', 'diff', 'log', 'grep']);
 const PREFIXES = new Set(['sudo', 'command', 'env', 'time', 'nohup', 'exec', 'nice']);
+const RTK_WRAPPERS = new Set(['proxy', 'err', 'test']);   // rtk <wrapper> <any command>
+const DURATION = /^\d+(?:\.\d+)?[smhd]?$/i;
+const BRACE_LIST = /^\{[^\s{}]*,[^\s{}]*\}/;   // {a,b} glued into a word = brace expansion, not a block
 const DOTNET_READ = /\b(?:ReadAllText|ReadAllLines|ReadAllBytes|OpenText|ReadLines)\b/i;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
@@ -48,30 +51,58 @@ function isProtectedPath(p, extraPatterns = []) {
   return matchProtected(p, extraPatterns) !== null;
 }
 
-// A glob names a protected file if its last segment does, taken literally (`*.pem`) or with the
+// {a,b} lists expanded, innermost first, capped at 64 results.
+function expandBraces(s, out = []) {
+  const m = /\{([^{}]*,[^{}]*)\}/.exec(s);
+  if (!m || out.length >= 64) { out.push(s); return out; }
+  for (const alt of m[1].split(',')) expandBraces(s.slice(0, m.index) + alt + s.slice(m.index + m[0].length), out);
+  return out;
+}
+
+// A glob (or a shell / PowerShell arg) names a protected file if one of its brace alternatives or
+// comma-separated parts does, by its last segment taken literally (`*.pem`) or with the
 // wildcards removed (`.env*` -> `.env`).
 function matchGlobPattern(glob, extraPatterns = []) {
   if (typeof glob !== 'string' || !glob.trim()) return null;
-  const last = baseName(glob.replace(/[{}]/g, ''));
-  return matchProtected(last, extraPatterns) || matchProtected(last.replace(/[*?[\]]/g, ''), extraPatterns);
+  for (const alt of expandBraces(glob)) {
+    for (const part of alt.split(',')) {
+      const last = baseName(part);
+      const h = matchProtected(last, extraPatterns) || matchProtected(last.replace(/[*?[\]]/g, ''), extraPatterns);
+      if (h) return h;
+    }
+  }
+  return null;
 }
 
 // Words per command segment. Quotes group and are removed; a backslash is LITERAL (Windows
-// paths); ; & | newline ( ) ` { } end a segment; < << > are their own words.
+// paths); ; & | newline ( ) ` { } end a segment, except a {a,b} brace list glued into a word;
+// < << > are their own words. splitCommand also flags a segment that pipes (single |) into the next.
 function segments(cmd) {
+  return splitCommand(cmd).map(s => s.words);
+}
+
+function splitCommand(cmd) {
   const segs = [];
   let words = [];
   let cur = '';
   let has = false;
   let q = null;
   const endWord = () => { if (has) words.push(cur); cur = ''; has = false; };
-  const endSeg = () => { endWord(); if (words.length) segs.push(words); words = []; };
+  const endSeg = (pipe = false) => { endWord(); if (words.length) segs.push({ words, pipe }); words = []; };
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
     if (q) { if (ch === q) q = null; else cur += ch; continue; }
     if (ch === '"' || ch === "'") { q = ch; has = true; continue; }
     if (ch === ' ' || ch === '\t') { endWord(); continue; }
-    if (';&|\n\r()`{}'.includes(ch)) { endSeg(); continue; }
+    if (ch === '{') {
+      const m = BRACE_LIST.exec(cmd.slice(i));
+      if (m) { cur += m[0]; has = true; i += m[0].length - 1; continue; }
+    }
+    if (ch === '|') {
+      if (cmd[i + 1] === '|') { i++; endSeg(); } else endSeg(true);
+      continue;
+    }
+    if (';&\n\r()`{}'.includes(ch)) { endSeg(); continue; }
     if (ch === '<') {
       endWord();
       if (cmd[i + 1] === '<') { while (cmd[i + 1] === '<') i++; words.push('<<'); } else words.push('<');
@@ -95,7 +126,36 @@ function cmdName(w) {
 }
 
 function matchArg(a, extra) {
-  return matchProtected(a, extra) || (a.includes('=') ? matchProtected(a.slice(a.lastIndexOf('=') + 1), extra) : null);
+  return matchGlobPattern(a, extra) || (a.includes('=') ? matchGlobPattern(a.slice(a.lastIndexOf('=') + 1), extra) : null);
+}
+
+// The command a segment runs, past prefixes (sudo, env, VAR=1, timeout <d>, xargs <flags>,
+// rtk proxy|err|test), and its args minus redirects. `read` is a reader only as `rtk read`.
+function resolve(words) {
+  let i = 0;
+  let rtk = false;
+  while (i < words.length) {
+    const n = cmdName(words[i]);
+    if (PREFIXES.has(n) || ASSIGNMENT.test(words[i])) { i++; continue; }
+    if (n === 'timeout') { i++; while (i < words.length && !DURATION.test(words[i])) i++; i++; continue; }
+    if (n === 'xargs') { i++; while (i < words.length && /^(-|\d+$)/.test(words[i])) i++; continue; }
+    if (n === 'rtk') {
+      i++;
+      rtk = true;
+      if (i < words.length && RTK_WRAPPERS.has(words[i].toLowerCase())) { i++; rtk = false; }
+      continue;
+    }
+    break;
+  }
+  if (i >= words.length) return null;
+  const name = cmdName(words[i]);
+  const args = [];
+  for (let k = i + 1; k < words.length; k++) {
+    const w = words[k];
+    if (w === '<' || w === '<<' || w === '>') { k++; continue; }   // redirect + its target
+    args.push(w);
+  }
+  return { name, args, reader: READERS.has(name) || (rtk && name === 'read') };
 }
 
 function codeMentionsProtected(code, extra) {
@@ -112,24 +172,23 @@ function commandReadsProtected(cmd, extraPatterns = []) {
     const h = codeMentionsProtected(cmd, extraPatterns);
     if (h) return h;
   }
-  for (const words of segments(cmd)) {
+  const segs = splitCommand(cmd).map(s => ({ ...s, cmd: resolve(s.words) }));
+  for (let j = 0; j < segs.length; j++) {
+    const { words, cmd: c } = segs[j];
     for (let k = 0; k < words.length - 1; k++) {
       if (words[k] === '<') {
-        const h = matchProtected(words[k + 1], extraPatterns);
+        const h = matchGlobPattern(words[k + 1], extraPatterns);
         if (h) return h;
       }
     }
-    let i = 0;
-    while (i < words.length && (PREFIXES.has(cmdName(words[i])) || ASSIGNMENT.test(words[i]))) i++;
-    if (i >= words.length) continue;
-    const name = cmdName(words[i]);
-    const args = [];
-    for (let k = i + 1; k < words.length; k++) {
-      const w = words[k];
-      if (w === '<' || w === '<<' || w === '>') { k++; continue; }   // redirect + its target
-      args.push(w);
+    if (!c) continue;
+    const { name, args } = c;
+    // `Get-ChildItem .env | Get-Content`, `echo .env | xargs cat`: a protected name piped into a reader.
+    const next = segs[j + 1];
+    if (segs[j].pipe && next && next.cmd && next.cmd.reader) {
+      for (const a of args) { const h = matchArg(a, extraPatterns); if (h) return h; }
     }
-    if (READERS.has(name)) {
+    if (c.reader) {
       for (const a of args) { const h = matchArg(a, extraPatterns); if (h) return h; }
     } else if (name === 'git') {
       let sub = null;
