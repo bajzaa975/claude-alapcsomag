@@ -4108,7 +4108,8 @@ claude plugin marketplace remove bajzi-plugins
 claude plugin marketplace add bajzaa975/claude-alapcsomag
 claude plugin install bajzi@bajzi-plugins
 claude plugin list | grep -i -A3 bajzi
-``` After the owner pushes and merges, run the rollback line once to return to the GitHub source (Step 12 depends on it).
+```
+After the owner pushes and merges, run the rollback block once to return to the GitHub source (Step 12 depends on it).
 
 - [ ] **Step 6: Install the status line (Git Bash)**
 
@@ -4202,16 +4203,18 @@ Run `/bajzi:setup` in a new session (PHASE D steps 7, 10 and 11 apply: rtk `excl
 cd /d/AI/projektek/ClaudeCode/bajzi-plugins-dev
 claude mcp list
 claude mcp add-json --scope user code-review-graph '{"type":"stdio","command":"uvx","args":["code-review-graph","serve"]}'
-node -e "const fs=require('fs'),p=require('path'),os=require('os');const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const d=p.join(process.env.BAJZI_HOME||os.homedir(),'.claude','bajzi');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(p.join(d,'config.json'),JSON.stringify({reviewer_models:m.bajzi_config.reviewer_models},null,2)+'\n')" bajzi/skills/setup/manifest.json
+node bajzi/hooks/node/lib/reviewer-models.js >/dev/null 2>&1 || node -e "const fs=require('fs'),p=require('path'),os=require('os');const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const d=p.join(process.env.BAJZI_HOME||os.homedir(),'.claude','bajzi');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(p.join(d,'config.json'),JSON.stringify({reviewer_models:m.bajzi_config.reviewer_models},null,2)+'\n')" bajzi/skills/setup/manifest.json
 ```
 and edit `%APPDATA%\rtk\config.toml` `[hooks] exclude_commands = ["ssh", "scp", "curl", "keyring", "deploy", "release", "publish", "migrate"]`.
+
+The last line writes `config.json` only when the validator rejects it (missing or invalid), the same rule as setup PHASE D step 11: a valid list that differs from the manifest is the owner's local swap and stays.
 
 Check the allow-list (Git Bash, same directory):
 ```bash
 cat ~/.claude/bajzi/config.json
 node bajzi/hooks/node/lib/reviewer-models.js --first; echo "exit=$?"
 ```
-Expected: the file holds `"reviewer_models": ["claude-opus-5-5"]` (the manifest's `bajzi_config`), and the second command prints `claude-opus-5-5` then `exit=0`. Until this file exists, `-ReviewQueue` is refused (exit 64) and every day-run session injects the "allow-list invalid" fallback. Likeliest failure: `exit=1` with a reason → the file is missing or malformed; re-run the `node -e` line above.
+Expected: the file holds `"reviewer_models": ["claude-opus-5-5"]` (the manifest's `bajzi_config`), and the second command prints `claude-opus-5-5` then `exit=0`. Until this file exists, `-ReviewQueue` is refused (exit 64) and every day-run session injects the "allow-list invalid" fallback. Likeliest failure: `exit=1` with a reason → the file is missing or malformed; re-run the last line of the block above.
 
 - [ ] **Step 12: Zero drift (Git Bash)**
 
@@ -4221,7 +4224,7 @@ node bajzi/skills/setup/check.js; echo "exit=$?"
 ```
 Expected, and accepted until the owner decides and pushes (`exit=1`):
 - while Step 5's local marketplace is in place, the two marketplace lines: `DRIFT marketplace-missing bajzaa975/claude-alapcsomag` and `DRIFT marketplace-extra bajzi-plugins`;
-- the known laptop settings drift (T6 ledger), unless PHASE D step 6 (settings merge) has run: three `DRIFT setting-drift permissions.deny missing ...` lines and one `DRIFT setting-drift env.PONYTAIL_DEFAULT_MODE ...` line. The ponytail line is the owner's decision (manifest `lite` vs the laptop's `full`); do not "fix" it without that decision.
+- the known laptop settings drift (T6 ledger), unless PHASE D step 6 (settings merge) has run: three `DRIFT setting-drift permissions.deny missing ...` lines and one `DRIFT setting-drift env.PONYTAIL_DEFAULT_MODE ...` line. Owner decision 2026-09-24: the target is `lite`, so `/bajzi:setup` (PHASE D step 6) moving `PONYTAIL_DEFAULT_MODE` from the laptop's `full` to `lite` is expected, not a regression.
 
 No other line may appear; in particular no `reviewer-models-invalid` (that means Step 11's `config.json` is missing). Any other line: fix via `/bajzi:setup`, re-run. After the Step 5 rollback line and the settings merge, the final result is `setup --check: clean`, `exit=0`. Likeliest failure: `DRIFT mcp-missing code-review-graph` → Step 11's `claude mcp add-json` line did not run; run it, re-check.
 

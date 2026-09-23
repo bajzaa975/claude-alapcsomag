@@ -196,10 +196,13 @@ function commandReadsProtected(cmd, extraPatterns = [], shell = 'Bash') {
     }
     if (!c) continue;
     const { name, args } = c;
-    // `Get-ChildItem .env | Get-Content`, `echo .env | xargs cat`: a protected name piped into a
-    // reader that takes it as a path.
-    const next = segs[j + 1];
-    if (segs[j].pipe && next && readsPathsFromStdin(next.cmd, shell)) {
+    // `Get-ChildItem .env | Get-Content`, `echo .env | head | xargs cat`: a protected name piped into
+    // a reader that takes it as a path, at ANY later stage of the same pipeline.
+    let downstream = false;
+    for (let k = j; segs[k] && segs[k].pipe && segs[k + 1]; k++) {
+      if (readsPathsFromStdin(segs[k + 1].cmd, shell)) { downstream = true; break; }
+    }
+    if (downstream) {
       for (const a of args) { const h = matchArg(a, extraPatterns); if (h) return h; }
     }
     if (c.reader) {

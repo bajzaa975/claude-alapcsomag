@@ -131,6 +131,12 @@ test('M1: a protected name piped into a reader is refused', () => {
   assert.strictEqual(ruleOf(ps('Get-ChildItem .env | Select-String KEY')), 'env-file');
   assert.strictEqual(ruleOf(ps('Get-ChildItem .env | gc')), 'env-file');
   assert.strictEqual(ruleOf(ps('ls .env* | cat')), 'env-file');   // PowerShell cat = Get-Content
+  // I-1: any downstream stage, not just the next one
+  for (const c of ['find . -name .env | head -1 | xargs cat', 'git ls-files .env | head | xargs cat', 'ls .env | sort | xargs cat']) {
+    assert.strictEqual(ruleOf(bash(c)), 'env-file', c);
+  }
+  assert.strictEqual(ruleOf(ps('gci .env | sort | gc')), 'env-file');
+  assert.strictEqual(ruleOf(bash('echo .env; ls | xargs cat')), null);   // the walk stops at a non-pipe separator
 });
 
 test('T4-m1: listing commands piped into a data reader are allowed', () => {
