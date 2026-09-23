@@ -51,7 +51,8 @@ output of `node "${CLAUDE_PLUGIN_ROOT}/skills/setup/check.js"`.
 
 Mark every item: **NEEDED** (present in the manifest) or **TO DELETE**. Mark separately the ones on
 the manifest's `deliberately_skipped` list — those are not missing by accident. Every `leftover`
-and `leftover-setting` line of the check output is **TO MOVE** (PHASE C step 6).
+line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-setting` line is
+**TO REMOVE** (PHASE C step 4, retained-hook exception applies).
 
 ## PHASE C — Cleanup
 
@@ -67,8 +68,10 @@ and `leftover-setting` line of the check output is **TO MOVE** (PHASE C step 6).
 4. **settings.json:** remove the orphan hooks (pointing at non-existent scripts), the
    SessionStart entry calling `handoff-load.sh` (the plugin brings it), the `skillOverrides`
    lines pointing at a deleted plugin, and every hook command or `permissions.allow` entry that
-   contains one of the manifest's `forbidden_leftovers.settings_substrings`.
-   Back up first: `settings.json.bak-<date>`.
+   contains one of the manifest's `forbidden_leftovers.settings_substrings`. While the manifest
+   still has `gsd.laptop_retained_hooks`, keep every hook entry whose command points at one of
+   the files it lists (on the owner's laptop only) and report it as "manual" — except the
+   status line entry, which PHASE D step 9 replaces. Back up first: `settings.json.bak-<date>`.
 5. **Known leftovers:** based on the manifest's `known_leftovers` list. These are large,
    orphaned data directories — the list also contains the evidence of which tool they belong to.
 6. **Forbidden leftovers (GSD is retired, `gsd.status`):** list every path the check reported as
