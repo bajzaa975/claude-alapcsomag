@@ -714,6 +714,14 @@ out=$(dg 'Fix round 1 B3' 'general-purpose' 'Fix the output bug. Read task-B3-re
 is_deny "$out" R2 && pass "13y 'output' in another sentence is not a write target -> deny R2" || fail "13y" "$out"
 out=$(dg 'Fix round 1 B3' 'general-purpose' 'Rewrite per the notes in task-B3-review.md' $G)
 is_deny "$out" R2 && pass "13y2 'Rewrite ... in' is not the word write -> deny R2" || fail "13y2" "$out"
+# 13y3-13y5 (fix round 3, I-1): the verb-to-path gap is at most 24 chars, stops
+# at . ; : , and "in" is not a write preposition.
+out=$(dg 'Fix round 1 B3' 'general-purpose' 'Save time: just work through the notes in task-B3-review.md' $G)
+is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13y3 'Save time: ... notes in <review>' -> deny R2" || fail "13y3" "$out $(lastlog)"
+out=$(dg 'Address B3 findings' 'general-purpose' 'Output a fixed version; the findings are listed in task-B3-review.md' $G)
+is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13y4 'Output ...; listed in <review>' -> deny R2" || fail "13y4" "$out $(lastlog)"
+out=$(dg 'Fix round 1 B3' 'general-purpose' 'Output the corrected function and compare it to task-B3-review.md' $G)
+is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13y5 verb far from 'to <review>' (gap > 24) -> deny R2" || fail "13y5" "$out $(lastlog)"
 out=$(dg 'Code-review task B3' 'general-purpose' 'Look at the diff abc..def.' $G)
 is_deny "$out" R1 && [ "$(logf 2)" = "REVIEW" ] && pass "13z Code-review is a review -> deny R1 without a marker" || fail "13z" "$out $(lastlog)"
 # 13l: never wedges a dispatch (truncated payloads included, even one that reads as a review).

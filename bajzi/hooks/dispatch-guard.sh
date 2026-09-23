@@ -37,7 +37,8 @@
 #       brief or review file: any -brief.md path; a -review*.md /
 #       -rereview*.md / -re-review*.md path unless it is a write target: the
 #       text before the path token ends in a whole word write|append|save|output,
-#       then (no "." in between) to|into|in, then only whitespace/quotes/backticks.
+#       then at most 24 chars without . ; : , then to|into (never "in"), then
+#       only whitespace/quotes/backticks.
 #       A -report.md path is fine (the fixer appends there).
 #   R3  FIX, REREVIEW: deny if the prompt is over 6000 characters.
 #   R4  every dispatch with the gate open appends one line to
@@ -103,9 +104,11 @@ GRAPH_RE='code-review-graph|detect-changes|detect_changes_tool|get_review_contex
 OPTOUT_RE='(^|[[:space:]])GRAPH: n/a single-file [^[:space:]]'
 BRIEF_RE='-brief\.md'
 REVFILE_RE='-(re-?)?review[^ /]*\.md'
-# A write target: a whole write/append/save/output, then (no sentence break)
-# to/into/in, then only whitespace, quotes or backticks up to the path token.
-WRITE_RE="(^|$W)(write|append|save|output)$W([^.]*$W)?(to|into|in)[[:space:]\"'\`]*\$"
+# A write target: a whole write/append/save/output, then at most 24 chars with
+# no . ; : or , (a clause break), then to/into -- not "in", which ends read
+# phrases like "listed in" -- then only whitespace, quotes or backticks up to
+# the path token.
+WRITE_RE="(^|$W)(write|append|save|output)$W([^.;:,]{0,24}$W)?(to|into)[[:space:]\"'\`]*\$"
 
 class="OTHER"
 if [[ "$desc_lc" =~ $REREVIEW_RE ]]; then
