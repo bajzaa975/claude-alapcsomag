@@ -632,7 +632,7 @@ is_deny "$out" R1 && pass "13b review without graph -> deny R1" || fail "13b" "$
 [ "$(logf 2)" = "REVIEW" ] && [ "$(logf 5)" = "deny:R1" ] && pass "13b' log: REVIEW ... deny:R1" || fail "13b'" "$(lastlog)"
 out=$(dg 'check B3' 'feature-dev:code-reviewer' 'Look at the diff abc..def.' $G)
 is_deny "$out" R1 && pass "13b2 subagent_type with review -> REVIEW -> deny R1" || fail "13b2" "$out"
-out=$(dg 'task B3' 'general-purpose' 'Please REVIEW the diff abc..def.' $G)
+out=$(dg 'REVIEW task B3' 'general-purpose' 'Look at the diff abc..def.' $G)
 is_deny "$out" R1 && pass "13b3 classification is case-insensitive" || fail "13b3" "$out"
 out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.\nGRAPH: n/a single-file' $G)
 is_deny "$out" R1 && pass "13b4 GRAPH opt-out without a path does not count" || fail "13b4" "$out"
@@ -649,7 +649,7 @@ is_allow "$out" && pass "13e GRAPH: n/a single-file x.sh -> allow" || fail "13e"
 # 13f-13h: R2.
 out=$(dg 're-review B3 fix' 'general-purpose' 'Delta review. detect-changes --brief: 1 file. Read task-B3-brief.md first.' $G)
 is_deny "$out" R2 && pass "13f re-review pointing at task-B3-brief.md -> deny R2" || fail "13f" "$out"
-[ "$(logf 2)" = "FIX_OR_REREVIEW" ] && [ "$(logf 5)" = "deny:R2" ] && pass "13f' log: FIX_OR_REREVIEW ... deny:R2" || fail "13f'" "$(lastlog)"
+[ "$(logf 2)" = "REREVIEW" ] && [ "$(logf 5)" = "deny:R2" ] && pass "13f' log: REREVIEW ... deny:R2" || fail "13f'" "$(lastlog)"
 out=$(dg 're-review B3 fix' 'general-purpose' 'detect-changes --brief: 1 file. See .superpowers/sdd/x/task-B3-rereview1.md' $G)
 is_deny "$out" R2 && pass "13g re-review pointing at task-B3-rereview1.md -> deny R2" || fail "13g" "$out"
 out=$(dg 'fix round 1 B3' 'general-purpose' 'Finding 1 at x.sh:12. Details in task-B3-review.md' $G)
@@ -677,6 +677,30 @@ is_allow "$out" && pass "13k OTHER dispatch (preview is not review) -> allow" ||
     && pass "13k' one log line: ISO, OTHER, subagent_type, 40 chars, allow" || fail "13k'" "$(cat "$dlog" 2>&1)"
 out=$(dg 'implement task B5' 'general-purpose' 'Implement it; context in task-B3-review.md' $G)
 is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13k2 a *-review.md file name alone does not make a REVIEW" || fail "13k2" "$out $(lastlog)"
+# 13q-13v (fix round 1): REREVIEW > FIX > REVIEW > OTHER; the prompt body never
+# makes a REVIEW; fixes are exempt from R1; a review file as a WRITE target is fine.
+out=$(dg 'Implement Task 3: add reviewer field' 'general-purpose' 'Add the reviewer field to the model.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13q1 'reviewer' is not the word review -> allow" || fail "13q1" "$out $(lastlog)"
+out=$(dg 'Implement it, then self-review your diff and commit.' 'general-purpose' 'Implement it, then self-review your diff and commit.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13q2 self-review is not a review dispatch -> allow" || fail "13q2" "$out $(lastlog)"
+out=$(dg 'run tests' 'general-purpose' 'Run the suite and review the failures.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13q3 review in the prompt body only -> allow" || fail "13q3" "$out $(lastlog)"
+out=$(dg 'Fix round 1 B3' 'general-purpose' 'Apply the two review findings below. x.sh:12 drops rc. Test: bash t.sh' $G)
+is_allow "$out" && [ "$(logf 2)" = "FIX" ] && pass "13q4 plain fix round with review findings -> FIX, allow" || fail "13q4" "$out $(lastlog)"
+out=$(dg 'Address B3 findings' 'general-purpose' 'Read task-B3-review.md and task-B3-brief.md and fix everything' $G)
+is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13r the incident (Address findings + read brief/review) -> deny R2" || fail "13r" "$out $(lastlog)"
+out=$(dg 'Fix B3 review findings' 'general-purpose' 'detect-changes --brief: 2 files. Read task-B3-brief.md first.' $G)
+is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13r2 'Fix ... review findings' is FIX, not REVIEW -> deny R2" || fail "13r2" "$out $(lastlog)"
+out=$(dg 're-review B4b fix' 'general-purpose' 'detect-changes --brief: 1 file. Write your verdict to D:/x/task-B4b-rereview1.md' $G)
+is_allow "$out" && pass "13s review file as a write target -> allow" || fail "13s" "$out"
+out=$(dg 're-review B4b fix' 'general-purpose' 'detect-changes --brief: 1 file. Append the verdict to D:/AI/projektek/ClaudeCode/claude-orchestrator/.superpowers/sdd/2026-09-22-saver-levels/task-B4b-rereview1.md' $G)
+is_allow "$out" && pass "13s2 write target with a long path -> allow" || fail "13s2" "$out"
+out=$(dg 're-review B3 fix' 'general-purpose' 'detect-changes --brief: 1 file. Then read task-B3-rereview1.md' $G)
+is_deny "$out" R2 && pass "13t re-review told to read task-B3-rereview1.md -> deny R2" || fail "13t" "$out"
+out=$(dg 're-review B3 fix' 'general-purpose' 'Check the fix diff abc..def against finding 1.' $G)
+is_deny "$out" R1 && [ "$(logf 2)" = "REREVIEW" ] && pass "13u re-review without a graph marker -> deny R1" || fail "13u" "$out $(lastlog)"
+out=$(dg 'Fix round 2' 'feature-dev:code-reviewer' 'Finding: x.sh:3 quotes. Excerpt: echo $x. Test: bash t.sh' $G)
+is_allow "$out" && [ "$(logf 2)" = "FIX" ] && pass "13v fix to a reviewer agent -> FIX, exempt from R1" || fail "13v" "$out $(lastlog)"
 # 13l: never wedges a dispatch (truncated payloads included, even one that reads as a review).
 for bad in '' 'not json' '{"tool_input":{"prompt":"review' '{"tool_input":{"prompt":"rev\' \
     '{"tool_input":{"description":"review","prompt":"Review abc."}'; do

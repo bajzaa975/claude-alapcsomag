@@ -14,26 +14,29 @@
 # missing lib, anything unexpected -> {} (allow), exit 0. A broken hook must
 # never wedge every dispatch.
 #
-# CLASSIFICATION, case-insensitive, over HEAD = description + the first 600
-# bytes of the prompt (bytes, not characters: the script runs under LC_ALL=C so
-# no locale can make it crash; for ASCII the two are the same), with every
-# whitespace-delimited token containing ".md" removed first -- a file name
-# (task-B3-review.md) is a reference, not the dispatch's intent:
-#   FIX_OR_REREVIEW  HEAD matches fix round|fix r[0-9]|re-review|rereview|
-#                    scoped review|delta review|review round [2-9]|findings to fix
-#   REVIEW           HEAD has a word starting with "review", or subagent_type
-#                    contains "review"
-#   OTHER            everything else
-# RULES (first match wins, in this order):
-#   R1  REVIEW, and FIX_OR_REREVIEW when it is a re-review (HEAD or
-#       subagent_type contains "review"): deny unless the FULL prompt carries a
-#       graph marker (code-review-graph, detect-changes, detect_changes_tool,
+# CLASSIFICATION, case-insensitive, first match wins (REREVIEW > FIX > REVIEW >
+# OTHER). HEAD = the first 600 bytes of the prompt (bytes: the script runs
+# under LC_ALL=C so no locale can crash it). Whitespace tokens containing ".md"
+# are removed from description and HEAD first -- a file name is a reference,
+# not the dispatch's intent. The prompt BODY never makes a dispatch a REVIEW.
+#   REREVIEW  description matches re-?review|delta review|scoped review|
+#             review round [2-9]
+#   FIX       description or HEAD matches fix round|fix r[0-9]|findings to fix|
+#             (fix|address|apply|resolve) ...up to 40 chars... finding(s)
+#   REVIEW    description has the WORD review/reviews (not reviewer, not
+#             self-review / self review), or subagent_type contains "review"
+#   OTHER     everything else
+# RULES (first deny wins, in this order):
+#   R1  REVIEW, REREVIEW: deny unless the FULL prompt carries a graph marker
+#       (code-review-graph, detect-changes, detect_changes_tool,
 #       get_review_context_tool, or a graph-*.json path) or the opt-out line
-#       'GRAPH: n/a single-file <path>'. A plain fix round is exempt.
-#   R2  FIX_OR_REREVIEW: deny if the prompt points at a full brief or review
-#       file: a path matching -brief.md or -review*.md / -rereview*.md /
-#       -re-review*.md. A -report.md path is fine (the fixer appends there).
-#   R3  FIX_OR_REREVIEW: deny if the prompt is over 6000 characters.
+#       'GRAPH: n/a single-file <path>'. FIX is exempt.
+#   R2  FIX, REREVIEW: deny if the prompt sends the sub-agent to READ a full
+#       brief or review file: any -brief.md path; a -review*.md /
+#       -rereview*.md / -re-review*.md path unless the 40 chars before the
+#       path token contain write|append|save|output (a write target).
+#       A -report.md path is fine (the fixer appends there).
+#   R3  FIX, REREVIEW: deny if the prompt is over 6000 characters.
 #   R4  every dispatch with the gate open appends one line to
 #       <cwd>/runtime/dispatch-sizes.log:
 #       <ISO-UTC>\t<class>\t<subagent_type>\t<prompt chars>\t<allow|deny:R1|R2|R3>
@@ -76,41 +79,66 @@ saver_resolve "$cwd" 2>/dev/null || allow
 [ "$SAVER_GATE_OPEN" = "yes" ] || allow
 
 lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
-# File names are not intent: "see task-B3-review.md" does not make an implement
-# task a review, nor a fix round a re-review. Drop *.md tokens before classifying.
-head_lc=$(lc "$desc ${prompt:0:600}" | sed -E 's/[^ ]*\.md/ /g')
+# File names are not intent ("per task-B3-review.md" is a reference): *.md
+# tokens are dropped from the text that is classified.
+nomd() { sed -E 's/[^ ]*\.md/ /g'; }
+desc_lc=$(lc "$desc" | nomd)
+head_lc=$(lc "${prompt:0:600}" | nomd)
 sub_lc=$(lc "$sub")
 prompt_lc=$(lc "$prompt")
 chars=$(printf '%s' "$prompt" | tr -d '\200-\277' | wc -c | tr -cd '0-9')
 [ -n "$chars" ] || chars=0
 
-FIX_RE='fix round|fix r[0-9]|re-review|rereview|scoped review|delta review|review round [2-9]|findings to fix'
-REVIEW_RE='(^|[^a-z0-9_])review'
+W='[^a-z0-9_]'   # a non-word character (ERE has no \b)
+REREVIEW_RE='re-?review|delta review|scoped review|review round [2-9]'
+FIX_RE="fix round|fix r[0-9]|(^|$W)(fix|address|apply|resolve)$W(.{0,40}$W)?findings?($W|$)|findings to fix"
+# The WORD review/reviews, not reviewer, not "-review" (self-review, re-review).
+REVIEW_RE="(^|[^a-z0-9_-])reviews?($W|$)"
 GRAPH_RE='code-review-graph|detect-changes|detect_changes_tool|get_review_context_tool|graph-[^ ]*\.json'
 OPTOUT_RE='(^|[[:space:]])GRAPH: n/a single-file [^[:space:]]'
-FULLDOC_RE='-brief\.md|-(re-?)?review[^ /]*\.md'
+BRIEF_RE='-brief\.md'
+REVFILE_RE='-(re-?)?review[^ /]*\.md'
+WRITE_RE='write|append|save|output'
 
 class="OTHER"
-if [[ "$head_lc" =~ $FIX_RE ]]; then
-    class="FIX_OR_REREVIEW"
-elif [[ "$head_lc" =~ $REVIEW_RE ]] || [[ "$sub_lc" == *review* ]]; then
+if [[ "$desc_lc" =~ $REREVIEW_RE ]]; then
+    class="REREVIEW"
+elif [[ "$desc_lc" =~ $FIX_RE ]] || [[ "$head_lc" =~ $FIX_RE ]]; then
+    class="FIX"
+elif { [[ "${desc_lc//self review/}" =~ $REVIEW_RE ]]; } || [[ "$sub_lc" == *review* ]]; then
     class="REVIEW"
 fi
 
-needs_graph="no"
-case "$class" in
-    REVIEW) needs_graph="yes" ;;
-    FIX_OR_REREVIEW) { [[ "$head_lc" == *review* ]] || [[ "$sub_lc" == *review* ]]; } && needs_graph="yes" ;;
-esac
+# R2: does the prompt send the sub-agent to READ a full brief or review file?
+# Any -brief.md does. A review-file path does unless the 40 chars before the
+# path token say it is a write target (write/append/save/output).
+reads_full_doc() {
+    [[ "$prompt_lc" =~ $BRIEF_RE ]] && return 0
+    local rest="$prompt_lc" m pre
+    while [[ "$rest" =~ $REVFILE_RE ]]; do
+        m="${BASH_REMATCH[0]}"
+        pre="${rest%%"$m"*}"
+        pre="${pre%"${pre##*[ ]}"}"          # back to the start of the path token
+        [ "${#pre}" -gt 40 ] && pre="${pre:${#pre}-40}"
+        [[ "$pre" =~ $WRITE_RE ]] || return 0
+        rest="${rest#*"$m"}"
+    done
+    return 1
+}
 
 decision="allow"
-if [ "$needs_graph" = "yes" ] && ! [[ "$prompt_lc" =~ $GRAPH_RE ]] && ! [[ "$prompt" =~ $OPTOUT_RE ]]; then
-    decision="deny:R1"
-elif [ "$class" = "FIX_OR_REREVIEW" ] && [[ "$prompt_lc" =~ $FULLDOC_RE ]]; then
-    decision="deny:R2"
-elif [ "$class" = "FIX_OR_REREVIEW" ] && [ "$chars" -gt 6000 ]; then
-    decision="deny:R3"
-fi
+case "$class" in REVIEW | REREVIEW)
+    if ! [[ "$prompt_lc" =~ $GRAPH_RE ]] && ! [[ "$prompt" =~ $OPTOUT_RE ]]; then
+        decision="deny:R1"
+    fi ;;
+esac
+case "$decision:$class" in allow:FIX | allow:REREVIEW)
+    if reads_full_doc; then
+        decision="deny:R2"
+    elif [ "$chars" -gt 6000 ]; then
+        decision="deny:R3"
+    fi ;;
+esac
 
 # R4: log-safe subagent_type (names only), then one line; failure is ignored.
 sub_log=$(printf '%s' "$sub" | tr -cd 'A-Za-z0-9._:-' | head -c 128)
