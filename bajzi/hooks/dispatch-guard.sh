@@ -21,10 +21,12 @@
 # not the dispatch's intent. The prompt BODY never makes a dispatch a REVIEW.
 #   REREVIEW  description matches re-?review|delta review|scoped review|
 #             review round [2-9]
-#   FIX       description or HEAD matches fix round|fix r[0-9]|findings to fix|
-#             (fix|address|apply|resolve) ...up to 40 chars... finding(s)
-#   REVIEW    description has the WORD review/reviews (not reviewer, not
-#             self-review / self review), or subagent_type contains "review"
+#   FIX       description or HEAD matches fix round|fix r[0-9]|findings to fix,
+#             or the DESCRIPTION (only) matches the whole word
+#             fix|address|apply|resolve ...up to 40 chars... finding(s)
+#   REVIEW    description has the WORD review/reviews (code-review counts; not
+#             reviewer, not self-review / self review), or subagent_type
+#             contains "review"
 #   OTHER     everything else
 # RULES (first deny wins, in this order):
 #   R1  REVIEW, REREVIEW: deny unless the FULL prompt carries a graph marker
@@ -33,8 +35,9 @@
 #       'GRAPH: n/a single-file <path>'. FIX is exempt.
 #   R2  FIX, REREVIEW: deny if the prompt sends the sub-agent to READ a full
 #       brief or review file: any -brief.md path; a -review*.md /
-#       -rereview*.md / -re-review*.md path unless the 40 chars before the
-#       path token contain write|append|save|output (a write target).
+#       -rereview*.md / -re-review*.md path unless it is a write target: the
+#       text before the path token ends in a whole word write|append|save|output,
+#       then (no "." in between) to|into|in, then only whitespace/quotes/backticks.
 #       A -report.md path is fine (the fixer appends there).
 #   R3  FIX, REREVIEW: deny if the prompt is over 6000 characters.
 #   R4  every dispatch with the gate open appends one line to
@@ -91,27 +94,34 @@ chars=$(printf '%s' "$prompt" | tr -d '\200-\277' | wc -c | tr -cd '0-9')
 
 W='[^a-z0-9_]'   # a non-word character (ERE has no \b)
 REREVIEW_RE='re-?review|delta review|scoped review|review round [2-9]'
-FIX_RE="fix round|fix r[0-9]|(^|$W)(fix|address|apply|resolve)$W(.{0,40}$W)?findings?($W|$)|findings to fix"
-# The WORD review/reviews, not reviewer, not "-review" (self-review, re-review).
-REVIEW_RE="(^|[^a-z0-9_-])reviews?($W|$)"
+FIX_HEAD_RE='fix round|fix r[0-9]|findings to fix'
+FIX_DESC_RE="$FIX_HEAD_RE|(^|$W)(fix|address|apply|resolve)$W(.{0,40}$W)?findings?($W|$)"
+# The WORD review/reviews (code-review counts), not reviewer; self-review and
+# self review are removed from the description before this runs.
+REVIEW_RE="(^|$W)reviews?($W|$)"
 GRAPH_RE='code-review-graph|detect-changes|detect_changes_tool|get_review_context_tool|graph-[^ ]*\.json'
 OPTOUT_RE='(^|[[:space:]])GRAPH: n/a single-file [^[:space:]]'
 BRIEF_RE='-brief\.md'
 REVFILE_RE='-(re-?)?review[^ /]*\.md'
-WRITE_RE='write|append|save|output'
+# A write target: a whole write/append/save/output, then (no sentence break)
+# to/into/in, then only whitespace, quotes or backticks up to the path token.
+WRITE_RE="(^|$W)(write|append|save|output)$W([^.]*$W)?(to|into|in)[[:space:]\"'\`]*\$"
 
 class="OTHER"
 if [[ "$desc_lc" =~ $REREVIEW_RE ]]; then
     class="REREVIEW"
-elif [[ "$desc_lc" =~ $FIX_RE ]] || [[ "$head_lc" =~ $FIX_RE ]]; then
+elif [[ "$desc_lc" =~ $FIX_DESC_RE ]] || [[ "$head_lc" =~ $FIX_HEAD_RE ]]; then
     class="FIX"
-elif { [[ "${desc_lc//self review/}" =~ $REVIEW_RE ]]; } || [[ "$sub_lc" == *review* ]]; then
-    class="REVIEW"
+else
+    d="${desc_lc//self-review/}"; d="${d//self review/}"
+    if [[ "$d" =~ $REVIEW_RE ]] || [[ "$sub_lc" == *review* ]]; then
+        class="REVIEW"
+    fi
 fi
 
 # R2: does the prompt send the sub-agent to READ a full brief or review file?
-# Any -brief.md does. A review-file path does unless the 40 chars before the
-# path token say it is a write target (write/append/save/output).
+# Any -brief.md does. A review-file path does unless the text before its path
+# token ends in a write target (WRITE_RE: "write your verdict to <path>").
 reads_full_doc() {
     [[ "$prompt_lc" =~ $BRIEF_RE ]] && return 0
     local rest="$prompt_lc" m pre
@@ -119,7 +129,6 @@ reads_full_doc() {
         m="${BASH_REMATCH[0]}"
         pre="${rest%%"$m"*}"
         pre="${pre%"${pre##*[ ]}"}"          # back to the start of the path token
-        [ "${#pre}" -gt 40 ] && pre="${pre:${#pre}-40}"
         [[ "$pre" =~ $WRITE_RE ]] || return 0
         rest="${rest#*"$m"}"
     done

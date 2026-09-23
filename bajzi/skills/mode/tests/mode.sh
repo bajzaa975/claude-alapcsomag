@@ -701,6 +701,21 @@ out=$(dg 're-review B3 fix' 'general-purpose' 'Check the fix diff abc..def again
 is_deny "$out" R1 && [ "$(logf 2)" = "REREVIEW" ] && pass "13u re-review without a graph marker -> deny R1" || fail "13u" "$out $(lastlog)"
 out=$(dg 'Fix round 2' 'feature-dev:code-reviewer' 'Finding: x.sh:3 quotes. Excerpt: echo $x. Test: bash t.sh' $G)
 is_allow "$out" && [ "$(logf 2)" = "FIX" ] && pass "13v fix to a reviewer agent -> FIX, exempt from R1" || fail "13v" "$out $(lastlog)"
+# 13w-13z (fix round 2): file names never classify; the (fix|address|apply|resolve)
+# ... findings pattern reads the DESCRIPTION only; the write-target exception needs
+# a whole verb + to/into/in right before the path; code-review is a review.
+out=$(dg 'Implement per task-B3-rereview1.md' 'general-purpose' 'Implement the parser.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13w a *-rereview1.md name in the description is not a REREVIEW" || fail "13w" "$out $(lastlog)"
+out=$(dg 'Implement Task B5' 'general-purpose' 'Read D:/x/task-B5-brief.md. Resolve any lint findings in files you touch, then commit.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13x implementer 'resolve any lint findings' + its brief -> allow" || fail "13x" "$out $(lastlog)"
+out=$(dg 'Implement Task B5' 'general-purpose' 'Implement per task-B5-brief.md. Run tests, fix failures, report findings in task-B5-report.md.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13x2 implementer 'fix failures, report findings' + its brief -> allow" || fail "13x2" "$out $(lastlog)"
+out=$(dg 'Fix round 1 B3' 'general-purpose' 'Fix the output bug. Read task-B3-review.md for details.' $G)
+is_deny "$out" R2 && pass "13y 'output' in another sentence is not a write target -> deny R2" || fail "13y" "$out"
+out=$(dg 'Fix round 1 B3' 'general-purpose' 'Rewrite per the notes in task-B3-review.md' $G)
+is_deny "$out" R2 && pass "13y2 'Rewrite ... in' is not the word write -> deny R2" || fail "13y2" "$out"
+out=$(dg 'Code-review task B3' 'general-purpose' 'Look at the diff abc..def.' $G)
+is_deny "$out" R1 && [ "$(logf 2)" = "REVIEW" ] && pass "13z Code-review is a review -> deny R1 without a marker" || fail "13z" "$out $(lastlog)"
 # 13l: never wedges a dispatch (truncated payloads included, even one that reads as a review).
 for bad in '' 'not json' '{"tool_input":{"prompt":"review' '{"tool_input":{"prompt":"rev\' \
     '{"tool_input":{"description":"review","prompt":"Review abc."}'; do
