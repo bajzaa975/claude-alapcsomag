@@ -4,7 +4,9 @@
 // Pattern guard, not a shell parser (see lib/secret-rules.js). Fails open.
 const path = require('node:path');
 const { readInput, deny, runHook } = require('./lib/hook-io');
-const rules = require('./lib/secret-rules');
+// Libs other than hook-io load inside runHook (F4): a partial install still fails open.
+let rules;
+function loadLibs() { rules = require('./lib/secret-rules'); }
 
 function pluginRoot(env = process.env) {
   return env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
@@ -27,7 +29,7 @@ function decide(input, extra) {
       return rules.matchProtected(str(ti.path), extra) || rules.matchGlobPattern(str(ti.pattern), extra);
     case 'Bash':
     case 'PowerShell':
-      return rules.commandReadsProtected(str(ti.command), extra);
+      return rules.commandReadsProtected(str(ti.command), extra, input.tool_name);
     default:
       return null;
   }
@@ -41,6 +43,7 @@ function reasonFor(hit, tool) {
 
 function main() {
   runHook('secret-guard', () => {
+    loadLibs();
     const input = readInput();
     if (!input) return;
     const hit = decide(input, rules.loadExtraPatterns(pluginRoot()));
@@ -48,6 +51,6 @@ function main() {
   });
 }
 
-if (require.main === module) main();
+if (require.main === module) main(); else loadLibs();
 
 module.exports = { decide, reasonFor, pluginRoot };

@@ -125,6 +125,19 @@ test('M1: a protected name piped into a reader is refused', () => {
   assert.strictEqual(ruleOf(bash('echo .secrets | xargs cat')), 'secrets-file');
   assert.strictEqual(ruleOf(bash('echo .env || cat README.md')), null);   // || is not a pipe
   assert.strictEqual(ruleOf(bash('echo .env | wc -l')), null);
+  // the pipe rule fires only when the right-hand side reads PATHS from stdin
+  assert.strictEqual(ruleOf(bash('echo .env | xargs cat')), 'env-file');
+  assert.strictEqual(ruleOf(bash('find . -name "*.pem" | xargs -n1 head')), 'pattern:*.pem');
+  assert.strictEqual(ruleOf(ps('Get-ChildItem .env | Select-String KEY')), 'env-file');
+  assert.strictEqual(ruleOf(ps('Get-ChildItem .env | gc')), 'env-file');
+  assert.strictEqual(ruleOf(ps('ls .env* | cat')), 'env-file');   // PowerShell cat = Get-Content
+});
+
+test('T4-m1: listing commands piped into a data reader are allowed', () => {
+  for (const c of ['find . -name "*.env*" | sort', 'find -name "*.pem" | head', 'ls .env* | head',
+    'git check-ignore .env | cat']) {
+    assert.strictEqual(ruleOf(bash(c)), null, c);
+  }
 });
 
 test('segments: quotes group, backslashes stay literal, separators split', () => {

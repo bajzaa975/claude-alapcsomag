@@ -4070,7 +4070,7 @@ bash bajzi/hooks/tests/saver-level-parity.sh | tail -1
 bash bajzi/skills/mode/tests/mode.sh | tail -1
 node --test bajzi/bin/tests/*.test.js
 ```
-Expected: node >= v18; `fail 0` (145); `PASS 22/22`; `mode.sh` `PASS n/n`; cc-router tests `fail 0`.
+Expected (counts as of 2026-09-24; higher is fine, any `fail` > 0 is not): node >= v18; node suite `# tests 216` / `# fail 0`; `PASS 26/26`; `mode.sh` `PASS 169/169`; bin tests `# tests 35` / `# fail 0`.
 
 - [ ] **Step 3: Node suite from the PowerShell tool (laptop)**
 
@@ -4087,7 +4087,7 @@ The laptop's WSL has only `docker-desktop` (`wsl -l -q`), so there is no usable 
 ```bash
 wsl -d Ubuntu-24.04 -e bash -lc 'cd /mnt/d/AI/projektek/ClaudeCode/bajzi-plugins-dev && node --version && node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js && bash bajzi/hooks/tests/saver-level-parity.sh | tail -1'
 ```
-Expected: node >= v18, `fail 0`, `PASS 22/22`. Likeliest failure: `node: command not found` → inside the distro `sudo apt-get install -y nodejs` (Ubuntu 24.04 ships 18.x), rerun.
+Expected: node >= v18, `fail 0`, `PASS 26/26`. Likeliest failure: `node: command not found` → inside the distro `sudo apt-get install -y nodejs` (Ubuntu 24.04 ships 18.x), rerun.
 
 - [ ] **Step 5: Install the branch build on the laptop (Git Bash)**
 
@@ -4097,10 +4097,18 @@ The live marketplace points at GitHub, which does not have this branch (no push)
 claude plugin marketplace list
 claude plugin marketplace remove bajzi-plugins
 claude plugin marketplace add D:/AI/projektek/ClaudeCode/bajzi-plugins-dev
-claude plugin update bajzi
-claude plugin list | grep -i bajzi
+claude plugin install bajzi@bajzi-plugins
+claude plugin list | grep -i -A3 bajzi
 ```
-Expected: `bajzi` at `1.8.0`. Rollback: `claude plugin marketplace remove bajzi-plugins && claude plugin marketplace add bajzaa975/claude-alapcsomag && claude plugin update bajzi`. After the owner pushes and merges, run the rollback line once to return to the GitHub source (Step 12 depends on it).
+Use `install`, not `update` (ruling I5): after `marketplace remove` the plugin is no longer attached to a marketplace, and `update` can leave the laptop with no bajzi at all (no handoff hook, no guards).
+Expected: `bajzi@bajzi-plugins`, `Version: 1.8.0`, `Status: ✔ enabled`. Likeliest failure: `Plugin not found` → `claude plugin marketplace list` must show `bajzi-plugins` with source `D:/AI/projektek/ClaudeCode/bajzi-plugins-dev`; re-run the `add` line, then `install`.
+Rollback (Git Bash, any directory):
+```bash
+claude plugin marketplace remove bajzi-plugins
+claude plugin marketplace add bajzaa975/claude-alapcsomag
+claude plugin install bajzi@bajzi-plugins
+claude plugin list | grep -i -A3 bajzi
+``` After the owner pushes and merges, run the rollback line once to return to the GitHub source (Step 12 depends on it).
 
 - [ ] **Step 6: Install the status line (Git Bash)**
 
@@ -4189,12 +4197,21 @@ Expected: only the two `gsd` keys removed; check tests `fail 0`.
 
 - [ ] **Step 11: Remaining setup steps on the laptop**
 
-Run `/bajzi:setup` in a new session (PHASE D steps 7 and 10 apply: rtk `exclude_commands` into `%APPDATA%\rtk\config.toml`, user MCP `code-review-graph`), or by hand in Git Bash:
+Run `/bajzi:setup` in a new session (PHASE D steps 7, 10 and 11 apply: rtk `exclude_commands` into `%APPDATA%\rtk\config.toml`, user MCP `code-review-graph`, and the reviewer allow-list `~/.claude/bajzi/config.json`), or by hand in Git Bash:
 ```bash
+cd /d/AI/projektek/ClaudeCode/bajzi-plugins-dev
 claude mcp list
 claude mcp add-json --scope user code-review-graph '{"type":"stdio","command":"uvx","args":["code-review-graph","serve"]}'
+node -e "const fs=require('fs'),p=require('path'),os=require('os');const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const d=p.join(process.env.BAJZI_HOME||os.homedir(),'.claude','bajzi');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(p.join(d,'config.json'),JSON.stringify({reviewer_models:m.bajzi_config.reviewer_models},null,2)+'\n')" bajzi/skills/setup/manifest.json
 ```
 and edit `%APPDATA%\rtk\config.toml` `[hooks] exclude_commands = ["ssh", "scp", "curl", "keyring", "deploy", "release", "publish", "migrate"]`.
+
+Check the allow-list (Git Bash, same directory):
+```bash
+cat ~/.claude/bajzi/config.json
+node bajzi/hooks/node/lib/reviewer-models.js --first; echo "exit=$?"
+```
+Expected: the file holds `"reviewer_models": ["claude-opus-5-5"]` (the manifest's `bajzi_config`), and the second command prints `claude-opus-5-5` then `exit=0`. Until this file exists, `-ReviewQueue` is refused (exit 64) and every day-run session injects the "allow-list invalid" fallback. Likeliest failure: `exit=1` with a reason → the file is missing or malformed; re-run the `node -e` line above.
 
 - [ ] **Step 12: Zero drift (Git Bash)**
 
@@ -4202,7 +4219,11 @@ and edit `%APPDATA%\rtk\config.toml` `[hooks] exclude_commands = ["ssh", "scp", 
 cd /d/AI/projektek/ClaudeCode/bajzi-plugins-dev
 node bajzi/skills/setup/check.js; echo "exit=$?"
 ```
-Expected: `setup --check: clean`, `exit=0`. While Step 5's local marketplace is in place, exactly two lines are expected and accepted until the owner's push: `DRIFT marketplace-missing bajzaa975/claude-alapcsomag` and `DRIFT marketplace-extra bajzi-plugins`; re-run after the Step 5 rollback line for the final `clean`. Any other line: fix via `/bajzi:setup`, re-run.
+Expected, and accepted until the owner decides and pushes (`exit=1`):
+- while Step 5's local marketplace is in place, the two marketplace lines: `DRIFT marketplace-missing bajzaa975/claude-alapcsomag` and `DRIFT marketplace-extra bajzi-plugins`;
+- the known laptop settings drift (T6 ledger), unless PHASE D step 6 (settings merge) has run: three `DRIFT setting-drift permissions.deny missing ...` lines and one `DRIFT setting-drift env.PONYTAIL_DEFAULT_MODE ...` line. The ponytail line is the owner's decision (manifest `lite` vs the laptop's `full`); do not "fix" it without that decision.
+
+No other line may appear; in particular no `reviewer-models-invalid` (that means Step 11's `config.json` is missing). Any other line: fix via `/bajzi:setup`, re-run. After the Step 5 rollback line and the settings merge, the final result is `setup --check: clean`, `exit=0`. Likeliest failure: `DRIFT mcp-missing code-review-graph` → Step 11's `claude mcp add-json` line did not run; run it, re-check.
 
 - [ ] **Step 13: claude-orchestrator project profile (owner approval, commit in THAT repo)**
 
@@ -4244,11 +4265,12 @@ Empty output from the last two = safe; then `rm -rf C:/Users/andra/Claude/Projec
 
 Publish ONE numbered checklist as an Artifact (owner rule: more than one owner step = one Artifact) and give the owner the link. Items, each with where / exact command / success / likeliest failure:
 1. VM terminal: `claude plugin marketplace update bajzi-plugins && claude plugin update bajzi` (after the owner's push) → `claude plugin list` shows `bajzi 1.8.0`.
-2. VM terminal: `cd <bajzi-plugins-dev clone on the VM or a fresh clone> && node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js && bash bajzi/hooks/tests/saver-level-parity.sh` → `fail 0`, `PASS 22/22` (the Linux run of Step 4).
-3. New Claude Code session on the VM: `/bajzi:setup` → status line visible.
-4. GSD uninstall on the VM: `ls -d ~/.claude/gsd-core ~/.claude/hooks/gsd-* ~/.claude/skills/gsd-* ~/.claude/agents/gsd-* ~/.claude/commands/gsd*` then the same move block as Step 9 with `B=~/gsd-removed-$(date +%Y%m%d)`, and the same settings.json filter.
-5. VM: `/bajzi:setup --check` → `setup --check: clean`; in the orchestrator checkout `/bajzi:project-setup --check` → clean.
-6. Innotel-bss on the VM: `.claude/METHODOLOGY` → `superpowers` (via `/bajzi:modszertan`), `.planning/` left in place as history.
+2. VM terminal (bash): `cd <bajzi-plugins-dev clone on the VM or a fresh clone> && node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js && bash bajzi/hooks/tests/saver-level-parity.sh | tail -1 && bash bajzi/skills/mode/tests/mode.sh | tail -1` → `fail 0` (216 tests or more), `PASS 26/26`, `PASS 169/169` (the Linux run of Step 4).
+3. VM terminal (bash), same clone directory: `bash bajzi/bin/install.sh`, then `which glm worker ccr` → all three under `~/.local/bin/`, and `worker --status` prints a `level` line. The laptop does not need this (its launchers are byte-identical); the VM does. Likeliest failure: `which` finds nothing → `~/.local/bin` is not on `PATH`; add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc`, open a new terminal.
+4. New Claude Code session on the VM: `/bajzi:setup` → status line visible, and `cat ~/.claude/bajzi/config.json` shows `reviewer_models`.
+5. GSD uninstall on the VM: `ls -d ~/.claude/gsd-core ~/.claude/hooks/gsd-* ~/.claude/skills/gsd-* ~/.claude/agents/gsd-* ~/.claude/commands/gsd*` then the same move block as Step 9 with `B=~/gsd-removed-$(date +%Y%m%d)`, and the same settings.json filter.
+6. VM: `/bajzi:setup --check` → `setup --check: clean`; in the orchestrator checkout `/bajzi:project-setup --check` → clean.
+7. Innotel-bss on the VM: `.claude/METHODOLOGY` → `superpowers` (via `/bajzi:modszertan`), `.planning/` left in place as history.
 
 - [ ] **Step 16: Handoff**
 

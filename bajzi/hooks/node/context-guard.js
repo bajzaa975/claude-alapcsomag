@@ -15,7 +15,9 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { readInput, deny, addContext, runHook } = require('./lib/hook-io');
-const { readBridge, warnPath } = require('./lib/bridge');
+// Libs other than hook-io load inside runHook (F4): a partial install still fails open.
+let readBridge, warnPath;
+function loadLibs() { ({ readBridge, warnPath } = require('./lib/bridge')); }
 
 const WARN_AT = 40;
 const BLOCK_AT = 50;
@@ -259,13 +261,14 @@ function decide(input, { nowMs = Date.now(), dir } = {}) {
 
 function main() {
   runHook('context-guard', () => {
+    loadLibs();
     const d = decide(readInput());
     if (d.kind === 'deny') deny(d.reason, d.rule);
     else if (d.kind === 'context') addContext('PostToolUse', d.text);
   });
 }
 
-if (require.main === module) main();
+if (require.main === module) main(); else loadLibs();
 
 module.exports = {
   decide, exempt, exemptRule, isHandoffPath, slugify, handoffFile, WARN_AT, BLOCK_AT, WARN_EVERY,

@@ -109,11 +109,13 @@ the PowerShell tool.
 ## 4. Invariants — never break these
 
 1. Every bajzi node/bash **hook** fails **open** (exit 0, no stdout, one capped log line) on any
-   internal error — `hook-io.js` `runHook` (`bajzi/hooks/node/lib/hook-io.js:106-122`),
+   internal error — `bajzi/hooks/node/lib/hook-io.js:runHook`, with every lib except `hook-io`
+   loaded inside the `runHook` callback so a missing or broken lib also exits 0,
    `dispatch-guard.sh` (explicitly "a discipline guard, not a security boundary", `:13-15`),
    `day-run-mode.sh`, `routing-counter.sh`. Two things are the deliberate exception and fail
    **closed**: the night-run push guard (`.githooks/pre-push`, "anything else... FAILS CLOSED",
-   `:8-9`) and `day-run-mode.sh`'s non-Anthropic-without-L3-text path (`:159-164`, warns instead of
+   `:8-9`) and `day-run-mode.sh`'s non-Anthropic-without-L3-text path (top-level block under the
+   `# FAIL CLOSED:` comment, no function; warns instead of
    silently handing a GLM session the Opus-review table). The night runner's own guard checks
    (`Test-SessionGuards`, `Compare-RefSnapshot`, `Get-LooseGuardHashes`) also fail closed: a git
    failure produces a marker that never compares equal (`nightrun-lib.ps1:441,444,466`).
@@ -401,7 +403,8 @@ any other surprise prints `{}` and exits 0 (`day-run-mode.sh:97-100`).
 
 **Fail-closed exception** (Invariant 1): a non-Anthropic session whose `SAVER-L3.md` text is
 missing or empty gets a **warning only**, never the plain day-run table on its own — because that
-table promises Opus reviews a GLM session cannot reach (`day-run-mode.sh:159-164`).
+table promises Opus reviews a GLM session cannot reach (`day-run-mode.sh`, the top-level block
+under the `# FAIL CLOSED:` comment).
 
 **REVIEWER MODELS line** (Invariant 3): when the day-run table is injected on an Anthropic session,
 `day-run-mode.sh` appends `REVIEWER MODELS (reviewer allow-list; launch the first): <ids>` from
@@ -615,8 +618,11 @@ prefixed `[bajzi:<rule>]`, e.g. `[bajzi:env-file]`).
 parameter, PowerShell comma arrays, and the `rtk read` / `rtk grep` / `rtk proxy cat .env` wrapper
 forms are all denied.
 
-**Pipe rule, end-state behaviour**: the pipe-into-reader rule (`secret-rules.js:186-190`) fires
-only when the right-hand side reads **paths** from stdin (`xargs`, `Get-Content`), so listing
+**Pipe rule, end-state behaviour**: the pipe-into-reader rule
+(`secret-rules.js:readsPathsFromStdin`) fires only when the right-hand side reads **paths** from
+stdin (`xargs <reader>`; the PowerShell cmdlets `Get-Content`/`gc`, `Select-String`/`sls`,
+`Import-Csv`, `Format-Hex`/`fhx`; and `cat`/`type` under the `PowerShell` tool only, where they
+alias `Get-Content`), so listing
 commands such as `find . -name "*.env*" | sort` or `git check-ignore .env | cat` are allowed. The
 wildcard forms `.en?` / `*.pe?` / `.*`, `timeout -k <d> <d> cat .env`, `xargs -a .env`, the
 `rtk json|log|smart|summary` sub-wrappers and `rtk -v read`, nested Bash brace expansions and
@@ -950,21 +956,28 @@ and says so only in `<sprint>-main.err.txt`. This is an owner precondition (proj
 `WorkerMode claude` (L0) and the model = entry [0] of `review_queue.py reviewer-models`, whatever
 `-Model` says; an invalid reviewer allow-list refuses the run (exit 64) with the validator's
 reason. The allow-list's hash (`Get-ReviewerConfigHash`) taken before the drain session must
-equal the one taken after the gate and the verdict (the last steps that run worktree code or read
-the list before `mark-clean`), else that item is DRAIN-OWNER. For each item from
+equal the one taken after the gate (the last step that runs worktree code before the verdict and
+`mark-clean` read the list), else that item is DRAIN-OWNER. For each item from
 `rq list-open <branch>` (`review_queue.py:list_open`):
 1. The range comes only from the ledger (`rq ledger-range`, `nr:296`, `rq:385`) — the full
    `<before>..<after>` of the sprint, with no "already reviewed" skip list; no range = DRAIN-OWNER
    (`nr:297-300`).
 2. The prompt is `scripts/review-queue-prompt.md` with `{{QUEUE_FILE}}`, `{{SPRINT}}`, `{{RANGE}}`
    substituted (`nr:302`) and saved by `Invoke-Session` as `<sprint>-drain.prompt.txt` (`nr:116`).
-3. `rq ledger-hash` is taken before and after the session (`review_queue.py:ledger_hash`); the gate
-   runs (`nightrun.ps1:Invoke-Gate`); `rq drain-verdict <log>` (`review_queue.py:_drain_verdict`) requires a
+3. `rq ledger-hash` is taken before and after the session (`review_queue.py:ledger_hash`). Right
+   after the session the runner also hashes the drain log, the prompt file and the queue file
+   (`nightrun-lib.ps1:Get-DrainFilesHash`; all three live in the worktree). The gate runs
+   (`nightrun.ps1:Invoke-Gate`), then the ledger and those three files are hashed again, next to
+   the allow-list hash. `rq drain-verdict <log>` (`review_queue.py:_drain_verdict`) requires a
    `success` result record, every main-thread assistant model EXACTLY on the reviewer allow-list
    (`review_queue.py:_reviewer_models`; an invalid list rejects), and a last reply
    line matching `^VERDICT: (CLEAN|OWNER \(.+\))$` (`review_queue.py:_VERDICT`).
-4. Decision chain (`nr:310-320`): unclean session, unhashable or changed ledger, red gate, or a
-   non-clean verdict = DRAIN-OWNER; otherwise `rq mark-clean <sprint> <log>` → DRAINED-CLEAN.
+4. Decision chain (`nightrun.ps1:Invoke-ReviewDrain`), each a DRAIN-OWNER: an unclean session;
+   an unhashable ledger; a ledger changed during the session; a ledger, drain log, prompt file or
+   queue file changed during the gate (gate code is worktree code and must not forge a close, a
+   CLEAN log or a queue verdict); a reviewer allow-list whose hash changed between before the
+   session and after the gate (`nightrun-lib.ps1:Get-ReviewerConfigHash`); a red gate; a non-clean
+   verdict. Otherwise `rq mark-clean <sprint> <log>` → DRAINED-CLEAN.
 5. `mark_clean` (`rq:406-460`) re-checks everything itself: refuses inside a session
    (`_session_refusal`); needs an open, non-PENDING ledger range; the log must be named
    `<sprint>-drain.jsonl` (`rq:418`); C6 drain binding (`_drain_binding`, `rq:348-367`) — the log's
@@ -1410,6 +1423,7 @@ dedicated low-privilege Windows user; this is chosen before the pinned set is de
 | **C-2 settings from the worktree** | `--settings` pointing at the worktree's `nightrun-settings.json` (`nr:117`) lets session N write session N+1's deny rules. | The settings file is part of the pinned set. |
 | **Drain prompt injection (FR2 I-1, M5)** | A drain that loads `CLAUDE.md`, `.claude/`, the prompt template and the queue file from the worktree is steerable: nested `**/CLAUDE.md` and `CLAUDE.local.md` match no root-only guard pattern, and a retry relaunch re-reads worktree `.claude/settings.json` hooks with no guard check in between. | The drain runs from a trusted checkout; the guard patterns cover nested instruction files. The drain verdict still has to come from a model on the reviewer allow-list (`review_queue.py:_drain_verdict`). |
 | **Detached descendants (FR2 I-3)** | A session's detached child can outlive it (the only kill is a tree kill on timeout, `nr:87-92`) and append to the drain log after the gate read it. | A Windows Job Object per session; the drain log is hashed at session exit and re-checked in `mark-clean` (on top of the ledger hash around the drain, `nr:303-305`, and the log sha256 in the `clean` line, `rq:444`). |
+| **F1 gate code forges drain inputs** | The gate (`nightrun.ps1:Invoke-Gate`) runs worktree code (tests, `check.ps1`) between the drain session and `mark-clean`. That code can append a `clean` ledger line (`review_queue.py:_append_ledger`) for this or another open item, or rewrite the drain log, the prompt file or the queue file, which `drain-verdict` and `mark-clean` read after the gate. | The runner hashes the ledger, the drain log, the prompt file and the queue file right after the session and again after the gate (`nightrun.ps1:Invoke-ReviewDrain`, `nightrun-lib.ps1:Get-DrainFilesHash`); any mismatch, or an unreadable file, is DRAIN-OWNER, and `mark-clean` never runs. Residual: a detached process that writes after the re-check (row above; needs the pinned set's OS separation, §9.2). |
 | **Runner-context test code (M5)** | `check.ps1` runs `tests/**/conftest.py`, `pyproject.toml`/`pytest.ini`, `web/package.json` and `web/node_modules` in runner context; none is a guard file. | The gate runs with the pinned set's rights model (part of the pinned-set design). |
 | **Index flags hide edits** | A `skip-worktree` flag on a guard file hides real edits from the guard's hash comparison. | The guard set hashes guard files regardless of index flags. |
 | **M1 `-ClaudeBin worker`** | With `worker-mode` glm/tight the whole session runs on GLM, but `Test-GlmBin 'worker'` is false, so it would count as L0: no queue item, and it could end DONE. | `Assert-LaunchArgs` accepts only `claude` or `glm` for `-ClaudeBin`. |
@@ -1530,7 +1544,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Bash hooks (`day-run-mode.sh`, `routing-counter.sh`, `handoff-load.sh`, `methodology-guard.sh`, `noise-filter.sh`) (§6.3) | 1.7.0 | **yes** | — | `grep -o 'hooks/[a-z-]*\.sh' ~/.claude/plugins/cache/bajzi-plugins/bajzi/1.7.0/hooks/hooks.json` → those five |
 | Status line (§6.5) | `env-unify` | **no** — `statusLine` runs `gsd-statusline.js`; no `~/.claude/bajzi/` | install (§8.5 step 4) | `node -e "console.log(require(process.env.USERPROFILE+'/.claude/settings.json').statusLine.command)"` → `…/.claude/hooks/gsd-statusline.js` |
 | Context guard (§6.6) | `env-unify` | **no** | — | `grep -c context-guard ~/.claude/plugins/cache/bajzi-plugins/bajzi/1.7.0/hooks/hooks.json` → `0` |
-| Secret guard (§6.7) | `env-unify` | **no** — GSD's `gsd-secret-read-guard.js` runs | minors m1 (**fix before release**: pipe rule fires on listing commands, `secret-rules.js:186-190`), m2 wildcard forms (`:70`), m3 `timeout -k` (`:140`), m4 `xargs -a`, m5 `rtk` sub-wrappers / `rtk -v`, m6 nested braces / `@('.env')` — the forms §6.7 requires | same grep for `secret-guard` → `0` |
+| Secret guard (§6.7) | `env-unify` | **no** — GSD's `gsd-secret-read-guard.js` runs | m1 fixed on `env-unify` (the pipe rule fires only when the right-hand side reads paths from stdin, `secret-rules.js:readsPathsFromStdin`); minors m2 wildcard forms (`:70`), m3 `timeout -k` (`:140`), m4 `xargs -a`, m5 `rtk` sub-wrappers / `rtk -v`, m6 nested braces / `@('.env')` — the forms §6.7 requires | same grep for `secret-guard` → `0` |
 | Injection scanner (§6.8) | `env-unify` | **no** — GSD's `gsd-read-injection-scanner.js` (`Read` only) runs | m1 `sanitize` misses C1 controls and U+061C/00AD/200D/FFF9-FFFB; m2 the comment at `injection-rules.js:30` self-fires `fake-system-tag` | same grep for `injection-scan` → `0` |
 | Setup drift checker + `SKILL.md` (§6.9, §8.2) | `env-unify` (retained-hook rule in PHASE C step 4 since `e4ef6f4`) | runs from the checkout only | M1 a wrong-typed manifest block gives a stack trace, exit 1 not 2; M2 `BAJZI_HOME` alone still reads the real `%APPDATA%` rtk config; M3 `exclude_commands` matched anywhere, not only under `[hooks]`; M4 PHASE B/step numbering; M5 `laptop_retained_hooks.files` bare names; M6 zero drift needs `PONYTAIL_DEFAULT_MODE=lite` | `node bajzi/skills/setup/check.js; echo $?` → `setup --check: 27 drift item(s)`, exit 1 (4 `setting-drift`, `statusline-foreign`, `statusline-file-missing`, `mcp-missing code-review-graph`, 8 `rtk-exclude-missing`, 10 `leftover`, 2 `leftover-setting`) |
 | Dispatch guard (§6.4) | `env-unify` (merged from `saver-levels` @ `809bc18`; R3 cap 24576 chars) | **no** | release 1.8.0; the R1'/R2' rewrite + findings-file format (agents-and-cadence plan) | `git merge-base --is-ancestor 809bc18 env-unify` → exit 0; `grep -c dispatch-guard …/1.7.0/hooks/hooks.json` → `0` |

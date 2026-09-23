@@ -5,10 +5,14 @@
 // bridge <tmpdir>/bajzi-ctx-<session_id>.json that hooks/node/context-guard.js reads.
 const os = require('node:os');
 const { readInput, runHook, writeAll } = require('./lib/hook-io');
-const { resolveLevel } = require('./lib/saver-level');
-const { writeBridge } = require('./lib/bridge');
-const { peakStatus } = require('./lib/peak');
-const parts = require('./lib/status-parts');
+// Libs other than hook-io load inside runHook (F4): a partial install still fails open.
+let resolveLevel, writeBridge, peakStatus, parts;
+function loadLibs() {
+  ({ resolveLevel } = require('./lib/saver-level'));
+  ({ writeBridge } = require('./lib/bridge'));
+  ({ peakStatus } = require('./lib/peak'));
+  parts = require('./lib/status-parts');
+}
 
 const SEP = ' \u00b7 ';
 const C = { green: '\x1b[32m', yellow: '\x1b[33m', red: '\x1b[31m', reset: '\x1b[0m' };
@@ -79,6 +83,7 @@ function render(input, opts = {}) {
 
 function main() {
   runHook('statusline', () => {
+    loadLibs();
     const input = readInput() || {};
     const used = usedPct(input);
     if (used !== null) writeBridge(input.session_id, used, Date.now());
@@ -86,6 +91,6 @@ function main() {
   });
 }
 
-if (require.main === module) main();
+if (require.main === module) main(); else loadLibs();
 
 module.exports = { render, usedPct };

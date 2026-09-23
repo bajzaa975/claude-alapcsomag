@@ -72,7 +72,7 @@ test('live rules/prompt files name no version-named model (reviewer prose goes t
     'skills/night-run/templates/BRIEF.md.tmpl', 'skills/night-run/templates/config.env.tmpl',
     'skills/night-run/run.sh', 'skills/night-run/SKILL.md', 'skills/mode/SKILL.md',
     'skills/mode/DAY-RUN-RULES.md', 'skills/mode/SAVER-L1.md', 'skills/mode/SAVER-RULES.md',
-    'skills/mode/SAVER-L3.md', 'skills/mode/GLM-WORKER.md',
+    'skills/mode/SAVER-L3.md', 'skills/mode/GLM-WORKER.md', 'skills/mode/templates/dispatch-review.md',
   ];
   const re = /\b(?:opus|fable|sonnet|haiku)[ -]?\d|claude-(?:opus|fable|sonnet|haiku)/gi;
   const hits = [];
@@ -82,4 +82,12 @@ test('live rules/prompt files name no version-named model (reviewer prose goes t
     });
   }
   assert.deepStrictEqual(hits, []);
+});
+
+// F5: the review dispatch template's model line is the allow-list entry, not a model alias.
+test('dispatch-review.md launches REVIEWER (allow-list [0]), never a bare alias', () => {
+  const f = path.join(__dirname, '..', '..', '..', 'skills', 'mode', 'templates', 'dispatch-review.md');
+  const first = fs.readFileSync(f, 'utf8').split(/\r?\n/)[0];
+  assert.match(first, /^model: REVIEWER \(reviewer allow-list \[0\]\)/);
+  assert.doesNotMatch(first, /\b(?:opus|fable|sonnet|haiku)\b/i);
 });

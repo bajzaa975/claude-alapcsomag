@@ -12,6 +12,10 @@ const READERS = new Set(['cat', 'less', 'more', 'head', 'tail', 'grep', 'egrep',
   'base64', 'xxd', 'od', 'diff', 'sort', 'cut', 'jq', 'hexdump', 'format-hex', 'fhx']);
 const INTERPRETERS = new Set(['node', 'python', 'python3', 'py', 'ruby', 'perl', 'php', 'bash', 'sh', 'zsh', 'pwsh',
   'powershell', 'deno', 'bun', 'cmd']);
+// Right-hand sides that read PATHS (not data) from a pipe: PowerShell cmdlets bind the piped
+// FileInfo/string to -Path; `cat`/`type` do so only in PowerShell (aliases of Get-Content).
+const PIPE_PATH_READERS = new Set(['get-content', 'gc', 'select-string', 'sls', 'import-csv', 'format-hex', 'fhx']);
+const PS_PIPE_PATH_ALIASES = new Set(['cat', 'type']);
 const GIT_READ_SUBCMDS = new Set(['show', 'cat-file', 'blame', 'diff', 'log', 'grep']);
 const PREFIXES = new Set(['sudo', 'command', 'env', 'time', 'nohup', 'exec', 'nice']);
 const RTK_WRAPPERS = new Set(['proxy', 'err', 'test']);   // rtk <wrapper> <any command>
@@ -134,11 +138,12 @@ function matchArg(a, extra) {
 function resolve(words) {
   let i = 0;
   let rtk = false;
+  let xargs = false;
   while (i < words.length) {
     const n = cmdName(words[i]);
     if (PREFIXES.has(n) || ASSIGNMENT.test(words[i])) { i++; continue; }
     if (n === 'timeout') { i++; while (i < words.length && !DURATION.test(words[i])) i++; i++; continue; }
-    if (n === 'xargs') { i++; while (i < words.length && /^(-|\d+$)/.test(words[i])) i++; continue; }
+    if (n === 'xargs') { xargs = true; i++; while (i < words.length && /^(-|\d+$)/.test(words[i])) i++; continue; }
     if (n === 'rtk') {
       i++;
       rtk = true;
@@ -155,7 +160,7 @@ function resolve(words) {
     if (w === '<' || w === '<<' || w === '>') { k++; continue; }   // redirect + its target
     args.push(w);
   }
-  return { name, args, reader: READERS.has(name) || (rtk && name === 'read') };
+  return { name, args, xargs, reader: READERS.has(name) || (rtk && name === 'read') };
 }
 
 function codeMentionsProtected(code, extra) {
@@ -166,7 +171,15 @@ function codeMentionsProtected(code, extra) {
   return null;
 }
 
-function commandReadsProtected(cmd, extraPatterns = []) {
+// Does this pipe right-hand side read the left side's output as PATHS? `| sort`, `| head`,
+// Bash `| cat` read it as data (listing a secret's name is fine).
+function readsPathsFromStdin(c, shell) {
+  if (!c || !c.reader) return false;
+  return c.xargs || PIPE_PATH_READERS.has(c.name) || (shell === 'PowerShell' && PS_PIPE_PATH_ALIASES.has(c.name));
+}
+
+// shell: the tool name ('Bash' | 'PowerShell'); only changes how a pipe into cat/type is read.
+function commandReadsProtected(cmd, extraPatterns = [], shell = 'Bash') {
   if (typeof cmd !== 'string' || !cmd.trim()) return null;
   if (DOTNET_READ.test(cmd)) {
     const h = codeMentionsProtected(cmd, extraPatterns);
@@ -183,9 +196,10 @@ function commandReadsProtected(cmd, extraPatterns = []) {
     }
     if (!c) continue;
     const { name, args } = c;
-    // `Get-ChildItem .env | Get-Content`, `echo .env | xargs cat`: a protected name piped into a reader.
+    // `Get-ChildItem .env | Get-Content`, `echo .env | xargs cat`: a protected name piped into a
+    // reader that takes it as a path.
     const next = segs[j + 1];
-    if (segs[j].pipe && next && next.cmd && next.cmd.reader) {
+    if (segs[j].pipe && next && readsPathsFromStdin(next.cmd, shell)) {
       for (const a of args) { const h = matchArg(a, extraPatterns); if (h) return h; }
     }
     if (c.reader) {

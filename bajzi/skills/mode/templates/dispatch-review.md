@@ -1,4 +1,4 @@
-model: opus - independent review, always fresh, never implementer or fixer.
+model: REVIEWER (reviewer allow-list [0]) - independent review, always fresh, never implementer or fixer.
 
 Use this template for every round of the review-and-fix loop. Dispatch a NEW
 reviewer agent each round; a reviewer is never reused across rounds.
