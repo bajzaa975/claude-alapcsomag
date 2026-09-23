@@ -1,0 +1,27 @@
+{
+  "_comment": "Shared by bajzi/hooks/node/tests/saver-level.test.js (node, saver-level.js) and bajzi/hooks/tests/saver-level-parity.sh (bash, lib-saver-level.sh). null = unset / no file. expect_word = SAVER_LEVEL; expect_level = node level number (unknown word = 0, as day-run-mode.sh treats it).",
+  "cases": [
+    {"name": "bare", "base_url": null, "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
+    {"name": "file-glm", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "expect_word": "glm", "expect_level": 2},
+    {"name": "file-bom-crlf-light", "base_url": null, "worker_mode_env": null, "worker_mode_file": "\ufefflight\r\n", "expect_word": "light", "expect_level": 1},
+    {"name": "file-padded-upper-tight", "base_url": null, "worker_mode_env": null, "worker_mode_file": "  TIGHT  \n", "expect_word": "tight", "expect_level": 3},
+    {"name": "file-first-line-only", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\nclaude\n", "expect_word": "glm", "expect_level": 2},
+    {"name": "file-empty", "base_url": null, "worker_mode_env": null, "worker_mode_file": "", "expect_word": "claude", "expect_level": 0},
+    {"name": "file-inner-space", "base_url": null, "worker_mode_env": null, "worker_mode_file": "g l m\n", "expect_word": "glm", "expect_level": 2},
+    {"name": "file-unknown-word", "base_url": null, "worker_mode_env": null, "worker_mode_file": "turbo\n", "expect_word": "turbo", "expect_level": 0},
+    {"name": "env-overrides-file", "base_url": null, "worker_mode_env": " Light ", "worker_mode_file": "glm\n", "expect_word": "light", "expect_level": 1},
+    {"name": "env-unknown-word", "base_url": null, "worker_mode_env": "bogus", "worker_mode_file": null, "expect_word": "bogus", "expect_level": 0},
+    {"name": "env-empty-falls-to-file", "base_url": null, "worker_mode_env": "", "worker_mode_file": "tight\n", "expect_word": "tight", "expect_level": 3},
+    {"name": "zai-forces-tight", "base_url": "https://api.z.ai/api/anthropic", "worker_mode_env": null, "worker_mode_file": "claude\n", "expect_word": "tight", "expect_level": 3},
+    {"name": "anthropic-url-keeps-file", "base_url": "https://api.anthropic.com", "worker_mode_env": null, "worker_mode_file": "glm\n", "expect_word": "glm", "expect_level": 2},
+    {"name": "anthropic-apex-upper", "base_url": "HTTPS://ANTHROPIC.COM/", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
+    {"name": "backslash-userinfo-trick", "base_url": "https://evil.com\\@api.anthropic.com", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3},
+    {"name": "userinfo-and-port", "base_url": "https://user@api.anthropic.com:443/v1", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
+    {"name": "lookalike-suffix", "base_url": "https://api.anthropic.com.evil.io", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3},
+    {"name": "anthropic-in-query", "base_url": "https://x.example/?h=anthropic.com", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3},
+    {"name": "no-scheme-anthropic", "base_url": "api.anthropic.com", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
+    {"name": "whitespace-url-is-unset", "base_url": "   ", "worker_mode_env": null, "worker_mode_file": "light\n", "expect_word": "light", "expect_level": 1},
+    {"name": "scheme-only-url", "base_url": "https://", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3},
+    {"name": "env-level-then-provider", "base_url": "https://api.z.ai", "worker_mode_env": "claude", "worker_mode_file": null, "expect_word": "tight", "expect_level": 3}
+  ]
+}

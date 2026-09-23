@@ -4,3 +4,5 @@
 *.json text eol=lf
 *.md text eol=lf
 bajzi/bin/**/*.js text eol=lf
+bajzi/hooks/node/**/*.js text eol=lf
+bajzi/skills/**/*.js text eol=lf
