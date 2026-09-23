@@ -68,7 +68,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Status-line fields/order | `bajzi/hooks/node/statusline.js:51-78` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). GLM share only rendered at level ≥ 1. |
 | Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js:38` `matchProtected`, `:169` `commandReadsProtected`; `manifest.json:294` `secret_patterns` | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | Globs, brace lists, PowerShell comma arrays and `rtk` wrappers must all stay covered (§6.7). The pipe-into-reader rule must fire only when the right-hand side reads paths from stdin (§6.7). |
 | Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js:4-20` `REGEX_RULES`, `:54` `scan`, `:27` `RULE_IDS` (17 ids), `:34` `sanitize`; `bajzi/hooks/node/injection-scan.js:31` `decide` | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Warn-only by design — `addContext` only, never `deny()`; never wire it to block. Every rule regex avoids the `\s*X?\s*` quadratic shape (§6.8); excerpts/source run through `sanitize()`. |
-| Saver-level routing table (task class → model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh:136` (`head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh:38` `saver_resolve()` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh` rules read) must stay above the file's real line count (currently 54) or the tail silently drops with no error. The table says REVIEWER, never a model id: the hook appends the REVIEWER MODELS line (next row). |
+| Saver-level routing table (task class → model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh` (rules read, `head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh:saver_resolve` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh` rules read) must stay above the file's real line count (currently 54) or the tail silently drops with no error. The table says REVIEWER, never a model id: the hook appends the REVIEWER MODELS line (next row). |
 | Reviewer allow-list (who may review; the launch default) | `~/.claude/bajzi/config.json` `reviewer_models` (the owner, or `/bajzi:setup` from `manifest.json` `bajzi_config`); validators `bajzi/hooks/node/lib/reviewer-models.js:load` and claude-orchestrator `scripts/review_queue.py:_reviewer_models`; readers `bajzi/hooks/day-run-mode.sh` (REVIEWER MODELS line), `bajzi/skills/setup/check.js:checkAll`, `bajzi/skills/night-run/SKILL.md` (`MODEL`, `{{REVIEWER_MODEL}}`), `nightrun-lib.ps1:Get-DrainLaunch`, `review_queue.py:_drain_verdict`; tripwire `nightrun-lib.ps1:Get-ReviewerConfigHash` | `node --test bajzi/hooks/node/tests/reviewer-models.test.js bajzi/skills/setup/tests/check.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (case 15); `python -m pytest -q tests/test_review_queue_drain.py`; Pester `tests/ps/nightrun-drain.Tests.ps1`, `nightrun-guards.Tests.ps1` | 1 | Two validators (node, python) must agree on the id regex and the whole-list-invalid rule. Never add a default id to code: the manifest is the only default. A reviewer swap is a config edit; a manifest edit also changes the default every `/bajzi:setup` writes. |
 | GLM model mapping (`--model sonnet\|opus` → `glm_model`) | `bajzi/bin/cc-router.js:54` `effective()`, `:289-296` glm env block | `node --test bajzi/bin/tests/*.test.js` | 1 | `-ClaudeBin glm` maps `CLAUDE_CODE_SUBAGENT_MODEL` too — the whole session incl. sub-agents runs on GLM (§6.2, §9.1). |
 | Z.ai peak window | `cc-router.js:272` `peakOpen()`, refusal `:273-283` (exit 75); mirrored independently in claude-orchestrator `nightrun-lib.ps1:205` `Test-GlmPeakSoon`, `:214` `Get-GlmStartDecision`; display-only copy `bajzi/hooks/node/lib/peak.js` | `node --test bajzi/bin/tests/*.test.js`; `Invoke-Pester tests/ps/nightrun-lib.Tests.ps1` | 1 | Three implementations (shim, runner, status-line display). Changing the window means editing all three, or the shim and the runner disagree about when GLM is refused. |
@@ -76,13 +76,13 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Dispatch-guard rules (R1/R2/R3/R4) | `bajzi/hooks/dispatch-guard.sh:128` `reads_full_doc()`, decision block `:141-153` | `bash bajzi/skills/mode/tests/mode.sh` (case 13x) | 1 | Fails open by design ("a discipline guard, not a security boundary", `:13-15`); never describe a rule as a security boundary. |
 | Night-run launcher parameters | claude-orchestrator `scripts/nightrun.ps1:16-35` (param block), `scripts/nightrun-releaseB.ps1:54-72`, `scripts/nightrun-lib.ps1:41` `Assert-LaunchArgs`, `:4` `ConvertFrom-LevelSpec` | `pwsh -NoProfile -c "Invoke-Pester tests/ps -Output Minimal"` | 1 | `-MaxHours` is a hard **kill** wall (§6.11.8). `-Levels` and `-ClaudeBin` are mutually exclusive. `nightrun.ps1`'s own `-PermissionMode` default is `auto`; pass `bypassPermissions` explicitly. |
 | Usage-limit / transient detection, degrade | `nightrun-lib.ps1:122` `Get-LimitKind`, `:179` `Get-SessionOutcome`, `:197` `Test-DegradePossible`; `nightrun.ps1:236` `Step-Degrade` | Pester `tests/ps/nightrun-lib.Tests.ps1` | 1 | Only the CLI's own records are evidence (rate_limit_event status, result `api_error_status`, result string prose). A model that *quotes* "usage limit reached" must never degrade the night (§6.11.3). |
-| Guard tripwire (what a session may not touch) | `nightrun-lib.ps1:412-415` `$script:GuardPathPatterns`, `nightrun-lib.ps1:Get-LooseGuardHashes` (also hashes the out-of-repo reviewer allow-list, `Get-ReviewerConfigHash`), `:454` `Get-SessionSnapshot`, `:465` `Compare-RefSnapshot`, `:508` `Test-SessionGuards`; `nightrun.ps1:269` `Complete-GuardTrip` | Pester `tests/ps/nightrun-guards.Tests.ps1` | 1 | Guard **files** are checked only at effective L2/L3; refs at every level. It compares working-tree hashes, so an index flag such as `skip-worktree` can hide an edit; the pinned guard set closes that (§9.3). |
+| Guard tripwire (what a session may not touch) | `nightrun-lib.ps1:$script:GuardPathPatterns`, `nightrun-lib.ps1:Get-LooseGuardHashes` (also hashes the out-of-repo reviewer allow-list, `Get-ReviewerConfigHash`), `nightrun-lib.ps1:Get-SessionSnapshot`, `nightrun-lib.ps1:Compare-RefSnapshot`, `nightrun-lib.ps1:Test-SessionGuards`; `nightrun.ps1:Complete-GuardTrip` | Pester `tests/ps/nightrun-guards.Tests.ps1` | 1 | Guard **files** are checked only at effective L2/L3; refs at every level. It compares working-tree hashes, so an index flag such as `skip-worktree` can hide an edit; the pinned guard set closes that (§9.3). |
 | Sprint status resolution | `nightrun-lib.ps1:224` `Resolve-SprintStatus`, `:233` `Test-ContinueQueue`, `:240` `Set-StatusFileHead`; `nightrun.ps1:483-586` | Pester `tests/ps/nightrun-lib.Tests.ps1`, `nightrun-guards.Tests.ps1` | 1 | The session's status file is a **claim**; nothing may promote PARKED/BLOCKED/INCOMPLETE (§6.11.4, §6.11.7). |
-| Review-queue closing (mark-clean/abandon) | claude-orchestrator `scripts/review_queue.py:133` `create`, `:149` `complete`, `:176` `verify`, `:406` `mark_clean`, `:482` `abandon`, `:120` `_session_refusal`, `:348` `_drain_binding`, `review_queue.py:_reviewer_models` / `reviewer-models` | `python -m pytest -q tests/test_review_queue.py tests/test_review_queue_drain.py tests/test_review_queue_guard.py` | 1 | Only a **runner-written ledger line in the git dir** closes an item; `abandon`/`mark-clean` refuse with exit 77 inside any Claude session. The interpreter that runs it must come from the pinned guard set, or a `.pth` file can forge a clean line (§9.3, I-1). |
+| Review-queue closing (mark-clean/abandon) | claude-orchestrator `scripts/review_queue.py:create`, `review_queue.py:complete`, `review_queue.py:verify`, `review_queue.py:mark_clean`, `review_queue.py:abandon`, `review_queue.py:_session_refusal`, `review_queue.py:_drain_binding`, `review_queue.py:_reviewer_models` / `reviewer-models` | `python -m pytest -q tests/test_review_queue.py tests/test_review_queue_drain.py tests/test_review_queue_guard.py` | 1 | Only a **runner-written ledger line in the git dir** closes an item; `abandon`/`mark-clean` refuse with exit 77 inside any Claude session. The interpreter that runs it must come from the pinned guard set, or a `.pth` file can forge a clean line (§9.3, I-1). |
 | Drain prompt / session rules | claude-orchestrator `scripts/review-queue-prompt.md`, `scripts/nightrun-prompt.md` | Pester `tests/ps/nightrun-drain.Tests.ps1` | 1 | Both are guard files (tripwire); the drain must read them from the pinned set, not from the session-writable worktree (§9.3). |
 | Push guard | claude-orchestrator `.githooks/pre-push`, `review_queue.py:523` `pushed_contains_open`, `:513` `_patch_ids` | `python -m pytest -q tests/test_review_queue_guard.py` | 1 | Fails **closed** on any error. Requires `core.hooksPath = .githooks` (`nightrun-lib.ps1:256` `Assert-GitHooksInstalled`). Squash-merge needs the whole-range patch-id check (§9.3, M2). |
 | Night-run deny rules | claude-orchestrator `scripts/nightrun-settings.json` `permissions.deny` (67 rules) | none (JSON parse check at preflight, `nightrun.ps1:366`) | 1 | `autoMode.*` is read only under `--permission-mode auto`; a rule that must hold under `bypassPermissions` belongs in `deny` (§6.11.10). |
-| Manifest / setup drift keys | `bajzi/skills/setup/manifest.json` (`settings_merge:160` incl. `permissions.defaultMode:172`, `rtk.exclude_commands:135`, `statusline:301`, `user_mcps:307`, `forbidden_leftovers:332`, `bajzi_config`); `bajzi/skills/setup/check.js:77` `checkAll`, `:45` `leafDiffs`, `:138` `main` | `node --test bajzi/skills/setup/tests/check.test.js` | 1 (setup writes `~/.claude/settings.json`; `check.js` itself is read-only) | Any new `settings_merge` key is compared automatically by `leafDiffs`. Adding/removing a plugin, skill or MCP without updating `manifest.json` in the same change breaks the manifest-sync rule. |
+| Manifest / setup drift keys | `bajzi/skills/setup/manifest.json` (`settings_merge` incl. `permissions.defaultMode`, `rtk.exclude_commands`, `statusline`, `user_mcps`, `forbidden_leftovers`, `bajzi_config`); `bajzi/skills/setup/check.js:checkAll`, `check.js:leafDiffs`, `check.js:main` | `node --test bajzi/skills/setup/tests/check.test.js` | 1 (setup writes `~/.claude/settings.json`; `check.js` itself is read-only) | Any new `settings_merge` key is compared automatically by `leafDiffs`. Adding/removing a plugin, skill or MCP without updating `manifest.json` in the same change breaks the manifest-sync rule. |
 | Status-line installer | `bajzi/skills/setup/install-statusline.js:36` `install`, `:23` `writeBackup`, `:11` `stamp` | `node --test bajzi/skills/setup/tests/*.test.js` | 1 (writes `~/.claude/settings.json`) | Parses settings.json before writing; never overwrites an existing backup (§8.2, §8.4). |
 | Adding a new hook | `bajzi/hooks/hooks.json` (append-only, per plan Global Constraints) | `node --test bajzi/skills/project-setup/tests/release.test.js` (checks every `node` command in `hooks.json` resolves to a real file, §6.10) | 1 or 2 depending on what the hook does | The wiring in §5.3 is the complete list; every entry carries `timeout: 5`. A hook that needs longer is a design problem, not a timeout to raise. |
 | Releasing a new plugin version + reinstall | `bajzi/.claude-plugin/plugin.json` `version`, `.claude-plugin/marketplace.json` `plugins[0].version` | manual: §8.3 | 3 (but treat the pitfall as Tier-1-serious) | `claude plugin update` is a **no-op** unless **both** versions move in the same commit (`manifest.json` `known_pitfalls`, the "Unknown command" and "Releasing a new version" entries). |
@@ -728,11 +728,11 @@ writes, creates or deletes anything (test `check.js is read-only: no file under 
   - `forbidden_leftovers.paths` (`~`-relative, `*` only in the last segment) → `leftover
     <path>`; `forbidden_leftovers.settings_substrings` found in `settings.hooks` or
     `permissions.allow` → `leftover-setting <substring>`.
-- **Manifest keys it reads**: `marketplaces`, `plugins`, `settings_merge` (`:160`, incl.
-  `permissions.defaultMode` `:172`), `user_mcps` (`:307`; `code-review-graph` = `uvx
-  code-review-graph serve`, `token-savior`), `rtk.exclude_commands` (`:135`), `rtk.config`,
-  `forbidden_leftovers` (`:332`), `bajzi_config` (`path`, `reviewer_models` — the reviewer
-  allow-list default, the only pinned reviewer id in the package). `statusline` (`:301`) and `secret_patterns` (`:294`) are for
+- **Manifest keys it reads**: `marketplaces`, `plugins`, `settings_merge` (incl.
+  `permissions.defaultMode`), `user_mcps` (`code-review-graph` = `uvx
+  code-review-graph serve`, `token-savior`), `rtk.exclude_commands`, `rtk.config`,
+  `forbidden_leftovers`, `bajzi_config` (`path`, `reviewer_models` — the reviewer
+  allow-list default, the only pinned reviewer id in the package). `statusline` and `secret_patterns` are for
   SKILL.md / the secret guard, not compared. In the end-state manifest `gsd.default_install` is
   `false` and the `gsd` block carries no machine exceptions (the transitional
   `gsd.laptop_retained_hooks` key exists only during a migration, §8.5).
@@ -741,7 +741,8 @@ writes, creates or deletes anything (test `check.js is read-only: no file under 
 - **Tests**: `node --test bajzi/skills/setup/tests/check.test.js` (15 tests, incl. the reviewer
   allow-list drift and the real manifest's `bajzi_config`; clean fixture, one
   per drift family, `--json`/exit 2, read-only snapshot, real-manifest shape, SKILL.md steps).
-  Mutation check: disabling each of the 17 comparisons makes its named test fail.
+  Mutation check: disabling each of the 19 comparisons makes its named test fail (the two
+  reviewer-models ones re-verified 2026-09-23).
 - **Error handling**: a manifest block of the wrong type exits `2` with a one-line message (never
   a stack trace); with `BAJZI_HOME` set, the rtk config is resolved under that home too; an
   `exclude_commands` line counts only inside the `[hooks]` table.
@@ -939,22 +940,24 @@ and says so only in `<sprint>-main.err.txt`. This is an owner precondition (proj
 
 #### 6.11.5 `-ReviewQueue` drain
 
-`nr:422` runs `Invoke-ReviewDrain` (`nr:284-326`) instead of any sprint. `Get-DrainLaunch`
+`nightrun.ps1` runs `nightrun.ps1:Invoke-ReviewDrain` instead of any sprint. `Get-DrainLaunch`
 (`nightrun-lib.ps1:Get-DrainLaunch`), called ONCE before preflight, pins `ClaudeBin claude`,
 `WorkerMode claude` (L0) and the model = entry [0] of `review_queue.py reviewer-models`, whatever
 `-Model` says; an invalid reviewer allow-list refuses the run (exit 64) with the validator's
-reason. The allow-list's hash (`Get-ReviewerConfigHash`) must be identical before and after each
-drain session, else that item is DRAIN-OWNER. For each item from `rq list-open <branch>` (`nr:288`, `rq:266`):
+reason. The allow-list's hash (`Get-ReviewerConfigHash`) taken before the drain session must
+equal the one taken after the gate and the verdict (the last steps that run worktree code or read
+the list before `mark-clean`), else that item is DRAIN-OWNER. For each item from
+`rq list-open <branch>` (`review_queue.py:list_open`):
 1. The range comes only from the ledger (`rq ledger-range`, `nr:296`, `rq:385`) — the full
    `<before>..<after>` of the sprint, with no "already reviewed" skip list; no range = DRAIN-OWNER
    (`nr:297-300`).
 2. The prompt is `scripts/review-queue-prompt.md` with `{{QUEUE_FILE}}`, `{{SPRINT}}`, `{{RANGE}}`
    substituted (`nr:302`) and saved by `Invoke-Session` as `<sprint>-drain.prompt.txt` (`nr:116`).
-3. `rq ledger-hash` is taken before and after the session (`nr:303,305`, `rq:374`); the gate runs
-   (`nr:307`); `rq drain-verdict <log>` (`nr:308`, `_drain_verdict` `rq:284-318`) requires a
+3. `rq ledger-hash` is taken before and after the session (`review_queue.py:ledger_hash`); the gate
+   runs (`nightrun.ps1:Invoke-Gate`); `rq drain-verdict <log>` (`review_queue.py:_drain_verdict`) requires a
    `success` result record, every main-thread assistant model EXACTLY on the reviewer allow-list
    (`review_queue.py:_reviewer_models`; an invalid list rejects), and a last reply
-   line matching `^VERDICT: (CLEAN|OWNER \(.+\))$` (`rq:40`).
+   line matching `^VERDICT: (CLEAN|OWNER \(.+\))$` (`review_queue.py:_VERDICT`).
 4. Decision chain (`nr:310-320`): unclean session, unhashable or changed ledger, red gate, or a
    non-clean verdict = DRAIN-OWNER; otherwise `rq mark-clean <sprint> <log>` → DRAINED-CLEAN.
 5. `mark_clean` (`rq:406-460`) re-checks everything itself: refuses inside a session
@@ -1428,6 +1431,8 @@ dedicated low-privilege Windows user; this is chosen before the pinned set is de
   moves it into the pinned guard set: an interactive session, or a night-run session at L0/L1, can
   edit it. Mitigations only: `claude-` ids only (a GLM id voids the list), the L2/L3 tripwire
   PARKs a sprint that changed it, and a drain item whose session changed it is never closed.
+  `BAJZI_HOME` is honoured by every reader, so a persistent user env var set by a session would
+  point the next night's runner at a session-chosen file — the same limit, same mitigations.
 
 ## 10. Glossary
 

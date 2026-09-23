@@ -30,12 +30,13 @@ goes into generated files under `~/night-runs/<project>/`.
 
 ## Review loop — when an item is actually done
 
-Every queue item goes through the review-and-fix loop, and the reviewer is **always Opus 5.5** —
+Every queue item goes through the review-and-fix loop, and the reviewer is **always the reviewer
+allow-list's first entry** (`{{REVIEWER_MODEL}}` in the brief) —
 whatever the per-story orchestrator is, and whatever model wrote the code. The reviewer model is
 not a variable, and it never drops a tier because a diff looks small.
 
 The loop does not stop after one pass. Findings go to a FIXER sub-agent — never the reviewer that
-raised them — and the fix gets a NEW Opus 5.5 review round. Fix → review → fix → review, until it
+raised them — and the fix gets a NEW reviewer round. Fix → review → fix → review, until it
 comes back clean. A single fix wave is not a loop.
 
 **Clean** means zero Critical AND zero Important findings AND the repo's own gate green. Minor and

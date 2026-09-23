@@ -45,8 +45,8 @@ slice, write the handoff, ask to clear. Parallel fixers own disjoint files, then
 pass.
 STARTUP INJECTIONS cost ORCH price too: keep SessionStart hook output small; memory plugin caps at 5 obs on owner machines (CLAUDE_MEM_CONTEXT_OBSERVATIONS=5).
 FABLE DEPLETION: on the session-limit message, start nothing new, write the handoff, say "Fable
-limit reached. Restart with <REVIEWER MODELS first id>." Next session: claude --model <that id>.
-Same rules reload; no rung spends Fable.
+limit reached. Restart with <X>." X = the first REVIEWER MODELS id that is not a Fable model, else
+Opus. Next session: claude --model <X>. Same rules reload; no rung spends Fable.
 Every dispatch's first line: model: <name> -- <reason>.
 Log every dispatch, one line, exact format, appended to runtime/DAY-RUN.log:
 <ISO time> <task-class> model=<name> rounds=<n> result=<pass|fail|park|direct>

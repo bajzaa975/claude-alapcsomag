@@ -215,6 +215,20 @@ test('reviewer allow-list: invalid (missing, GLM id) and drifted from the manife
   assert.match(run(m).out, /^DRIFT reviewer-models-invalid .*missing/m);
 });
 
+test('setup step 11 writes the manifest default under BAJZI_HOME (same override as every reader)', () => {
+  const m = machine();
+  fs.rmSync(path.join(m.c, 'bajzi', 'config.json'));
+  const mm = /node -e "([^"]+)" "\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/setup\/manifest\.json"/.exec(fs.readFileSync(SKILL, 'utf8'));
+  assert.ok(mm, 'step 11 command not found in SKILL.md');
+  const decoy = fs.mkdtempSync(path.join(os.tmpdir(), 'bajzi-decoy-'));   // os.homedir() for the child: never the real home
+  const r = spawnSync(process.execPath, ['-e', mm[1], m.env.BAJZI_MANIFEST],
+    { env: Object.assign({}, process.env, { BAJZI_HOME: m.home, HOME: decoy, USERPROFILE: decoy }), encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(!fs.existsSync(path.join(decoy, '.claude', 'bajzi', 'config.json')), 'wrote under os.homedir(), not BAJZI_HOME');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(m.c, 'bajzi', 'config.json'), 'utf8')), { reviewer_models: ['claude-a-1', 'claude-b-2'] });
+  assert.doesNotMatch(run(m).out, /reviewer-models/);
+});
+
 test('real manifest: reviewer allow-list default is a valid, non-empty claude- list at ~/.claude/bajzi/config.json', () => {
   const m = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8'));
   assert.strictEqual(m.bajzi_config.path, '~/.claude/bajzi/config.json');

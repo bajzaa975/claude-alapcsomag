@@ -63,3 +63,23 @@ test('CLI: prints the list comma-joined, exit 0; invalid prints why, exit 1; BAJ
   const first = spawnSync(process.execPath, [LIB, '--first'], { env: { BAJZI_HOME: home({ reviewer_models: ['claude-a-1', 'claude-b-2'] }) }, encoding: 'utf8' });
   assert.strictEqual(first.stdout, 'claude-a-1\n');
 });
+
+// Invariant 3: the live reviewer instructions name the reviewer allow-list, never a version-named
+// model -- else a reviewer swap in config.json contradicts the text the session obeys.
+test('live rules/prompt files name no version-named model (reviewer prose goes through the allow-list)', () => {
+  const root = path.join(__dirname, '..', '..', '..');
+  const files = [
+    'skills/night-run/templates/BRIEF.md.tmpl', 'skills/night-run/templates/config.env.tmpl',
+    'skills/night-run/run.sh', 'skills/night-run/SKILL.md', 'skills/mode/SKILL.md',
+    'skills/mode/DAY-RUN-RULES.md', 'skills/mode/SAVER-L1.md', 'skills/mode/SAVER-RULES.md',
+    'skills/mode/SAVER-L3.md', 'skills/mode/GLM-WORKER.md',
+  ];
+  const re = /\b(?:opus|fable|sonnet|haiku)[ -]?\d|claude-(?:opus|fable|sonnet|haiku)/gi;
+  const hits = [];
+  for (const f of files) {
+    fs.readFileSync(path.join(root, f), 'utf8').split('\n').forEach((l, i) => {
+      for (const m of l.matchAll(re)) hits.push(`${f}:${i + 1} ${m[0]}`);
+    });
+  }
+  assert.deepStrictEqual(hits, []);
+});

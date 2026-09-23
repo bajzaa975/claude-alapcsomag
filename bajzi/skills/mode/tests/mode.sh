@@ -623,6 +623,8 @@ printf '{"reviewer_models": ["claude-a-1"]}' > "$RMCFG"
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME= "$ZAI")"
 expect "15e non-Anthropic session: no REVIEWER MODELS line" "$out" 'SAVER LEVEL L3' 'launch the first)'
 rm -rf "$FAKE_HOME/.claude/bajzi"
+# 15f: Fable depletion never restarts on the depleted model, even when entry [0] is Fable.
+grep -q 'the first REVIEWER MODELS id that is not a Fable model' "$RULES_MD"     && pass "15f Fable-depletion restart skips Fable ids" || fail "15f" "restart line may name the depleted model"
 
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.

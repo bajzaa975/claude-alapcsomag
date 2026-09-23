@@ -90,13 +90,13 @@ summaries, 4 first-round fixes, 5 implementing.
 | Level | GLM flash (`glm-5.3-flash`) | GLM big (`glm-5.3`) | Stays on Claude | Target GLM share |
 |---|---|---|---|---|
 | **L0 Claude** | - | - | everything | 0% |
-| **L1 Light** | 1-3 (replaces haiku) | - | 4-5 (sonnet), orchestration + every review (Opus) | 20-30% |
-| **L2 Balanced** | 1-3 | 4-5 | orchestration, every review, risk-bearing slices (Opus) | 60-70% |
+| **L1 Light** | 1-3 (replaces haiku) | - | 4-5 (sonnet), orchestration + every review (reviewer allow-list) | 20-30% |
+| **L2 Balanced** | 1-3 | 4-5 | orchestration, every review (reviewer allow-list), risk-bearing slices (Opus) | 60-70% |
 | **L3 Tight** | 1-3 | 4-5, orchestration, Tier-2 findings | Tier-1 + final whole-branch reviews - **queued** (SAVER-L3.md) | 85-90% build-phase |
 
 Fixed rules, all levels: flash never writes code (classes 4-5); risk-bearing slices never
-start on GLM below L3; GLM never reviews GLM's code as a substitute for an Opus review -
-where no Opus review is available the review is queued, never downgraded; the GLM
+start on GLM below L3; GLM never reviews GLM's code as a substitute for a reviewer-allow-list review -
+where no such review is available the review is queued, never downgraded; the GLM
 peak-window ban applies at every level that uses GLM (L1-L3), enforced by the shim.
 
 - `worker --level N` sets the level (0=claude, 1=light, 2=glm, 3=tight); `worker --status`
