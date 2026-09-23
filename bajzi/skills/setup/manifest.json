@@ -285,5 +285,12 @@
     "rtk_boundary": "Complementary, not competing: pytest/ruff/git/ls/find/grep/`err npm run build` stay rtk's; commands already starting with `rtk` are skipped, so the two PreToolUse hooks never rewrite the same call.",
     "measured": "2026-09-15, npm install --loglevel verbose: 28,295 -> 2,967 chars (-89.5%), rc preserved (0 on success, 1 on a failing pip install). NOTE: Claude Code runs Bash without a TTY, so many tools already suppress their progress bars — the real win is on verbose installs, builds and test runners, not on a plain `npm install`.",
     "off": "BAJZI_NOISE_OFF=1"
-  }
+  },
+  "secret_patterns": [
+    "*.pem",
+    "*.key",
+    "id_rsa*",
+    "id_ed25519*",
+    "credentials.json"
+  ]
 }

@@ -1,5 +1,5 @@
 {
-  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers) + day-run working-mode injection + noisy-output filter + saver routing-violation counter + context guard (40% warn, 50% block)",
+  "description": "Automatic HANDOFF loading + per-repo methodology selection (GSD vs superpowers) + day-run working-mode injection + noisy-output filter + saver routing-violation counter + context guard (40% warn, 50% block) + secret-read guard",
   "hooks": {
     "SessionStart": [
       {
@@ -50,6 +50,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/context-guard.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Grep|Glob|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/secret-guard.js\"",
             "timeout": 5
           }
         ]
