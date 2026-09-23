@@ -16,7 +16,10 @@
 - No absolute Windows paths in code; use `os.homedir()`, `os.tmpdir()`, `path.join`.
 - Every hook fails open (exit 0, no stdout) on any internal error; never prints stack traces to stdout.
 - Hook p95 runtime: guards < 100 ms, status line < 150 ms warm on Windows.
-- Opus = `claude-opus-5-5` for every review; commits end with the `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` line; no push.
+- Development of this plan runs at saver level L0 only (Claude subscription, no GLM, no `glm -p`); the day-run routing table still applies. L1+ only on an explicit owner instruction in chat.
+- Reviews: every diff and whole-branch review runs on a model from the reviewer allow-list (Task 9; until it lands, `claude-opus-5-5`), never GLM. From Task 7 on: Tier 1 tasks get a per-task review; Tier 2/3 tasks get the gate only, their model review happens once at the whole-branch review. Fix rounds are batched: the review returns its full findings list (`file:line · severity · finding · test`), one fixer dispatch gets all of it, one re-review, then anything open goes to the owner (fix / accept / park).
+- Anchors touched from Task 7 on are `file:function`, no `:line` (spec §0).
+- Commits end with the `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>` line; no push.
 - Percent everywhere = raw `100 - context_window.remaining_percentage`.
 - Thresholds: warn >= 40, block >= 50; stale bridge > 60 s = unknown = allow; warn debounce 5 tool calls.
 - GSD code is a behaviour reference only (licence unknown): nothing is copied from `~/.claude/hooks/gsd-*.js`.
@@ -3171,7 +3174,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ### Task 7: project-setup, alapcsomag retirement, handoff dir, README, version 1.8.0
 
-Review tier 2.
+Review tier 2: gate only; its model review happens at the whole-branch review (Review delta 2026-09-23).
 
 **Files:**
 - Create: `bajzi/skills/project-setup/SKILL.md`
@@ -4045,7 +4048,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ### Task 8: Cut-over (controller checklist — no sub-agent code)
 
-Run by the controller after the whole-branch Opus 5.5 (`claude-opus-5-5`) review is CLEAN. Every step lists where it runs. "Git Bash" = the Claude Code Bash tool on the laptop. Nothing is pushed; the owner pushes/merges.
+Run by the controller after Tasks 9-13 (14 optional) and the whole-branch review (reviewer allow-list model, Claude only) is CLEAN. Every step lists where it runs. "Git Bash" = the Claude Code Bash tool on the laptop. Nothing is pushed; the owner pushes/merges.
 
 - [ ] **Step 1: Branch state (Git Bash, laptop)**
 
@@ -4055,7 +4058,7 @@ git fetch
 git status --short
 git log --oneline -8
 ```
-Expected: clean tree on `env-unify`, the seven task commits on top of `17ad81b`.
+Expected: clean tree on `env-unify`, the task commits (Tasks 1-7, 9-13, 14 if done) and their fix/doc commits on top of `17ad81b`.
 
 - [ ] **Step 2: Full suite on Windows (Git Bash)**
 
@@ -4189,7 +4192,7 @@ Expected: only the two `gsd` keys removed; check tests `fail 0`.
 Run `/bajzi:setup` in a new session (PHASE D steps 7 and 10 apply: rtk `exclude_commands` into `%APPDATA%\rtk\config.toml`, user MCP `code-review-graph`), or by hand in Git Bash:
 ```bash
 claude mcp list
-claude mcp add-json --scope user code-review-graph '{"type":"stdio","command":"uvx","args":["--python","3.13","better-code-review-graph"]}'
+claude mcp add-json --scope user code-review-graph '{"type":"stdio","command":"uvx","args":["code-review-graph","serve"]}'
 ```
 and edit `%APPDATA%\rtk\config.toml` `[hooks] exclude_commands = ["ssh", "scp", "curl", "keyring", "deploy", "release", "publish", "migrate"]`.
 
@@ -4250,3 +4253,126 @@ Publish ONE numbered checklist as an Artifact (owner rule: more than one owner s
 - [ ] **Step 16: Handoff**
 
 Update `runtime/HANDOFF.md` in the orchestrator (≤ 40 lines): cut-over done, marketplace temporarily local (Step 5 rollback pending the owner's push), the Artifact link, open owner items.
+
+---
+
+## Review delta 2026-09-23
+
+Source: `docs/review/2026-09-23-fable-spec-review.md` (Fable second opinion) + owner decisions of
+2026-09-23. A delta, not a re-plan: Tasks 1-8 keep their content except the lines edited in place
+(Global Constraints, Task 7 review tier, Task 8 intro / Step 1 / Step 11).
+
+**No NOW item.** Task 7 hardcodes no model id, touches no gate tool, no dispatch-guard rule and no
+`install.sh`, so it is not built on an assumption the delta changes. Task 7 starts next.
+
+**Execution order:** Task 7 -> 9 -> 10 -> 11 -> 12 -> 13 -> (14, optional) -> whole-branch review
+(reviewer allow-list model, Claude only) -> Task 8 cut-over. Growth: ~1 day (3 M + 3 S).
+
+| id | decision | target | size | files touched |
+|---|---|---|---|---|
+| F1 OS boundary for the pinned set | DEFER - owner; open choice recorded in spec §9.2 | next plan (night-run readiness) | L | spec §9.2 (sentence only) |
+| F2 30-min peak margin only in the runner | DEFER - GLM is not used while this plan runs at L0; prerequisite of the acceptance plan | acceptance plan, prereq A | S | `bajzi/bin/cc-router.js` `peakOpen` |
+| F3 Z.ai key in the session env | REJECT (accepted limit) - owner: §9.1 line only | spec §9.1 | S | spec §9.1 |
+| F4 routing-counter excuse window by log recency | DEFER - matters only at L1+; the log must be trustworthy before acceptance sprints | acceptance plan, prereq A | S | `bajzi/hooks/routing-counter.sh` |
+| F5 CLI version not pinned | DEFER - §11 row now (tested `2.1.281`); the preflight refusal is night-run code | next plan (night-run readiness) | S | spec §11 |
+| F6 hard kill leaves `index.lock` | DEFER - night runs are not started | next plan (night-run readiness) | S | `claude-orchestrator/scripts/nightrun.ps1` `finally` |
+| F7 night runner Windows-only | REJECT - out of scope; one sentence in §1 | spec §1 | S | spec §1 |
+| F8 `claude-opus-5-5` pinned in 5+ places | NEW T9 - replaced by the owner's reviewer allow-list | Task 9 | M | see Task 9 |
+| F9 `:line` anchors | FOLD all tasks from T7 on - touched anchors lose `:line`; rule in spec §0 | every task, spec §0 | S | spec §0 |
+| S1 `head -80` cap on DAY-RUN-RULES.md untested | DEFER - T9 edits the file but keeps it short; the test lands with prereq A | acceptance plan, prereq A | S | `bajzi/skills/mode/tests/mode.sh` |
+| S2 `--model deepseek-*` untested path | DEFER - delete or test | acceptance plan, prereq A | S | `bajzi/bin/cc-router.js` |
+| S3 change map ~90% Tier 1 | REJECT - an observation, no action | - | - | - |
+| G1 pre-commit gate (ruff, pyright, eslint, tsc, gitleaks) | NEW T11 | Task 11 | M | see Task 11 |
+| G2 semgrep Tier-1 pre-pass | NEW T12 | Task 12 | S | see Task 12 |
+| G3 container / second user for night sessions | DEFER - same decision as F1 | next plan | L | - |
+| G4 peak-window parity test (shim / runner / display) | DEFER - with F2 | acceptance plan, prereq A | S | new `bajzi/hooks/tests/peak-parity.*` |
+| G5 one test entrypoint (`just`) | DEFER - new dependency; §3 stays the source | next plan | S | - |
+| G6 launchers into the repo via `install.sh` (P5) | NEW T13 - no remaining task touches `install.sh` | Task 13 | S | see Task 13 |
+| C1 findings-file format + R2/R3 adaptation | NEW T10 - with the dispatch-guard merge (R3 sized for a full batch) | Task 10 | M | see Task 10 |
+| C2 Tier-1-only slice review | FOLD Global Constraints + T7 - Tier 2/3 = gate only; model review at the whole-branch review | Global Constraints, Task 7 | S | this plan |
+| C3 pre-commit gate | NEW T11 (= G1) | Task 11 | M | see Task 11 |
+| O1 `ccusage` cross-check | NEW T14 - optional, low priority, first to cut | Task 14 | S | see Task 14 |
+| O2 other OSS (task-master, claude-squad/crystal, vibe-kanban, spec-kit, claude-code-security-review) | REJECT - duplicates the orchestrator / assumes a PR flow | - | - | - |
+| O3 Model 2: worktree isolation, AST complexity routing | REJECT - owner; worktrees already corrupted `--concurrent`; the routing axis is risk class | - | - | - |
+
+**What changed in the plan:**
+1. This plan is developed at saver level L0 only (Claude subscription, no GLM, no `glm -p`); the routing table still applies.
+2. Slice review: Tier 1 per slice; Tier 2/3 gate only, model review once at the whole-branch review. Fix rounds are batched, one re-review, then the owner.
+3. Reviewer model: one allow-list config key replaces every `claude-opus-5-5` literal (Task 9, Tier 1).
+4. The dispatch guard merges into `env-unify` with the findings-file format and a batch-sized R3 (Task 10).
+5. Pre-commit gate in both repos (Task 11), semgrep Tier-1 pre-pass (Task 12), launchers in the repo (Task 13), optional `ccusage` (Task 14).
+6. Tools are manifest entries; the owner installs them (list below). No session installs anything.
+7. Peak margin, routing counter, `head -80`, deepseek and peak parity move to the acceptance plan as its prerequisite A.
+8. Night-run items (F1/G3 OS boundary, F5 preflight, F6 `index.lock`) move to the next plan's night-run readiness track.
+9. Spec: §0 anchor rule, Invariant 3, §1 laptop-only sentence, §9.1 Z.ai-key limit, §9.2 open choice, §11 readiness gates + CLI version.
+
+### Task 9: Reviewer allow-list (replaces every pinned reviewer model id)
+
+Review tier 1. Size M. Repos: `bajzi-plugins-dev` and `claude-orchestrator`.
+
+- One config key `reviewer_models` (JSON array, e.g. `["claude-opus-5-5", "claude-fable-5-1"]`) in ONE user-level file both repos read; the location is chosen in Step 1 and written by `/bajzi:setup` from the manifest (Invariant 5). The file is a guard file for the night-run tripwire.
+- Readers: the day-run rule injection (`bajzi/hooks/day-run-mode.sh` + `bajzi/skills/mode/DAY-RUN-RULES.md`), the drain launch (`claude-orchestrator/scripts/nightrun.ps1` drain block) and the drain-verdict check (`claude-orchestrator/scripts/review_queue.py`, `DRAIN_MODEL` and its exact-match check).
+- Acceptance: a grep for `claude-opus-5-5` / `claude-fable` over code, prompts, rules files and both CLAUDE.md files finds nothing outside the config file, the manifest default and tests; the drain verdict is accepted iff the served model is in the list; a GLM id in the list is refused at load; a missing file / empty list / malformed JSON fails closed for the drain, and day-run text falls back to a stated default. Spec Invariant 3 already states the end state.
+
+### Task 10: Dispatch-guard merge + findings-file format + batch-sized R2/R3
+
+Review tier 1. Size M. Repo: `bajzi-plugins-dev` (merge `saver-levels` @ `809bc18`, worktree `D:/AI/projektek/ClaudeCode/bajzi-b4b`, into `env-unify`).
+
+- Reconcile `bajzi/hooks/hooks.json` by hand (the branches diverged, spec §11), never a blind merge.
+- Findings-file format: one structured file per review, one line per finding `file:line · severity · finding · test`, size-capped; the one document R2 lets a fixer read.
+- R3 is sized for a full findings batch (raise the cap or exempt the size-capped findings file), not for one finding.
+- Acceptance: `bash bajzi/skills/mode/tests/mode.sh` green incl. new cases: a fixer reading a valid findings file is allowed; an over-cap findings file and any other review document are denied (R2); a dispatch carrying 15 findings passes R3. Spec §6.4 + change-map row updated in the same commit.
+
+### Task 11: Pre-commit mechanical gate (both repos)
+
+Review tier 1 (gitleaks is the write-side secret guard). Size M.
+
+- `claude-orchestrator/.githooks/pre-commit` (exists; guard file, owner-approved edit in this task) and a new `bajzi-plugins-dev/.githooks/pre-commit`: `gitleaks protect --staged`; ruff + pyright on staged Python; eslint + `tsc --noEmit` on staged files under claude-orchestrator `web/`. Node tests stay the task gate, not the hook (too slow).
+- Each tool is a `manifest.json` entry (Invariant 5) and a `check.js` drift line when missing; a missing tool makes the hook FAIL with its install one-liner, never skip silently.
+- Adds the VM equivalents of the owner install steps to Task 8 Step 15.
+- Acceptance: staging a fake-key fixture is refused; a ruff error is refused; a clean commit passes; `core.hooksPath` in `bajzi-plugins-dev` is set by its project profile, not by hand.
+
+### Task 12: semgrep Tier-1 pre-pass
+
+Review tier 2. Size S.
+
+- A small ruleset (`bajzi/skills/setup/semgrep/tier1.yml`: subprocess/shell, path handling, auth) the controller runs before a Tier-1 review; its output goes into the review brief as a mechanical RESULT.
+- Acceptance: each rule fires on its fixture and on none of the current `bajzi/hooks/node/lib/*.js`; manifest entry for semgrep.
+
+### Task 13: Launchers into the repo (P5)
+
+Review tier 1 (`install.sh` writes `~/.local/bin`). Size S.
+
+- `worker`, `glm`, `ccr` and their `.cmd` twins move into `bajzi/bin/launchers/`; `bajzi/bin/install.sh` installs them next to `cc-router.js`, backing up an existing different file.
+- Acceptance: the installed files are byte-identical (`cmp`) to the laptop's current six; a second `install.sh` run changes nothing; spec §8.1 step 4 then points at the repo files instead of inline content.
+
+### Task 14 (optional, low priority): `ccusage` cross-check
+
+Review tier 3. Size S. First task to cut if the plan runs over.
+
+- A documented cross-check of `worker --usage`'s weighted GLM share against `npx ccusage@latest` for the same window; no code in any hot path.
+- Acceptance: one recorded comparison in the plan's closing notes; the manifest marks `ccusage` optional.
+
+### Owner install steps
+
+Where: the Windows laptop, **PowerShell** (not the Claude Code prompt), any working directory.
+Run each line, then its check. No session installs these.
+
+1. gitleaks: `winget install --id Gitleaks.Gitleaks -e` -> check in a NEW PowerShell window: `gitleaks version` prints a version. Likely failure: "not recognized" = the old window's PATH; open a new window.
+2. semgrep: `uv tool install semgrep` -> check: `semgrep --version`. Likely failure: native Windows support is beta; if it errors, tell the session - Task 12 then runs it via WSL.
+3. pyright: `uv tool install pyright` -> check: `pyright --version` (the first run downloads its Node package; needs internet).
+4. ruff: already installed (`%APPDATA%\Python\Python314\Scripts\ruff`); nothing to do.
+5. eslint / tsc: `cd D:\AI\projektek\ClaudeCode\claude-orchestrator\web` then `npm ci` -> check: `npx tsc --version` prints a version.
+6. ccusage (optional, Task 14): nothing to install -> check: `npx ccusage@latest daily` prints a table of daily token use.
+
+### Carried to next plan
+
+- **Saver-level acceptance plan (stub).** Starts after this plan closes (1.8.0 released, GSD migrated).
+  - Prerequisite A, before any L1+ sprint: F2 peak margin in the shim, F4 routing-counter excuse by clock, S1 `head -80` line-count test, S2 deepseek path deleted or tested, G4 peak-window parity test.
+  - Phase 1: day-run L0, L1, L2 - 2-3 real sprints EACH on the claude-orchestrator application backlog (the pre-fork feature work), measured with `worker --usage` (L2 target: GLM share >= 60-70%), reviewed per the new cadence. Green -> spec §11 "Day-run ready" MET.
+  - Phase 2: L3 and the night runner - NOT STARTED until the pinned guard set exists and is review-clean (owner decision 2026-09-23); §11 shows it as NOT STARTED, never silently skipped.
+  - The cadence's GLM paths (Tier-2 GLM pre-pass, L2 batched fixer) are exercised here, not in this plan.
+- **Night-run readiness track:** F1/G3 OS boundary (devcontainer vs low-privilege user) -> pinned guard set design (§9.3) -> F5 preflight refuses an unknown CLI version -> F6 `index.lock` age check in `finally` -> the `nightrun.ps1` drain banner prints `WorkerMode glm` but launches L0.
+- G5 `just` test entrypoint, if §3 drifts again.
+- Test hygiene: the node suites leave ~19.7k temp dirs (46 MB) in `%TEMP%`; tests must clean up after themselves.
+- The claude-orchestrator application backlog stays paused until this plan closes.

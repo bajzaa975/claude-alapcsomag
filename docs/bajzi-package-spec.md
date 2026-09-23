@@ -20,8 +20,10 @@ today"; check §11.
 flag — updates this document in the same commit.** When you are asked to change something in this
 package, start at the **Change map** (§2), not at the repo tree: it names the exact file(s), the test
 that pins the current behaviour, the review tier the change owes, and the gotcha that has bitten
-someone before. Code anchors are `file:line` plus the function name; line numbers are pinned to the
-commits listed in §11 and drift as files change, so a stale line number is still findable by name.
+someone before. Code anchors are `file:function`. Older anchors still carry a `:line`; any anchor
+touched from 2026-09-23 on loses its `:line` and keeps `file:function` (no bulk pass). A `:line`
+that is still present is pinned to the commits listed in §11 and may have drifted — find the code
+by the function name, or with `code-review-graph`.
 
 Section map: §1 purpose · §2 change map · §3 test commands · §4 invariants · §5 architecture ·
 §6 components (§6.1-§6.10 bajzi, §6.11 night run) · §7 every shared state file · §8 install /
@@ -44,6 +46,10 @@ discipline — produced by one mechanism, not by hand-copied config. The package
   `.claude/project-profile.json` applied by `/bajzi:project-setup` (§6.10).
 - The old **claude-code-router** daemon (`ccr` 3.1.1, a proxy on port 3456) — replaced by
   `cc-router.js`, a per-process shim with no daemon and no global settings (§6.2).
+
+**Night runs are laptop-only by design:** the runner is PowerShell on the Windows laptop; the
+Linux VM and the mini-PC match it for interactive sessions only, and a Linux night runner is out of
+scope.
 
 **Out of scope:** ponytail configuration (owner decision pending). The pinned, out-of-repo
 night-run guard set is in scope; its requirements are §9.2-§9.3.
@@ -113,10 +119,11 @@ the PowerShell tool.
 2. The 50% context block must **never deadlock the handoff**: `runtime/handoff/**`,
    `runtime/HANDOFF.md`, the `bajzi:handoff` skill, and a fixed small set of read-only git
    commands stay allowed above 50% (`context-guard.js` `exemptCheck`, RF4 tests).
-3. Every diff review and every final whole-branch review runs on Opus, pinned to
-   `claude-opus-5-5` — never Fable, never GLM, never "whatever the orchestrator's own model is."
-   (DAY-RUN-RULES.md, plan Global Constraints, claude-orchestrator CLAUDE.md, the drain's
-   `DRAIN_MODEL`, `review_queue.py:35`.)
+3. Every diff review and every whole-branch review runs on a model in the **reviewer
+   allow-list** — never GLM, never the implementing model's own choice. The list is ONE config
+   key, read by the day-run rule injection, the drain launch and the drain-verdict check; no model
+   id literal appears in code, prompts, rules files or CLAUDE.md. Swapping the Opus version, or
+   using Fable as orchestrator or reviewer, is a config edit.
 4. **GLM implements, Opus reviews — never the reverse as the default.** A reviewer weaker than
    the diff returns a false PASS silently; the errors are not symmetric.
 5. **Manifest-sync**: every plugin/skill/MCP add or removal updates
@@ -1313,6 +1320,10 @@ laptop's; on Linux drop the `/d/...` prefixes and use `B=~/gsd-removed-$(date +%
 - **Secret guard / injection scanner**: pattern matchers, not shell parsers or content
   sandboxes. The secret guard's accepted limits are in §6.7; the injection scanner never blocks,
   it is advisory context for the model reading the content.
+- **Z.ai key**: accepted limit. In a GLM session the key is the process's own
+  `ANTHROPIC_AUTH_TOKEN`, and on Windows `ZAI_API_KEY` is a User environment variable every session
+  can read; the secret guard covers files, not the environment. Rotate the key; do not rely on the
+  read guard for it.
 - **Dispatch guard**: "a discipline guard, not a security boundary" (`dispatch-guard.sh:13-15`);
   fails open.
 - **Night-run guard set**: the only place with fail-closed security engineering (fail-closed push
@@ -1333,6 +1344,9 @@ session settings, the prompts and the hooks the runner trusts live **outside eve
 location no session can write, and the design is repo-agnostic (owner decision 2026-09-23). The
 runner dot-sources, executes and passes `--settings` only from there (Invariant 6). The inner
 layer stays as defence in depth. Each threat this layer closes is a row in §9.3.
+Open choice (deferred): a session running as the owner's user with `bypassPermissions` can write
+any path that user can, so "no session can write" needs OS-level separation — a devcontainer or a
+dedicated low-privilege Windows user; this is chosen before the pinned set is designed.
 
 ### 9.3 Threats the pinned guard set closes
 
@@ -1429,6 +1443,21 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
   `5382aa6`; `7893acd` adds a CLAUDE.md pointer to this file). 54 commits ahead of
   `origin/workspace`, nothing pushed (`git rev-list --left-right --count workspace...origin/workspace`
   → `54 0`). §6.11 line numbers are pinned to `7893acd`.
+
+**Readiness gates** (the package is not "ready" until the matching gate is green):
+
+- **Day-run ready** — NOT MET. Requires 2–3 green acceptance sprints each at day-run L0, L1 and
+  L2 on the claude-orchestrator application backlog, measured with `worker --usage` (the separate
+  "Saver-level acceptance" plan). Verify: that plan's result table.
+- **Night-run ready** — NOT STARTED. Requires the pinned guard set built and review-clean, then
+  the L3 / night-runner acceptance sprints. Verify: §9.3 rows closed, acceptance table.
+- **Claude Code CLI version** — not pinned. Hook JSON shapes, the `Write(...)`-deny quirk,
+  `--settings` semantics, the `rate_limit_event` record and the status-line
+  `remaining_percentage` depend on it; tested with `2.1.281`. A night-run preflight that refuses an
+  unknown version is open (next plan). Verify: `claude --version` → `2.1.281 (Claude Code)`.
+- **Review delta 2026-09-23** — reviewer allow-list, dispatch-guard findings-file format,
+  pre-commit gate, semgrep pre-pass, launchers in the repo: planned as Tasks 9–14 of the
+  env-unification plan, not built. Verify: the plan's "Review delta 2026-09-23" table.
 
 **Components**
 
