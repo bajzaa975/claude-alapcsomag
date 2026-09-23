@@ -7,10 +7,6 @@
       "why": "official catalog"
     },
     {
-      "source": "thedotmack/claude-mem",
-      "why": "source of claude-mem"
-    },
-    {
       "source": "bajzaa975/claude-alapcsomag",
       "why": "own plugin (bajzi)"
     },
@@ -23,11 +19,6 @@
     {
       "id": "bajzi@bajzi-plugins",
       "why": "own: alapcsomag/autopilot/handoff + HANDOFF hook"
-    },
-    {
-      "id": "claude-mem@thedotmack",
-      "why": "cross-session memory, searchable history",
-      "windows": "PROBLEMATIC — see known_pitfalls. If the worker is unreachable, leave it disabled: you only lose cross-session memory search, and you GET BACK ~1755 tokens in every session. Every other plugin is independent of it."
     },
     {
       "id": "superpowers@claude-plugins-official",
@@ -59,7 +50,7 @@
     },
     {
       "id": "context-mode",
-      "why": "duplication: rtk + claude-mem + GSD context-monitor already do this, and its SQLite session capture is a second, competing runtime/HANDOFF.md. Cost: six always-on hook types (a node process per event), a SessionStart routing block (~1.5k tok) that argues with our own rtk/subagent rules, plus 11 MCP tool schemas. 2026-09-15 recheck: STALLED — last human commit and last release both 2026-06-29 (v1.0.169), the ~100 commits since are all `ci: update install stats` bot commits; 126 issues + 119 PRs open. License is Elastic-2.0 (source-available, not OSI). Also runs `npm install better-sqlite3` from a hook on first use."
+      "why": "duplication: rtk + Claude Code auto-memory + the bajzi handoff hook already do this, and its SQLite session capture is a second, competing runtime/HANDOFF.md. Cost: six always-on hook types (a node process per event), a SessionStart routing block (~1.5k tok) that argues with our own rtk/subagent rules, plus 11 MCP tool schemas. 2026-09-15 recheck: STALLED — last human commit and last release both 2026-06-29 (v1.0.169), the ~100 commits since are all `ci: update install stats` bot commits; 126 issues + 119 PRs open. License is Elastic-2.0 (source-available, not OSI). Also runs `npm install better-sqlite3` from a hook on first use."
     },
     {
       "id": "headroom (headroomlabs-ai/headroom)",
@@ -84,6 +75,10 @@
     {
       "id": "oh-my-claudecode (Yeachan-Heo/oh-my-claudecode)",
       "why": "2026-09-15: a competing OPERATING SYSTEM, not a component. ~5.5-6.5k tokens always-on (40-skill index + a 6,001-byte block written into ~/.claude/CLAUDE.md, install style 'overwrite') + up to ~1k per prompt, 20 hook scripts on the tool path, fetch to registry.npmjs.org every session start, reads ~/.bash_history, patches settings.json statusLine. Ships its own context-guard-stop.mjs (a second context guard), its own .omc/ handoffs (a second HANDOFF) and a colliding /autopilot. With superpowers+claude-mem+GSD that makes 4 planners, 3 memory systems, 2 context guards. Try only per-project via /omc-setup local mode, never global."
+    },
+    {
+      "id": "claude-mem",
+      "why": "2026-09-23: removed. Windows worker never reachable (see known_pitfalls); cross-session memory is covered by Claude Code auto-memory (MEMORY.md), runtime/HANDOFF.md via the bajzi SessionStart hook, and the bajzi brain store. Re-evaluate only on Linux/macOS machines."
     }
   ],
   "gsd": {
