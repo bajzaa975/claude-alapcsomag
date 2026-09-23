@@ -7,7 +7,8 @@
 # of SKILL.md with sed/grep and execute those exact strings against a temp
 # fixture, so this test fails if SKILL.md's snippet drifts from the hook's.
 # Cases 4-11 run the real hook script against a fake plugin root; case 12 runs
-# the PostToolUse routing counter (hooks/routing-counter.sh).
+# the PostToolUse routing counter (hooks/routing-counter.sh), case 13 the
+# PreToolUse dispatch guard (hooks/dispatch-guard.sh).
 #
 # The real `claude` CLI is never invoked: PATH is prefixed with a shim that
 # exits 99 and drops a marker file; case 8 checks the marker never appeared.
@@ -592,6 +593,123 @@ rm -rf "$FAKE_CWD/.claude" "$FAKE_HOME/.claude/agents" "$FAKE_HOME/.claude/plugi
 HOOKS_JSON="$BAJZI_DIR/hooks/hooks.json"
 tr -d ' \n\r' < "$HOOKS_JSON" | grep -qF '"PostToolUse":[{"matcher":"Agent|Task","hooks":[{"type":"command","command":"bash\"${CLAUDE_PLUGIN_ROOT}/hooks/routing-counter.sh\""' \
     && pass "12s hooks.json PostToolUse matcher is Agent|Task -> routing-counter.sh" || fail "12s" "matcher/command not found"
+
+# --- case 13: dispatch guard (PreToolUse on Agent|Task) ---
+#
+# Same gate as the counter (lib-saver-level.sh). Gate open: a REVIEW dispatch
+# (description + first 600 chars of prompt say "review", or subagent_type does)
+# must carry code-review-graph output or 'GRAPH: n/a single-file <path>' (R1); a
+# fix/re-review must not send the fixer to a full -brief.md / -review*.md (R2)
+# and stays <= 6000 chars (R3). Every deny test asserts WHICH rule refused.
+DG="$BAJZI_DIR/hooks/dispatch-guard.sh"
+dlog="$FAKE_CWD/runtime/dispatch-sizes.log"
+dg_raw() { # stdin = payload, then env pairs
+    env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$TMP/nocwd" "$@" bash "$DG"; }
+disp() { # $1 description, $2 subagent_type, $3 prompt (already JSON-safe)
+    printf '{"tool_name":"Agent","tool_input":{"description":"%s","subagent_type":"%s","prompt":"%s"},"cwd":"%s"}' \
+        "$1" "$2" "$3" "$FAKE_CWD"; }
+dg() { local d="$1" s="$2" p="$3"; shift 3; disp "$d" "$s" "$p" | dg_raw "$@"; }
+is_allow() { [ "$1" = "{}" ]; }
+DENY_HEAD='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"dispatch-guard '
+is_deny() { # $1 output, $2 rule id -- the exact shape AND the rule that refused
+    printf '%s' "$1" | json_ok || return 1
+    case "$1" in "$DENY_HEAD$2: "*'"}}') return 0 ;; esac
+    return 1; }
+lastlog() { tail -n 1 "$dlog" 2>/dev/null; }
+logf() { lastlog | awk -F'\t' -v n="$1" '{ print $n }'; }
+# 13a: gate closed (day-run off, no env, Anthropic) -> {} and nothing written.
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$FAKE_HOME/.claude/worker-mode"
+rm -rf "$FAKE_CWD/runtime"
+out=$(dg 'review B3' 'general-purpose' 'Review the diff for task B3.'); rc=$?
+is_allow "$out" && [ "$rc" -eq 0 ] && pass "13a gate closed: review without graph -> {}" || fail "13a" "rc=$rc $out"
+[ ! -e "$FAKE_CWD/runtime" ] && pass "13a' gate closed -> no log, not even runtime/" || fail "13a'" "$(ls -la "$FAKE_CWD/runtime" 2>&1)"
+mkdir -p "$FAKE_CWD/runtime"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+G=CC_WORKER_MODE=glm
+# 13b: R1.
+out=$(dg 'review task B3' 'general-purpose' 'Review the diff abc..def for spec and quality.' $G)
+is_deny "$out" R1 && pass "13b review without graph -> deny R1" || fail "13b" "$out"
+[ "$(logf 2)" = "REVIEW" ] && [ "$(logf 5)" = "deny:R1" ] && pass "13b' log: REVIEW ... deny:R1" || fail "13b'" "$(lastlog)"
+out=$(dg 'check B3' 'feature-dev:code-reviewer' 'Look at the diff abc..def.' $G)
+is_deny "$out" R1 && pass "13b2 subagent_type with review -> REVIEW -> deny R1" || fail "13b2" "$out"
+out=$(dg 'task B3' 'general-purpose' 'Please REVIEW the diff abc..def.' $G)
+is_deny "$out" R1 && pass "13b3 classification is case-insensitive" || fail "13b3" "$out"
+out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.\nGRAPH: n/a single-file' $G)
+is_deny "$out" R1 && pass "13b4 GRAPH opt-out without a path does not count" || fail "13b4" "$out"
+# 13c-13e: graph markers.
+out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.\nGraph (detect-changes --brief): 3 files' $G)
+is_allow "$out" && pass "13c review with detect-changes -> allow" || fail "13c" "$out"
+[ "$(logf 5)" = "allow" ] && pass "13c' log: allow" || fail "13c'" "$(lastlog)"
+out=$(dg 'review task B3' 'general-purpose' 'Review abc..def. get_review_context_tool said: x.sh:10-40' $G)
+is_allow "$out" && pass "13d review with get_review_context_tool -> allow" || fail "13d" "$out"
+out=$(dg 'review task B3' 'general-purpose' 'Review abc..def. Blast radius: runtime/graph-b3.json' $G)
+is_allow "$out" && pass "13d2 review with a graph-*.json path -> allow" || fail "13d2" "$out"
+out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.\nGRAPH: n/a single-file x.sh\nthanks' $G)
+is_allow "$out" && pass "13e GRAPH: n/a single-file x.sh -> allow" || fail "13e" "$out"
+# 13f-13h: R2.
+out=$(dg 're-review B3 fix' 'general-purpose' 'Delta review. detect-changes --brief: 1 file. Read task-B3-brief.md first.' $G)
+is_deny "$out" R2 && pass "13f re-review pointing at task-B3-brief.md -> deny R2" || fail "13f" "$out"
+[ "$(logf 2)" = "FIX_OR_REREVIEW" ] && [ "$(logf 5)" = "deny:R2" ] && pass "13f' log: FIX_OR_REREVIEW ... deny:R2" || fail "13f'" "$(lastlog)"
+out=$(dg 're-review B3 fix' 'general-purpose' 'detect-changes --brief: 1 file. See .superpowers/sdd/x/task-B3-rereview1.md' $G)
+is_deny "$out" R2 && pass "13g re-review pointing at task-B3-rereview1.md -> deny R2" || fail "13g" "$out"
+out=$(dg 'fix round 1 B3' 'general-purpose' 'Finding 1 at x.sh:12. Details in task-B3-review.md' $G)
+is_deny "$out" R2 && pass "13g2 fix round pointing at task-B3-review.md -> deny R2" || fail "13g2" "$out"
+out=$(dg 're-review B3 fix' 'general-purpose' 'detect-changes --brief: 1 file. Append the verdict to task-B3-report.md' $G)
+is_allow "$out" && pass "13h re-review with task-B3-report.md + graph -> allow" || fail "13h" "$out"
+# 13i-13j: fix rounds.
+out=$(dg 'fix round 1 B3' 'general-purpose' 'Finding: x.sh:12 drops the exit code. Excerpt: foo || true. Test: bash t.sh' $G)
+is_allow "$out" && pass "13i fix round without graph -> allow (R1 exempt)" || fail "13i" "$out"
+p6000=$(head -c 6000 /dev/zero | tr '\0' a)
+out=$(dg 'fix r2 B3' 'general-purpose' "${p6000}b" $G)
+is_deny "$out" R3 && pass "13j fix prompt of 6001 chars -> deny R3" || fail "13j" "${out:0:200}"
+[ "$(logf 4)" = "6001" ] && [ "$(logf 5)" = "deny:R3" ] && pass "13j' log: 6001 ... deny:R3" || fail "13j'" "$(lastlog)"
+out=$(dg 'fix r2 B3' 'general-purpose' "$p6000" $G)
+is_allow "$out" && pass "13j2 fix prompt of exactly 6000 chars -> allow" || fail "13j2" "${out:0:200}"
+out=$(dg 're-review B3 fix' 'general-purpose' "detect-changes ${p6000}" $G)
+is_deny "$out" R3 && pass "13j3 re-review over 6000 chars with graph -> deny R3" || fail "13j3" "${out:0:200}"
+# 13k: OTHER.
+rm -f "$dlog"
+out=$(dg 'implement task B5' 'general-purpose' 'Implement the parser. No preview needed.' $G)
+is_allow "$out" && pass "13k OTHER dispatch (preview is not review) -> allow" || fail "13k" "$out"
+[ "$(wc -l < "$dlog" 2>/dev/null)" = "1" ] && [ "$(logf 2)" = "OTHER" ] && [ "$(logf 3)" = "general-purpose" ] \
+    && [ "$(logf 4)" = "40" ] && [ "$(logf 5)" = "allow" ] \
+    && lastlog | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z	' \
+    && pass "13k' one log line: ISO, OTHER, subagent_type, 40 chars, allow" || fail "13k'" "$(cat "$dlog" 2>&1)"
+out=$(dg 'implement task B5' 'general-purpose' 'Implement it; context in task-B3-review.md' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13k2 a *-review.md file name alone does not make a REVIEW" || fail "13k2" "$out $(lastlog)"
+# 13l: never wedges a dispatch (truncated payloads included, even one that reads as a review).
+for bad in '' 'not json' '{"tool_input":{"prompt":"review' '{"tool_input":{"prompt":"rev\' \
+    '{"tool_input":{"description":"review","prompt":"Review abc."}'; do
+    out=$(printf '%s' "$bad" | dg_raw $G); rc=$?
+    [ "$out" = "{}" ] && [ "$rc" -eq 0 ] || { fail "13l malformed stdin '$bad'" "rc=$rc $out"; continue; }
+    pass "13l malformed stdin '${bad:0:24}' -> {} exit 0"
+done
+# 13m: registered as PreToolUse on Agent|Task, next to the Bash noise filter.
+hj=$(tr -d ' \n\r' < "$BAJZI_DIR/hooks/hooks.json")
+pre="${hj%%\"PostToolUse\"*}"; pre="${pre#*\"PreToolUse\"}"
+case "$pre" in
+    *'{"matcher":"Agent|Task","hooks":[{"type":"command","command":"bash\"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-guard.sh\"","timeout":5}]}'*)
+        case "$pre" in *'hooks/noise-filter.sh'*) pass "13m hooks.json PreToolUse Agent|Task -> dispatch-guard.sh (noise filter kept)" ;;
+            *) fail "13m" "noise filter entry lost" ;; esac ;;
+    *) fail "13m" "PreToolUse dispatch-guard entry not found" ;;
+esac
+# 13n: non-ASCII prompt -- characters, not bytes, under both locales; \u escape = 1 char.
+for loc in C C.UTF-8; do
+    rm -f "$dlog"
+    out=$(dg 'implement' 'general-purpose' 'árvíztűrő é tükörfúrógép' $G LC_ALL=$loc); rc=$?
+    is_allow "$out" && [ "$rc" -eq 0 ] && [ "$(logf 4)" = "24" ] \
+        && pass "13n LC_ALL=$loc non-ASCII prompt -> 24 chars logged, no crash" || fail "13n $loc" "rc=$rc $out $(lastlog)"
+done
+# 13o: input cannot inject log lines or tabs.
+rm -f "$dlog"
+dg 'implement' 'gen\teral\nFAKE' 'x' $G >/dev/null
+[ "$(wc -l < "$dlog" 2>/dev/null)" = "1" ] && [ "$(awk -F'\t' '{ print NF }' "$dlog")" = "5" ] && ! grep -q '^FAKE' "$dlog" \
+    && pass "13o one 5-field line, no injection" || fail "13o" "$(cat "$dlog" 2>&1)"
+# 13p: an unwritable log never changes the decision.
+rm -rf "$FAKE_CWD/runtime"; printf 'x' > "$FAKE_CWD/runtime"
+out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.' $G)
+is_deny "$out" R1 && pass "13p log write failure -> decision unchanged (deny R1)" || fail "13p" "$out"
+rm -f "$FAKE_CWD/runtime"; mkdir -p "$FAKE_CWD/runtime"
 
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.

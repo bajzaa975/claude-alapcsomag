@@ -38,9 +38,11 @@
 # Peak log: $CC_PEAK_LOG, else $HOME/.claude/glm-peak-refusals.log; its last
 # line starts with the refusal's ISO time (cc-router writes toISOString()).
 #
-# stdin is parsed by a small JSON-aware awk scanner, not a regex over the whole
+# stdin is parsed by json_fields (lib-json-fields.sh, shared with
+# dispatch-guard.sh), a small JSON-aware awk scanner, not a regex over the whole
 # payload: only tool_input.model, tool_input.subagent_type and the TOP-LEVEL
 # cwd count, so a "model" key in tool_response or in the prompt text is ignored.
+# A missing lib reads as an empty payload: nothing counted, still {}.
 #
 # DEPENDENCY-FREE: bash, awk, tr, head, tail, cut, date.
 
@@ -48,53 +50,12 @@ set -uo pipefail
 
 input=$(cat 2>/dev/null || true)
 
-# Prints three lines: tool_input.model, top-level cwd, tool_input.subagent_type.
-fields=$(printf '%s' "$input" | awk '
-function val(d, k, v) {
-    gsub(/[\r\n\t]/, " ", v)
-    if (d == 1 && k == "cwd" && !have_cwd) { cwd = v; have_cwd = 1 }
-    if (d == 2 && isobj[2] && parent[2] == "tool_input" && isobj[1]) {
-        if (k == "model" && !have_model) { model = v; have_model = 1 }
-        if (k == "subagent_type" && !have_sub) { stype = v; have_sub = 1 }
-    }
-}
-{ s = s $0 "\n" }
-END {
-    n = length(s); d = 0; i = 1
-    while (i <= n) {
-        c = substr(s, i, 1)
-        if (c == "\"") {
-            j = i + 1; v = ""
-            while (j <= n) {
-                e = substr(s, j, 1)
-                if (e == "\\") {
-                    e2 = substr(s, j + 1, 1)
-                    if (e2 == "n" || e2 == "r" || e2 == "t") v = v " "
-                    else if (e2 == "u") { v = v "?"; j += 4 }
-                    else if (e2 != "b" && e2 != "f") v = v e2
-                    j += 2; continue
-                }
-                if (e == "\"") break
-                v = v e; j++
-            }
-            i = j + 1
-            k = i
-            while (k <= n && substr(s, k, 1) ~ /[ \t\r\n]/) k++
-            if (d >= 1 && isobj[d] && substr(s, k, 1) == ":") { key[d] = v; i = k + 1; continue }
-            val(d, key[d], v)
-            continue
-        }
-        if (c == "{" || c == "[") {
-            d++; isobj[d] = (c == "{"); parent[d] = key[d - 1]; key[d] = ""
-        } else if (c == "}" || c == "]") {
-            if (d == 2 && isobj[2] && parent[2] == "tool_input") ti_done = 1
-            if (d > 0) d--
-            if (ti_done && have_cwd) break   # skip scanning a large tool_response
-        }
-        i++
-    }
-    print model; print cwd; print stype
-}' 2>/dev/null) || fields=""
+hookdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fields=""
+# shellcheck source=lib-json-fields.sh
+if . "$hookdir/lib-json-fields.sh" 2>/dev/null; then
+    fields=$(printf '%s' "$input" | json_fields model cwd subagent_type)
+fi
 
 model="" cwd="" sub=""
 { IFS= read -r model; IFS= read -r cwd; IFS= read -r sub; } <<< "$fields" || true
@@ -102,7 +63,7 @@ model="" cwd="" sub=""
 model=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-' | head -c 64)
 [ -z "$cwd" ] && cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
 
-lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-saver-level.sh"
+lib="$hookdir/lib-saver-level.sh"
 # shellcheck source=lib-saver-level.sh
 if ! . "$lib" 2>/dev/null || ! saver_resolve "$cwd"; then
     printf '{}'

@@ -35,6 +35,12 @@ implementer says it works" is not done. A clean review round plus a green gate i
 Watch for tests that pass for the wrong reason: a test asserting only that *something* was
 refused, when the code has several refusal paths, stays green after the security check is deleted.
 A reviewer that cannot say WHICH path refused has not verified the test.
+DISPATCH BRIEF -- enforced by the dispatch-guard hook:
+Every review brief carries code-review-graph output for its range (detect-changes --brief, or
+get_review_context_tool + detect_changes_tool); the reviewer reads only what the blast radius flags.
+A fix or re-review brief carries the finding, file:line, the code excerpt and the test command
+INLINE -- never "read the brief / the full review". Re-reviews are delta-only: the fix diff plus
+the graph output. Over 6000 chars for a fix or re-review means you pasted history -- cut it.
 DIRECT-EDIT THRESHOLD -- all four required, else delegate:
 <=20 changed lines, one file; no new logic; the file is already in context; not a forbidden zone
 (deploy, secrets, CI config, migrations, history rewrite).
