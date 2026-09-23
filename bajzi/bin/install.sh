@@ -9,8 +9,14 @@ bin="$HOME/.local/bin"
 mkdir -p "$bin"
 install_one() {  # $1 = source file, $2 = destination
   if [ -f "$2" ] && cmp -s "$1" "$2"; then echo "unchanged: $2"; return; fi
-  [ -f "$2" ] && cp "$2" "$2.bak" && echo "backed up: $2.bak"
-  cp "$1" "$2"
+  if [ -f "$2" ]; then
+    cp "$2" "$2.bak" || { echo "backup of $2 FAILED - not installed" >&2; exit 1; }
+    echo "backed up: $2.bak"
+  fi
+  # temp file in the same dir + mv: an interrupted copy never leaves a half-written file at $2
+  local tmp="$2.tmp.$$"
+  cp "$1" "$tmp" || { rm -f "$tmp"; echo "copy to $tmp FAILED - $2 not installed" >&2; exit 1; }
+  mv -f "$tmp" "$2"
   echo "installed: $2"
 }
 install_one "$here/cc-router.js" "$bin/cc-router.js"

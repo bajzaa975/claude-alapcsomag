@@ -86,7 +86,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Status-line installer | `bajzi/skills/setup/install-statusline.js:36` `install`, `:23` `writeBackup`, `:11` `stamp` | `node --test bajzi/skills/setup/tests/*.test.js` | 1 (writes `~/.claude/settings.json`) | Parses settings.json before writing; never overwrites an existing backup (§8.2, §8.4). |
 | Adding a new hook | `bajzi/hooks/hooks.json` (append-only, per plan Global Constraints) | `node --test bajzi/skills/project-setup/tests/release.test.js` (checks every `node` command in `hooks.json` resolves to a real file, §6.10) | 1 or 2 depending on what the hook does | The wiring in §5.3 is the complete list; every entry carries `timeout: 5`. A hook that needs longer is a design problem, not a timeout to raise. |
 | Releasing a new plugin version + reinstall | `bajzi/.claude-plugin/plugin.json` `version`, `.claude-plugin/marketplace.json` `plugins[0].version` | manual: §8.3 | 3 (but treat the pitfall as Tier-1-serious) | `claude plugin update` is a **no-op** unless **both** versions move in the same commit (`manifest.json` `known_pitfalls`, the "Unknown command" and "Releasing a new version" entries). |
-| `cc-router.js` + launcher install | `bajzi/bin/install.sh` (`install.sh:install_one`), launchers in `bajzi/bin/launchers/` (`worker`, `glm`, `ccr` + `.cmd` twins) | runs `node --test bajzi/bin/tests/cc-router.test.js` itself as a gate; `node --test bajzi/bin/tests/install.test.js` covers the installer against a decoy `HOME` | 1 (writes `~/.local/bin`) | An identical destination is left untouched; a different one is kept as `<name>.bak` (one generation — a later differing install overwrites it) before the copy (§8.1, §8.4). `.gitattributes` marks `bajzi/bin/launchers/**` `-text`: the bash launchers are LF, the `.cmd` twins CRLF, and no checkout may convert either. A plugin update does not refresh the installed copies (§8.3). |
+| `cc-router.js` + launcher install | `bajzi/bin/install.sh` (`install.sh:install_one`), launchers in `bajzi/bin/launchers/` (`worker`, `glm`, `ccr` + `.cmd` twins) | runs `node --test bajzi/bin/tests/cc-router.test.js` itself as a gate; `node --test bajzi/bin/tests/install.test.js` covers the installer against a decoy `HOME` | 1 (writes `~/.local/bin`) | An identical destination is left untouched; a different one is kept as `<name>.bak` (one generation — a later differing install overwrites it) before the copy (§8.1, §8.4). A failed backup aborts the run with that destination untouched; the copy goes to `<name>.tmp.<pid>` and is `mv`-ed over, so no half-written launcher is ever live. `install.test.js` strips `NODE_TEST_CONTEXT`, which would otherwise make the gate's nested `node --test` skip its files and exit 0. `.gitattributes` marks `bajzi/bin/launchers/**` `-text`: the bash launchers are LF, the `.cmd` twins CRLF, and no checkout may convert either. A plugin update does not refresh the installed copies (§8.3). |
 
 ## 3. Test commands
 
@@ -1514,8 +1514,9 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
   unknown version is open (next plan). Verify: `claude --version` → `2.1.281 (Claude Code)`.
 - **Review delta 2026-09-23** — reviewer allow-list (Task 9, built), dispatch-guard merge +
   interim 24 KB R3 cap (Task 10, built; the findings-file format moved to the agents-and-cadence
-  plan), pre-commit gate, semgrep pre-pass, launchers in the repo: planned as Tasks 9–14 of the
-  env-unification plan, not built. Verify: the plan's "Review delta 2026-09-23" table.
+  plan), launchers in the repo (Task 13, built: `bajzi/bin/launchers/`, installed by
+  `install.sh`); the pre-commit gate and the semgrep pre-pass moved to the agents-and-cadence
+  plan, not built. Verify: the plan's "Review delta 2026-09-23" table.
 
 **Components**
 
