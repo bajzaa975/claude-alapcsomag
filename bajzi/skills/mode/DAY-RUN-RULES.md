@@ -58,3 +58,13 @@ Log every dispatch, one line, exact format, appended to runtime/DAY-RUN.log:
 <ISO time> <task-class> model=<name> rounds=<n> result=<pass|fail|park|direct>
 Allowed questions, only these three: scope change; forbidden zone; park-or-continue. Everything
 else is decided and logged. Day-run never merges.
+## Owner tasks — do it yourself
+Default: if you can do it, you do it. No question, no approval line. A step assigned
+to the owner is the exception and must name its rung:
+1. Permission-gated (~/.claude, settings, deploy/release, secrets, git history, another
+   repo's commit, anything auto-mode still blocks) → STILL your task: one approval
+   line, then you run it. Never turn an approval into an owner task.
+2. Impossible even with approval (elevation, login, UI, a machine you have no tool on)
+   → scripts/owner/<name>.ps1|.sh, idempotent; the owner runs one command.
+3. Not scriptable (physical action, wizard, owner-only judgment) → numbered steps.
+"Who" in any plan or table is "me" unless rung 2/3; a "you" cell names its rung.
