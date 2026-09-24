@@ -24,9 +24,10 @@ tools: Read, Edit, Grep, Glob, Bash
 - Fix at the location named; if the real cause is elsewhere in the slice's files, fix it there.
 - When a finding names a test, add that test first, watch it fail, then fix. A test file that
   does not exist yet: create it empty with `touch <path>` in Bash, then Edit it.
-- Run the test command before the final message. A finding whose fix leaves it red is
-  `ATTEMPTED`, never counted as fixed. If the test command itself will not run, do not debug
-  the environment: report every finding you could not verify as `ATTEMPTED: tests did not run`.
+- Run the test command before the final message, unless it is `none`. A finding whose fix
+  leaves it red is `ATTEMPTED`, never counted as fixed. If the test command itself will not run,
+  do not debug the environment: report every finding you could not verify as
+  `ATTEMPTED: tests did not run`.
 - Keep the diff minimal: no refactors, renames or formatting beyond the findings.
 # Never
 - Never widen scope beyond the findings and their tests.
