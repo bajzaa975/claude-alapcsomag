@@ -84,17 +84,6 @@
   "gsd": {
     "default_install": false,
     "why_removed_from_default": "2026-09-23: GSD 1.13.0 removed from the owner's Windows laptop (backup: D:/AI/backup/gsd-removed-20260923/). The owner uses superpowers as the methodology everywhere; GSD's global install (46 skills, 29 agents, 17 hooks running on nearly every tool call) is a large always-on cost for near-zero everyday use outside one repo.",
-    "laptop_retained_hooks": {
-      "why": "2026-09-23: these 4 GSD hooks are kept temporarily on the Windows laptop after the GSD plugin itself was removed, until they are ported into bajzi.",
-      "files": [
-        "gsd-secret-read-guard.js",
-        "gsd-read-injection-scanner.js",
-        "gsd-prompt-guard.js",
-        "hooks/lib/ (shared by the three above)",
-        "gsd-statusline.js"
-      ],
-      "action": "Do NOT delete these during cleanup on the laptop even though the GSD plugin itself is gone from that machine."
-    },
     "install": "npx @opengsd/gsd-core@latest",
     "runtime": "Claude Code",
     "scope": "global install, TRIMMED surface — see shared/gsd-trim.md",
@@ -300,7 +289,9 @@
   ],
   "bajzi_config": {
     "path": "~/.claude/bajzi/config.json",
-    "reviewer_models": ["claude-opus-5-5"],
+    "reviewer_models": [
+      "claude-opus-5-5"
+    ],
     "note": "The reviewer allow-list (spec Invariant 3), the ONLY place a reviewer model id is pinned. ORDERED: entry [0] is the launch default (drain, night-run orchestrator, day-run restart). Only claude- ids; any other entry voids the whole list. /bajzi:setup writes {\"reviewer_models\": [...]} to path when it is missing or invalid; a valid file that differs is drift (the owner's local swap), overwritten only on the owner's word."
   },
   "statusline": {

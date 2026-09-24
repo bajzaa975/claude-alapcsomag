@@ -240,7 +240,7 @@ test('real manifest: new blocks present, GSD retired, no GSD permissions left', 
   const m = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8'));
   assert.strictEqual(m.gsd.default_install, false);
   assert.strictEqual(m.gsd.machine_exception, undefined);
-  assert.ok(m.gsd.laptop_retained_hooks);
+  assert.strictEqual(m.gsd.laptop_retained_hooks, undefined);   // removed at the cut-over (Task 8 Step 10)
   assert.strictEqual(m.settings_merge.permissions.defaultMode, 'auto');
   assert.deepStrictEqual(m.user_mcps['code-review-graph'].args, ['code-review-graph', 'serve']);
   assert.deepStrictEqual(m.secret_patterns, ['*.pem', '*.key', 'id_rsa*', 'id_ed25519*', 'credentials.json']);
