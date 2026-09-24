@@ -64,19 +64,37 @@ const skip = process.env.BAJZI_CONTRACT === '1' ? false : 'set BAJZI_CONTRACT=1 
 test('implementer contract on a one-function fixture slice', { skip, timeout: 900e3 }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bajzi-contract-impl-'));
   const repo = path.join(root, 'repo');
-  fs.mkdirSync(path.join(repo, 'runtime', 'slices'), { recursive: true });
+  fs.mkdirSync(repo, { recursive: true });
   fs.writeFileSync(path.join(repo, 'mathutils.js'), BASE_UTILS);
-  fs.writeFileSync(path.join(repo, 'runtime', 'slices', `${SLICE}.md`), SLICE_FILE);
+  // A git repo with a base commit, so scope ("only files: paths changed, no commit") is checkable.
+  sh(repo, 'git', ['init', '-q']);
+  for (const [k, v] of [['user.email', 't@t'], ['user.name', 't'], ['commit.gpgsign', 'false']]) sh(repo, 'git', ['config', k, v]);
+  sh(repo, 'git', ['add', '--', 'mathutils.js']);
+  sh(repo, 'git', ['commit', '-q', '-m', 'base']);
+  const base = sh(repo, 'git', ['rev-parse', 'HEAD']);
 
-  const run = runAgent(repo, 'implementer', [
-    `The slice spec is at runtime/slices/${SLICE}.md. Read it and implement it.`, ''].join('\n'),
-  ['--max-turns', '20', '--permission-mode', 'acceptEdits', '--allowedTools',
-    'Bash(node --test)', 'Bash(node --test:*)']);
+  // The production brief: /bajzi:implement passes the slice file verbatim, nothing else (dispatch.md).
+  const run = runAgent(repo, 'implementer', SLICE_FILE,
+    ['--max-turns', '20', '--permission-mode', 'acceptEdits', '--allowedTools',
+      'Bash(node --test)', 'Bash(node --test:*)']);
   assert.ok(run.models.some((x) => /sonnet/.test(x)), `implementer served ${run.models}, not sonnet`);
 
-  const m = run.result.match(/^SLICE (\S+) DONE\s*$/m);
-  assert.ok(m, `implementer report has no "SLICE <id> DONE" line:\n${run.result}`);
-  assert.strictEqual(m[1], SLICE);
+  // docs/slice-format.md "Agent report": the message ends with the SLICE line, then one changed
+  // path per line and nothing else; anything before the SLICE line is ignored.
+  const files = SLICE_FILE.match(/^files: (.*)$/m)[1].split(',').map((f) => f.trim());
+  const lines = run.result.trim().split(/\r?\n/);
+  const at = lines.findIndex((l) => /^SLICE \S+ (DONE|BLOCKED)/.test(l));
+  assert.ok(at >= 0, `implementer report has no SLICE line:\n${run.result}`);
+  assert.strictEqual(lines[at], `SLICE ${SLICE} DONE`, `not DONE:\n${run.result}`);
+  const listed = lines.slice(at + 1).map((l) => l.trim());
+  assert.ok(listed.length > 0, 'DONE report lists no files');
+
+  assert.strictEqual(sh(repo, 'git', ['rev-parse', 'HEAD']), base, 'the implementer committed');
+  const changed = [...sh(repo, 'git', ['diff', '--name-only', base]).split(/\r?\n/),
+    ...sh(repo, 'git', ['ls-files', '--others', '--exclude-standard']).split(/\r?\n/)].filter(Boolean);
+  for (const f of changed) assert.ok(files.includes(f), `changed outside files: (${files}): ${f}`);
+  for (const f of listed) assert.ok(changed.includes(f), `report lists ${JSON.stringify(f)}, not a changed path (${changed})`);
+  for (const f of changed) assert.ok(listed.includes(f), `changed ${f} missing from the report`);
 
   const t = spawnSync('node', ['--test'], { cwd: repo, encoding: 'utf8', env: ENV });
   assert.strictEqual(t.status, 0, `fixture tests not green after implement:\n${t.stdout}`);

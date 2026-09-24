@@ -8,7 +8,8 @@
 // 4 DEBT CAP HIT (the D6 cap, an unreadable debt.md, or a debt.md merge refused).
 // Slice ids and log class names must match ID_RE (they become paths and TSV fields).
 //
-//   slice <id>                     runtime/slices/<id>.md -> the agent to dispatch
+//   slice <id>                     runtime/slices/<id>.md -> the agent to dispatch; `test: none`
+//                                  prints `test: skip` (the skills run no test); id `debt` is reserved
 //   validate <findings-file>       verdict + counts by severity; name must match slice/round
 //   copy fixer <findings|debt>     writes <file>.fixer.md; a round-2 file, or an r1 whose slice
 //                                  already has an r2 -> STOP (exit 3)
@@ -83,6 +84,7 @@ const cmds = {
   slice(id) {
     if (!id) die(2, 'usage: slice <id>');
     checkId(id);
+    if (id === 'debt') die(2, 'slice id "debt" is reserved for the debt drain (debt.md, debt-r2.md); rename the slice');
     const p = path.posix.join('runtime/slices', `${id}.md`);
     const lines = mustRead(p).split(/\r?\n/);
     if ((lines.find((l) => l.trim()) || '').trim() !== `# Slice · ${id}`) die(2, `${p}: title must be "# Slice · ${id}"`);
@@ -90,7 +92,7 @@ const cmds = {
     for (const l of lines) { const m = l.match(/^(tier|files|acceptance|test):[ \t]*(.*)$/); if (m) s[m[1]] = m[2].trim(); }
     for (const k of ['tier', 'files', 'acceptance', 'test']) if (!s[k]) die(2, `${p}: missing field: ${k}`);
     if (!['1', '2', '3'].includes(s.tier)) die(2, `${p}: tier must be 1, 2 or 3, got ${s.tier}`);
-    console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${s.test}`);
+    console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${/^none$/i.test(s.test) ? 'skip' : s.test}`);
   },
 
   validate(file) {

@@ -231,7 +231,17 @@ function main(argv) {
     log(`wrote ${cfg.baseline} ${JSON.stringify(sums)}; commit it`);
     return 0;
   }
+  const code = commitGate(root, cfg, baseFile);
+  // One TSV line per verdict in the log plan T9 counts from (spec §7.2); a failed append never changes the verdict.
+  try {
+    fs.mkdirSync(path.join(root, 'runtime'), { recursive: true });
+    const iso = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    fs.appendFileSync(path.join(root, 'runtime', 'dispatch-sizes.log'), `${iso}\tGATE\tpre-commit\t${code}\t${code ? 'block' : 'pass'}\n`);
+  } catch { /* logging is best-effort */ }
+  return code;
+}
 
+function commitGate(root, cfg, baseFile) {
   let worst = 0;
   const files = stagedFiles(root);
   if (cfg.tools.has('gitleaks')) {

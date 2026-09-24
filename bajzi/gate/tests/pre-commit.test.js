@@ -284,3 +284,16 @@ test('manifest gate_tools install lines agree with the gate HINTS (manifest sync
   assert.strictEqual(m.ruff.install, HINTS.ruff);
   assert.strictEqual(m.pyright.install, HINTS.pyright);
 });
+
+test('every gate run appends one GATE line to runtime/dispatch-sizes.log (T9 counts blocks); --init does not', () => {
+  const r = repo(Object.assign({}, PY, { 'a.py': 'x=1\n' }));
+  const logf = path.join(r, 'runtime', 'dispatch-sizes.log');
+  assert.strictEqual(gate(r, fakes({ gitleaks: CLEAN, ruff: CLEAN, pyright: pyright(3) }), ['--init']).code, 0);
+  assert.ok(!fs.existsSync(logf));
+  assert.strictEqual(gate(r, fakes({ gitleaks: CLEAN, ruff: { exit: 1 }, pyright: pyright(3) })).code, 1);
+  assert.strictEqual(gate(r, fakes({ gitleaks: CLEAN, ruff: CLEAN, pyright: pyright(3) })).code, 0);
+  const lines = fs.readFileSync(logf, 'utf8').trim().split('\n');
+  assert.strictEqual(lines.length, 2);
+  assert.match(lines[0], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\tGATE\tpre-commit\t1\tblock$/);
+  assert.match(lines[1], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\tGATE\tpre-commit\t0\tpass$/);
+});

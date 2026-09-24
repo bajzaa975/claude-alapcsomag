@@ -30,3 +30,5 @@ unparseable `debt.md`): the next slice/sprint does not start. Print the output; 
 3. `FC calibrate runtime/findings/debt.rerate.txt` — writes `blind_severity` into `debt.md` and
    appends only the disagreements to `needs-owner.md` (`original: x · blind: y · <if_unfixed> ·
    your call`). Exit 2 (an id not re-rated, or rated twice) -> re-dispatch once, then STOP.
+
+Any other `FC` or git exit code a step above does not name -> print its output and the exit code, STOP.

@@ -22,6 +22,8 @@ const ALLOWED_TOOLS = [
 ];
 const REQUIRED_HEADINGS = ['# Input', '# Output', '# Rules', '# Never'];
 const MAX_BODY_LINES = 60;
+// The frontmatter keys the shipped agents use, all mandatory; any other key is refused.
+const ALLOWED_KEYS = ['name', 'description', 'model', 'tools'];
 
 // Splits an agent .md into {fields, body}, or null when there is no frontmatter block.
 function parseAgent(content) {
@@ -29,21 +31,28 @@ function parseAgent(content) {
   if (!m) return null;
   const fields = {};
   for (const line of m[1].split(/\r?\n/)) {
-    const f = line.match(/^([a-z]+):\s*(.*)$/);
+    const f = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
     if (f) fields[f[1]] = f[2].trim();
   }
   return { fields, body: m[2] };
 }
 const toolList = (fields) => fields.tools.split(',').map((t) => t.trim()).filter(Boolean);
 
-// Validates one agent .md's full text against the T1 contract. Never throws.
+// Validates one agent .md's full text against the T1 contract; `name`, when given, is the file
+// basename the `name:` field must equal. Never throws.
 // Returns {ok:true} or {ok:false, why:<string>}.
-function validateAgent(content) {
+function validateAgent(content, name) {
   const p = parseAgent(content);
   if (!p) return { ok: false, why: 'no frontmatter block (--- ... ---)' };
   const { fields, body } = p;
-  for (const key of ['name', 'description', 'model', 'tools']) {
+  for (const key of Object.keys(fields)) {
+    if (!ALLOWED_KEYS.includes(key)) return { ok: false, why: `unknown frontmatter key: ${key}` };
+  }
+  for (const key of ALLOWED_KEYS) {
     if (!fields[key]) return { ok: false, why: `missing frontmatter field: ${key}` };
+  }
+  if (name !== undefined && fields.name !== name) {
+    return { ok: false, why: `name "${fields.name}" does not match the file basename "${name}"` };
   }
 
   if (!ALLOWED_MODELS.includes(fields.model)) {
@@ -98,6 +107,24 @@ for (const [name, reWhy] of [
   });
 }
 
+// The guard, dispatch.md and the skills route on `bajzi:<name>`, so a name that drifts from the
+// file basename breaks routing; a frontmatter key outside the shipped set (permissionMode,
+// mcpServers, disallowedTools, ...) would change what the agent may do with every test green.
+test('fixture: name must equal the file basename when one is given', () => {
+  assert.deepStrictEqual(validateAgent(fixture('good.md'), 'fixture-good'), { ok: true });
+  const r = validateAgent(fixture('good.md'), 'fixer');
+  assert.strictEqual(r.ok, false);
+  assert.match(r.why, /name "fixture-good" does not match the file basename "fixer"/);
+});
+
+for (const key of ['permissionMode: bypassPermissions', 'mcpServers: x', 'disallowedTools: Write', 'color: red']) {
+  test(`fixture: unknown frontmatter key is rejected (${key})`, () => {
+    const r = validateAgent(fixture('good.md').replace(/^(---\r?\n)/, `$1${key}\n`));
+    assert.strictEqual(r.ok, false);
+    assert.match(r.why, new RegExp(`unknown frontmatter key: ${key.split(':')[0]}`));
+  });
+}
+
 // Every *.md anywhere under bajzi/agents/ is loaded as a live agent, so every one of them must be
 // a real agent that meets the contract -- a README or a fixture there fails here.
 const shipped = () => fs.readdirSync(AGENTS_DIR, { recursive: true })
@@ -106,7 +133,7 @@ const read = (f) => fs.readFileSync(path.join(AGENTS_DIR, f), 'utf8');
 
 test('every shipped bajzi/agents/**/*.md passes the contract', () => {
   for (const f of shipped()) {
-    const r = validateAgent(read(f));
+    const r = validateAgent(read(f), path.basename(f, '.md'));
     assert.strictEqual(r.ok, true, `${f}: ${r.ok ? '' : r.why}`);
   }
 });

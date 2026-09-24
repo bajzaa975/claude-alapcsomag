@@ -1013,6 +1013,16 @@ sed -i 's/^tier: 2/tier: 9/' "$CAD/runtime/slices/sl2.md"; out="$(cli slice sl2 
 [ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'tier must be 1, 2 or 3, got 9' && pass "16f2 bad tier refused" || fail "16f2" "rc=$rc $out"
 out="$(cli slice ../slices/sl1 2>&1)"; rc=$?
 [ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'bad slice id' && pass "16f3 path-traversal slice id refused" || fail "16f3" "rc=$rc $out"
+# 16f4: `test: none` (a no-test / Tier-3 slice) is printed as `test: skip`, which the skills never execute.
+printf '# Slice · sl4\ntier: 3\nfiles: docs/a.md\nacceptance: documented\ntest: none\n' > "$CAD/runtime/slices/sl4.md"
+out="$(cli slice sl4)"; rc=$?
+[ $rc -eq 0 ] && printf '%s\n' "$out" | grep -qx 'test: skip' && [ "$(cli slice sl1 | tail -1)" = 'test: node --test' ] \
+    && grep -q 'test: skip' "$SKILLS/implement/SKILL.md" && grep -q 'test: skip' "$SKILLS/fix/SKILL.md" \
+    && pass "16f4 test: none -> skip (implement/fix read it)" || fail "16f4" "rc=$rc $out"
+# 16f5: `debt` is the drain's namespace (debt.md, debt-r2.md), never a slice id.
+printf '# Slice · debt\ntier: 2\nfiles: a.js\nacceptance: works\ntest: node --test\n' > "$CAD/runtime/slices/debt.md"
+out="$(cli slice debt 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'reserved' && pass "16f5 slice id debt reserved" || fail "16f5" "rc=$rc $out"
 
 # 16g: every dispatch logs one R4-shaped TSV line.
 printf 'brief é\n' > "$CAD/b.txt"; cli log review bajzi:reviewer b.txt allow

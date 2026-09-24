@@ -27,3 +27,5 @@ the skill has no other round.
    the owner lines are written but `debt.md` refused the merge (the ids it names are NOT parked):
    print it and tell the owner. STOP: there is no further round in the skill; a third round is
    the owner's call, started by hand.
+
+Any other `FC` or git exit code a step above does not name -> print its output and the exit code, STOP.

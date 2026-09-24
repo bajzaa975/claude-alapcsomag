@@ -21,6 +21,8 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
    STOP the skill. Never retry with a trimmed or reworded brief; the owner decides.
 4. **Save the final message** verbatim where the row says (Write tool), before reading it.
 
+**Any `FC` exit code a skill step does not name -> print its output and the exit code, STOP.**
+
 | class | agent | description | brief = | final message saved to |
 |---|---|---|---|---|
 | implement | the `agent:` from `FC slice <id>` | `implement <slice>` | the slice file, verbatim | — (read DONE/BLOCKED) |
@@ -51,6 +53,6 @@ the file to re-rate.
 slice_id: <slice>
 fixer copy: <the path `FC copy fixer` printed: runtime/findings/<slice>-r1.fixer.md or debt.fixer.md>
 files you may touch: <files: from the slice>
-test command: <test: from the slice>
+test command: <test: from the slice; `skip` -> "none: this slice has no test, run none">
 <the .fixer.md file, verbatim>
 ```

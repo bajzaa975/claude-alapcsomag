@@ -15,7 +15,8 @@ Every fix goes through `bajzi:fixer`; you never fix the findings yourself. `FC` 
 3. Dispatch per dispatch.md, class `fix`, brief = the fixer brief on the `.fixer.md` file. A guard
    deny -> print the reason and its rule id, STOP. Save the final message to
    `runtime/findings/<slice-id>-r1.report.md`.
-4. Run the `test:` command. Red -> STOP and report; no commit, no round 2.
+4. Run the `test:` command, unless it is `test: skip` (print "no test", run nothing; the gate in
+   step 5 still runs). Red -> STOP and report; no commit, no round 2.
 5. A path in `git status --porcelain --untracked-files=no` outside `files:` (ignore `runtime/**`,
    which the skills write) -> STOP and report; untracked files do not block, as in
    /bajzi:implement. Else `git add -- <each changed tracked file, and each files: path the fixer
@@ -25,3 +26,5 @@ Every fix goes through `bajzi:fixer`; you never fix the findings yourself. `FC` 
 6. `tip=$(git rev-parse HEAD)`, then run `/bajzi:review <slice-id> <base>..<tip> --round 2`.
 7. STOP. Round 2 is the last round this skill runs; whatever is still open is routed by the
    round-2 close (owner or debt). A round 3 is the owner's call, started by hand.
+
+Any other `FC` or git exit code a step above does not name -> print its output and the exit code, STOP.

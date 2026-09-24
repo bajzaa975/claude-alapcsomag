@@ -1,7 +1,7 @@
 # Plan: bajzi agents + review cadence (L0) — the phase after env-unify
 
 Repo: `bajzi-plugins-dev` (all tasks except T9, which runs on `claude-orchestrator`).
-Status: DRAFT, owner-approved decisions baked in (2026-09-23). Not started.
+Status: owner-approved decisions baked in (2026-09-23). T0-T7 built on branch `agents-cadence` (whole-branch review r1 fixed); T8 release and T9 acceptance open.
 Predecessor: `docs/superpowers/plans/2026-09-23-bajzi-env-unification.md` (must be closed first).
 Spec: `bajzi-package-spec.md` — this plan adds §6.12 and rewrites §6.4; §11 gets a row per task.
 
@@ -72,7 +72,7 @@ All must hold before T1 starts; record them in the HANDOFF as checked:
 
 ### 4.1 Agents (`bajzi/agents/*.md`, shipped by the plugin)
 
-Common rules — pinned by `bajzi/agents/tests/agents.test.js` (T1):
+Common rules — pinned by `bajzi/tests/agents/agents.test.js` (T1):
 - Frontmatter: `name`, `description`, `model`, `tools`. `model` is an alias (`sonnet`/`opus`),
   never a versioned id. `tools` is an explicit allow-list.
 - Body ≤ 60 lines, contract-shaped: **Input · Output · Rules · Never**. No persona prose.
@@ -113,6 +113,10 @@ A slice spec: id, files it may touch, acceptance criteria, test command.
 - Never edit `runtime/**`, `docs/**`, guard files, hooks, settings or `.githooks/**`.
 - Never commit, push, stash, rebase or change branches.
 ```
+Amended by the whole-branch review r1 (2026-09-24; not a §3 decision): the slice's `files:` list is
+the ownership boundary (`docs/**` included, so Tier-3 docs slices go through the agent), the report
+follows `docs/slice-format.md` "Agent report", and `test: none` means no test run. The shipped
+`bajzi/agents/implementer.md` is authoritative.
 
 **`implementer-risk.md`** — identical body to `implementer`, plus under Rules:
 ```
@@ -135,7 +139,7 @@ tools: Read, Grep, Glob, mcp__code-review-graph__detect_changes_tool, mcp__code-
 and for round 2 the previous findings file.
 # Output
 The findings file in the format of docs/findings-format.md, nothing else in the file.
-Final message: the single line `VERDICT: CLEAN` or `VERDICT: FINDINGS <n>`.
+Final message: the findings file itself and nothing else (the verdict is its header line).
 # Rules
 - Call detect_changes_tool for the range first, then get_review_context_tool for each changed
   symbol. Read only files the graph names; do not browse.
@@ -317,7 +321,7 @@ Sizes: S ≤ 2 h, M ≤ half a day, L ≤ a day. Tier per spec §2 semantics.
 | Task | Deliverable | Files | Tests | Tier | Size |
 |---|---|---|---|---|---|
 | **T0** Standing rule "Owner tasks — do it yourself" | Append Appendix A verbatim to `DAY-RUN-RULES.md` (60 lines today; Appendix A is 10 → 70, leaves headroom); first commit of this plan | `bajzi/skills/mode/DAY-RUN-RULES.md` | existing line-count test stays < 80 | 2 | S |
-| **T1** Agent scaffold + harness | `bajzi/agents/` dir, plugin manifest entry (Invariant 5), `agents.test.js` (frontmatter shape, alias-only `model`, allow-list `tools`, body ≤ 60 lines, no `Agent`/`Task` tool, required headings Input/Output/Rules/Never) | `bajzi/agents/`, `bajzi/skills/setup/manifest.json`, `bajzi/agents/tests/agents.test.js` | the new suite | 2 | S |
+| **T1** Agent scaffold + harness | `bajzi/agents/` dir, plugin manifest entry (Invariant 5), `agents.test.js` (frontmatter shape, alias-only `model`, allow-list `tools`, body ≤ 60 lines, no `Agent`/`Task` tool, required headings Input/Output/Rules/Never) | `bajzi/agents/`, `bajzi/skills/setup/manifest.json`, `bajzi/tests/agents/agents.test.js` | the new suite | 2 | S |
 | **T2** Findings format + parser | `docs/findings-format.md` (rubric incl.), `bajzi/lib/findings.js`: `parse`, `validate`, `stripForFixer`, `applyClosePolicy(round2, fixerReport)`, `debtCapHit`, `mergeToDebt`, `stripSeverity` | as named + `bajzi/lib/tests/findings.test.js` | fixtures: valid file, each missing field rejected, close-policy table (every D4 branch), cap at 15 / 3-per-file, 24 KB cap, round-2 `resolved`/`open` | 1 | M |
 | **T3** `reviewer` + `fixer` agents | bodies per §4.1 | `bajzi/agents/reviewer.md`, `fixer.md` | T1 harness + a **contract test**: a fixture repo with two planted defects (one blocker with money effect, one nit); dispatch `reviewer` via `claude -p`, assert the file parses, both ids present, blocker ≥ major; dispatch `fixer` on the `.fixer.md`, assert tests green and report format | 1 | M |
 | **T4** `implementer` + `implementer-risk` | bodies per §4.1; test asserts the two differ only in the Tier-1 block and `model` | `bajzi/agents/implementer.md`, `implementer-risk.md`, `runtime/slices/` spec format in `docs/slice-format.md` | T1 harness + diff assertion + one contract run on a fixture slice | 2 | S |
