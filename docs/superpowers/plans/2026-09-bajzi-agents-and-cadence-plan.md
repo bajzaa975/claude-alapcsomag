@@ -255,7 +255,8 @@ agents. Fails open, as before.
 
 - **R1'** — a dispatch whose `subagent_type` is not `reviewer` but whose prompt matches the old
   REVIEW/REREVIEW pattern → deny: "use /bajzi:review". A `reviewer` dispatch must carry a range
-  (`[0-9a-f]{7,}\.\.[0-9a-f]{7,}`) and a `runtime/findings/` write path → else deny.
+  (`[0-9a-f]{7,}\.\.[0-9a-f]{7,}`) → else deny (no write path: the reviewer never writes, D1/§4.3;
+  calibrate's range-less brief passes only on its `.blind.md` single-file opt-out — T6).
 - **R2'** — a dispatch whose `subagent_type` is not `fixer` but whose prompt names a
   `runtime/findings/*.md` or `*-review.md` file → deny: "use /bajzi:fix". A `fixer` dispatch must
   name exactly one `*.fixer.md` path → else deny.

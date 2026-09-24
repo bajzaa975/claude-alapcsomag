@@ -5,7 +5,7 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tmpDir } = require('./helpers');
-const { load, configPath } = require('../lib/reviewer-models');
+const { load, configPath, offListServed } = require('../lib/reviewer-models');
 
 const LIB = path.join(__dirname, '..', 'lib', 'reviewer-models.js');
 
@@ -90,4 +90,20 @@ test('dispatch-review.md launches REVIEWER (allow-list [0]), never a bare alias'
   const first = fs.readFileSync(f, 'utf8').split(/\r?\n/)[0];
   assert.match(first, /^model: REVIEWER \(reviewer allow-list \[0\]\)/);
   assert.doesNotMatch(first, /\b(?:opus|fable|sonnet|haiku)\b/i);
+});
+
+test('offListServed: sub-agent transcript models, <synthetic> skipped, resolvedModel fallback, bad shapes', () => {
+  const h = home({ reviewer_models: ['claude-opus-5-5'] });
+  const tx = tmpDir('bajzi-tx-');
+  fs.mkdirSync(path.join(tx, 's', 'subagents'), { recursive: true });
+  const lines = [{ type: 'user', message: { model: 'glm-x' } }, { type: 'assistant', message: { model: 'claude-opus-5-5' } },
+    { type: 'assistant', message: { model: '<synthetic>' } }, { type: 'assistant', message: { model: 'GLM-5.3' } }];
+  fs.writeFileSync(path.join(tx, 's', 'subagents', 'agent-a1.jsonl'), lines.map(l => JSON.stringify(l)).join('\n') + '\nnot json\n');
+  const pay = (agentId, resolvedModel) => ({ transcript_path: path.join(tx, 's.jsonl'), tool_response: { agentId, resolvedModel } });
+  assert.deepStrictEqual(offListServed(pay('a1', 'claude-opus-5-5'), h), ['glm-5.3']);
+  assert.deepStrictEqual(offListServed(pay('none', 'claude-sonnet-5'), h), ['claude-sonnet-5']);
+  assert.deepStrictEqual(offListServed(pay('../s/subagents/agent-a1', 'claude-opus-5-5'), h), []);
+  assert.deepStrictEqual(offListServed({ tool_response: null }, h), []);
+  assert.deepStrictEqual(offListServed(null, h), []);
+  assert.deepStrictEqual(offListServed(pay('a1', ''), home({ reviewer_models: ['glm-5.3'] })), ['claude-opus-5-5', 'glm-5.3']);
 });

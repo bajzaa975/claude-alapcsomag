@@ -33,8 +33,17 @@
 # touches nothing -- a plain install must not drop runtime/ files into every
 # repo the owner opens.
 #
+# REVIEWER MODEL: a tool_input.subagent_type=bajzi:reviewer dispatch whose
+# SERVED model is not on the reviewer allow-list (reviewer_models, Invariant 3)
+# is a violation too, whatever the level. Served = the model ids in the
+# sub-agent's own transcript (<transcript_path minus .jsonl>/subagents/
+# agent-<tool_response.agentId>.jsonl), else tool_response.resolvedModel; an
+# invalid list has no members. Judged by node/lib/reviewer-models.js (the one
+# validator); without node nothing is counted.
+#
 # Writes one line per violation to <cwd>/runtime/routing-violations.log:
 #   <ISO-UTC> level=<level> model=<model>
+#   <ISO-UTC> level=<level> reviewer-model=<served id>   (one per off-list id)
 # Peak log: $CC_PEAK_LOG, else $HOME/.claude/glm-peak-refusals.log; its last
 # line starts with the refusal's ISO time (cc-router writes toISOString()).
 #
@@ -44,7 +53,8 @@
 # cwd count, so a "model" key in tool_response or in the prompt text is ignored.
 # A missing lib reads as an empty payload: nothing counted, still {}.
 #
-# DEPENDENCY-FREE: bash, awk, tr, head, tail, cut, date.
+# DEPENDENCY-FREE: bash, awk, tr, head, tail, cut, date (node only for the
+# reviewer check).
 
 set -uo pipefail
 
@@ -131,5 +141,21 @@ if [ "$v" = "yes" ]; then
         && printf '%s level=%s model=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$level" "$model" \
             >> "$cwd/runtime/routing-violations.log"; } 2>/dev/null || true
 fi
+
+# REVIEWER MODEL (spec Invariant 3): a bajzi:reviewer dispatch whose served model
+# is not on the reviewer allow-list. The one validator decides:
+# node/lib/reviewer-models.js --off-list-served reads the payload, prints each
+# off-list served id (log-safe). BAJZI_HOME defaults to this hook's HOME, as in
+# day-run-mode.sh. No node, or any failure -> nothing counted.
+case "$(printf '%s' "$sub" | tr '[:upper:]' '[:lower:]')" in bajzi:reviewer)
+    off=$(printf '%s' "$input" | BAJZI_HOME="${BAJZI_HOME:-${HOME:-}}" \
+        node "$hookdir/node/lib/reviewer-models.js" --off-list-served 2>/dev/null | head -n 8) || off=""
+    if [ -n "$off" ]; then
+        { mkdir -p "$cwd/runtime" && while IFS= read -r m; do
+            m=$(printf '%s' "$m" | tr -cd 'a-z0-9._-' | head -c 64)
+            [ -n "$m" ] && printf '%s level=%s reviewer-model=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$level" "$m"
+        done <<< "$off" >> "$cwd/runtime/routing-violations.log"; } 2>/dev/null || true
+    fi ;;
+esac
 printf '{}'
 exit 0

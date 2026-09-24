@@ -128,7 +128,7 @@ const cmds = {
     if (kind === 'calibrate') {
       const blind = at('debt.blind.md');
       mustRead(blind);
-      // bajzi:reviewer classifies REVIEW (dispatch-guard R1); the input is one file, so the opt-out applies.
+      // dispatch-guard R1: a bajzi:reviewer brief without a range passes only with this opt-out on a .blind.md.
       text = `Calibration mode.\nGRAPH: n/a single-file ${blind}\n`
         + `Read ${blind} (a # Blind re-rate copy, no severities) and re-rate every entry.\n`;
       out = path.posix.join(BRIEFS, 'debt-calibrate.txt');

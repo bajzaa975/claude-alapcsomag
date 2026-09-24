@@ -41,8 +41,9 @@ R1), the diff path, in round 2 the round-1 file and fixer report paths (`debt.md
 diff size; over 24000 chars it exits 2 (split the slice). Round 1 when `<slice>-r2.md` exists
 exits 3 (STOP: the slice had its two rounds). `FC brief calibrate` writes
 `runtime/briefs/debt-calibrate.txt`: `Calibration mode.`, the opt-out line
-`GRAPH: n/a single-file runtime/findings/debt.blind.md` (`bajzi:reviewer` is classified REVIEW,
-so R1 applies), and the file to re-rate.
+`GRAPH: n/a single-file runtime/findings/debt.blind.md` (the guard's R1 needs a range from
+every `bajzi:reviewer` brief except this one: no range plus the opt-out on a `.blind.md`), and
+the file to re-rate.
 
 ## Fixer brief
 

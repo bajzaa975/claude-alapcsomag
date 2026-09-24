@@ -595,13 +595,60 @@ HOOKS_JSON="$BAJZI_DIR/hooks/hooks.json"
 tr -d ' \n\r' < "$HOOKS_JSON" | grep -qF '"PostToolUse":[{"matcher":"Agent|Task","hooks":[{"type":"command","command":"bash\"${CLAUDE_PLUGIN_ROOT}/hooks/routing-counter.sh\""' \
     && pass "12s hooks.json PostToolUse matcher is Agent|Task -> routing-counter.sh" || fail "12s" "matcher/command not found"
 
+# 12t: a bajzi:reviewer dispatch whose SERVED model (its sub-agent transcript,
+# <transcript_path minus .jsonl>/subagents/agent-<tool_response.agentId>.jsonl; else
+# tool_response.resolvedModel) is not on the reviewer allow-list -> one line
+# 'level=<l> reviewer-model=<served>' per off-list id. Needs node; BAJZI_HOME empty -> HOME.
+RMC="$FAKE_HOME/.claude/bajzi/config.json"; mkdir -p "$FAKE_HOME/.claude/bajzi"
+printf '{"reviewer_models": ["claude-opus-5-5", "claude-fable-5-1"]}' > "$RMC"
+TX="$TMP/tx"; mkdir -p "$TX/sess/subagents"
+served() { # $1 agentId, then models written as assistant lines (plus one user line)
+    local id="$1"; shift; { printf '{"type":"user","message":{"role":"user","content":"x"}}\n'
+    for m in "$@"; do printf '{"type":"assistant","message":{"model":"%s","role":"assistant"}}\n' "$m"; done; } > "$TX/sess/subagents/agent-$id.jsonl"; }
+rvpay() { # $1 subagent_type, $2 agentId, $3 resolvedModel
+    printf '{"tool_name":"Agent","tool_input":{"subagent_type":"%s","prompt":"p"},"tool_response":{"status":"completed","agentId":"%s","resolvedModel":"%s"},"transcript_path":"%s","cwd":"%s"}' \
+        "$1" "$2" "$3" "$TX/sess.jsonl" "$FAKE_CWD"; }
+rm -f "$viol"
+served a1 claude-opus-5-5 '<synthetic>' claude-opus-5-5
+out=$(rvpay bajzi:reviewer a1 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude)
+[ "$out" = "{}" ] && [ ! -s "$viol" ] && pass "12t reviewer served on the list (<synthetic> ignored) -> nothing" || fail "12t" "$out $(cat "$viol" 2>&1)"
+served a2 claude-opus-5-5 glm-5.3 glm-5.3
+rvpay bajzi:reviewer a2 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+[ "$(grep -c 'reviewer-model=' "$viol" 2>/dev/null)" = 1 ] && grep -qE '^[0-9TZ:-]+ level=claude reviewer-model=glm-5\.3$' "$viol" \
+    && pass "12t2 reviewer served glm-5.3 -> one reviewer-model=glm-5.3 line" || fail "12t2" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+rvpay bajzi:reviewer nosuch claude-sonnet-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+grep -q 'reviewer-model=claude-sonnet-5$' "$viol" 2>/dev/null && pass "12t3 no transcript -> resolvedModel is judged" || fail "12t3" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+printf '{"reviewer_models": ["glm-5.3"]}' > "$RMC"
+rvpay bajzi:reviewer a1 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+grep -q 'reviewer-model=claude-opus-5-5$' "$viol" 2>/dev/null && pass "12t4 invalid allow-list -> nothing is on it, served opus logged" || fail "12t4" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; printf '{"reviewer_models": ["claude-opus-5-5"]}' > "$RMC"
+rvpay bajzi:fixer a2 glm-5.3 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+rvpay general-purpose a2 glm-5.3 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+[ ! -s "$viol" ] && pass "12t5 only bajzi:reviewer dispatches are judged" || fail "12t5" "$(cat "$viol")"
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"
+rvpay bajzi:reviewer a2 glm-5.3 | cnt_raw BAJZI_HOME= >/dev/null
+[ ! -s "$viol" ] && pass "12t6 gate closed -> reviewer check writes nothing" || fail "12t6" "$(cat "$viol")"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+served a3 'glm-5.3\nFAKE line'
+rvpay bajzi:reviewer a3 x | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+[ "$(wc -l < "$viol" 2>/dev/null)" = 1 ] && ! grep -q 'FAKE' "$viol" && pass "12t7 served id cannot inject a log line" || fail "12t7" "$(cat "$viol" 2>&1)"
+rm -f "$viol" "$RMC"
 # --- case 13: dispatch guard (PreToolUse on Agent|Task) ---
 #
-# Same gate as the counter (lib-saver-level.sh). Gate open: a REVIEW dispatch
-# (description + first 600 chars of prompt say "review", or subagent_type does)
-# must carry code-review-graph output or 'GRAPH: n/a single-file <path>' (R1); a
-# fix/re-review must not send the fixer to a full -brief.md / -review*.md (R2)
-# and stays <= 24576 chars (R3). Every deny test asserts WHICH rule refused.
+# Same gate as the counter (lib-saver-level.sh). Gate open, the guard classifies by
+# subagent_type FIRST (bajzi:reviewer / bajzi:fixer / bajzi:implementer*), and only a
+# foreign agent is classified from its description. Rules (spec §6.4, plan §4.4):
+#   R1  a foreign REVIEW/REREVIEW -> deny "use /bajzi:review"; bajzi:reviewer needs a
+#       <sha>..<sha> range + a graph marker, or (no range) the calibrate opt-out
+#       'GRAPH: n/a single-file runtime/findings/<x>.blind.md'.
+#   R2  anything but fixer/reviewer naming runtime/findings/*.md or a *-review.md /
+#       *-rereview<n>.md file -> deny "use /bajzi:fix"; bajzi:fixer names exactly one
+#       *.fixer.md.
+#   R3  every dispatch but fixer: <= 24576 chars.
+#   R4  one TSV line per dispatch.
+# Every deny test asserts WHICH rule refused.
 DG="$BAJZI_DIR/hooks/dispatch-guard.sh"
 dlog="$FAKE_CWD/runtime/dispatch-sizes.log"
 dg_raw() { # stdin = payload, then env pairs
@@ -618,63 +665,125 @@ is_deny() { # $1 output, $2 rule id -- the exact shape AND the rule that refused
     return 1; }
 lastlog() { tail -n 1 "$dlog" 2>/dev/null; }
 logf() { lastlog | awk -F'\t' -v n="$1" '{ print $n }'; }
+S1=0123456789abcdef0123456789abcdef01234567 S2=89abcdef0123456789abcdef0123456789abcdef
+RV='bajzi:reviewer' FX='bajzi:fixer' IM='bajzi:implementer'
+GL='GRAPH: use code-review-graph detect_changes_tool with base x'
 # 13a: gate closed (day-run off, no env, Anthropic) -> {} and nothing written.
 printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$FAKE_HOME/.claude/worker-mode"
 rm -rf "$FAKE_CWD/runtime"
 out=$(dg 'review B3' 'general-purpose' 'Review the diff for task B3.'); rc=$?
-is_allow "$out" && [ "$rc" -eq 0 ] && pass "13a gate closed: review without graph -> {}" || fail "13a" "rc=$rc $out"
+is_allow "$out" && [ "$rc" -eq 0 ] && pass "13a gate closed: foreign review -> {}" || fail "13a" "rc=$rc $out"
 [ ! -e "$FAKE_CWD/runtime" ] && pass "13a' gate closed -> no log, not even runtime/" || fail "13a'" "$(ls -la "$FAKE_CWD/runtime" 2>&1)"
 mkdir -p "$FAKE_CWD/runtime"
 printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
 G=CC_WORKER_MODE=glm
-# 13b: R1.
+# 13b: R1, foreign review/re-review -> use /bajzi:review, graph marker or not.
 out=$(dg 'review task B3' 'general-purpose' 'Review the diff abc..def for spec and quality.' $G)
-is_deny "$out" R1 && pass "13b review without graph -> deny R1" || fail "13b" "$out"
+is_deny "$out" R1 && case "$out" in *'/bajzi:review'*) true ;; *) false ;; esac \
+    && pass "13b foreign review -> deny R1, names /bajzi:review" || fail "13b" "$out"
 [ "$(logf 2)" = "REVIEW" ] && [ "$(logf 5)" = "deny:R1" ] && pass "13b' log: REVIEW ... deny:R1" || fail "13b'" "$(lastlog)"
 out=$(dg 'check B3' 'feature-dev:code-reviewer' 'Look at the diff abc..def.' $G)
-is_deny "$out" R1 && pass "13b2 subagent_type with review -> REVIEW -> deny R1" || fail "13b2" "$out"
+is_deny "$out" R1 && pass "13b2 foreign subagent_type with review -> REVIEW -> deny R1" || fail "13b2" "$out"
 out=$(dg 'REVIEW task B3' 'general-purpose' 'Look at the diff abc..def.' $G)
 is_deny "$out" R1 && pass "13b3 classification is case-insensitive" || fail "13b3" "$out"
-out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.\nGRAPH: n/a single-file' $G)
-is_deny "$out" R1 && pass "13b4 GRAPH opt-out without a path does not count" || fail "13b4" "$out"
-# 13c-13e: graph markers.
-out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.\nGraph (detect-changes --brief): 3 files' $G)
-is_allow "$out" && pass "13c review with detect-changes -> allow" || fail "13c" "$out"
-[ "$(logf 5)" = "allow" ] && pass "13c' log: allow" || fail "13c'" "$(lastlog)"
-out=$(dg 'review task B3' 'general-purpose' 'Review abc..def. get_review_context_tool said: x.sh:10-40' $G)
-is_allow "$out" && pass "13d review with get_review_context_tool -> allow" || fail "13d" "$out"
-out=$(dg 'review task B3' 'general-purpose' 'Review abc..def. Blast radius: runtime/graph-b3.json' $G)
-is_allow "$out" && pass "13d2 review with a graph-*.json path -> allow" || fail "13d2" "$out"
-out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.\nGRAPH: n/a single-file x.sh\nthanks' $G)
-is_allow "$out" && pass "13e GRAPH: n/a single-file x.sh -> allow" || fail "13e" "$out"
-# 13f-13h: R2.
-out=$(dg 're-review B3 fix' 'general-purpose' 'Delta review. detect-changes --brief: 1 file. Read task-B3-brief.md first.' $G)
-is_deny "$out" R2 && pass "13f re-review pointing at task-B3-brief.md -> deny R2" || fail "13f" "$out"
-[ "$(logf 2)" = "REREVIEW" ] && [ "$(logf 5)" = "deny:R2" ] && pass "13f' log: REREVIEW ... deny:R2" || fail "13f'" "$(lastlog)"
-out=$(dg 're-review B3 fix' 'general-purpose' 'detect-changes --brief: 1 file. See .superpowers/sdd/x/task-B3-rereview1.md' $G)
-is_deny "$out" R2 && pass "13g re-review pointing at task-B3-rereview1.md -> deny R2" || fail "13g" "$out"
-out=$(dg 'fix round 1 B3' 'general-purpose' 'Finding 1 at x.sh:12. Details in task-B3-review.md' $G)
-is_deny "$out" R2 && pass "13g2 fix round pointing at task-B3-review.md -> deny R2" || fail "13g2" "$out"
-out=$(dg 're-review B3 fix' 'general-purpose' 'detect-changes --brief: 1 file. Append the verdict to task-B3-report.md' $G)
-is_allow "$out" && pass "13h re-review with task-B3-report.md + graph -> allow" || fail "13h" "$out"
-# 13i-13j: fix rounds.
-out=$(dg 'fix round 1 B3' 'general-purpose' 'Finding: x.sh:12 drops the exit code. Excerpt: foo || true. Test: bash t.sh' $G)
-is_allow "$out" && pass "13i fix round without graph -> allow (R1 exempt)" || fail "13i" "$out"
-# R3 cap = 24576 characters (24 KB; interim, so a batched fix with a full findings list fits).
+out=$(dg 'review task B3' 'general-purpose' "Review $S1..$S2.\\nGraph (detect-changes --brief): 3 files" $G)
+is_deny "$out" R1 && pass "13b4 foreign review WITH range + graph marker -> still deny R1" || fail "13b4" "$out"
+out=$(dg 're-review B3 fix' 'general-purpose' 'detect-changes --brief: 1 file. Check the fix.' $G)
+is_deny "$out" R1 && [ "$(logf 2)" = "REREVIEW" ] && pass "13b5 foreign re-review -> deny R1" || fail "13b5" "$out $(lastlog)"
+out=$(dg 'Code-review task B3' 'general-purpose' 'Look at the diff abc..def.' $G)
+is_deny "$out" R1 && [ "$(logf 2)" = "REVIEW" ] && pass "13b6 Code-review is a review -> deny R1" || fail "13b6" "$out $(lastlog)"
+out=$(dg 'review task B3' 'reviewer' "Review $S1..$S2. $GL" $G)
+is_deny "$out" R1 && pass "13b7 a bare 'reviewer' (not bajzi:) is foreign -> deny R1" || fail "13b7" "$out"
+# 13c: R1, bajzi:reviewer -- range + graph marker; no write path needed (D1: it never writes).
+out=$(dg 'review s1 round 1' "$RV" "slice_id: s1   round: 1   range: $S1..$S2\\n$GL\\ndiff: runtime/briefs/s1-r1.diff" $G)
+is_allow "$out" && [ "$(logf 2)" = "REVIEWER" ] && [ "$(logf 3)" = "$RV" ] && [ "$(logf 5)" = "allow" ] \
+    && pass "13c reviewer: range + graph, no runtime/findings write path -> allow, log REVIEWER" || fail "13c" "$out $(lastlog)"
+out=$(dg 'review s1 round 1' "$RV" "range: $S1..$S2\\ndiff: runtime/briefs/s1-r1.diff" $G)
+is_deny "$out" R1 && [ "$(logf 5)" = "deny:R1" ] && pass "13c2 reviewer: range, no graph marker -> deny R1" || fail "13c2" "$out $(lastlog)"
+out=$(dg 'review s1 round 1' "$RV" "$GL\\ndiff: runtime/briefs/s1-r1.diff" $G)
+is_deny "$out" R1 && pass "13c3 reviewer: graph, no range -> deny R1" || fail "13c3" "$out"
+out=$(dg 'review s1 round 1' "$RV" "range: abc..def\\n$GL" $G)
+is_deny "$out" R1 && pass "13c4 reviewer: abc..def is not a range (< 7 hex) -> deny R1" || fail "13c4" "$out"
+out=$(dg 'review s1 round 1' "$RV" "range: 0123abc..4567def\\n$GL" $G)
+is_allow "$out" && pass "13c5 reviewer: 7-hex short SHAs are a range -> allow" || fail "13c5" "$out"
+# 13d: R1, the single-file opt-out is the calibrate exemption only.
+out=$(dg 'calibrate debt' "$RV" 'Calibration mode.\nGRAPH: n/a single-file runtime/findings/debt.blind.md\nRead it.' $G)
+is_allow "$out" && pass "13d calibrate: no range + opt-out on runtime/findings/*.blind.md -> allow" || fail "13d" "$out"
+out=$(dg 'review s1 round 1' "$RV" "range: $S1..$S2\\nGRAPH: n/a single-file runtime/findings/debt.blind.md\\nchanged files: a.sh b.sh" $G)
+is_deny "$out" R1 && pass "13d2 opt-out does not cover a range review (multi-file diff) -> deny R1" || fail "13d2" "$out"
+out=$(dg 'review s1' "$RV" 'GRAPH: n/a single-file x.sh\nReview x.sh and y.sh' $G)
+is_deny "$out" R1 && pass "13d3 opt-out naming a source file -> deny R1" || fail "13d3" "$out"
+out=$(dg 'calibrate debt' "$RV" 'Calibration mode.\nGRAPH: n/a single-file' $G)
+is_deny "$out" R1 && pass "13d4 opt-out without a path -> deny R1" || fail "13d4" "$out"
+out=$(dg 'calibrate debt' "$RV" 'GRAPH: n/a single-file runtime/findings/debt.blind.md.bak x' $G)
+is_deny "$out" R1 && pass "13d5 opt-out path must END in .blind.md -> deny R1" || fail "13d5" "$out"
+# 13e: typed classification wins over the description; foreign FIX/OTHER never hit R1.
+out=$(dg 'implement code-review skill (review round 2 wiring)' "$IM" 'Build the code-review skill.' $G)
+is_allow "$out" && [ "$(logf 2)" = "IMPLEMENTER" ] && pass "13e implementer with 'review' in the description -> allow" || fail "13e" "$out $(lastlog)"
+out=$(dg 'Implement Task 3: add reviewer field' 'general-purpose' 'Add the reviewer field to the model.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13e2 'reviewer' is not the word review -> allow" || fail "13e2" "$out $(lastlog)"
+out=$(dg 'Implement it, then self-review your diff and commit.' 'general-purpose' 'Implement it, then self-review your diff and commit.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13e3 self-review is not a review dispatch -> allow" || fail "13e3" "$out $(lastlog)"
+out=$(dg 'run tests' 'general-purpose' 'Run the suite and review the failures.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13e4 review in the prompt body only -> allow" || fail "13e4" "$out $(lastlog)"
+out=$(dg 'Fix round 1 B3' 'general-purpose' 'Apply the two review findings below. x.sh:12 drops rc. Test: bash t.sh' $G)
+is_allow "$out" && [ "$(logf 2)" = "FIX" ] && pass "13e5 foreign fix with inline findings -> FIX, allow" || fail "13e5" "$out $(lastlog)"
+out=$(dg 'Fix round 2' 'feature-dev:code-reviewer' 'Finding: x.sh:3 quotes. Excerpt: echo $x. Test: bash t.sh' $G)
+is_allow "$out" && [ "$(logf 2)" = "FIX" ] && pass "13e6 fix to a foreign reviewer agent -> FIX, not R1" || fail "13e6" "$out $(lastlog)"
+out=$(dg 'Implement per task-B3-rereview1.md' 'general-purpose' 'Implement the parser.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13e7 a *-rereview1.md name in the description does not classify" || fail "13e7" "$out $(lastlog)"
+# 13f: R2, anything but fixer/reviewer pointed at a findings or review file -> use /bajzi:fix.
+out=$(dg 'fix round 1 B3' 'general-purpose' 'Fix everything in runtime/findings/s1-r1.md' $G)
+is_deny "$out" R2 && case "$out" in *'/bajzi:fix'*) true ;; *) false ;; esac && [ "$(logf 5)" = "deny:R2" ] \
+    && pass "13f foreign dispatch naming runtime/findings/*.md -> deny R2, names /bajzi:fix" || fail "13f" "$out $(lastlog)"
+out=$(dg 'implement s2' "$IM" 'Implement it. Context: D:/repo/runtime/findings/debt.md' $G)
+is_deny "$out" R2 && pass "13f2 implementer naming runtime/findings/debt.md (absolute) -> deny R2" || fail "13f2" "$out"
+out=$(dg 'Address B3 findings' 'general-purpose' 'Read task-B3-review.md and fix everything' $G)
+is_deny "$out" R2 && pass "13f3 the incident (read task-B3-review.md) -> deny R2" || fail "13f3" "$out"
+out=$(dg 'fix round 1 B3' 'general-purpose' 'See .superpowers/sdd/x/task-B3-rereview1.md' $G)
+is_deny "$out" R2 && pass "13f4 naming task-B3-rereview1.md -> deny R2" || fail "13f4" "$out"
+# the old ~24-char write-target heuristic is gone: a review file is refused as a write target too.
+out=$(dg 'fix round 1 B3' 'general-purpose' 'Fix x.sh:12. Write your verdict to D:/x/task-B3-review.md' $G)
+is_deny "$out" R2 && pass "13f5 old write-target exception gone -> deny R2" || fail "13f5" "$out"
+if ! grep -qE 'WRITE_RE|reads_full_doc|write\|append\|save\|output' "$DG"; then
+    pass "13f6 the write-target heuristic is deleted from the script"; else fail "13f6" "still present"; fi
+# a slice id containing "review" is not a review file; runtime/briefs/*.diff is never an R2 path.
+out=$(dg 'implement code-review' "$IM" 'Notes in docs/code-review-r1.md; diff at runtime/briefs/code-review-r1.diff' $G)
+is_allow "$out" && pass "13f7 code-review-r1.md / runtime/briefs/*.diff -> not R2, allow" || fail "13f7" "$out"
+out=$(dg 'implement B5' "$IM" 'Implement per task-B5-brief.md; report in task-B5-report.md' $G)
+is_allow "$out" && pass "13f8 -brief.md / -report.md outside runtime/findings -> allow" || fail "13f8" "$out"
+# 13g: R2 does not apply to the reviewer (read-only: its round-2 brief NAMES the r1 file + report).
+out=$(dg 're-review code-review round 2' "$RV" "range: $S1..$S2\\n$GL\\ndiff: runtime/briefs/code-review-r2.diff\\nround-1 findings: runtime/findings/code-review-r1.md\\nfixer report: runtime/findings/code-review-r1.report.md" $G)
+is_allow "$out" && pass "13g reviewer round 2 naming runtime/findings/<id with review>-r1.md -> allow" || fail "13g" "$out"
+# 13h: R2, bajzi:fixer names exactly one *.fixer.md.
+FXB='slice_id: s1\nfixer copy: runtime/findings/s1-r1.fixer.md\nfiles you may touch: a.sh\ntest command: bash t.sh\n# Fixer copy · s1 · round 1'
+out=$(dg 'fix round s1' "$FX" "$FXB" $G)
+is_allow "$out" && [ "$(logf 2)" = "FIXER" ] && pass "13h fixer naming one .fixer.md -> allow, log FIXER" || fail "13h" "$out $(lastlog)"
+out=$(dg 'fix round s1' "$FX" "$FXB\\nsee runtime/findings/s1-r1.fixer.md" $G)
+is_allow "$out" && pass "13h2 the same .fixer.md named twice -> allow" || fail "13h2" "$out"
+out=$(dg 'fix round s1' "$FX" 'Fix x.sh:12. Test: bash t.sh' $G)
+is_deny "$out" R2 && pass "13h3 fixer naming no .fixer.md -> deny R2" || fail "13h3" "$out"
+out=$(dg 'fix round s1' "$FX" "$FXB\\nand runtime/findings/s2-r1.fixer.md" $G)
+is_deny "$out" R2 && pass "13h4 fixer naming two .fixer.md -> deny R2" || fail "13h4" "$out"
+out=$(dg 'fix round debt' "$FX" 'fixer copy: runtime/findings/debt.fixer.md\n# Fixer copy · debt' $G)
+is_allow "$out" && pass "13h5 drain-fix on debt.fixer.md -> allow" || fail "13h5" "$out"
+# 13j: R3 = 24576 characters for every dispatch but the fixer's.
 p24k=$(head -c 24576 /dev/zero | tr '\0' a)
-out=$(dg 'fix r2 B3' 'general-purpose' "${p24k}b" $G)
-is_deny "$out" R3 && pass "13j fix prompt of 24577 chars -> deny R3" || fail "13j" "${out:0:200}"
-[ "$(logf 4)" = "24577" ] && [ "$(logf 5)" = "deny:R3" ] && pass "13j' log: 24577 ... deny:R3" || fail "13j'" "$(lastlog)"
-out=$(dg 'fix r2 B3' 'general-purpose' "$p24k" $G)
-is_allow "$out" && pass "13j2 fix prompt of exactly 24576 chars -> allow" || fail "13j2" "${out:0:200}"
-out=$(dg 're-review B3 fix' 'general-purpose' "detect-changes ${p24k}" $G)
-is_deny "$out" R3 && pass "13j3 re-review over 24576 chars with graph -> deny R3" || fail "13j3" "${out:0:200}"
-out=$(dg 'fix r2 B3' 'general-purpose' "$(head -c 6001 /dev/zero | tr '\0' a)" $G)
-is_allow "$out" && pass "13j4 fix prompt of 6001 chars (the old cap) -> allow" || fail "13j4" "${out:0:200}"
+out=$(dg 'implement B5' 'general-purpose' "${p24k}b" $G)
+is_deny "$out" R3 && [ "$(logf 4)" = "24577" ] && [ "$(logf 5)" = "deny:R3" ] \
+    && pass "13j OTHER prompt of 24577 chars -> deny R3 (every dispatch, not just fixes)" || fail "13j" "${out:0:200} $(lastlog)"
+out=$(dg 'implement B5' 'general-purpose' "$p24k" $G)
+is_allow "$out" && pass "13j2 prompt of exactly 24576 chars -> allow" || fail "13j2" "${out:0:200}"
+out=$(dg 'review s1 round 1' "$RV" "range: $S1..$S2 $GL ${p24k}" $G)
+is_deny "$out" R3 && pass "13j3 reviewer over 24576 chars (range + graph) -> deny R3" || fail "13j3" "${out:0:200}"
+out=$(dg 'implement s2' "$IM" "${p24k}b" $G)
+is_deny "$out" R3 && pass "13j4 implementer over 24576 chars -> deny R3" || fail "13j4" "${out:0:200}"
+out=$(dg 'fix round s1' "$FX" "$FXB ${p24k}${p24k}" $G)
+is_allow "$out" && [ "$(logf 5)" = "allow" ] && pass "13j5 fixer over 24576 chars -> allow (fixer exempt from R3)" || fail "13j5" "${out:0:200} $(lastlog)"
 # characters, not bytes: 24576 x e-acute is 49152 bytes and still passes.
-out=$(dg 'fix r2 B3' 'general-purpose' "$(printf '%s' "$p24k" | LC_ALL=C sed 's/a/é/g')" $G)
-is_allow "$out" && [ "$(logf 4)" = "24576" ] && pass "13j5 24576 two-byte chars (49152 bytes) -> allow" || fail "13j5" "${out:0:200} $(lastlog)"
-# 13k: OTHER.
+out=$(dg 'implement B5' 'general-purpose' "$(printf '%s' "$p24k" | LC_ALL=C sed 's/a/é/g')" $G)
+is_allow "$out" && [ "$(logf 4)" = "24576" ] && pass "13j6 24576 two-byte chars (49152 bytes) -> allow" || fail "13j6" "${out:0:200} $(lastlog)"
+# 13k: R4 log line.
 rm -f "$dlog"
 out=$(dg 'implement task B5' 'general-purpose' 'Implement the parser. No preview needed.' $G)
 is_allow "$out" && pass "13k OTHER dispatch (preview is not review) -> allow" || fail "13k" "$out"
@@ -682,55 +791,6 @@ is_allow "$out" && pass "13k OTHER dispatch (preview is not review) -> allow" ||
     && [ "$(logf 4)" = "40" ] && [ "$(logf 5)" = "allow" ] \
     && lastlog | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z	' \
     && pass "13k' one log line: ISO, OTHER, subagent_type, 40 chars, allow" || fail "13k'" "$(cat "$dlog" 2>&1)"
-out=$(dg 'implement task B5' 'general-purpose' 'Implement it; context in task-B3-review.md' $G)
-is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13k2 a *-review.md file name alone does not make a REVIEW" || fail "13k2" "$out $(lastlog)"
-# 13q-13v (fix round 1): REREVIEW > FIX > REVIEW > OTHER; the prompt body never
-# makes a REVIEW; fixes are exempt from R1; a review file as a WRITE target is fine.
-out=$(dg 'Implement Task 3: add reviewer field' 'general-purpose' 'Add the reviewer field to the model.' $G)
-is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13q1 'reviewer' is not the word review -> allow" || fail "13q1" "$out $(lastlog)"
-out=$(dg 'Implement it, then self-review your diff and commit.' 'general-purpose' 'Implement it, then self-review your diff and commit.' $G)
-is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13q2 self-review is not a review dispatch -> allow" || fail "13q2" "$out $(lastlog)"
-out=$(dg 'run tests' 'general-purpose' 'Run the suite and review the failures.' $G)
-is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13q3 review in the prompt body only -> allow" || fail "13q3" "$out $(lastlog)"
-out=$(dg 'Fix round 1 B3' 'general-purpose' 'Apply the two review findings below. x.sh:12 drops rc. Test: bash t.sh' $G)
-is_allow "$out" && [ "$(logf 2)" = "FIX" ] && pass "13q4 plain fix round with review findings -> FIX, allow" || fail "13q4" "$out $(lastlog)"
-out=$(dg 'Address B3 findings' 'general-purpose' 'Read task-B3-review.md and task-B3-brief.md and fix everything' $G)
-is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13r the incident (Address findings + read brief/review) -> deny R2" || fail "13r" "$out $(lastlog)"
-out=$(dg 'Fix B3 review findings' 'general-purpose' 'detect-changes --brief: 2 files. Read task-B3-brief.md first.' $G)
-is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13r2 'Fix ... review findings' is FIX, not REVIEW -> deny R2" || fail "13r2" "$out $(lastlog)"
-out=$(dg 're-review B4b fix' 'general-purpose' 'detect-changes --brief: 1 file. Write your verdict to D:/x/task-B4b-rereview1.md' $G)
-is_allow "$out" && pass "13s review file as a write target -> allow" || fail "13s" "$out"
-out=$(dg 're-review B4b fix' 'general-purpose' 'detect-changes --brief: 1 file. Append the verdict to D:/AI/projektek/ClaudeCode/claude-orchestrator/.superpowers/sdd/2026-09-22-saver-levels/task-B4b-rereview1.md' $G)
-is_allow "$out" && pass "13s2 write target with a long path -> allow" || fail "13s2" "$out"
-out=$(dg 're-review B3 fix' 'general-purpose' 'detect-changes --brief: 1 file. Then read task-B3-rereview1.md' $G)
-is_deny "$out" R2 && pass "13t re-review told to read task-B3-rereview1.md -> deny R2" || fail "13t" "$out"
-out=$(dg 're-review B3 fix' 'general-purpose' 'Check the fix diff abc..def against finding 1.' $G)
-is_deny "$out" R1 && [ "$(logf 2)" = "REREVIEW" ] && pass "13u re-review without a graph marker -> deny R1" || fail "13u" "$out $(lastlog)"
-out=$(dg 'Fix round 2' 'feature-dev:code-reviewer' 'Finding: x.sh:3 quotes. Excerpt: echo $x. Test: bash t.sh' $G)
-is_allow "$out" && [ "$(logf 2)" = "FIX" ] && pass "13v fix to a reviewer agent -> FIX, exempt from R1" || fail "13v" "$out $(lastlog)"
-# 13w-13z (fix round 2): file names never classify; the (fix|address|apply|resolve)
-# ... findings pattern reads the DESCRIPTION only; the write-target exception needs
-# a whole verb + to/into/in right before the path; code-review is a review.
-out=$(dg 'Implement per task-B3-rereview1.md' 'general-purpose' 'Implement the parser.' $G)
-is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13w a *-rereview1.md name in the description is not a REREVIEW" || fail "13w" "$out $(lastlog)"
-out=$(dg 'Implement Task B5' 'general-purpose' 'Read D:/x/task-B5-brief.md. Resolve any lint findings in files you touch, then commit.' $G)
-is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13x implementer 'resolve any lint findings' + its brief -> allow" || fail "13x" "$out $(lastlog)"
-out=$(dg 'Implement Task B5' 'general-purpose' 'Implement per task-B5-brief.md. Run tests, fix failures, report findings in task-B5-report.md.' $G)
-is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13x2 implementer 'fix failures, report findings' + its brief -> allow" || fail "13x2" "$out $(lastlog)"
-out=$(dg 'Fix round 1 B3' 'general-purpose' 'Fix the output bug. Read task-B3-review.md for details.' $G)
-is_deny "$out" R2 && pass "13y 'output' in another sentence is not a write target -> deny R2" || fail "13y" "$out"
-out=$(dg 'Fix round 1 B3' 'general-purpose' 'Rewrite per the notes in task-B3-review.md' $G)
-is_deny "$out" R2 && pass "13y2 'Rewrite ... in' is not the word write -> deny R2" || fail "13y2" "$out"
-# 13y3-13y5 (fix round 3, I-1): the verb-to-path gap is at most 24 chars, stops
-# at . ; : , and "in" is not a write preposition.
-out=$(dg 'Fix round 1 B3' 'general-purpose' 'Save time: just work through the notes in task-B3-review.md' $G)
-is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13y3 'Save time: ... notes in <review>' -> deny R2" || fail "13y3" "$out $(lastlog)"
-out=$(dg 'Address B3 findings' 'general-purpose' 'Output a fixed version; the findings are listed in task-B3-review.md' $G)
-is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13y4 'Output ...; listed in <review>' -> deny R2" || fail "13y4" "$out $(lastlog)"
-out=$(dg 'Fix round 1 B3' 'general-purpose' 'Output the corrected function and compare it to task-B3-review.md' $G)
-is_deny "$out" R2 && [ "$(logf 2)" = "FIX" ] && pass "13y5 verb far from 'to <review>' (gap > 24) -> deny R2" || fail "13y5" "$out $(lastlog)"
-out=$(dg 'Code-review task B3' 'general-purpose' 'Look at the diff abc..def.' $G)
-is_deny "$out" R1 && [ "$(logf 2)" = "REVIEW" ] && pass "13z Code-review is a review -> deny R1 without a marker" || fail "13z" "$out $(lastlog)"
 # 13l: never wedges a dispatch (truncated payloads included, even one that reads as a review).
 for bad in '' 'not json' '{"tool_input":{"prompt":"review' '{"tool_input":{"prompt":"rev\' \
     '{"tool_input":{"description":"review","prompt":"Review abc."}'; do
@@ -738,6 +798,16 @@ for bad in '' 'not json' '{"tool_input":{"prompt":"review' '{"tool_input":{"prom
     [ "$out" = "{}" ] && [ "$rc" -eq 0 ] || { fail "13l malformed stdin '$bad'" "rc=$rc $out"; continue; }
     pass "13l malformed stdin '${bad:0:24}' -> {} exit 0"
 done
+# 13l2: fail-open on a missing agents dir -- a plugin copy without bajzi/agents/ has no
+# /bajzi:review to point at, so R1-R3 do not apply.
+NA="$TMP/noagents/hooks"; mkdir -p "$NA"; cp "$BAJZI_DIR"/hooks/*.sh "$NA/"
+na() { local d="$1" s="$2" p="$3"; shift 3; disp "$d" "$s" "$p" | env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL \
+    HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$TMP/nocwd" "$@" bash "$NA/dispatch-guard.sh"; }
+out1=$(na 'review task B3' 'general-purpose' 'Review abc..def.' $G)
+out2=$(na 'fix round 1' 'general-purpose' 'Read runtime/findings/s1-r1.md' $G)
+out3=$(na 'implement' 'general-purpose' "${p24k}b" $G)
+is_allow "$out1" && is_allow "$out2" && is_allow "$out3" && pass "13l2 no agents dir -> R1/R2/R3 fail open" || fail "13l2" "$out1 $out2 ${out3:0:100}"
+is_deny "$(dg 'review task B3' 'general-purpose' 'Review abc..def.' $G)" R1 && pass "13l3 control: the same R1 dispatch with bajzi/agents present -> deny" || fail "13l3"
 # 13m: registered as PreToolUse on Agent|Task, next to the Bash noise filter.
 hj=$(tr -d ' \n\r' < "$BAJZI_DIR/hooks/hooks.json")
 pre="${hj%%\"PostToolUse\"*}"; pre="${pre#*\"PreToolUse\"}"

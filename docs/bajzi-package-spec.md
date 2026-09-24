@@ -69,11 +69,11 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js:38` `matchProtected`, `:169` `commandReadsProtected`; `manifest.json:294` `secret_patterns` | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | Globs, brace lists, PowerShell comma arrays and `rtk` wrappers must all stay covered (§6.7). The pipe-into-reader rule must fire only when a downstream pipeline stage (any, not just the next) reads paths from stdin (§6.7). |
 | Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js:4-20` `REGEX_RULES`, `:54` `scan`, `:27` `RULE_IDS` (17 ids), `:34` `sanitize`; `bajzi/hooks/node/injection-scan.js:31` `decide` | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Warn-only by design — `addContext` only, never `deny()`; never wire it to block. Every rule regex avoids the `\s*X?\s*` quadratic shape (§6.8); excerpts/source run through `sanitize()`. |
 | Saver-level routing table (task class → model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh` (rules read, `head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh:saver_resolve` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh` rules read) must stay above the file's real line count (currently 60) or the tail silently drops with no error. The table says REVIEWER, never a model id: the hook appends the REVIEWER MODELS line (next row). |
-| Reviewer allow-list (who may review; the launch default) | `~/.claude/bajzi/config.json` `reviewer_models` (the owner, or `/bajzi:setup` from `manifest.json` `bajzi_config`); validators `bajzi/hooks/node/lib/reviewer-models.js:load` and claude-orchestrator `scripts/review_queue.py:_reviewer_models`; readers `bajzi/hooks/day-run-mode.sh` (REVIEWER MODELS line), `bajzi/skills/setup/check.js:checkAll`, `bajzi/skills/night-run/SKILL.md` (`MODEL`, `{{REVIEWER_MODEL}}`), `nightrun-lib.ps1:Get-DrainLaunch`, `review_queue.py:_drain_verdict`; tripwire `nightrun-lib.ps1:Get-ReviewerConfigHash` | `node --test bajzi/hooks/node/tests/reviewer-models.test.js bajzi/skills/setup/tests/check.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (case 15); `python -m pytest -q tests/test_review_queue_drain.py`; Pester `tests/ps/nightrun-drain.Tests.ps1`, `nightrun-guards.Tests.ps1` | 1 | Two validators (node, python) must agree on the id regex and the whole-list-invalid rule. Never add a default id to code: the manifest is the only default. A reviewer swap is a config edit; a manifest edit also changes the default every `/bajzi:setup` writes. |
+| Reviewer allow-list (who may review; the launch default) | `~/.claude/bajzi/config.json` `reviewer_models` (the owner, or `/bajzi:setup` from `manifest.json` `bajzi_config`); validators `bajzi/hooks/node/lib/reviewer-models.js:load` and claude-orchestrator `scripts/review_queue.py:_reviewer_models`; readers `bajzi/hooks/day-run-mode.sh` (REVIEWER MODELS line), `bajzi/hooks/routing-counter.sh` (reviewer served-model check via `reviewer-models.js:offListServed`), `bajzi/skills/setup/check.js:checkAll`, `bajzi/skills/night-run/SKILL.md` (`MODEL`, `{{REVIEWER_MODEL}}`), `nightrun-lib.ps1:Get-DrainLaunch`, `review_queue.py:_drain_verdict`; tripwire `nightrun-lib.ps1:Get-ReviewerConfigHash` | `node --test bajzi/hooks/node/tests/reviewer-models.test.js bajzi/skills/setup/tests/check.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (cases 12t, 15); `python -m pytest -q tests/test_review_queue_drain.py`; Pester `tests/ps/nightrun-drain.Tests.ps1`, `nightrun-guards.Tests.ps1` | 1 | Two validators (node, python) must agree on the id regex and the whole-list-invalid rule. Never add a default id to code: the manifest is the only default. A reviewer swap is a config edit; a manifest edit also changes the default every `/bajzi:setup` writes. |
 | GLM model mapping (`--model sonnet\|opus` → `glm_model`) | `bajzi/bin/cc-router.js:54` `effective()`, `:289-296` glm env block | `node --test bajzi/bin/tests/*.test.js` | 1 | `-ClaudeBin glm` maps `CLAUDE_CODE_SUBAGENT_MODEL` too — the whole session incl. sub-agents runs on GLM (§6.2, §9.1). |
 | Z.ai peak window | `cc-router.js:272` `peakOpen()`, refusal `:273-283` (exit 75); mirrored independently in claude-orchestrator `nightrun-lib.ps1:205` `Test-GlmPeakSoon`, `:214` `Get-GlmStartDecision`; display-only copy `bajzi/hooks/node/lib/peak.js` | `node --test bajzi/bin/tests/*.test.js`; `Invoke-Pester tests/ps/nightrun-lib.Tests.ps1` | 1 | Three implementations (shim, runner, status-line display). Changing the window means editing all three, or the shim and the runner disagree about when GLM is refused. |
 | `worker`/`glm`/`ccr` admin commands | `cc-router.js:210-251` `workerAdmin()` | `node --test bajzi/bin/tests/*.test.js` | 2 | The launcher **scripts** (`worker`, `glm`, `ccr` + `.cmd` twins in `~/.local/bin`) that set `CC_ROUTER_ENTRY` live in `bajzi/bin/launchers/` and are installed by `install.sh` (§8.1 step 4); edit the repo copy, never `~/.local/bin` by hand. |
-| Dispatch-guard rules (R1/R2/R3/R4) | `bajzi/hooks/dispatch-guard.sh:reads_full_doc` (R2), the `decision=` block after it (R1-R3; the R3 cap is the `-gt 24576` literal, also named in the R3 deny text and in `bajzi/skills/mode/DAY-RUN-RULES.md` DISPATCH BRIEF), wired in `bajzi/hooks/hooks.json` PreToolUse `Agent\|Task` | `bash bajzi/skills/mode/tests/mode.sh` (case 13; R3 boundary 13j-13j5, wiring 13m/13m2) | 1 | Fails open by design ("a discipline guard, not a security boundary", header comment); never describe a rule as a security boundary. R3 counts UTF-8 **characters**, not bytes. The 24576 cap is interim (so a batched fix with a full findings list fits); the R1'/R2' rewrite and a findings-file format belong to the agents-and-cadence plan. Changing the cap means the script, its deny text, DAY-RUN-RULES.md and the 13j cases together. |
+| Dispatch-guard rules (R1/R2/R3/R4; the plan's R1'/R2') | `bajzi/hooks/dispatch-guard.sh`: the `case "$sub_lc"` classification (subagent_type first, prompt-text fallback), the `case "$class"` rule block (R1, R2 with `R2_RE` and `fixer_paths`), the R3 test after it (the `-gt 24576` literal, also in the R3 deny text, `bajzi/skills/mode/DAY-RUN-RULES.md` DISPATCH BRIEF and `bajzi/lib/findings-cli.js` `BRIEF_MAX`), the agents-dir fail-open (`-d "$hookdir/../agents"`); wired in `bajzi/hooks/hooks.json` PreToolUse `Agent\|Task` | `bash bajzi/skills/mode/tests/mode.sh` (case 13; the skills' briefs 16i-16i6b) | 1 | Fails open by design ("a discipline guard, not a security boundary", header comment); never describe a rule as a security boundary. The agent names `bajzi:reviewer`/`bajzi:fixer`/`bajzi:implementer*` are matched literally: renaming an agent or the plugin changes the script, the skills' `dispatch.md` table and case 13 together. A new brief shape from `findings-cli.js brief` must still pass R1/R2 (case 16i is the check). Changing the R3 cap means the script, its deny text, DAY-RUN-RULES.md, `BRIEF_MAX` and the 13j cases together. |
 | Night-run launcher parameters | claude-orchestrator `scripts/nightrun.ps1:16-35` (param block), `scripts/nightrun-releaseB.ps1:54-72`, `scripts/nightrun-lib.ps1:41` `Assert-LaunchArgs`, `:4` `ConvertFrom-LevelSpec` | `pwsh -NoProfile -c "Invoke-Pester tests/ps -Output Minimal"` | 1 | `-MaxHours` is a hard **kill** wall (§6.11.8). `-Levels` and `-ClaudeBin` are mutually exclusive. `nightrun.ps1`'s own `-PermissionMode` default is `auto`; pass `bypassPermissions` explicitly. |
 | Usage-limit / transient detection, degrade | `nightrun-lib.ps1:122` `Get-LimitKind`, `:179` `Get-SessionOutcome`, `:197` `Test-DegradePossible`; `nightrun.ps1:236` `Step-Degrade` | Pester `tests/ps/nightrun-lib.Tests.ps1` | 1 | Only the CLI's own records are evidence (rate_limit_event status, result `api_error_status`, result string prose). A model that *quotes* "usage limit reached" must never degrade the night (§6.11.3). |
 | Guard tripwire (what a session may not touch) | `nightrun-lib.ps1:$script:GuardPathPatterns`, `nightrun-lib.ps1:Get-LooseGuardHashes` (also hashes the out-of-repo reviewer allow-list, `Get-ReviewerConfigHash`), `nightrun-lib.ps1:Get-SessionSnapshot`, `nightrun-lib.ps1:Compare-RefSnapshot`, `nightrun-lib.ps1:Test-SessionGuards`; `nightrun.ps1:Complete-GuardTrip` | Pester `tests/ps/nightrun-guards.Tests.ps1` | 1 | Guard **files** are checked only at effective L2/L3; refs at every level. It compares working-tree hashes, so an index flag such as `skip-worktree` can hide an edit; the pinned guard set closes that (§9.3). |
@@ -118,7 +118,7 @@ the PowerShell tool.
 1. Every bajzi node/bash **hook** fails **open** (exit 0, no stdout, one capped log line) on any
    internal error — `bajzi/hooks/node/lib/hook-io.js:runHook`, with every lib except `hook-io`
    loaded inside the `runHook` callback so a missing or broken lib also exits 0,
-   `dispatch-guard.sh` (explicitly "a discipline guard, not a security boundary", `:13-15`),
+   `dispatch-guard.sh` (explicitly "a discipline guard, not a security boundary", header comment),
    `day-run-mode.sh`, `routing-counter.sh`. Two things are the deliberate exception and fail
    **closed**: the night-run push guard (`.githooks/pre-push`, "anything else... FAILS CLOSED",
    `:8-9`) and `day-run-mode.sh`'s non-Anthropic-without-L3-text path (top-level block under the
@@ -131,7 +131,8 @@ the PowerShell tool.
    commands stay allowed above 50% (`context-guard.js` `exemptCheck`, RF4 tests).
 3. Every diff review and every whole-branch review runs on a model in the **reviewer
    allow-list** — never GLM, never the implementing model's own choice. The list is ONE config
-   key, read by the day-run rule injection, the drain launch and the drain-verdict check; no model
+   key, read by the day-run rule injection, the drain launch, the drain-verdict check and the
+   routing counter's reviewer check; no model
    id literal appears in code, prompts, rules files or CLAUDE.md. Swapping the Opus version, or
    using Fable as orchestrator or reviewer, is a config edit.
    The key is `reviewer_models` in `~/.claude/bajzi/config.json` (§7.3), written by `/bajzi:setup`
@@ -181,6 +182,9 @@ the PowerShell tool.
     every review runs through `reviewer` and every fix through `fixer` via `/bajzi:review` and
     `/bajzi:fix`, which stop after round 2: once a slice has its `-r2.md`, `findings-cli.js`
     `cmds.copy` (fixer) and `cmds.brief` (round-1 review) exit 3, and `cmds.validate` refuses `-r3`.
+    The dispatch guard (§6.4) holds the routing when its gate is open: a review sent to any other agent
+    is refused (R1), and a findings or review file handed to any agent but `fixer`/`reviewer` is
+    refused (R2).
 
 ## 5. Architecture overview
 
@@ -391,7 +395,7 @@ regardless of `-Model` and verifies the served model id against the list itself.
 ### 6.3 Day-run SessionStart injection + routing-violation counter — technical
 
 `bajzi/hooks/day-run-mode.sh` (185 lines) and
-`bajzi/hooks/routing-counter.sh` (174 lines) share one resolver, `bajzi/hooks/lib-saver-level.sh`
+`bajzi/hooks/routing-counter.sh` (161 lines) share one resolver, `bajzi/hooks/lib-saver-level.sh`
 (`saver_resolve()`, `:38-82`), sourced (not executed) by both, so gate/provider/level logic exists
 in exactly one place.
 
@@ -433,9 +437,19 @@ reviews, `SAVER-L3.md`). Tests: `mode.sh` case 15.
 haiku dispatched at L1-L3, or sonnet dispatched at L2-L3 — unless a GLM peak refusal was logged
 in the last 10 minutes (then falling back to Claude was correct). When the dispatch names no
 explicit model, it resolves the `subagent_type`'s own agent-definition file and reads its
-frontmatter `model:` line (`fm_model()`, `:119`), checked in a fixed, bounded set of directories
+frontmatter `model:` line (`routing-counter.sh:fm_model`), checked in a fixed, bounded set of directories
 (project agents, user agents, plugin cache, plugin marketplace) — never a recursive `find`.
 Violations are appended to `<cwd>/runtime/routing-violations.log` (§7.2).
+
+**Reviewer model check** (Invariant 3): a `bajzi:reviewer` dispatch whose **served** model is not on
+the reviewer allow-list adds one `level=<l> reviewer-model=<served>` line per off-list id, at any
+level. Served = the assistant `message.model` ids of the sub-agent's own transcript
+(`<transcript_path minus .jsonl>/subagents/agent-<tool_response.agentId>.jsonl`, `<synthetic>`
+skipped), else `tool_response.resolvedModel` (an async launch has no transcript yet). The one
+validator judges it: `node hooks/node/lib/reviewer-models.js --off-list-served`
+(`reviewer-models.js:offListServed`), `BAJZI_HOME` defaulting to the hook's `HOME`; an invalid list
+has no members, so everything served is logged. No `node` → nothing counted (the counter never
+blocks). Tests: `mode.sh` case 12t; `reviewer-models.test.js` (`offListServed`).
 
 **Config knobs**: `BAJZI_SAVER_LAUNCHER` (default `glm`) — the command L1/L2 check is on `PATH`
 before offering the saver block at all; `CC_PEAK_LOG` (default `~/.claude/glm-peak-refusals.log`).
@@ -445,45 +459,60 @@ suite).
 
 ### 6.4 Dispatch guard — technical
 
-`bajzi/hooks/dispatch-guard.sh` (172 lines). It exists because the routing rules alone did not
-hold in practice: a 6-file review went
-out without `code-review-graph`, and a two-finding fix round was told to "read the brief, the
-report and the whole review" — exactly the context-burning failure mode the day-run rules exist
-to prevent.
+`bajzi/hooks/dispatch-guard.sh` (181 lines). It routes review and fix work through the bajzi agents
+and keeps every brief small. It exists because the routing rules alone did not hold in practice:
+a 6-file review went out without `code-review-graph`, and a two-finding fix round was told to
+"read the brief, the report and the whole review" — exactly the context-burning failure mode the
+day-run rules exist to prevent.
 
 **Trigger + matcher**: `PreToolUse(Agent|Task)`. **Gate**: same `lib-saver-level.sh` resolver as
-§6.3 — inactive (allow, write nothing) when the gate is closed.
+§6.3 — inactive (allow, write nothing) when the gate is closed. **Agents dir**: with no
+`<plugin root>/agents/` next to `hooks/` (an install without the bajzi agents) no rule applies —
+there is no `/bajzi:review` to point at — and only the R4 line is written.
 
-**Classification** (case-insensitive, first match wins, file-name tokens ending `.md` stripped
-from the classified text first so "per task-B3-review.md" isn't read as intent): `REREVIEW`
-(`re-?review|delta review|scoped review|review round [2-9]`) → `FIX`
-(`fix round|fix r[0-9]|findings to fix`, or the description matches
+**Classification** — by `subagent_type` first (case-insensitive): `bajzi:reviewer` → `REVIEWER`,
+`bajzi:fixer` → `FIXER`, `bajzi:implementer` / `bajzi:implementer-risk` → `IMPLEMENTER`. Any
+other (foreign) agent falls back to the prompt-text classes, first match wins, file-name tokens
+ending `.md` stripped from the classified text first so "per task-B3-review.md" isn't read as
+intent: `REREVIEW` (`re-?review|delta review|scoped review|review round [2-9]` in the
+description) → `FIX` (`fix round|fix r[0-9]|findings to fix`, or the description matches
 `(fix|address|apply|resolve) ... findings?`) → `REVIEW` (the word `review`/`reviews`, not
-`reviewer`; `subagent_type` containing `review`) → `OTHER`.
+`reviewer`, not `self-review`; or a `subagent_type` containing `review`) → `OTHER`.
 
-**Rules, first deny wins** (the `decision=` block):
-- **R1** (`REVIEW`, `REREVIEW`): deny unless the full prompt carries a graph marker
-  (`code-review-graph`, `detect-changes`, `detect_changes_tool`, `get_review_context_tool`, or a
-  `graph-*.json` path) or the explicit opt-out `GRAPH: n/a single-file <path>`.
-- **R2** (`FIX`, `REREVIEW`): deny if the prompt sends the sub-agent to **read** a full brief
-  (`-brief.md`) or review/re-review file, unless the text within ~24 characters before that path
-  token is a write target (`write|append|save|output ... to|into`, stopping at `.;:`,
-  `dispatch-guard.sh:reads_full_doc`) — a `-report.md` path is fine, the fixer appends there.
-- **R3** (`FIX`, `REREVIEW`): deny if the prompt exceeds **24576 characters** (24 KB) — pass only
-  the findings, `file:line`, the excerpts and the test command inline. The unit is UTF-8
-  characters of the decoded prompt (continuation bytes dropped, locale-independent), so 24576
-  two-byte characters still pass. The cap is interim: it was 6000 until batched fix dispatches
-  carrying a full findings list were denied; the proper R1'/R2' rewrite and a findings-file
-  format are the agents-and-cadence plan's.
+**Rules, first deny wins** (the `case "$class"` block; the plan names R1/R2 "R1'"/"R2'"):
+- **R1** — a foreign `REVIEW`/`REREVIEW`: deny, "a review goes through `/bajzi:review`",
+  whatever graph marker it carries. `REVIEWER`: allow only with a commit range
+  (`[0-9a-f]{7,}..[0-9a-f]{7,}`) **and** a graph marker (`code-review-graph`, `detect-changes`,
+  `detect_changes_tool`, `get_review_context_tool`, or a `graph-*.json` path), or — the calibrate
+  exemption — **no** range and the line `GRAPH: n/a single-file <...>runtime/findings/<name>.blind.md`.
+  A range is a diff review, so the opt-out never covers one, and it names only a `.blind.md`
+  copy, so a multi-file review brief cannot use it. No write path is required: the reviewer
+  never writes (Invariant 13); the skill saves its final message.
+- **R2** — every class but `FIXER` and `REVIEWER`: deny, "fixed through `/bajzi:fix`", if the
+  prompt names a `runtime/findings/*.md` path or a `*-review.md` / `*-rereview<n>.md` /
+  `*-re-review<n>.md` file (`R2_RE`; a path ends at anything but a word character, `-` or `/`, so
+  `x.md.` at a sentence end counts and a slice id like `code-review-r1.md` never matches). There
+  is no write-target exception. `FIXER`: deny unless the prompt names exactly one distinct
+  `*.fixer.md` path (`fixer_paths`). `REVIEWER` is exempt: it is read-only, and its round-2
+  brief names the round-1 findings and the fixer report on purpose (paths, not pasted content;
+  `runtime/briefs/*.diff` is never an R2 path).
+- **R3** — every class but `FIXER`: deny if the prompt exceeds **24576 characters** (24 KB). The
+  unit is UTF-8 characters of the decoded prompt (continuation bytes dropped, locale-independent),
+  so 24576 two-byte characters still pass. The fixer is exempt: its input is a `.fixer.md` the
+  findings parser already caps (40 findings / 24 KB, §6.12).
 - **R4**: every dispatch with the gate open logs one TSV line to
-  `<cwd>/runtime/dispatch-sizes.log` regardless of the decision (§7.2).
+  `<cwd>/runtime/dispatch-sizes.log` regardless of the decision (§7.2); the class column is one
+  of `REVIEWER|FIXER|IMPLEMENTER|REREVIEW|FIX|REVIEW|OTHER`.
 
 **Outputs**: `{}` to allow, or `{"hookSpecificOutput":{"hookEventName":"PreToolUse",
-"permissionDecision":"deny","permissionDecisionReason":"dispatch-guard R<n>: <fix instruction>"}}`.
-**Failure behaviour**: fails open (`dispatch-guard.sh:13-15`). **Tests**: `mode.sh` case 13 (R3 boundary 13j-13j5; `hooks.json` wiring 13m, and 13m2: every hook
-of the merged branches wired exactly once per event).
-**Accepted limit**: R2's write-target test looks only at the ~24 characters before the path, so a
-read phrase that ends in `to`/`into` there ("according to", "refer to") passes R2.
+"permissionDecision":"deny","permissionDecisionReason":"dispatch-guard R<n>: <fix instruction>"}}`;
+the reason is reduced to a safe charset, so payload text (`subagent_type`, a path) cannot break
+the JSON. **Failure behaviour**: fails open (header comment, "a discipline guard, not a security
+boundary"). **Tests**: `mode.sh` case 13 — R1 13b-13d5, typed-first classification 13e-13e7, R2
+13f-13h5 (write-target heuristic gone 13f5/13f6), R3 13j-13j6 (fixer exempt 13j5), R4 13k/13n-13p,
+fail-open 13l/13l2, `hooks.json` wiring 13m/13m2; the skills' own briefs pass it in case 16i.
+**Accepted limit**: R2 matches file names, not intent — a slice whose `files:` list a
+`docs/x-review.md` is refused for the implementer too; rename the file or fix it via `/bajzi:fix`.
 
 ### 6.5 Status line — technical
 
@@ -1159,8 +1188,8 @@ with the rule id; it never retries with a trimmed brief. Reviewer briefs come fr
 brief carries PATHS (diff, round-1 file, fixer report, `debt.md`), resolved SHAs and the graph
 marker line, so it stays far under the guard's R3 cap whatever the diff size; the reviewer has
 Read and reads the files in full. The calibrate brief carries the single-file opt-out line
-`GRAPH: n/a single-file runtime/findings/debt.blind.md`, because `bajzi:reviewer` classifies
-REVIEW and R1 applies. Implement and fixer briefs carry their content inline.
+`GRAPH: n/a single-file runtime/findings/debt.blind.md`, because R1 lets a `bajzi:reviewer` brief
+without a commit range through only with that opt-out on a `.blind.md` copy. Implement and fixer briefs carry their content inline.
 
 | Skill | Steps (findings-cli.js subcommand in brackets) |
 |---|---|
@@ -1181,7 +1210,8 @@ REVIEW and R1 applies. Implement and fixer briefs carry their content inline.
   the owner lines are written, naming the ids NOT parked). Printed paths use forward slashes.
 - The skills commit (by path, never `-A`); the agents never do. The dispatch `description`
   (`review <slice> round 1`, `re-review <slice> round 2`, `fix round <slice>`) is what the dispatch
-  guard classifies on, and the review brief carries the code-review-graph marker line (R1).
+  guard logs; the guard classifies the bajzi agents on `subagent_type`, and the review brief
+  carries the range and the code-review-graph marker line (R1).
 
 ## 7. Shared state files
 
@@ -1199,7 +1229,7 @@ root. Line numbers are pinned to the commits in §11.
 | `~/.claude/cc-router.json` (override `CC_ROUTER_CONFIG`) | `worker --set-model` / `--set-fast-model` (`cc-router.js:223-226` → `writeConf` `:30`) | `readConf` (`cc-router.js:29`), merged over defaults `{glm_model: "glm-5.3", glm_fast_model: "glm-4.7"}` (`:24`); env `GLM_MODEL`/`GLM_FAST_MODEL` win (`:31`) | pretty JSON, those two keys | permanent |
 | `~/.claude/cc-router.env` | the owner, by hand (never written by code) | `secret()` (`cc-router.js:38-51`), third after process env and `HKCU\Environment` | `KEY=VALUE` lines, optional `export`/quotes | keep `chmod 600`; the secret guard (§6.7) does not cover it |
 | `~/.claude/cc-router.log` (override `CC_ROUTER_LOG`) | `logLaunch` (`cc-router.js:60-68`) | `worker --log [n]` (`:230-233`); the owner (project `CLAUDE.md` uses its `cwd=` to find which checkout a session ran in) | one line per launch: `<ISO> entry=<e> provider=<p> asked=<model\|-> model=<effective> headless\|interactive cwd=<cwd>` | over 2 MiB renamed to `.log.1` (`:63`), which the next rotation overwrites |
-| `~/.claude/glm-peak-refusals.log` (override `CC_PEAK_LOG`) | `cc-router.js:277-278`, only on a peak refusal (exit 75) | `routing-counter.sh:155-165` (`tail -n1`; a refusal < 600 s old excuses a Claude fallback) | `<ISO> entry=<name>` | no rotation, no cap (one line per refusal) |
+| `~/.claude/glm-peak-refusals.log` (override `CC_PEAK_LOG`) | `cc-router.js:277-278`, only on a peak refusal (exit 75) | `routing-counter.sh` peak block (`tail -n1`; a refusal < 600 s old excuses a Claude fallback) | `<ISO> entry=<name>` | no rotation, no cap (one line per refusal) |
 
 ### 7.2 Hooks and status line
 
@@ -1212,8 +1242,8 @@ root. Line numbers are pinned to the commits in §11.
 | `~/.claude/bajzi/glm-share.json.lock` | `takeLock` (`status-parts.js:156-171`, `wx`) | same | the lock's own ms timestamp | expires after 60 s (`:12`); deleted by a successful refresh (`:201`) |
 | `~/.claude/bajzi/hook-errors.log` | `logError` (`hook-io.js:77-100`) via `runHook` (`:106-122`), from every node hook | the owner | `<ISO> <hook> <message ≤300 chars, one line>` | cap 262144 bytes (`:10`): on overflow keeps the last 128 KiB from a line start (`:86-91`) |
 | `~/.claude/bajzi/statusline.js` + `lib/*.js` | `install-statusline.js:51-53` (`/bajzi:setup` PHASE D step 9) | Claude Code, through `settings.json` `statusLine`; `check.js:105-107` | copy of the plugin files | refreshed on every setup run; survives plugin updates on purpose (§5.1) |
-| `<cwd>/runtime/routing-violations.log` | `routing-counter.sh:169-171` (gate open and a violation) | the owner | `<YYYY-MM-DDTHH:MM:SSZ> level=<n> model=<m>` (space-separated) | no cap |
-| `<cwd>/runtime/dispatch-sizes.log` | `dispatch-guard.sh:155-160` (§6.4); `findings-cli.js:cmds.log` (class `SKILL-<CLASS>`, §6.12) | the owner | TSV `<ISO-UTC> <class> <subagent_type> <prompt chars> <decision>` (`dispatch-guard.sh:44-46`); the hook writes `allow\|deny:R1\|R2\|R3`, a `SKILL-` line a bare `allow\|deny` | no cap; a failed write never changes the decision |
+| `<cwd>/runtime/routing-violations.log` | `routing-counter.sh` (the two `routing-violations.log` appends: saver rung, reviewer model; gate open) | the owner | `<YYYY-MM-DDTHH:MM:SSZ> level=<n> model=<m>` or `... level=<n> reviewer-model=<served>` (space-separated) | no cap |
+| `<cwd>/runtime/dispatch-sizes.log` | `dispatch-guard.sh` (the R4 block, §6.4); `findings-cli.js:cmds.log` (class `SKILL-<CLASS>`, §6.12) | the owner | TSV `<ISO-UTC> <class> <subagent_type> <prompt chars> <decision>` (`dispatch-guard.sh` header, R4); the hook writes `allow\|deny:R1\|R2\|R3`, a `SKILL-` line a bare `allow\|deny` | no cap; a failed write never changes the decision |
 | `<cwd>/runtime/findings/<slice>-r<n>.md`, `<slice>-r1.fixer.md`, `<slice>-r1.report.md` | `/bajzi:review` (the reviewer's message), `findings-cli.js:cmds.copy`, `/bajzi:fix` (the fixer's message) | `findings-cli.js` `validate`/`close` | `docs/findings-format.md` | one set per slice; never deleted by code |
 | `<cwd>/runtime/findings/debt.md`, `needs-owner.md` | `findings-cli.js` `close`/`drain`/`calibrate` (`toOwner` for `needs-owner.md`) | `findings-cli.js check`, `/bajzi:implement`, the owner | `docs/findings-format.md`; `needs-owner.md` = §6.12 | `debt.md` shrinks only through `--drain`; `needs-owner.md` is append-only, the owner clears it |
 | `<cwd>/runtime/briefs/<slice>-<class>.txt`, `<slice>-r<n>.diff` | the skills (`bajzi/skills/lib/dispatch.md` step 1); reviewer briefs and the `.diff` by `findings-cli.js:cmds.brief` | the dispatched agent (the reviewer Reads the `.diff`), `findings-cli.js log` (char count), the owner | plain text: the exact dispatch prompt; the complete `git diff <base> <tip>` | overwritten per dispatch of that class / round |
@@ -1487,7 +1517,7 @@ laptop's; on Linux drop the `/d/...` prefixes and use `B=~/gsd-removed-$(date +%
   `ANTHROPIC_AUTH_TOKEN`, and on Windows `ZAI_API_KEY` is a User environment variable every session
   can read; the secret guard covers files, not the environment. Rotate the key; do not rely on the
   read guard for it.
-- **Dispatch guard**: "a discipline guard, not a security boundary" (`dispatch-guard.sh:13-15`);
+- **Dispatch guard**: "a discipline guard, not a security boundary" (`dispatch-guard.sh` header comment);
   fails open.
 - **Night-run guard set**: the only place with fail-closed security engineering (fail-closed push
   guard, git-dir ledger, ancestry + patch-id judging, exit-77 owner-only closes, tripwire, pinned
@@ -1645,16 +1675,17 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Secret guard (§6.7) | `env-unify` | **no** — GSD's `gsd-secret-read-guard.js` runs | m1 fixed on `env-unify` (the pipe rule fires only when a downstream stage of the pipeline reads paths from stdin, `secret-rules.js:readsPathsFromStdin`); minors m2 wildcard forms (`:70`), m3 `timeout -k` (`:140`), m4 `xargs -a`, m5 `rtk` sub-wrappers / `rtk -v`, m6 nested braces / `@('.env')` — the forms §6.7 requires | same grep for `secret-guard` → `0` |
 | Injection scanner (§6.8) | `env-unify` | **no** — GSD's `gsd-read-injection-scanner.js` (`Read` only) runs | m1 `sanitize` misses C1 controls and U+061C/00AD/200D/FFF9-FFFB; m2 the comment at `injection-rules.js:30` self-fires `fake-system-tag` | same grep for `injection-scan` → `0` |
 | Setup drift checker + `SKILL.md` (§6.9, §8.2) | `env-unify` (retained-hook rule in PHASE C step 4 since `e4ef6f4`) | runs from the checkout only | M1 a wrong-typed manifest block gives a stack trace, exit 1 not 2; M2 `BAJZI_HOME` alone still reads the real `%APPDATA%` rtk config; M3 `exclude_commands` matched anywhere, not only under `[hooks]`; M4 PHASE B/step numbering; M5 `laptop_retained_hooks.files` bare names; M6 zero drift needs `PONYTAIL_DEFAULT_MODE=lite` | `node bajzi/skills/setup/check.js; echo $?` → `setup --check: 27 drift item(s)`, exit 1 (4 `setting-drift`, `statusline-foreign`, `statusline-file-missing`, `mcp-missing code-review-graph`, 8 `rtk-exclude-missing`, 10 `leftover`, 2 `leftover-setting`) |
-| Dispatch guard (§6.4) | `env-unify` (merged from `saver-levels` @ `809bc18`; R3 cap 24576 chars) | **no** | release 1.8.0; the R1'/R2' rewrite + findings-file format (agents-and-cadence plan) | `git merge-base --is-ancestor 809bc18 env-unify` → exit 0; `grep -c dispatch-guard …/1.7.0/hooks/hooks.json` → `0` |
+| Dispatch guard (§6.4) | `env-unify` (merged from `saver-levels` @ `809bc18`); rewritten on `agents-cadence` (T6: typed classification, R1/R2 per the plan's R1'/R2', R3 on every non-fixer dispatch) | **no** | release 1.8.0, then 1.9.0 (T8) | `git merge-base --is-ancestor 809bc18 env-unify` → exit 0; `grep -c dispatch-guard …/1.7.0/hooks/hooks.json` → `0` |
 | project-setup + profile (§6.10) | `env-unify` (bajzi 1.8.0 in both manifests, not released) | no | claude-orchestrator's profile (§8.5 step 10) | `node --test bajzi/skills/project-setup/tests/*.test.js` → `# fail 0` |
 | `alapcsomag` removal (§6.10) | `env-unify` (directory deleted, no references left) | still shipped by the installed 1.7.0 | release 1.8.0 | `ls bajzi/skills/alapcsomag` → absent |
 | GSD migration (§8.5) | `env-unify` (Task 8 Steps 9-10) | **laptop: done 2026-09-24** - GSD files moved to `D:/AI/backup/gsd-removed-20260923/laptop-final/`, no `gsd-` entry left in `~/.claude/settings.json` (backup `settings.json.bak-gsd-cutover`), manifest `gsd.laptop_retained_hooks` removed | the VM (§8.5 there) | `ls ~/.claude/gsd-core ~/.claude/hooks`; `grep -c gsd- ~/.claude/settings.json` = 0 |
 | Night-run inner layer (§6.11, §9.2) | `workspace` | **yes** in the live checkout; `core.hooksPath` = `.githooks` | the drain banner at `nr:380` still prints `(WorkerMode glm)` (cosmetic; the launch is L0) | `git -C D:/AI/projektek/ClaudeCode/claude-orchestrator config core.hooksPath` → `.githooks` |
 | Night-run pinned guard set (§9.2-§9.3) | **not built, not designed** | no | all of §9.3. **Owner decision 2026-09-23: no night run happens before it is built and review-clean.** The `skip-worktree` flag is set on claude-orchestrator's `.claude/settings.json` (owner to clear) | `grep -c 'python -I' scripts/nightrun.ps1` → `0`; `git ls-files -v .claude/settings.json` → `S .claude/settings.json` (both in claude-orchestrator) |
 | Review-queue state | — | no ledger, no items | — | `ls D:/AI/projektek/ClaudeCode/claude-orchestrator/.git/review-queue-ledger.tsv D:/AI/projektek/ClaudeCode/claude-orchestrator/runtime/review-queue` → both absent |
-| Agent scaffold + harness (§4.1, T0/T1 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): DAY-RUN-RULES.md Appendix A (T0); `bajzi/agents/` dir + `agents.test.js` contract + fixtures, `manifest.json` `plugins[].why` (T1) | no | skills (T5); dispatch-guard rewrite (T6); gate (T7); release 1.9.0 (T8) | `node --test bajzi/tests/agents/agents.test.js` → `# fail 0`; `bash bajzi/skills/mode/tests/mode.sh` → `PASS 169/169` |
+| Agent scaffold + harness (§4.1, T0/T1 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): DAY-RUN-RULES.md Appendix A (T0); `bajzi/agents/` dir + `agents.test.js` contract + fixtures, `manifest.json` `plugins[].why` (T1) | no | skills (T5); gate (T7); release 1.9.0 (T8) | `node --test bajzi/tests/agents/agents.test.js` → `# fail 0`; `bash bajzi/skills/mode/tests/mode.sh` → `PASS 169/169` |
 | Findings format + parser (§4.2, T2 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `docs/findings-format.md`, `bajzi/lib/findings.js`, `bajzi/lib/tests/findings.test.js` | no | callers — `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt` (T5); release 1.9.0 (T8) | `node --test bajzi/lib/tests/findings.test.js` → `# fail 0` |
 | `reviewer` + `fixer` agents (§6.12, T3 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/agents/reviewer.md`, `fixer.md`, `bajzi/tests/agents/contract.test.js`; review r1 fixes: no `VERDICT:` trailer, per-agent `PINS`, anchored money assertion, rubric synced to the doc, harness moved out of `bajzi/agents/` | no | callers — `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt` (T5); release 1.9.0 (T8) | `node --test bajzi/tests/agents/*.test.js` → `# pass 14`, `# fail 0`, `# skipped 2` (one skip per contract file); `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/tests/agents/contract.test.js` → `# pass 1` (2026-09-24, after r1 fixes: opus-5-5 reviewer F1 blocker cart.js:10/F2 blocker/F3 major/F4 nit, sonnet-5 fixer `DONE 4/4`); the stream-json `init` event of `claude -p --plugin-dir bajzi` lists only `bajzi:fixer`, `bajzi:reviewer` |
 | `implementer` + `implementer-risk` agents (§6.12, T4 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/agents/implementer.md`, `implementer-risk.md`, `bajzi/tests/agents/contract-implementer.test.js`, `docs/slice-format.md` | no | callers — `/bajzi:implement` (T5); release 1.9.0 (T8) | `node --test bajzi/tests/agents/*.test.js` → `# pass 14`, `# fail 0`, `# skipped 2`; `BAJZI_CONTRACT=1 TMP=D:/t4h/tmp node --test bajzi/tests/agents/contract-implementer.test.js` → `# pass 1` (2026-09-24: sonnet-5 implementer, 11 turns, $0.115, `SLICE clamp-util DONE`, fixture `node --test` green, hidden oracle confirmed clamp()) |
-| Review/fix loop skills (§6.12, T5 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/skills/{implement,review,fix,debt}/SKILL.md`, `bajzi/skills/lib/dispatch.md`, `bajzi/lib/findings-cli.js`, `mode.sh` case 16 | no | a live end-to-end run (T9); dispatch-guard rewrite (T6); gate `.githooks/pre-commit` (T7); release 1.9.0 (T8) | `timeout 300 bash bajzi/skills/mode/tests/mode.sh </dev/null` → `PASS 220/220` |
+| Review/fix loop skills (§6.12, T5 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/skills/{implement,review,fix,debt}/SKILL.md`, `bajzi/skills/lib/dispatch.md`, `bajzi/lib/findings-cli.js`, `mode.sh` case 16 | no | a live end-to-end run (T9); gate `.githooks/pre-commit` (T7); release 1.9.0 (T8) | `timeout 300 bash bajzi/skills/mode/tests/mode.sh </dev/null` → `PASS 220/220` |
+| Dispatch guard rewrite + reviewer-model counter (§6.4, §6.3, T6 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/hooks/dispatch-guard.sh` (typed-first R1/R2/R3/R4), `bajzi/hooks/routing-counter.sh` + `reviewer-models.js:offListServed` (reviewer-model line), `mode.sh` cases 13 and 12t | no | a live end-to-end run (T9); release 1.9.0 (T8) | `timeout 300 bash bajzi/skills/mode/tests/mode.sh </dev/null` → `PASS 231/231` |
 | Context-guard accepted limits m-1/m-2 (§9.4) | — | — | await the owner's explicit acceptance | — (a decision, not a file) |
