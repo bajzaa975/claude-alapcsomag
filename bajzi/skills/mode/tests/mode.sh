@@ -1023,6 +1023,18 @@ out="$(cli slice sl4)"; rc=$?
 printf '# Slice · debt\ntier: 2\nfiles: a.js\nacceptance: works\ntest: node --test\n' > "$CAD/runtime/slices/debt.md"
 out="$(cli slice debt 2>&1)"; rc=$?
 [ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'reserved' && pass "16f5 slice id debt reserved" || fail "16f5" "rc=$rc $out"
+# 16f6 (R2-M1): files: never names a control-plane, absolute or parent path.
+ok=1
+for f in '.githooks/pre-commit' './.GitHooks/pre-commit' '..\claude-orchestrator\CLAUDE.md' '.claude/settings.json' \
+         'runtime/x.md' 'C:/x' '/etc/passwd' 'src/settings.local.json' 'bajzi/hooks/hooks.json' 'a.js, .git/config'; do
+    printf '# Slice · sl6\ntier: 2\nfiles: %s\nacceptance: works\ntest: node --test\n' "$f" > "$CAD/runtime/slices/sl6.md"
+    out="$(cli slice sl6 2>&1)"; rc=$?
+    { [ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'files: refused'; } || { ok=0; echo "  16f6 not refused: $f rc=$rc"; }
+done
+printf '# Slice · sl6\ntier: 2\nfiles: %s\nacceptance: works\ntest: node --test\n' './src/app.js, docs/runtime-notes.md, web\x.tsx' > "$CAD/runtime/slices/sl6.md"
+out="$(cli slice sl6 2>&1)"; rc=$?
+[ $rc -eq 0 ] || ok=0
+[ $ok -eq 1 ] && pass "16f6 files: control-plane/absolute/.. paths refused, normal paths pass" || fail "16f6" "rc=$rc $out"
 
 # 16g: every dispatch logs one R4-shaped TSV line.
 printf 'brief é\n' > "$CAD/b.txt"; cli log review bajzi:reviewer b.txt allow

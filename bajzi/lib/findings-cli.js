@@ -43,6 +43,21 @@ function mustRead(p) { if (!fs.existsSync(p)) die(2, `missing file: ${p}`); retu
 function checkId(id, what = 'slice id') {
   if (!ID_RE.test(id || '')) die(2, `bad ${what}: ${JSON.stringify(id)} (must match ${ID_RE.source})`);
 }
+// R2-M1: `files:` is the implementer's write scope, so it never names a control-plane path.
+const FORBIDDEN_PREFIX = ['runtime/', '.githooks/', '.claude/', '.git/'];
+function checkFiles(p, files) {
+  for (const raw of files.split(',')) {
+    const f = raw.trim().replace(/\\/g, '/').replace(/^(\.\/)+/, '').toLowerCase();
+    if (!f) continue;
+    const base = f.split('/').pop();
+    let why = '';
+    if (f.startsWith('/') || /^[a-z]:/.test(f)) why = 'absolute path';
+    else if (f.split('/').includes('..')) why = '".." segment';
+    else if (FORBIDDEN_PREFIX.some((x) => f === x.slice(0, -1) || f.startsWith(x))) why = 'control-plane directory';
+    else if (/^settings.*\.json$/.test(base) || base === 'hooks.json') why = 'settings/hooks file';
+    if (why) die(2, `${p}: files: refused ${JSON.stringify(raw.trim())} (${why}); a slice may not touch it`);
+  }
+}
 function git(args) {
   try {
     return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 30, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -92,6 +107,7 @@ const cmds = {
     for (const l of lines) { const m = l.match(/^(tier|files|acceptance|test):[ \t]*(.*)$/); if (m) s[m[1]] = m[2].trim(); }
     for (const k of ['tier', 'files', 'acceptance', 'test']) if (!s[k]) die(2, `${p}: missing field: ${k}`);
     if (!['1', '2', '3'].includes(s.tier)) die(2, `${p}: tier must be 1, 2 or 3, got ${s.tier}`);
+    checkFiles(p, s.files);
     console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${/^none$/i.test(s.test) ? 'skip' : s.test}`);
   },
 
