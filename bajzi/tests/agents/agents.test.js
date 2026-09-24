@@ -117,6 +117,8 @@ const PINS = {
   reviewer: { model: 'opus', tools: ['Read', 'Grep', 'Glob',
     'mcp__code-review-graph__detect_changes_tool', 'mcp__code-review-graph__get_review_context_tool'] },
   fixer: { model: 'sonnet', tools: ['Read', 'Edit', 'Grep', 'Glob', 'Bash'] },
+  implementer: { model: 'sonnet', tools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'] },
+  'implementer-risk': { model: 'opus', tools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'] },
 };
 
 test('every shipped agent matches its pinned {model, tools} (plan §4.1)', () => {
@@ -146,4 +148,29 @@ test('reviewer rubric lines match docs/findings-format.md verbatim', () => {
   assert.strictEqual(lines.length, 5, `rubric lines found in the doc: ${lines.length}`);
   const body = read('reviewer.md');
   for (const l of lines) assert.ok(body.includes(l), `reviewer.md lacks: ${l}`);
+});
+
+// T4: implementer-risk is implementer plus exactly one inserted block (the Tier-1 rule) and a
+// different model. Any other divergence (wording drift, a second edit) fails this.
+test('implementer.md and implementer-risk.md bodies differ only in the Tier-1 block + model', () => {
+  const a = parseAgent(read('implementer.md'));
+  const b = parseAgent(read('implementer-risk.md'));
+  assert.strictEqual(a.fields.model, 'sonnet');
+  assert.strictEqual(b.fields.model, 'opus');
+  assert.strictEqual(a.fields.tools, b.fields.tools, 'tools must match between the two agents');
+
+  const aLines = a.body.trim().split(/\r?\n/);
+  const bLines = b.body.trim().split(/\r?\n/);
+  let prefix = 0;
+  while (prefix < aLines.length && prefix < bLines.length && aLines[prefix] === bLines[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < aLines.length - prefix && suffix < bLines.length - prefix
+    && aLines[aLines.length - 1 - suffix] === bLines[bLines.length - 1 - suffix]) suffix++;
+  // If implementer.md has any line outside the common prefix/suffix, the two bodies diverge
+  // somewhere other than a pure insertion into implementer-risk.md.
+  assert.strictEqual(prefix + suffix, aLines.length,
+    'implementer.md has content not present in implementer-risk.md (bodies diverge, not a pure insertion)');
+  const inserted = bLines.slice(prefix, bLines.length - suffix);
+  assert.ok(inserted.length > 0, 'implementer-risk.md has no inserted Tier-1 block');
+  assert.ok(inserted.some((l) => /Tier 1/.test(l)), `inserted block does not mention Tier 1: ${inserted.join(' / ')}`);
 });
