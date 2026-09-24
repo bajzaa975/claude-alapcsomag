@@ -156,22 +156,30 @@ function escalate(sev) { return SEVERITIES[Math.min(SEVERITIES.indexOf(sev) + 1,
 //       blocker/major                         -> owner (as rated)
 //       minor/nit                             -> debt
 //   open, fixer ATTEMPTED it or claimed fixed -> one level up -> owner
-//   open, new in round 2 (only knowable when round1 is given) -> as OUT_OF_SLICE: never attempted
-// Without round1 every open finding counts as previous: unknown errs toward the owner.
+//   open, new in round 2 -> owner as rated: the fix introduced it, so it is in-slice, never debt
+//   round-1 id absent from round 2 -> owner as rated: the re-review did not account for it
+// round1 is required: without it neither of the last two branches is knowable.
 function applyClosePolicy(round2, fixerReport, round1) {
   const doc = mustValidate(round2);
   if (doc.kind !== 'findings' || doc.round !== 2) throw new Error('applyClosePolicy needs a round 2 findings file');
-  const prev = round1 === undefined ? null : new Set(mustValidate(round1).findings.map((f) => f.id));
+  if (round1 === undefined || round1 === null) throw new Error('applyClosePolicy: missing argument: round1');
+  const first = mustValidate(round1);
+  if (first.kind !== 'findings' || first.round !== 1 || first.slice !== doc.slice) {
+    throw new Error(`applyClosePolicy: round1 must be the round 1 file of slice ${doc.slice}`);
+  }
+  const prev = new Set(first.findings.map((f) => f.id));
   const marks = parseFixerReport(fixerReport);
   const out = { resolved: [], owner: [], debt: [] };
   for (const f of doc.findings) {
     if (f.status === 'resolved') { out.resolved.push(f); continue; }
     const mark = marks.get(f.id);
-    const isNew = prev !== null && !prev.has(f.id);
-    if (isNew || (mark && mark.mark === 'OUT_OF_SLICE')) {
-      const why = isNew ? 'new in round 2' : 'OUT_OF_SLICE';
+    if (!prev.has(f.id)) {
+      out.owner.push({ ...f, original_severity: f.severity, reason: `open ${f.severity}, new in round 2 (introduced by the fix)` });
+      continue;
+    }
+    if (mark && mark.mark === 'OUT_OF_SLICE') {
       if (f.severity === 'blocker' || f.severity === 'major') {
-        out.owner.push({ ...f, original_severity: f.severity, reason: `open ${f.severity}, ${why}` });
+        out.owner.push({ ...f, original_severity: f.severity, reason: `open ${f.severity}, OUT_OF_SLICE` });
       } else {
         out.debt.push(f);
       }
@@ -180,18 +188,39 @@ function applyClosePolicy(round2, fixerReport, round1) {
     const reason = mark ? `ATTEMPTED: ${mark.why}` : 'fixer claimed fixed, re-review found it open';
     out.owner.push({ ...f, severity: escalate(f.severity), original_severity: f.severity, reason });
   }
+  const seen = new Set(doc.findings.map((f) => f.id));
+  for (const f of first.findings) {
+    if (!seen.has(f.id)) {
+      out.owner.push({ ...f, original_severity: f.severity, reason: `${f.severity} missing from round 2: the re-review did not account for it` });
+    }
+  }
   return out;
 }
 
 // Appends parked findings to debt.md text (created when empty). Ids become <origin>/<id>;
-// an id already present is skipped, so re-running a close is harmless.
-function mergeToDebt(debtText, items, { origin, parked }) {
-  const existing = debtText && String(debtText).trim() ? mustValidate(debtText).findings : [];
+// an id already present is skipped, so re-running a close is harmless. Validates the arguments,
+// the existing file and the result; a result over 24 KB is refused ("DEBT CAP HIT") rather than
+// returned, so debt.md on disk never becomes a file every later merge or drain chokes on.
+function mergeToDebt(debtText, items, { origin, parked } = {}) {
+  for (const [k, v] of [['origin', origin], ['parked', parked]]) {
+    if (typeof v !== 'string' || !v.trim()) throw new Error(`mergeToDebt: missing argument: ${k}`);
+  }
+  if (!Array.isArray(items)) throw new Error('mergeToDebt: missing argument: findings (an array)');
+  let existing = [];
+  if (debtText && String(debtText).trim()) {
+    const doc = mustValidate(debtText);
+    if (doc.kind !== 'debt') throw new Error('mergeToDebt: debtText is not a debt file');
+    existing = doc.findings;
+  }
   const have = new Set(existing.map((f) => f.id));
   const added = items
-    .map((f) => ({ ...f, id: f.id.includes('/') ? f.id : `${origin}/${f.id}`, origin: f.origin || origin, parked: f.parked || parked }))
+    .map((f) => ({ ...f, id: String(f.id).includes('/') ? f.id : `${origin}/${f.id}`, origin: f.origin || origin, parked: f.parked || parked }))
     .filter((f) => !have.has(f.id));
-  return renderBlocks('# Debt', [...existing, ...added], [...DEBT_FIELDS, 'blind_severity'], true);
+  const text = renderBlocks('# Debt', [...existing, ...added], [...DEBT_FIELDS, 'blind_severity'], true);
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > MAX_BYTES) throw new Error(`DEBT CAP HIT: debt.md would be ${bytes} bytes > ${MAX_BYTES}; drain it first`);
+  mustValidate(text); // a malformed item (missing field, bad heading) is refused, not written
+  return text;
 }
 
 // D6: the next sprint must not start when this hits. Fails closed on an invalid debt.md.

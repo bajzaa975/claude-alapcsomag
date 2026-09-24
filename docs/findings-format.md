@@ -64,6 +64,8 @@ Changed logic without a test is at least major.
 - `runtime/findings/debt.md` (`mergeToDebt`) - title `# Debt`, one entry per parked finding with
   id `<origin>/<id>`, the original fields plus `origin: <slice-id>` and `parked: <date>`, and
   `blind_severity:` once calibrated. No header fields. Merging an id already present is a no-op.
+  `mergeToDebt` throws on a missing `origin`/`parked`/findings argument or an invalid item, and
+  refuses (`DEBT CAP HIT: ...`) a merge whose result would exceed 24 KB; drain first.
 - `runtime/findings/needs-owner.md` - the items the owner decides, each with the ratings and the
   `if_unfixed` line.
 
@@ -81,10 +83,11 @@ The fixer's final message: `FIX <slice> DONE <fixed>/<total>`, then one line per
 | `open` minor/nit | `OUT_OF_SLICE` | `debt.md` |
 | `open`, any severity | `ATTEMPTED: <why>` | owner, one level up (blocker stays blocker) |
 | `open`, any severity | no line (fixer claimed it fixed) | owner, one level up |
-| `open`, new in round 2 | - | as `OUT_OF_SLICE`: blocker/major owner, minor/nit debt |
+| `open`, new in round 2 | any (ignored) | owner, as rated: the fix introduced it, so it is in-slice |
+| round-1 id absent from round 2 | any | owner, at its round-1 severity (unaccounted) |
 
-A new round-2 finding is recognised only when the round-1 file is passed; without it every open
-finding counts as previous, so an unknown errs toward the owner.
+`applyClosePolicy(round2, fixerReport, round1)` requires the round-1 file of the same slice and
+throws without it. `debt.md` only ever receives what the fixer did not attempt (outside the slice).
 
 ## Debt cap (D6, `debtCapHit`)
 

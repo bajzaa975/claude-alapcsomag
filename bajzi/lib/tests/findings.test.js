@@ -42,6 +42,14 @@ function r2(rows) {
   return s;
 }
 
+// Round-1 file with the same rows (status dropped; every finding counts).
+function r1(rows) {
+  return r2(rows.map(([id, sev, , loc]) => [id, sev, 'open', loc])).replace('round 2', 'round 1')
+    .replace(/^status: .*\n/gm, '');
+}
+// applyClosePolicy with a round 1 holding exactly the round-2 ids (none new, none missing).
+const close = (rows, report) => F.applyClosePolicy(r2(rows), report, r1(rows));
+
 // ---------- parse / validate ----------
 
 test('valid round-1 file parses: header, findings, trailing comments stripped', () => {
@@ -197,35 +205,35 @@ test('strip functions refuse an invalid file', () => {
 const byId = (arr) => arr.map((x) => x.id).sort();
 
 test('D4: resolved finding of any severity closes (goes nowhere)', () => {
-  const r = F.applyClosePolicy(r2([['F1', 'blocker', 'resolved'], ['F2', 'nit', 'resolved']]), 'FIX s42 DONE 2/2');
+  const r = close([['F1', 'blocker', 'resolved'], ['F2', 'nit', 'resolved']], 'FIX s42 DONE 2/2');
   assert.deepStrictEqual(byId(r.resolved), ['F1', 'F2']);
   assert.deepStrictEqual([r.owner, r.debt], [[], []]);
 });
 
 test('D4: open blocker OUT_OF_SLICE -> owner, severity unchanged', () => {
-  const r = F.applyClosePolicy(r2([['F1', 'blocker', 'open']]), 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
+  const r = close([['F1', 'blocker', 'open']], 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
   assert.deepStrictEqual(r.owner.map((x) => [x.id, x.severity, x.original_severity]), [['F1', 'blocker', 'blocker']]);
   assert.deepStrictEqual(r.debt, []);
 });
 
 test('D4: open major OUT_OF_SLICE -> owner, severity unchanged', () => {
-  const r = F.applyClosePolicy(r2([['F1', 'major', 'open']]), 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
+  const r = close([['F1', 'major', 'open']], 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
   assert.deepStrictEqual(r.owner.map((x) => [x.id, x.severity]), [['F1', 'major']]);
 });
 
 test('D4: open minor OUT_OF_SLICE -> debt', () => {
-  const r = F.applyClosePolicy(r2([['F1', 'minor', 'open']]), 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
+  const r = close([['F1', 'minor', 'open']], 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
   assert.deepStrictEqual([byId(r.debt), r.owner], [['F1'], []]);
 });
 
 test('D4: open nit OUT_OF_SLICE -> debt', () => {
-  const r = F.applyClosePolicy(r2([['F1', 'nit', 'open']]), 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
+  const r = close([['F1', 'nit', 'open']], 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
   assert.deepStrictEqual([byId(r.debt), r.owner], [['F1'], []]);
 });
 
 for (const [from, to] of [['nit', 'minor'], ['minor', 'major'], ['major', 'blocker'], ['blocker', 'blocker']]) {
   test(`D4: open ${from} ATTEMPTED -> escalated to ${to} -> owner, with the reason`, () => {
-    const r = F.applyClosePolicy(r2([['F1', from, 'open']]), 'FIX s42 DONE 0/1\nF1 ATTEMPTED: needs a schema change');
+    const r = close([['F1', from, 'open']], 'FIX s42 DONE 0/1\nF1 ATTEMPTED: needs a schema change');
     assert.deepStrictEqual(r.debt, []);
     assert.strictEqual(r.owner.length, 1);
     const o = r.owner[0];
@@ -236,27 +244,47 @@ for (const [from, to] of [['nit', 'minor'], ['minor', 'major'], ['major', 'block
 }
 
 test('D4: open with no fixer mark (fixer claimed fixed) counts as attempted -> escalated -> owner', () => {
-  const r = F.applyClosePolicy(r2([['F1', 'minor', 'open']]), 'FIX s42 DONE 1/1');
+  const r = close([['F1', 'minor', 'open']], 'FIX s42 DONE 1/1');
   assert.deepStrictEqual(r.owner.map((x) => [x.id, x.severity]), [['F1', 'major']]);
   assert.deepStrictEqual(r.debt, []);
 });
 
-test('D4: new round-2 finding (absent from round 1) is not attempted: minor -> debt, major -> owner unescalated', () => {
-  const round2 = r2([['F1', 'blocker', 'resolved'], ['F2', 'minor', 'open'], ['F3', 'minor', 'open'], ['F4', 'major', 'open']]);
-  const round1 = r2([['F1', 'blocker', 'open'], ['F2', 'minor', 'open']]).replace('round 2', 'round 1').replace(/^status: .*\n/gm, '');
-  const r = F.applyClosePolicy(round2, 'FIX s42 DONE 1/2', round1);
-  assert.deepStrictEqual(byId(r.debt), ['F3']);
-  assert.deepStrictEqual(r.owner.map((x) => [x.id, x.severity]).sort(), [['F2', 'major'], ['F4', 'major']]);
+test('D4: new round-2 finding was introduced by the fix (in-slice) -> owner as rated, never debt', () => {
+  const round2 = r2([['F1', 'blocker', 'resolved'], ['F2', 'minor', 'open'], ['F3', 'minor', 'open'], ['F4', 'major', 'open'], ['F5', 'nit', 'open']]);
+  const round1 = r1([['F1', 'blocker'], ['F2', 'minor']]);
+  const r = F.applyClosePolicy(round2, 'FIX s42 DONE 1/2\nF3 OUT_OF_SLICE', round1);
+  assert.deepStrictEqual(r.debt, []);
+  assert.deepStrictEqual(r.owner.map((x) => [x.id, x.severity, x.original_severity]).sort(),
+    [['F2', 'major', 'minor'], ['F3', 'minor', 'minor'], ['F4', 'major', 'major'], ['F5', 'nit', 'nit']]);
+  assert.match(r.owner.find((x) => x.id === 'F3').reason, /new in round 2/);
+});
+
+test('D4: a round-1 id missing from round 2 is unaccounted -> owner (probe: blocker + CLEAN round 2)', () => {
+  const round1 = r1([['F1', 'blocker'], ['F2', 'nit']]);
+  const r = F.applyClosePolicy(r2([['F2', 'nit', 'resolved']]), 'FIX s42 DONE 2/2', round1);
+  assert.deepStrictEqual(r.owner.map((x) => [x.id, x.severity]), [['F1', 'blocker']]);
+  assert.strictEqual(r.owner[0].if_unfixed, 'users see F1');
+  assert.match(r.owner[0].reason, /missing from round 2/);
+  const clean = F.applyClosePolicy(r2([]), 'FIX s42 DONE 2/2', round1);
+  assert.deepStrictEqual(byId(clean.owner), ['F1', 'F2']);
+});
+
+test('applyClosePolicy requires the round-1 file of the same slice', () => {
+  const two = r2([['F1', 'nit', 'open']]);
+  assert.throws(() => F.applyClosePolicy(two, 'FIX s42 DONE 0/1'), /round1/);
+  assert.throws(() => F.applyClosePolicy(two, '', two), /round1/);
+  assert.throws(() => F.applyClosePolicy(two, '', r1([['F1', 'nit']]).replace('s42', 's43')), /round1/);
 });
 
 test('D4: fixer report accepts ids listed with leading bullets/spaces', () => {
-  const r = F.applyClosePolicy(r2([['F1', 'nit', 'open']]), 'FIX s42 DONE 0/1\n  - F1 OUT_OF_SLICE');
+  const r = close([['F1', 'nit', 'open']], 'FIX s42 DONE 0/1\n  - F1 OUT_OF_SLICE');
   assert.deepStrictEqual(byId(r.debt), ['F1']);
 });
 
 test('applyClosePolicy refuses a round-1 file and an invalid file', () => {
-  assert.throws(() => F.applyClosePolicy(R1, 'FIX s42 DONE 2/2'), /round 2/);
-  assert.throws(() => F.applyClosePolicy(r2([['F1', 'nit', 'open']]).replace(/^test: .*\n/m, ''), ''), /test/);
+  assert.throws(() => F.applyClosePolicy(R1, 'FIX s42 DONE 2/2', R1), /round 2/);
+  assert.throws(() => F.applyClosePolicy(r2([['F1', 'nit', 'open']]).replace(/^test: .*\n/m, ''), '', r1([['F1', 'nit']])),
+    /F1: missing field: test/);
 });
 
 // ---------- debt: mergeToDebt / debtCapHit (D6) ----------
@@ -319,4 +347,23 @@ test('debt cap fails closed on an unparseable debt.md', () => {
   const h = F.debtCapHit('# Debt\n\n## s1/F1 · minor · a.py:1\nfinding: x\n');
   assert.strictEqual(h.hit, true);
   assert.match(h.reasons.join(), /invalid debt\.md/);
+});
+
+test('mergeToDebt validates its arguments first and names the missing one', () => {
+  const items = debtItems(['a.py']);
+  assert.throws(() => F.mergeToDebt('', items, { parked: 'd' }), /mergeToDebt: missing argument: origin/);
+  assert.throws(() => F.mergeToDebt('', items, { origin: 's1' }), /mergeToDebt: missing argument: parked/);
+  assert.throws(() => F.mergeToDebt('', items), /mergeToDebt: missing argument: origin/);
+  assert.throws(() => F.mergeToDebt('', undefined, { origin: 's', parked: 'd' }), /mergeToDebt: missing argument: findings/);
+  const noConsequence = items.map((f) => ({ ...f, if_unfixed: '' }));
+  assert.throws(() => F.mergeToDebt('', noConsequence, { origin: 's', parked: 'd' }), /s\/F1: missing field: if_unfixed/);
+  assert.throws(() => F.mergeToDebt(R1, items, { origin: 's', parked: 'd' }), /not a debt file/);
+});
+
+test('mergeToDebt refuses to write a debt.md over 24 KB; the existing file stays readable', () => {
+  const big = debtItems(['a.py']).map((f) => ({ ...f, finding: 'x'.repeat(F.MAX_BYTES / 2) }));
+  const a = F.mergeToDebt('', big, { origin: 's1', parked: 'd' });
+  assert.throws(() => F.mergeToDebt(a, big, { origin: 's2', parked: 'd' }), /DEBT CAP HIT: debt\.md would be \d+ bytes > 24576/);
+  assert.strictEqual(F.validate(a).ok, true);
+  assert.strictEqual(F.debtCapHit(a).hit, false);
 });
