@@ -100,12 +100,17 @@ function projects(root, marker) {
 }
 
 // Each staged file goes to the deepest project dir that contains it; paths become dir-relative.
-function assign(files, dirs) {
+// An absent stack (no marker anywhere) logs one line; staged files no project owns are named.
+function assign(files, dirs, name, marker) {
   const map = new Map(dirs.map(d => [d, []]));
+  const orphans = [];
   for (const f of files) {
     const owner = dirs.filter(d => d === '' || f.startsWith(d + '/')).sort((a, b) => b.length - a.length)[0];
     if (owner !== undefined) map.get(owner).push(owner ? f.slice(owner.length + 1) : f);
+    else orphans.push(f);
   }
+  if (!dirs.length) log(`${name} skipped (no ${marker} at the root or one level down)`);
+  else if (orphans.length) log(`${name}: not linted, no ${marker} dir owns: ${orphans.join(', ')}`);
   return map;
 }
 
@@ -117,6 +122,11 @@ function missing(name) {
 function lint(name, args, root, dir, files) {
   if (!files.length) return 0;
   const cwd = path.join(root, dir);
+  // Partial staging: the tool reads the working tree, so a staged file that differs from it fails closed.
+  const d = spawnSync('git', ['diff', '--name-only', '-z', '--', ...files], { cwd, encoding: 'utf8' });
+  if (d.status !== 0) { log(`git diff failed in ${dir || '.'}`); return 2; }
+  const dirty = d.stdout.split('\0').filter(Boolean);
+  if (dirty.length) { log(`${dirty.join(', ')} has unstaged changes; stage or stash them, then commit (${name} would lint the working-tree copy)`); return 2; }
   const bin = findTool(name, cwd);
   if (!bin) return missing(name);
   let worst = 0;
@@ -144,7 +154,10 @@ function count(name, root, dir) {
   } else {
     const r = run(bin, ['--noEmit', '--pretty', 'false'], cwd);
     code = r.code;
-    n = (r.stdout.match(/^.*error TS\d+:/gm) || []).length;
+    // Only located diagnostics count; a location-less one (config/global, e.g. TS5058) is a tool error.
+    const all = (r.stdout.match(/^.*error TS\d+:/gm) || []).length;
+    n = (r.stdout.match(/^\S.*\(\d+,\d+\): error TS\d+:/gm) || []).length;
+    if (all > n) { log(`tsc: ${all - n} error TS line(s) without a file location in ${dir || '.'}`); return { err: 2 }; }
   }
   if (!Number.isInteger(n) || (code !== 0 && n === 0)) {
     log(`${name} failed in ${dir || '.'} (exit ${code}, no readable error count)`);
@@ -160,10 +173,15 @@ function stagedFiles(root) {
 }
 
 // The ratchet tools in scope: pyright per pyproject.toml dir, tsc per package.json dir with a tsconfig.json.
-function ratchetScope(root, cfg) {
+function ratchetScope(root, cfg, quiet) {
   const out = [];
-  if (cfg.tools.has('pyright')) for (const d of projects(root, 'pyproject.toml')) out.push(['pyright', d]);
-  if (cfg.tools.has('tsc')) for (const d of projects(root, 'package.json')) if (fs.existsSync(path.join(root, d, 'tsconfig.json'))) out.push(['tsc', d]);
+  const add = (name, dirs, marker) => {
+    if (!cfg.tools.has(name)) return;
+    if (!dirs.length && !quiet) log(`${name} skipped (no ${marker} at the root or one level down)`);
+    for (const d of dirs) out.push([name, d]);
+  };
+  add('pyright', projects(root, 'pyproject.toml'), 'pyproject.toml');
+  add('tsc', projects(root, 'package.json').filter(d => fs.existsSync(path.join(root, d, 'tsconfig.json'))), 'package.json with a tsconfig.json');
   return out;
 }
 
@@ -171,12 +189,27 @@ function ratchetScope(root, cfg) {
 function counts(root, cfg) {
   const sums = {};
   let err = 0;
-  for (const [name, dir] of ratchetScope(root, cfg)) {
+  for (const [name, dir] of ratchetScope(root, cfg, true)) {
     const c = count(name, root, dir);
     if (c.err) err = Math.max(err, c.err);
     else sums[name] = (sums[name] || 0) + c.n;
   }
   return { sums, err };
+}
+
+// False when git runs the hook on a temporary index (`git commit -- <paths>`): a `git add` there
+// commits the rewrite but leaves the old baseline staged in the real index. `index.lock`
+// (`commit -a` / `-i`) is the real index being committed, so it counts as the default.
+function defaultIndex(root) {
+  const env = process.env.GIT_INDEX_FILE;
+  if (!env) return true;
+  const clean = Object.assign({}, process.env);
+  delete clean.GIT_INDEX_FILE;   // --git-path index echoes GIT_INDEX_FILE when it is set
+  const r = spawnSync('git', ['rev-parse', '--git-path', 'index'], { cwd: root, encoding: 'utf8', env: clean });
+  if (r.status !== 0) return false;
+  const norm = p => path.resolve(root, p).replace(/\\/g, '/').toLowerCase();
+  const idx = norm(r.stdout.trim());
+  return norm(env) === idx || norm(env) === idx + '.lock';
 }
 
 function writeBaseline(file, obj) {
@@ -210,10 +243,10 @@ function main(argv) {
     }
   }
   if (cfg.tools.has('ruff')) {
-    for (const [d, list] of assign(files.filter(f => PY.test(f)), projects(root, 'pyproject.toml'))) worst = Math.max(worst, lint('ruff', ['check'], root, d, list));
+    for (const [d, list] of assign(files.filter(f => PY.test(f)), projects(root, 'pyproject.toml'), 'ruff', 'pyproject.toml')) worst = Math.max(worst, lint('ruff', ['check'], root, d, list));
   }
   if (cfg.tools.has('eslint')) {
-    for (const [d, list] of assign(files.filter(f => JS.test(f)), projects(root, 'package.json'))) worst = Math.max(worst, lint('eslint', [], root, d, list));
+    for (const [d, list] of assign(files.filter(f => JS.test(f)), projects(root, 'package.json'), 'eslint', 'package.json')) worst = Math.max(worst, lint('eslint', [], root, d, list));
   }
 
   const scope = ratchetScope(root, cfg);
@@ -232,7 +265,9 @@ function main(argv) {
       if (n > b) { log(`${name}: ${n} errors > baseline ${b}`); worst = Math.max(worst, 1); }
       else if (n < b) { log(`${name}: ${n} errors < baseline ${b}; ratchet down`); dropped = true; }
     }
-    if (worst === 0 && dropped) {
+    if (worst === 0 && dropped && !defaultIndex(root)) {
+      log('baseline rewrite deferred: `git commit -- <paths>` runs on a temporary index; the next normal commit ratchets');
+    } else if (worst === 0 && dropped) {
       writeBaseline(baseFile, Object.assign({}, base.value, sums));
       const add = spawnSync('git', ['add', '--', cfg.baseline], { cwd: root });
       if (add.status !== 0) { log(`git add ${cfg.baseline} failed`); return 2; }

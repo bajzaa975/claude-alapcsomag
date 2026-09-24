@@ -155,8 +155,18 @@ function plan(profile, repoRoot, { home = os.homedir() } = {}) {
     let have = null;
     try { have = fs.readFileSync(path.join(repoRoot, GATE_DEST), 'utf8'); } catch { have = null; }
     if (have === null || norm(have) !== norm(fs.readFileSync(GATE_SRC, 'utf8'))) actions.push({ kind: 'gate', target: '.githooks/pre-commit' });
+    // A tracked hook must be 100755 in the index, or a Linux/mac checkout silently skips it
+    // (a Windows `git add` stages 100644: chmod never reaches the index there).
+    const m = gateIndexMode(repoRoot);
+    if (m && m !== '100755') actions.push({ kind: 'gate-mode', target: '.githooks/pre-commit' });
   }
   return actions;
+}
+
+// The index mode of the tracked gate hook ('100755', '100644'), or '' when untracked / not a repo.
+function gateIndexMode(repoRoot) {
+  const r = spawnSync('git', ['ls-files', '-s', '--', '.githooks/pre-commit'], { cwd: repoRoot, encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.split(' ')[0].trim() : '';
 }
 
 function preflight(profile, repoRoot, actions) {
@@ -239,6 +249,10 @@ function apply(profile, repoRoot, { home = os.homedir(), run = runClaude } = {})
     const dest = path.join(repoRoot, GATE_DEST);
     writeAtomic(dest, fs.readFileSync(GATE_SRC, 'utf8').replace(/\r\n/g, '\n'));
     fs.chmodSync(dest, 0o755);
+  }
+  if (actions.some(a => a.kind === 'gate' || a.kind === 'gate-mode') && gateIndexMode(repoRoot)) {
+    const r = spawnSync('git', ['update-index', '--chmod=+x', '--', '.githooks/pre-commit'], { cwd: repoRoot, encoding: 'utf8' });
+    if (r.status !== 0) failures.push(`gate-mode: git update-index --chmod=+x exited ${r.status}`);
   }
   for (const a of actions) {
     if (a.kind === 'marketplace') {

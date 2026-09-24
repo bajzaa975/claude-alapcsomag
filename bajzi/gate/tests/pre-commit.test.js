@@ -205,6 +205,68 @@ test('installed by project-setup: a real `git commit` runs the gate and is refus
   assert.strictEqual(ok.status, 0, ok.stderr);
 });
 
+test('tsc: a location-less error (TS5058 config error) is exit 2 and the baseline is untouched', () => {
+  const r = repo({ 'package.json': '{}', 'tsconfig.json': '{}', 'x.md': 'a\n', '.gate-baseline.json': '{"tsc": 40}\n' }, ['x.md']);
+  let bin = fakes({ gitleaks: CLEAN, tsc: { exit: 1, stdout: "error TS5058: The specified path does not exist: 'tsconfig.json'.\n" } });
+  let res = gate(r, bin);
+  assert.strictEqual(res.code, 2, res.out);
+  assert.match(res.out, /tsc: 1 error TS line\(s\) without a file location/);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(r, '.gate-baseline.json'), 'utf8')), { tsc: 40 });
+  bin = fakes({ gitleaks: CLEAN, tsc: { exit: 2, stdout: tsc(3).stdout + 'error TS6053: File not found.\n' } });   // located + global
+  assert.strictEqual(gate(r, bin).code, 2);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(r, '.gate-baseline.json'), 'utf8')), { tsc: 40 });
+  assert.strictEqual(git(r, 'diff', '--cached', '--name-only', '--', '.gate-baseline.json').stdout, '');
+});
+
+test('pyright: non-zero exit with 0 counted is exit 2 (no ratchet down to 0)', () => {
+  const r = repo(Object.assign({}, PY, { 'a.py': 'x=1\n' }));
+  const bin = fakes({ gitleaks: CLEAN, ruff: CLEAN, pyright: { exit: 1, stdout: JSON.stringify({ summary: { errorCount: 0 } }) } });
+  assert.strictEqual(gate(r, bin).code, 2);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(r, '.gate-baseline.json'), 'utf8')), { pyright: 3 });
+});
+
+test('pathspec commit (`git commit -- <file>`): ratchet rewrite deferred, index and HEAD baseline untouched', () => {
+  const r = repo(Object.assign({}, PY, { 'a.py': 'x=1\n' }));
+  git(r, 'commit', '-qm', 'init', '--no-verify');
+  git(r, 'config', 'core.hooksPath', '.githooks');
+  fs.mkdirSync(path.join(r, '.githooks'));
+  fs.copyFileSync(GATE, path.join(r, '.githooks', 'pre-commit'));
+  fs.writeFileSync(path.join(r, 'a.py'), 'x=2\n');
+  const bin = fakes({ gitleaks: CLEAN, ruff: CLEAN, pyright: pyright(2) });
+  const c = spawnSync('git', ['commit', '-q', '-m', 'only', '--', 'a.py'], { cwd: r, env: env(minimalPath(bin)), encoding: 'utf8' });
+  assert.strictEqual(c.status, 0, c.stderr);
+  assert.match(c.stderr, /baseline rewrite deferred/);
+  assert.strictEqual(git(r, 'show', 'HEAD:a.py').stdout, 'x=2\n');
+  assert.deepStrictEqual(JSON.parse(git(r, 'show', 'HEAD:.gate-baseline.json').stdout), { pyright: 3 });
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(r, '.gate-baseline.json'), 'utf8')), { pyright: 3 });
+  assert.strictEqual(git(r, 'status', '--porcelain').stdout.split('\n').filter(l => l.includes('.gate-baseline.json')).join(''), '');
+  // a normal commit (default index) still ratchets and stages the rewrite
+  fs.writeFileSync(path.join(r, 'a.py'), 'x=3\n');
+  git(r, 'add', '--', 'a.py');
+  const n = spawnSync('git', ['commit', '-q', '-m', 'normal'], { cwd: r, env: env(minimalPath(bin)), encoding: 'utf8' });
+  assert.strictEqual(n.status, 0, n.stderr);
+  assert.deepStrictEqual(JSON.parse(git(r, 'show', 'HEAD:.gate-baseline.json').stdout), { pyright: 2 });
+  assert.strictEqual(git(r, 'status', '--porcelain', '--untracked-files=no').stdout, '');
+});
+
+test('partial staging: a staged lint file with unstaged changes is exit 2 naming the file', () => {
+  const r = repo(Object.assign({}, PY, { 'a.py': 'import os\nx = 1\n' }));
+  fs.writeFileSync(path.join(r, 'a.py'), 'x = 1\n');   // stage one version, then modify again
+  const bin = fakes({ gitleaks: CLEAN, ruff: CLEAN, pyright: pyright(3) });
+  const res = gate(r, bin);
+  assert.strictEqual(res.code, 2, res.out);
+  assert.match(res.out, /a\.py has unstaged changes/);
+  assert.strictEqual(calls(bin, 'ruff').length, 0);   // never linted the working-tree copy
+});
+
+test('absent stack: one log line per skipped tool', () => {
+  const r = repo({ 'a.py': 'x=1\n', 'b.ts': 'let x = 1\n' });
+  const res = gate(r, fakes({ gitleaks: CLEAN }));
+  assert.strictEqual(res.code, 0);
+  for (const t of ['ruff', 'pyright']) assert.ok(res.out.includes(`${t} skipped (no pyproject.toml at the root`), res.out);
+  for (const t of ['eslint', 'tsc']) assert.ok(res.out.includes(`${t} skipped (no package.json`), res.out);
+});
+
 const realGitleaks = (() => {
   const w = spawnSync(WIN ? 'where' : 'which', ['gitleaks'], { encoding: 'utf8' });
   return w.status === 0 ? w.stdout.split(/\r?\n/)[0].trim() : null;

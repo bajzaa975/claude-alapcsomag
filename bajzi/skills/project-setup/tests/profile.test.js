@@ -201,3 +201,21 @@ test('gate: refuses to overwrite a foreign .githooks/pre-commit', () => {
   assert.throws(() => P.apply(GATE, r, { home: home(), run: () => 0 }), /exists and is not the bajzi gate/);
   assert.match(fs.readFileSync(path.join(r, '.githooks', 'pre-commit'), 'utf8'), /code-review-graph/);
 });
+
+test('gate: the tracked hook gets index mode 100755 on apply; a 100644 index entry is DRIFT gate-mode', () => {
+  const r = gitRepo('.githooks');
+  const mode = () => spawnSync('git', ['ls-files', '-s', '--', '.githooks/pre-commit'], { cwd: r, encoding: 'utf8' }).stdout.split(' ')[0];
+  P.apply(GATE, r, { home: home(), run: () => 0 });
+  assert.strictEqual(mode(), '');   // untracked: apply stages nothing
+  assert.deepStrictEqual(P.check(GATE, r, { home: home() }), []);
+  spawnSync('git', ['add', '--chmod=-x', '--', '.githooks/pre-commit'], { cwd: r });   // what a Windows `git add` gives
+  assert.strictEqual(mode(), '100644');
+  assert.deepStrictEqual(P.check(GATE, r, { home: home() }), ['DRIFT gate-mode .githooks/pre-commit']);
+  P.apply(GATE, r, { home: home(), run: () => 0 });
+  assert.strictEqual(mode(), '100755');
+  assert.deepStrictEqual(P.check(GATE, r, { home: home() }), []);
+  fs.appendFileSync(path.join(r, '.githooks', 'pre-commit'), '// local edit\n');   // a refresh of a tracked hook keeps +x
+  spawnSync('git', ['add', '--chmod=-x', '--', '.githooks/pre-commit'], { cwd: r });
+  P.apply(GATE, r, { home: home(), run: () => 0 });
+  assert.strictEqual(mode(), '100755');
+});
