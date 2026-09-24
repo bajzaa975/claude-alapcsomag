@@ -92,6 +92,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | `reviewer` / `fixer` agent bodies (role, output contract, severity-blind fixer) | `bajzi/agents/reviewer.md`, `bajzi/agents/fixer.md` (§6.12) | `node --test bajzi/tests/agents/agents.test.js`; live contract: `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/tests/agents/contract.test.js` (calls `claude -p`, minutes, quota) | 1 | The body is the single source of the role; nothing else restates it. The reviewer has **no Write tool** (read-only, D1): its final message is the findings file and nothing else — no trailing `VERDICT:` line (the header `verdict:` carries it; an upper-case trailer would parse as a continuation of the last field and reach the fixer). The caller writes it to `runtime/findings/<slice>-r<n>.md`. The findings template and rubric are embedded in the reviewer body because the agent runs in the target repo, where `docs/findings-format.md` does not exist; the doc is canonical and `agents.test.js` asserts each doc rubric line appears verbatim in `reviewer.md`. The fixer's input is always a `stripForFixer` copy. The contract test must strip `NODE_TEST_CONTEXT` from the child env, or a nested `node --test` silently runs nothing. |
 | `implementer` / `implementer-risk` agent bodies (role, slice input, DONE/BLOCKED output contract) | `bajzi/agents/implementer.md`, `bajzi/agents/implementer-risk.md` (§6.12), slice input format `docs/slice-format.md` | `node --test bajzi/tests/agents/agents.test.js`; live contract: `BAJZI_CONTRACT=1 TMP=D:/t4h/tmp node --test bajzi/tests/agents/contract-implementer.test.js` (calls `claude -p`, minutes, quota) | 2 | `implementer-risk.md` is `implementer.md` plus one inserted Rules bullet (the Tier-1 failing-test-first rule) and `model: opus`; `agents.test.js` diffs the two bodies with a common-prefix/common-suffix check and fails on any divergence outside that one inserted block. `docs/slice-format.md` defines `runtime/slices/<id>.md` (`tier`, `files`, `acceptance`, `test`) — parsed by `bajzi/lib/findings-cli.js:cmds.slice` for `/bajzi:implement`. The contract test writes a Tier-2 slice file into a fixture repo, dispatches `bajzi:implementer` to read and implement it, and asserts: served model sonnet, the `SLICE <id> DONE` line, the fixture's own test command green, and a hidden oracle (outside the repo) confirms the behaviour. |
 | Review/fix loop skills (`/bajzi:implement`, `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt`): round cap, D4 routing to `needs-owner.md`/`debt.md`, D6 cap check, D7 calibrate, dispatch log | `bajzi/skills/{implement,review,fix,debt}/SKILL.md` (the procedure), `bajzi/skills/lib/dispatch.md` (brief templates, dispatch table, log step), `bajzi/lib/findings-cli.js` `cmds.slice`/`cmds.validate`/`cmds.copy`/`cmds.brief`/`cmds.close`/`cmds.check`/`cmds.drain`/`cmds.calibrate`/`cmds.log`, `toOwner` (the `needs-owner.md` renderer) | `timeout 300 bash bajzi/skills/mode/tests/mode.sh </dev/null` (case 16) | 1 | The routing decisions (which agent, which round, where an open finding goes, cap hit) are made by `findings-cli.js` on files, never by the model; the scope checks, the gate run and the range ends are the skill's steps. The round cap is per slice: `copy fixer` on a round-2 file or on an r1 whose `-r2.md` exists, `brief review <slice> 1` when `-r2.md` exists, and `validate` on a `-r3.md` file all exit 3 (`STOP`); only the owner deletes an `-r2.md`. `close` writes `needs-owner.md` before it merges `debt.md`, so a refused merge (exit 4) never loses an owner item. `close` needs `<slice>-r1.md`, `-r2.md` and `-r1.report.md` (the fixer's final message, saved by `/bajzi:fix`). The skills' `SKILL-<CLASS>` log lines sit beside the dispatch guard's own R4 lines when its gate is open; count one or the other, not both. |
+| Pre-commit gate (tools, scope, ratchet, exit codes) and its install | `bajzi/gate/pre-commit.js:main`, `:lint`, `:count`, `:ratchetScope`, `:findTool`, `:config`, `HINTS`/`TOOLS`; install `bajzi/skills/project-setup/profile.js:plan`/`preflight`/`apply` (`gate`, `gate-hookspath` actions), `profile.js:validate` (`gate` key); contract `docs/gate.md`; install lines `manifest.json` `gate_tools` | `node --test bajzi/gate/tests/pre-commit.test.js bajzi/skills/project-setup/tests/profile.test.js` | 1 | Fails **closed** (Invariant 14): a needed tool missing, a tool error, an unreadable count, baseline or profile is exit 2, never green. Only exit codes decide; the two counts come from machine output (`pyright --outputjson`, `error TSnnnn:` lines of `tsc --pretty false`). The installed `.githooks/pre-commit` is a verbatim copy: change the source, and every repo shows `DRIFT gate` until `/bajzi:project-setup` reruns. `HINTS` and `manifest.json` `gate_tools` must agree (the test asserts it). The tests run every tool as a fake shim on a minimal PATH; on Windows that PATH needs Git's `cmd/` dir or the hook's `/usr/bin/env` is not found. |
 
 ## 3. Test commands
 
@@ -101,7 +102,7 @@ the PowerShell tool.
 
 | Suite | Command | Working dir | Shell |
 |---|---|---|---|
-| bajzi node hook tests | `node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js bajzi/tests/agents/*.test.js bajzi/lib/tests/*.test.js` | `bajzi-plugins-dev` | Git Bash or PowerShell (Node ≥18 expands the glob itself either way) |
+| bajzi node hook tests | `node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js bajzi/tests/agents/*.test.js bajzi/lib/tests/*.test.js bajzi/gate/tests/*.test.js` | `bajzi-plugins-dev` | Git Bash or PowerShell (Node ≥18 expands the glob itself either way) |
 | agents live contract — reviewer/fixer (opt-in, real `claude -p` at L0) | `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/tests/agents/contract.test.js` | `bajzi-plugins-dev` | Git Bash; needs a logged-in `claude` (plain CLI, never a shim); without the flag it is `# skipped 1` inside the node suite |
 | agents live contract — implementer (opt-in, real `claude -p` at L0) | `BAJZI_CONTRACT=1 TMP=D:/t4h/tmp node --test bajzi/tests/agents/contract-implementer.test.js` | `bajzi-plugins-dev` | Git Bash; needs a logged-in `claude` (plain CLI, never a shim); `HOME`/`USERPROFILE` must stay real (decoying them loses the CLI credentials, "Not logged in"); without the flag it is `# skipped 1` inside the node suite |
 | saver-level bash/node parity | `bash bajzi/hooks/tests/saver-level-parity.sh` | `bajzi-plugins-dev` | Git Bash only |
@@ -119,8 +120,9 @@ the PowerShell tool.
    internal error — `bajzi/hooks/node/lib/hook-io.js:runHook`, with every lib except `hook-io`
    loaded inside the `runHook` callback so a missing or broken lib also exits 0,
    `dispatch-guard.sh` (explicitly "a discipline guard, not a security boundary", header comment),
-   `day-run-mode.sh`, `routing-counter.sh`. Two things are the deliberate exception and fail
-   **closed**: the night-run push guard (`.githooks/pre-push`, "anything else... FAILS CLOSED",
+   `day-run-mode.sh`, `routing-counter.sh`. Three things are the deliberate exception and fail
+   **closed**: the bajzi pre-commit gate (`bajzi/gate/pre-commit.js`, a git hook, not a Claude
+   Code hook; Invariant 14), the night-run push guard (`.githooks/pre-push`, "anything else... FAILS CLOSED",
    `:8-9`) and `day-run-mode.sh`'s non-Anthropic-without-L3-text path (top-level block under the
    `# FAIL CLOSED:` comment, no function; warns instead of
    silently handing a GLM session the Opus-review table). The night runner's own guard checks
@@ -185,6 +187,12 @@ the PowerShell tool.
     The dispatch guard (§6.4) holds the routing when its gate is open: a review sent to any other agent
     is refused (R1), and a findings or review file handed to any agent but `fixer`/`reviewer` is
     refused (R2).
+14. **The pre-commit gate fails closed and reads exit codes only.** A tool the repo needs but
+    cannot run, a tool error, an unreadable count, baseline or profile is exit 2 (blocks), never a
+    pass; an absent stack is the only silent skip. The ratchet only ever lowers
+    `.gate-baseline.json` on its own (a drop is rewritten and staged in the same commit); raising it
+    is a hand edit the review sees. The skills never commit with `--no-verify`
+    (`bajzi/gate/pre-commit.js:main`, §6.13).
 
 ## 5. Architecture overview
 
@@ -207,6 +215,7 @@ At install time, files move from the **versioned plugin cache**
 | `bajzi/bin/cc-router.js` | `~/.local/bin/cc-router.js` (a different previous copy → `cc-router.js.bak`) | `bash bajzi/bin/install.sh` (hand-run; tests gate the copy, §8.1 step 4) |
 | `bajzi/hooks/*.sh`, `bajzi/hooks/node/*.js` (guards) | **not copied** — run straight from the plugin cache via `${CLAUDE_PLUGIN_ROOT}` in `hooks.json` | the plugin loader itself (§8.2) |
 | `bajzi/bin/launchers/` — `worker` / `glm` / `ccr` launcher scripts (+ `.cmd` twins on Windows) | `~/.local/bin/` (a different previous copy → `<name>.bak`) | `bash bajzi/bin/install.sh`, same run as `cc-router.js` (§8.1 step 4) |
+| `bajzi/gate/pre-commit.js` | `<repo>/.githooks/pre-commit`, per repo whose profile has `gate` | `/bajzi:project-setup` (`profile.js:apply`, §6.10, §6.13) |
 
 The settings.json `statusLine` command is pointed at the **copy** (`~/.claude/bajzi/statusline.js`),
 never at the versioned cache path, so a plugin update does not silently break the status line
@@ -830,17 +839,22 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
   "plugins": [{"id": "x@market", "marketplace": "owner/repo"}],
   "mcpServers": {"name": {"command": "...", "args": [], "type": "stdio"}},
   "skills": ["relative/path/in/repo"],
-  "instructions": ["relative/path.md"]
+  "instructions": ["relative/path.md"],
+  "gate": {"tools": ["gitleaks", "ruff", "eslint", "pyright", "tsc"], "baseline": ".gate-baseline.json"}
 }
 ```
 - **Interfaces**: `profile.js:validate` → `{ok, errors}`; unknown keys, a newer `version` than
   this bajzi supports, a non-integer `version`, bad `methodology`/plugin id/marketplace slug,
   an MCP entry without `command` (stdio) or `url` (http/sse), and absolute or `..` paths in
-  `skills`/`instructions` are refused, each with a named reason. `profile.js:plan` → the
-  missing actions (`methodology`, `mcp`, `marketplace`, `plugin`, `skill`, `instructions`);
+  `skills`/`instructions`, and a `gate` that is not `{tools, baseline?}` with `tools` a non-empty,
+  distinct subset of the gate's `TOOLS` and `baseline` a relative path, are refused, each with a
+  named reason. `profile.js:plan` → the
+  missing actions (`methodology`, `mcp`, `marketplace`, `plugin`, `skill`, `instructions`, `gate`,
+  `gate-hookspath`);
   an empty plan = in the profile state. `profile.js:apply` validates, plans, then runs
   `profile.js:preflight` (invalid `.mcp.json`, missing skill source, a non-link already at the
-  skill target, missing instruction file) and throws `ProfileError` with `.errors` **before
+  skill target, missing instruction file, `core.hooksPath` not `.githooks` when the profile has
+  `gate`, a `.githooks/pre-commit` without the `bajzi:gate` marker) and throws `ProfileError` with `.errors` **before
   writing anything** — nothing is ever half-applied. `profile.js:check` → `DRIFT <kind> <target>`
   lines. `profile.js:main`: CLI `node profile.js [--check|--dry-run] [--repo <path>]`, env
   `BAJZI_HOME` overrides the home directory; exit 0 = applied / clean / no profile, 1 = drift or a
@@ -849,7 +863,8 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
   merges `.mcp.json` entries (**never deletes foreign entries**); links each skill directory as
   `.claude/skills/<dirname>` (a junction on Windows); writes an `@../<path>` import block into
   `.claude/CLAUDE.md` between `<!-- bajzi:project-setup instructions begin/end -->` markers,
-  keeping text outside the block; then `claude plugin marketplace add <owner/repo>` for a missing
+  keeping text outside the block; copies `bajzi/gate/pre-commit.js` to `.githooks/pre-commit`
+  (LF, mode 755) when it differs (CRLF-insensitive compare) — the gate itself is §6.13; then `claude plugin marketplace add <owner/repo>` for a missing
   marketplace and `claude plugin install <id> --scope project` for each plugin not installed at
   project scope for this repo (`installed_plugins.json`). A failed `claude plugin` call is
   reported as `FAILED` and does not undo the file changes. Every step is idempotent. Exception
@@ -857,7 +872,8 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
   (claude-orchestrator's night runs) **keep** a project `.mcp.json` declared in their own profile
   — everyone else gets MCPs at user scope from `/bajzi:setup`.
 - **Tests**: `bajzi/skills/project-setup/tests/profile.test.js` (validation, plan, apply,
-  preflight refusal, plugin runner, drift, CLI exit codes), `release.test.js` (plugin and
+  preflight refusal, plugin runner, drift, CLI exit codes, the `gate` key and install/refusals),
+  `bajzi/gate/tests/pre-commit.test.js` (an end-to-end `git commit` through the installed hook), `release.test.js` (plugin and
   marketplace versions agree, no `alapcsomag` reference left, README states the guard limits,
   every node hook command in `hooks.json` points at an existing file).
 - **One graph server name**: the package uses `uvx code-review-graph serve` (manifest
@@ -1202,7 +1218,7 @@ without a commit range through only with that opt-out on a `.blind.md` copy. Imp
 |---|---|
 | `/bajzi:implement <slice>` | debt cap [`check`, exit 4 refuses the slice] → agent lookup from the slice's `tier:` [`slice`: 1 → `implementer-risk`, 2/3 → `implementer`] → dispatch the slice file verbatim → `BLOCKED` stops; `DONE` with a path outside `files:` stops → test → commit by path → prints the range |
 | `/bajzi:review <slice> <range> [--round 2]` | [`brief review`: diff file + path-only brief; round 1 with an `-r2.md` exits 3] → `reviewer` → writes its message to `runtime/findings/<slice>-r<n>.md` [`validate`: verdict + open counts; one re-dispatch on a format error] → round 2 only: [`close`] D4 routing (owner first) and the D6 cap line |
-| `/bajzi:fix <r1-file>` | [`copy fixer`: the `.fixer.md`; a round-2 file, or an r1 whose `-r2.md` exists, exits 3] → `fixer` → report saved as `<slice>-r1.report.md` → gate (`.githooks/pre-commit`, else the slice test) → tracked-only scope check (`--untracked-files=no`) → commit by path → `/bajzi:review <base>..<tip SHA> --round 2` → **stop** |
+| `/bajzi:fix <r1-file>` | [`copy fixer`: the `.fixer.md`; a round-2 file, or an r1 whose `-r2.md` exists, exits 3] → `fixer` → report saved as `<slice>-r1.report.md` → the slice test → tracked-only scope check (`--untracked-files=no`) → commit by path (the commit runs the bajzi gate where installed, §6.13; a refused commit stops; never `--no-verify`) → `/bajzi:review <base>..<tip SHA> --round 2` → **stop** |
 | `/bajzi:debt --check\|--drain\|--calibrate` | `--check` [`check`, exit 4 on cap]; `--drain` [`copy fixer` on `debt.md`] → `fixer` → gate → commit → one `reviewer` round 2 over the drain range as slice `debt` [`brief review debt 2`] [`drain`: drops resolved, prints `drained <n>, remain <m>` + remaining `if_unfixed`]; `--calibrate` [`copy blind`] → [`brief calibrate`] → `reviewer` calibration mode [`calibrate`: a duplicate id exits 2;: `blind_severity` into `debt.md`, only disagreements to `needs-owner.md`] |
 
 - `needs-owner.md` (`findings-cli.js:toOwner`): title `# Needs owner`, one appended line per
@@ -1219,6 +1235,26 @@ without a commit range through only with that opt-out on a `.blind.md` copy. Imp
   (`review <slice> round 1`, `re-review <slice> round 2`, `fix round <slice>`) is what the dispatch
   guard logs; the guard classifies the bajzi agents on `subagent_type`, and the review brief
   carries the range and the code-review-graph marker line (R1).
+
+### 6.13 Pre-commit gate — technical
+
+`bajzi/gate/pre-commit.js` (Node, no dependencies), installed per repo by `/bajzi:project-setup`
+as a verbatim copy at `.githooks/pre-commit` (§6.10); the contract is `docs/gate.md`. Owner
+decision D3 of the agents-and-cadence plan: block on the staged files, ratchet the project-wide counts.
+- **Tools** (`TOOLS`, narrowed by the profile's `gate.tools`): `gitleaks protect --staged` (always
+  needed); `ruff check` on staged `.py` and `pyright --outputjson` per `pyproject.toml` dir;
+  `eslint` on staged `.js/.jsx/.ts/.tsx` per `package.json` dir and `tsc --noEmit --pretty false`
+  per `package.json` dir that also has `tsconfig.json`. Project dirs = the repo root and its
+  immediate subdirectories (`:projects`); a staged file goes to the deepest one (`:assign`).
+- **Lookup** (`:findTool`): `<dir>/node_modules/.bin`, `<dir>/.venv/Scripts|bin`, then `PATH`;
+  `.cmd`/`.bat` via the shell with quoted tokens (`:run`); long file lists are chunked (`:chunks`).
+- **Verdict** (`:main`): absent stack → skipped; needed tool missing → exit 2 with the `HINTS`
+  install line; lint exit 1 → 1, other non-zero → 2; ratchet (`:count`) above the baseline → 1,
+  equal → 0, below → rewrite `.gate-baseline.json` (other keys kept) and `git add` it, only when
+  nothing else blocked. Missing baseline/key, unreadable count or profile → 2. Worst result wins.
+- `--init` writes the baseline from the current counts (exit 2 if a ratchet tool is missing).
+- **Tests**: `bajzi/gate/tests/pre-commit.test.js` — fixture repos, every tool a fake shim on a
+  minimal PATH (fake bin + node + git), one optional real-`gitleaks` case skipped when absent.
 
 ## 7. Shared state files
 
@@ -1254,6 +1290,8 @@ root. Line numbers are pinned to the commits in §11.
 | `<cwd>/runtime/findings/<slice>-r<n>.md`, `<slice>-r1.fixer.md`, `<slice>-r1.report.md` | `/bajzi:review` (the reviewer's message), `findings-cli.js:cmds.copy`, `/bajzi:fix` (the fixer's message) | `findings-cli.js` `validate`/`close` | `docs/findings-format.md` | one set per slice; never deleted by code |
 | `<cwd>/runtime/findings/debt.md`, `needs-owner.md` | `findings-cli.js` `close`/`drain`/`calibrate` (`toOwner` for `needs-owner.md`) | `findings-cli.js check`, `/bajzi:implement`, the owner | `docs/findings-format.md`; `needs-owner.md` = §6.12 | `debt.md` shrinks only through `--drain`; `needs-owner.md` is append-only, the owner clears it |
 | `<cwd>/runtime/briefs/<slice>-<class>.txt`, `<slice>-r<n>.diff` | the skills (`bajzi/skills/lib/dispatch.md` step 1); reviewer briefs and the `.diff` by `findings-cli.js:cmds.brief` | the dispatched agent (the reviewer Reads the `.diff`), `findings-cli.js log` (char count), the owner | plain text: the exact dispatch prompt; the complete `git diff <base> <tip>` | overwritten per dispatch of that class / round |
+| `<repo>/.gate-baseline.json` (path: profile `gate.baseline`) | `pre-commit.js --init` (owner step, once); `pre-commit.js:main` lowers a count and stages it | `pre-commit.js:main` (ratchet) | JSON `{"pyright": <n>, "tsc": <n>}`, only the tools in scope | committed; only ever lowered by code, raised by hand |
+| `<repo>/.githooks/pre-commit` | `profile.js:apply` (`gate` action), a copy of `bajzi/gate/pre-commit.js` | git (`core.hooksPath = .githooks`) | Node script, marker `bajzi:gate` | committed; refreshed by the next `/bajzi:project-setup` after a gate change |
 | `<cwd>/runtime/handoff/<branch-slug>.md` | `/bajzi:handoff` (`bajzi/skills/handoff/SKILL.md:13,34`) | `handoff-load.sh:30-31` (also the legacy `runtime/HANDOFF.md`); `handoffTask` (`status-parts.js:99-118`, `Task:` line in the first 4 KB) | markdown | owned by the owner/session; one file per branch |
 
 ### 7.3 Settings and setup
@@ -1664,8 +1702,8 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 - **Review delta 2026-09-23** — reviewer allow-list (Task 9, built), dispatch-guard merge +
   interim 24 KB R3 cap (Task 10, built; the findings-file format moved to the agents-and-cadence
   plan), launchers in the repo (Task 13, built: `bajzi/bin/launchers/`, installed by
-  `install.sh`); the pre-commit gate and the semgrep pre-pass moved to the agents-and-cadence
-  plan, not built. Verify: the plan's "Review delta 2026-09-23" table.
+  `install.sh`); the pre-commit gate moved to the agents-and-cadence plan (built there, T7) and the
+  semgrep pre-pass to its §8, not built. Verify: the plan's "Review delta 2026-09-23" table.
 
 **Components**
 
@@ -1693,6 +1731,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Findings format + parser (§4.2, T2 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `docs/findings-format.md`, `bajzi/lib/findings.js`, `bajzi/lib/tests/findings.test.js` | no | callers — `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt` (T5); release 1.9.0 (T8) | `node --test bajzi/lib/tests/findings.test.js` → `# fail 0` |
 | `reviewer` + `fixer` agents (§6.12, T3 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/agents/reviewer.md`, `fixer.md`, `bajzi/tests/agents/contract.test.js`; review r1 fixes: no `VERDICT:` trailer, per-agent `PINS`, anchored money assertion, rubric synced to the doc, harness moved out of `bajzi/agents/` | no | callers — `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt` (T5); release 1.9.0 (T8) | `node --test bajzi/tests/agents/*.test.js` → `# pass 14`, `# fail 0`, `# skipped 2` (one skip per contract file); `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/tests/agents/contract.test.js` → `# pass 1` (2026-09-24, after r1 fixes: opus-5-5 reviewer F1 blocker cart.js:10/F2 blocker/F3 major/F4 nit, sonnet-5 fixer `DONE 4/4`); the stream-json `init` event of `claude -p --plugin-dir bajzi` lists only `bajzi:fixer`, `bajzi:reviewer` |
 | `implementer` + `implementer-risk` agents (§6.12, T4 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/agents/implementer.md`, `implementer-risk.md`, `bajzi/tests/agents/contract-implementer.test.js`, `docs/slice-format.md` | no | callers — `/bajzi:implement` (T5); release 1.9.0 (T8) | `node --test bajzi/tests/agents/*.test.js` → `# pass 14`, `# fail 0`, `# skipped 2`; `BAJZI_CONTRACT=1 TMP=D:/t4h/tmp node --test bajzi/tests/agents/contract-implementer.test.js` → `# pass 1` (2026-09-24: sonnet-5 implementer, 11 turns, $0.115, `SLICE clamp-util DONE`, fixture `node --test` green, hidden oracle confirmed clamp()) |
-| Review/fix loop skills (§6.12, T5 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/skills/{implement,review,fix,debt}/SKILL.md`, `bajzi/skills/lib/dispatch.md`, `bajzi/lib/findings-cli.js`, `mode.sh` case 16 | no | a live end-to-end run (T9); gate `.githooks/pre-commit` (T7); release 1.9.0 (T8) | `timeout 300 bash bajzi/skills/mode/tests/mode.sh </dev/null` → `PASS 220/220` |
+| Review/fix loop skills (§6.12, T5 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/skills/{implement,review,fix,debt}/SKILL.md`, `bajzi/skills/lib/dispatch.md`, `bajzi/lib/findings-cli.js`, `mode.sh` case 16 | no | a live end-to-end run (T9); release 1.9.0 (T8) | `timeout 300 bash bajzi/skills/mode/tests/mode.sh </dev/null` → `PASS 220/220` |
 | Dispatch guard rewrite + reviewer-model counter (§6.4, §6.3, T6 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/hooks/dispatch-guard.sh` (typed-first R1/R2/R3/R4), `bajzi/hooks/routing-counter.sh` + `reviewer-models.js:offListServed` (reviewer-model line), `mode.sh` cases 13 and 12t | no | a live end-to-end run (T9); release 1.9.0 (T8) | `timeout 300 bash bajzi/skills/mode/tests/mode.sh </dev/null` → `PASS 231/231` |
+| Pre-commit gate + `--init` + project-setup install (§6.13, §6.10, T7 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/gate/pre-commit.js`, `bajzi/gate/tests/pre-commit.test.js`, `docs/gate.md`, `profile.js` `gate` key + install, `manifest.json` `gate_tools`, the skills commit through it | no | claude-orchestrator's profile `gate` + `.gate-baseline.json --init` (T8; its current `.githooks/pre-commit` is the code-review-graph hook, which project-setup refuses to overwrite); release 1.9.0 (T8) | `node --test bajzi/gate/tests/pre-commit.test.js bajzi/skills/project-setup/tests/profile.test.js` → `# fail 0` |
 | Context-guard accepted limits m-1/m-2 (§9.4) | — | — | await the owner's explicit acceptance | — (a decision, not a file) |

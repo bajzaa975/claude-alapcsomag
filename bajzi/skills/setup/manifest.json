@@ -146,6 +146,28 @@
     "rule_lives_in": "global ~/.claude/CLAUDE.md, section 'Web pages (token saver)' — so it survives /clear",
     "note": "From kepano/obsidian-skills (MIT) we take ONLY this binary. The 6-skill plugin is NOT installed: 3 of its skills are Obsidian-specific and obsidian-cli can run arbitrary JS in the vault. The defuddle skill there is just a 1.1 KB wrapper around this CLI."
   },
+  "gate_tools": {
+    "_comment": "Machine-level tools the bajzi pre-commit gate (bajzi/gate/pre-commit.js, installed per repo by /bajzi:project-setup) runs. Not required for the machine: a repo whose stack needs one and lacks it is BLOCKED by its gate with the same install line (bajzi/gate/pre-commit.js HINTS; pre-commit.test.js asserts they agree). eslint and tsc come with each package.json (npm devDependencies), so they are not listed here.",
+    "gitleaks": {
+      "required": false,
+      "check": "gitleaks version",
+      "windows": "winget install --id Gitleaks.Gitleaks -e",
+      "linux_mac": "brew install gitleaks (or the release binary from github.com/gitleaks/gitleaks/releases)",
+      "why": "gate: secrets in the staged diff block the commit"
+    },
+    "ruff": {
+      "required": false,
+      "check": "ruff --version",
+      "install": "pip install ruff (in the repo .venv)",
+      "why": "gate: lint errors in staged .py files block the commit"
+    },
+    "pyright": {
+      "required": false,
+      "check": "pyright --version",
+      "install": "npm install -g pyright",
+      "why": "gate: project-wide type-error count may not rise above .gate-baseline.json"
+    }
+  },
   "settings_merge": {
     "effortLevel": "xhigh",
     "modelSettings": {

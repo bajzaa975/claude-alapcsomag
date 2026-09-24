@@ -15,8 +15,8 @@ unparseable `debt.md`): the next slice/sprint does not start. Print the output; 
 1. `FC copy fixer runtime/findings/debt.md` -> `debt.fixer.md`. `base=$(git rev-parse HEAD)`.
 2. Dispatch class `drain-fix`: files = the files named in `debt.md`, test = the repo's test
    command (its project profile / CLAUDE.md; unknown -> ask the owner once). Save the report.
-3. Gate as in /bajzi:fix step 4 (red -> STOP). Commit the changed files by path,
-   `git commit -m "debt: drain"`.
+3. Gate as in /bajzi:fix steps 4-5 (the test command, then the commit runs the bajzi gate; red or
+   refused -> STOP). Commit the changed files by path, `git commit -m "debt: drain"`.
 4. `tip=$(git rev-parse HEAD)`; `FC brief review debt 2 <base>..<tip>` (it passes `debt.md` as the
    round-1 file); dispatch class `drain-review`. Save to `runtime/findings/debt-r2.md`,
    `FC validate` it (one retry, as /bajzi:review step 3).

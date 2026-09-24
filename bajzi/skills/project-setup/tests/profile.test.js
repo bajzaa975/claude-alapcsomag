@@ -152,3 +152,52 @@ test('CLI: no profile = nothing to do (exit 0); refused profile = exit 2; --chec
   assert.strictEqual(clean.code, 0);
   assert.match(clean.out, /project-setup --check: clean/);
 });
+
+const GATE_SRC = path.join(__dirname, '..', '..', '..', 'gate', 'pre-commit.js');
+function gitRepo(hooksPath) {
+  const r = repo();
+  spawnSync('git', ['init', '-q'], { cwd: r });
+  if (hooksPath) spawnSync('git', ['config', 'core.hooksPath', hooksPath], { cwd: r });
+  return r;
+}
+const GATE = { gate: { tools: ['gitleaks', 'ruff', 'pyright'], baseline: '.gate-baseline.json' } };
+
+test('validate: gate key (tools from the gate list, relative baseline); bad shapes refused', () => {
+  assert.deepStrictEqual(P.validate(Object.assign({ version: 1 }, GATE)), { ok: true, errors: [] });
+  assert.deepStrictEqual(P.validate({ gate: { tools: ['tsc'] } }), { ok: true, errors: [] });
+  const bad = [{ gate: [] }, { gate: {} }, { gate: { tools: [] } }, { gate: { tools: ['mypy'] } }, { gate: { tools: ['ruff', 'ruff'] } },
+    { gate: { tools: ['ruff'], baseline: '/abs.json' } }, { gate: { tools: ['ruff'], extra: 1 } }];
+  for (const b of bad) assert.strictEqual(P.validate(b).ok, false, JSON.stringify(b));
+});
+
+test('gate: apply installs .githooks/pre-commit as a copy of bajzi/gate/pre-commit.js; idempotent; check clean', () => {
+  const r = gitRepo('.githooks');
+  assert.deepStrictEqual(P.plan(GATE, r, { home: home() }).map(a => a.kind), ['gate']);
+  P.apply(GATE, r, { home: home(), run: () => 0 });
+  const dest = path.join(r, '.githooks', 'pre-commit');
+  assert.strictEqual(fs.readFileSync(dest, 'utf8'), fs.readFileSync(GATE_SRC, 'utf8').replace(/\r\n/g, '\n'));
+  if (process.platform !== 'win32') assert.ok(fs.statSync(dest).mode & 0o100);
+  assert.deepStrictEqual(P.check(GATE, r, { home: home() }), []);
+  fs.appendFileSync(dest, '// local edit\n');
+  assert.deepStrictEqual(P.check(GATE, r, { home: home() }), ['DRIFT gate .githooks/pre-commit']);
+  P.apply(GATE, r, { home: home(), run: () => 0 });   // an edited bajzi gate is refreshed
+  assert.deepStrictEqual(P.check(GATE, r, { home: home() }), []);
+});
+
+test('gate: refuses when core.hooksPath is not .githooks, and writes nothing', () => {
+  for (const hp of [null, 'hooks']) {
+    const r = gitRepo(hp);
+    assert.deepStrictEqual(P.check(GATE, r, { home: home() }), ['DRIFT gate-hookspath core.hooksPath', 'DRIFT gate .githooks/pre-commit']);
+    assert.throws(() => P.apply(Object.assign({ methodology: 'superpowers' }, GATE), r, { home: home(), run: () => 0 }), /core\.hooksPath is "[^"]*", the gate needs "\.githooks"/);
+    assert.ok(!fs.existsSync(path.join(r, '.githooks')));
+    assert.ok(!fs.existsSync(path.join(r, '.claude')));
+  }
+});
+
+test('gate: refuses to overwrite a foreign .githooks/pre-commit', () => {
+  const r = gitRepo('.githooks');
+  fs.mkdirSync(path.join(r, '.githooks'));
+  fs.writeFileSync(path.join(r, '.githooks', 'pre-commit'), '#!/bin/sh\ncode-review-graph update\n');
+  assert.throws(() => P.apply(GATE, r, { home: home(), run: () => 0 }), /exists and is not the bajzi gate/);
+  assert.match(fs.readFileSync(path.join(r, '.githooks', 'pre-commit'), 'utf8'), /code-review-graph/);
+});

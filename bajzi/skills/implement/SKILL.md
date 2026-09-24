@@ -18,6 +18,7 @@ You orchestrate; the agent writes the code. `FC` = `node "${CLAUDE_PLUGIN_ROOT}/
 5. `SLICE <id> BLOCKED: ...` -> print it, STOP. `SLICE <id> DONE` -> every file in its list, and every
    path in `git status --porcelain --untracked-files=no`, must be in `files:`; else STOP, commit nothing.
 6. Run the `test:` command; red -> STOP and report. Green -> `git add -- <each listed file>`
-   (never `-A`), `git commit -m "<slice-id>: implement"`.
+   (never `-A`), `git commit -m "<slice-id>: implement"`. The commit runs the bajzi gate where
+   installed (`.githooks/pre-commit`); refused -> STOP and report. Never `--no-verify`.
 7. `tip=$(git rev-parse HEAD)`; print `range: <base>..<tip>` (both full SHAs) and the next step:
    `/bajzi:review <slice-id> <base>..<tip>`.

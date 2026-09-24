@@ -10,10 +10,14 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const SUPPORTED_VERSION = 1;
-const KEYS = new Set(['version', 'methodology', 'plugins', 'mcpServers', 'skills', 'instructions']);
+const KEYS = new Set(['version', 'methodology', 'plugins', 'mcpServers', 'skills', 'instructions', 'gate']);
 const METHODOLOGIES = new Set(['superpowers', 'gsd', 'none']);
 const BLOCK_BEGIN = '<!-- bajzi:project-setup instructions begin -->';
 const BLOCK_END = '<!-- bajzi:project-setup instructions end -->';
+const GATE_SRC = path.join(__dirname, '..', '..', 'gate', 'pre-commit.js');
+const GATE_DEST = path.join('.githooks', 'pre-commit');
+const GATE_MARKER = 'bajzi:gate';
+const GATE_TOOLS = require(GATE_SRC).TOOLS;
 
 class ProfileError extends Error {
   constructor(errors) {
@@ -64,6 +68,17 @@ function validate(profile) {
     if (!(key in profile)) continue;
     if (!Array.isArray(profile[key])) errors.push(`"${key}" must be an array`);
     else profile[key].forEach((p, i) => { if (!relOk(p)) errors.push(`${key}[${i}] must be a relative path inside the repo`); });
+  }
+  if ('gate' in profile) {
+    const g = profile.gate;
+    if (!isObj(g)) errors.push('"gate" must be an object');
+    else {
+      for (const k of Object.keys(g)) if (k !== 'tools' && k !== 'baseline') errors.push(`gate: unknown key "${k}"`);
+      if (!Array.isArray(g.tools) || !g.tools.length || g.tools.some(t => !GATE_TOOLS.includes(t)) || new Set(g.tools).size !== g.tools.length) {
+        errors.push(`gate.tools must be a non-empty list of distinct names from ${GATE_TOOLS.join(', ')}`);
+      }
+      if ('baseline' in g && !relOk(g.baseline)) errors.push('gate.baseline must be a relative path inside the repo');
+    }
   }
   return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
 }
@@ -132,6 +147,15 @@ function plan(profile, repoRoot, { home = os.homedir() } = {}) {
     try { cur = fs.readFileSync(path.join(repoRoot, '.claude', 'CLAUDE.md'), 'utf8'); } catch { cur = ''; }
     if (!cur.includes(instructionBlock(profile.instructions))) actions.push({ kind: 'instructions', target: '.claude/CLAUDE.md' });
   }
+  if (profile.gate) {
+    const hp = spawnSync('git', ['-C', repoRoot, 'config', '--get', 'core.hooksPath'], { encoding: 'utf8' });
+    const cur = hp.status === 0 ? hp.stdout.trim().replace(/[\\/]+$/, '') : '';
+    if (cur !== '.githooks') actions.push({ kind: 'gate-hookspath', target: 'core.hooksPath', value: cur });
+    const norm = t => t.replace(/\r\n/g, '\n');
+    let have = null;
+    try { have = fs.readFileSync(path.join(repoRoot, GATE_DEST), 'utf8'); } catch { have = null; }
+    if (have === null || norm(have) !== norm(fs.readFileSync(GATE_SRC, 'utf8'))) actions.push({ kind: 'gate', target: '.githooks/pre-commit' });
+  }
   return actions;
 }
 
@@ -153,6 +177,13 @@ function preflight(profile, repoRoot, actions) {
     let isFile = false;
     try { isFile = fs.statSync(path.join(repoRoot, rel)).isFile(); } catch { isFile = false; }
     if (!isFile) errors.push(`instruction file ${rel} does not exist`);
+  }
+  const hp = actions.find(a => a.kind === 'gate-hookspath');
+  if (hp) errors.push(`core.hooksPath is "${hp.value}", the gate needs ".githooks"; run: git config core.hooksPath .githooks`);
+  if (actions.some(a => a.kind === 'gate')) {
+    let cur = null;
+    try { cur = fs.readFileSync(path.join(repoRoot, GATE_DEST), 'utf8'); } catch { cur = null; }
+    if (cur !== null && !cur.includes(GATE_MARKER)) errors.push('.githooks/pre-commit exists and is not the bajzi gate; move it away first');
   }
   return errors;
 }
@@ -203,6 +234,11 @@ function apply(profile, repoRoot, { home = os.homedir(), run = runClaude } = {})
     if (i >= 0 && j > i) cur = cur.slice(0, i) + cur.slice(j + BLOCK_END.length).replace(/^\n/, '');
     const base = cur && !cur.endsWith('\n') ? cur + '\n' : cur;
     writeAtomic(file, base + instructionBlock(profile.instructions) + '\n');
+  }
+  if (actions.some(a => a.kind === 'gate')) {
+    const dest = path.join(repoRoot, GATE_DEST);
+    writeAtomic(dest, fs.readFileSync(GATE_SRC, 'utf8').replace(/\r\n/g, '\n'));
+    fs.chmodSync(dest, 0o755);
   }
   for (const a of actions) {
     if (a.kind === 'marketplace') {

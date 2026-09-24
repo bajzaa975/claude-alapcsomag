@@ -104,6 +104,8 @@ line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-settin
 7. **rtk:** per the manifest's `rtk` block. Not required. Add the hook ONLY if
    the `check` command works. Then make sure the rtk config file (`rtk.config`, per OS) has every
    entry of `rtk.exclude_commands` in `[hooks] exclude_commands`, keeping entries already there.
+   **Gate tools:** for each entry of the manifest's `gate_tools`, run its `check`; report a missing
+   one with its install line (not required; a repo that needs it is blocked by its own gate).
 8. **Default working mode:** if `~/.claude/bajzi-mode` does not already exist, create it with
    `day-run` — never overwrite an existing choice:
    ```
