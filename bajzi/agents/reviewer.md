@@ -5,10 +5,11 @@ model: opus
 tools: Read, Grep, Glob, mcp__code-review-graph__detect_changes_tool, mcp__code-review-graph__get_review_context_tool
 ---
 # Input
-- `slice_id`, `round` (1 or 2), `range` (base..tip), the changed-file list and the diff of the
-  range. The caller runs git; you have no shell.
-- Round 2 also: the round-1 findings file and the fixer's report.
-- Calibration mode: a `# Blind re-rate` copy (no severities) instead of a range.
+- `slice_id`, `round` (1 or 2), `range` (base..tip), the changed-file list and the path of a file
+  holding the complete diff of the range: Read all of it (in chunks if long) before judging. The
+  caller runs git; you have no shell.
+- Round 2 also: the paths of the round-1 findings file and the fixer's report; Read both.
+- Calibration mode: the path of a `# Blind re-rate` copy (no severities) instead of a range.
 # Output
 Your final message is the findings file and nothing else: no prose, no code fence. You have no
 Write tool; the caller writes it to `runtime/findings/<slice_id>-r<round>.md` and validates it.

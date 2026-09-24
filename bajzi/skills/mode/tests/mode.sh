@@ -821,10 +821,6 @@ FD="$CAD/runtime/findings"
 { hdr s1 1 'FINDINGS 7'
   fnd F1 blocker app/a.py:1; fnd F2 major app/a.py:2; fnd F3 minor app/b.py:3; fnd F4 nit app/b.py:4
   fnd F5 minor app/a.py:5; fnd F6 major app/a.py:6; fnd F7 minor app/c.py:7; } > "$FD/s1-r1.md"
-{ hdr s1 2 'FINDINGS 6'
-  fnd F1 blocker app/a.py:1 resolved; fnd F2 major app/a.py:2 open; fnd F3 minor app/b.py:3 open
-  fnd F4 nit app/b.py:4 open; fnd F5 minor app/a.py:5 open; fnd F6 major app/a.py:6 open
-  fnd F8 nit app/a.py:8 open; } > "$FD/s1-r2.md"
 printf 'FIX s1 DONE 2/7\nF2 OUT_OF_SLICE\nF3 OUT_OF_SLICE\nF4 OUT_OF_SLICE\nF5 ATTEMPTED: flaky clock\n' > "$FD/s1-r1.report.md"
 
 # 16a: /bajzi:fix stops after round 2 -- the r2 file gets no fixer copy, a round-3 file is refused,
@@ -832,6 +828,13 @@ printf 'FIX s1 DONE 2/7\nF2 OUT_OF_SLICE\nF3 OUT_OF_SLICE\nF4 OUT_OF_SLICE\nF5 A
 out="$(cli copy fixer runtime/findings/s1-r1.md)"; rc=$?
 if [ $rc -eq 0 ] && [ -f "$FD/s1-r1.fixer.md" ] && ! grep -qE 'blocker|major|minor|nit|why_severity|if_unfixed' "$FD/s1-r1.fixer.md"; then
     pass "16a r1 -> severity-blind fixer copy"; else fail "16a r1 fixer copy" "rc=$rc $out"; fi
+{ hdr s1 2 'FINDINGS 6'
+  fnd F1 blocker app/a.py:1 resolved; fnd F2 major app/a.py:2 open; fnd F3 minor app/b.py:3 open
+  fnd F4 nit app/b.py:4 open; fnd F5 minor app/a.py:5 open; fnd F6 major app/a.py:6 open
+  fnd F8 nit app/a.py:8 open; } > "$FD/s1-r2.md"
+rm -f "$FD/s1-r1.fixer.md"; out="$(cli copy fixer runtime/findings/s1-r1.md 2>&1)"; rc=$?
+if [ $rc -eq 3 ] && printf '%s' "$out" | grep -q 'STOP: .*runtime/findings/s1-r2.md exists' && [ ! -f "$FD/s1-r1.fixer.md" ]; then
+    pass "16a5 r1 with an r2 sibling -> STOP exit 3 (cap is per slice, not per file)"; else fail "16a5 r1 re-fix not stopped" "rc=$rc $out"; fi
 out="$(cli copy fixer runtime/findings/s1-r2.md 2>&1)"; rc=$?
 if [ $rc -eq 3 ] && printf '%s' "$out" | grep -q 'STOP' && [ ! -f "$FD/s1-r2.fixer.md" ]; then
     pass "16a2 r2 -> STOP exit 3, no fixer copy"; else fail "16a2 r2 fix not stopped" "rc=$rc $out"; fi
@@ -878,11 +881,17 @@ mv "$DB" "$DB.keep"
 mkdebt 15 yes > "$DB"; out="$(cli check 2>&1)"; rc=$?
 [ $rc -eq 0 ] && pass "16c 15 items -> exit 0" || fail "16c 15 items" "rc=$rc $out"
 mkdebt 16 yes > "$DB"; out="$(cli check 2>&1)"; rc=$?
-[ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'DEBT CAP HIT' && pass "16c2 16 items -> exit 1 DEBT CAP HIT" || fail "16c2 16 items" "rc=$rc $out"
+[ $rc -eq 4 ] && printf '%s' "$out" | grep -q 'DEBT CAP HIT' && pass "16c2 16 items -> exit 1 DEBT CAP HIT" || fail "16c2 16 items" "rc=$rc $out"
 mkdebt 4 no > "$DB"; out="$(cli check 2>&1)"; rc=$?
-[ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'app/one.py: 4 items' && pass "16c3 4 in one file -> exit 1" || fail "16c3 per-file" "rc=$rc $out"
-printf 'garbage\n' > "$DB"; cli check >/dev/null 2>&1; rc=$?
-[ $rc -eq 1 ] && pass "16c4 unparseable debt.md -> exit 1 (fails closed)" || fail "16c4" "rc=$rc"
+[ $rc -eq 4 ] && printf '%s' "$out" | grep -q 'app/one.py: 4 items' && pass "16c3 4 in one file -> exit 1" || fail "16c3 per-file" "rc=$rc $out"
+printf 'garbage\n' > "$DB"; out="$(cli check 2>&1)"; rc=$?
+[ $rc -eq 4 ] && printf '%s' "$out" | grep -q 'DEBT CAP HIT: invalid debt.md' && pass "16c4 unparseable debt.md -> exit 4 DEBT CAP HIT (fails closed)" || fail "16c4" "rc=$rc $out"
+# 16c6 (I1): an unmergeable debt.md never costs the owner routing -- needs-owner.md is written first.
+mv "$NO" "$NO.keep"; printf 'garbage\n' > "$DB"; out="$(cli close s1 2>&1)"; rc=$?
+if [ $rc -eq 4 ] && printf '%s' "$out" | grep -q 'DEBT CAP HIT: debt.md merge refused, NOT parked: s1/F3, s1/F4' \
+    && grep -qF -- '- s1/F6 · app/a.py:6 · blocker (was major)' "$NO" && [ "$(cat "$DB")" = garbage ]; then
+    pass "16c6 invalid debt.md: owner items recorded, debt failure reported apart (exit 4)"; else fail "16c6" "rc=$rc $out"; fi
+mv "$NO.keep" "$NO"
 mkdebt 14 yes > "$DB"; out="$(cli close s1)"
 printf '%s' "$out" | grep -q 'DEBT CAP HIT: 16 items' && pass "16c5 close prints DEBT CAP HIT when parking crosses the cap" || fail "16c5" "$out"
 
@@ -896,9 +905,13 @@ if [ "$(grep -c '^- ' "$NO")" = 1 ]; then
 else fail "16d2 needs-owner lines" "$(cat "$NO")"; fi
 [ "$(grep -c '^blind_severity: ' "$DB")" = 2 ] && pass "16d3 blind_severity written for every entry" || fail "16d3" "$(cat "$DB")"
 cp "$DB" "$DB.before"; printf 's1/F3 · major · x\n' > "$CAD/rerate.txt"
-cli calibrate rerate.txt >/dev/null 2>&1; rc=$?
-[ $rc -eq 2 ] && cmp -s "$DB" "$DB.before" && [ "$(grep -c '^- ' "$NO")" = 1 ] && pass "16d4 missing id -> exit 2, nothing written" || fail "16d4" "rc=$rc"
-cli copy blind >/dev/null
+out="$(cli calibrate rerate.txt 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'not re-rated: s1/F4' && cmp -s "$DB" "$DB.before" && [ "$(grep -c '^- ' "$NO")" = 1 ] && pass "16d4 missing id -> exit 2, nothing written" || fail "16d4" "rc=$rc $out"
+printf 's1/F3 · major · x\ns1/F4 · nit · x\ns1/F3 · minor · x\n' > "$CAD/rerate.txt"
+out="$(cli calibrate rerate.txt 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 's1/F3: re-rated twice' && cmp -s "$DB" "$DB.before" && pass "16d6 duplicate id in the re-rate -> exit 2, nothing written" || fail "16d6" "rc=$rc $out"
+out="$(cli copy blind)"
+[ "$out" = runtime/findings/debt.blind.md ] && pass "16d7 printed paths use forward slashes" || fail "16d7" "$out"
 ! grep -qE '· (minor|nit) ·|why_severity|blind_severity' "$FD/debt.blind.md" && pass "16d5 blind copy has no severities" || fail "16d5" "$(cat "$FD/debt.blind.md")"
 
 # 16e: --drain drops resolved entries, keeps the rest, sends a drain-introduced finding to the owner.
@@ -913,14 +926,63 @@ for t in 1 2 3; do printf '# Slice · sl%s\ntier: %s\nfiles: a.js\nacceptance: w
 if [ "$(cli slice sl1 | head -1)" = "agent: bajzi:implementer-risk" ] && [ "$(cli slice sl2 | head -1)" = "agent: bajzi:implementer" ] \
     && [ "$(cli slice sl3 | head -1)" = "agent: bajzi:implementer" ]; then
     pass "16f tier 1 -> implementer-risk, 2/3 -> implementer"; else fail "16f slice routing"; fi
-sed -i 's/^tier: 2/tier: 9/' "$CAD/runtime/slices/sl2.md"; cli slice sl2 >/dev/null 2>&1; rc=$?
-[ $rc -eq 2 ] && pass "16f2 bad tier refused" || fail "16f2" "rc=$rc"
+sed -i 's/^tier: 2/tier: 9/' "$CAD/runtime/slices/sl2.md"; out="$(cli slice sl2 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'tier must be 1, 2 or 3, got 9' && pass "16f2 bad tier refused" || fail "16f2" "rc=$rc $out"
+out="$(cli slice ../slices/sl1 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'bad slice id' && pass "16f3 path-traversal slice id refused" || fail "16f3" "rc=$rc $out"
 
 # 16g: every dispatch logs one R4-shaped TSV line.
 printf 'brief é\n' > "$CAD/b.txt"; cli log review bajzi:reviewer b.txt allow
 line="$(tail -1 "$CAD/runtime/dispatch-sizes.log")"
 if printf '%s' "$line" | grep -qE $'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\tSKILL-REVIEW\tbajzi:reviewer\t8\tallow$'; then
     pass "16g dispatch log line (R4 format, chars not bytes)"; else fail "16g log" "$line"; fi
+out="$(cli log "$(printf 'z\tforged')" bajzi:reviewer b.txt allow 2>&1)"; rc=$?
+[ $rc -eq 2 ] && [ "$(tail -1 "$CAD/runtime/dispatch-sizes.log")" = "$line" ] && pass "16g2 a class with a tab is refused, no forged TSV line" || fail "16g2" "rc=$rc $out"
+printf '# Needs owner\n\n- owner note' > "$NO"
+printf 's1/F4 · minor · x\n' > "$CAD/rerate.txt"; cli calibrate rerate.txt >/dev/null
+grep -qx -- '- owner note' "$NO" && pass "16g3 append to a needs-owner.md without a final newline keeps lines apart" || fail "16g3" "$(cat "$NO")"
+
+# 16i (I4/I5/I3/M6): reviewer briefs pass PATHS, not contents -- a huge diff plus a big round-1
+# file still gives a small brief that names the full .diff, carries resolved SHAs, and the
+# current dispatch guard allows it (R1 marker, R2 no read-the-review, R3 size). Calibrate too.
+GR="$TMP/cadgit"; mkdir -p "$GR/runtime/findings"
+gitc() { git -C "$GR" -c user.name=t -c user.email=t@t "$@"; }
+gitc init -q; printf 'a\n' > "$GR/a.txt"; gitc add a.txt; gitc commit -qm base
+for i in $(seq 1 4000); do printf 'line %s of a large change that the reviewer must see in full\n' "$i"; done > "$GR/big.txt"
+gitc add big.txt; gitc commit -qm big
+B="$(gitc rev-parse HEAD~1)"; T="$(gitc rev-parse HEAD)"
+bcli() { (cd "$GR" && node "$CLI" "$@"); }
+gpay() { (cd "$GR" && node -e 'const fs=require("fs");process.stdout.write(JSON.stringify({tool_name:"Agent",tool_input:{description:process.argv[1],subagent_type:"bajzi:reviewer",prompt:fs.readFileSync(process.argv[2],"utf8")},cwd:process.argv[3]}))' "$1" "$2" "$FAKE_CWD"); }
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(bcli brief review s9 1 HEAD~1..HEAD)"; rc=$?
+if [ $rc -eq 0 ] && [ "$out" = runtime/briefs/s9-review.txt ] && [ "$(wc -c < "$GR/runtime/briefs/s9-r1.diff")" -gt 100000 ] \
+    && grep -qx "slice_id: s9   round: 1   range: $B..$T" "$GR/$out" && grep -q 'diff: runtime/briefs/s9-r1.diff' "$GR/$out"; then
+    pass "16i round-1 brief: full diff on disk, brief names it, range is resolved SHAs"; else fail "16i" "rc=$rc $out"; fi
+is_allow "$(gpay 'review s9 round 1' "$out" | dg_raw $G)" && pass "16i2 round-1 brief allowed by the dispatch guard" || fail "16i2" "$(gpay 'review s9 round 1' "$out" | dg_raw $G)"
+{ hdr s9 1 'FINDINGS 1'; for i in $(seq 1 120); do fnd "F$i" minor "big.txt:$i"; done; } > "$GR/runtime/findings/s9-r1.md"
+printf 'FIX s9 DONE 120/120\n' > "$GR/runtime/findings/s9-r1.report.md"
+out="$(bcli brief review s9 2 "$B..$T")"; rc=$?
+n="$(node -e 'process.stdout.write(String(Array.from(require("fs").readFileSync(process.argv[1],"utf8")).length))' "$GR/$out")"
+if [ $rc -eq 0 ] && [ "$out" = runtime/briefs/s9-rereview.txt ] && [ "$n" -lt 24576 ] && [ "$(wc -c < "$GR/runtime/findings/s9-r1.md")" -gt 10000 ] \
+    && grep -q 'diff: runtime/briefs/s9-r2.diff' "$GR/$out" && grep -q 'round-1 findings: runtime/findings/s9-r1.md' "$GR/$out" \
+    && grep -q 'fixer report: runtime/findings/s9-r1.report.md' "$GR/$out"; then
+    pass "16i3 re-review brief for a 100 KB diff + 10 KB r1 stays at $n chars (< R3 24576), names both files"; else fail "16i3" "rc=$rc n=$n $out"; fi
+is_allow "$(gpay 're-review s9 round 2' "$out" | dg_raw $G)" && pass "16i4 re-review brief allowed by the dispatch guard" || fail "16i4" "$(gpay 're-review s9 round 2' "$out" | dg_raw $G)"
+cp "$GR/runtime/findings/s9-r1.md" "$GR/runtime/findings/debt.md"; printf 'FIX debt DONE\n' > "$GR/runtime/findings/debt.report.md"
+out="$(bcli brief review debt 2 "$B..$T")"; rc=$?
+if [ $rc -eq 0 ] && [ "$out" = runtime/briefs/debt-drain-review.txt ] && grep -q 'round-1 findings: runtime/findings/debt.md' "$GR/$out" \
+    && is_allow "$(gpay 're-review debt round 2' "$out" | dg_raw $G)"; then
+    pass "16i5 drain-review brief by path, allowed by the guard"; else fail "16i5" "rc=$rc $out"; fi
+printf '# Blind re-rate · debt\n' > "$GR/runtime/findings/debt.blind.md"
+out="$(bcli brief calibrate)"; rc=$?
+if [ $rc -eq 0 ] && grep -qx 'GRAPH: n/a single-file runtime/findings/debt.blind.md' "$GR/$out" \
+    && is_allow "$(gpay 'calibrate debt' "$out" | dg_raw $G)"; then
+    pass "16i6 calibrate brief carries the R1 opt-out and the guard allows it"; else fail "16i6" "rc=$rc $out"; fi
+grep -v '^GRAPH:' "$GR/$out" > "$GR/nograph.txt"
+is_deny "$(gpay 'calibrate debt' nograph.txt | dg_raw $G)" R1 && pass "16i6b the gate is open here: without the opt-out, calibrate is denied R1" || fail "16i6b" "guard did not deny"
+cp "$GR/runtime/findings/s9-r1.md" "$GR/runtime/findings/s9-r2.md"
+out="$(bcli brief review s9 1 "$B..$T" 2>&1)"; rc=$?
+[ $rc -eq 3 ] && printf '%s' "$out" | grep -q 'STOP: runtime/findings/s9-r2.md exists' && pass "16i7 round-1 review with an r2 on disk -> STOP exit 3" || fail "16i7" "rc=$rc $out"
 
 # 16h: the four skills exist, are named, and route through findings-cli.js + the shared dispatch template.
 for s in implement review fix debt; do

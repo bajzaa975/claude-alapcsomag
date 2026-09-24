@@ -6,7 +6,7 @@ The contract between `/bajzi:implement` (T5) and the `implementer`/`implementer-
 
 ## Slice file
 
-One file per slice: `runtime/slices/<slice-id>.md`. The id is the filename without `.md`.
+One file per slice: `runtime/slices/<slice-id>.md`. The id is the filename without `.md`, and must match `^[a-z0-9][a-z0-9-]{0,63}$` (`findings-cli.js` refuses any other: ids become paths and commit messages).
 
 ```
 # Slice · cart-coupon
