@@ -26,6 +26,18 @@ const JS = /\.(js|jsx|ts|tsx)$/i;
 const WIN = process.platform === 'win32';
 
 const log = s => process.stderr.write('gate: ' + s + '\n');
+// Agents commit through this hook, so its stderr lands in model context: a tool's own output is
+// shown only when it blocks, and then capped to CAP lines (the last ones, or the first for a list).
+const CAP = 40;
+function show(lines, fromEnd = true) {
+  lines = lines.filter(l => l.trim());
+  if (!lines.length) return;
+  const more = Math.max(0, lines.length - CAP);
+  const cut = fromEnd ? lines.slice(more) : lines.slice(0, CAP);
+  const note = more ? `... ${more} ${fromEnd ? 'earlier' : 'more'} line(s) omitted\n` : '';
+  process.stderr.write((fromEnd ? note : '') + cut.join('\n') + '\n' + (fromEnd ? '' : note));
+}
+const outLines = r => (r.stdout + '\n' + r.stderr).split(/\r?\n/);
 
 function envPath() {
   const k = Object.keys(process.env).find(x => x.toUpperCase() === 'PATH');
@@ -54,9 +66,7 @@ function run(bin, args, cwd) {
   const r = /\.(cmd|bat)$/i.test(bin)
     ? spawnSync([bin, ...args].map(a => `"${a}"`).join(' '), { cwd, shell: true, encoding: 'utf8', maxBuffer: 64 << 20 })
     : spawnSync(bin, args, { cwd, encoding: 'utf8', maxBuffer: 64 << 20 });
-  if (r.stdout) process.stderr.write(r.stdout);
-  if (r.stderr) process.stderr.write(r.stderr);
-  return { code: r.status === null ? -1 : r.status, stdout: r.stdout || '' };
+  return { code: r.status === null ? -1 : r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 
 // Split a long file list so no command line passes ~6000 chars (cmd.exe caps at 8191).
@@ -131,8 +141,10 @@ function lint(name, args, root, dir, files) {
   if (!bin) return missing(name);
   let worst = 0;
   for (const part of chunks(files)) {
-    const { code } = run(bin, [...args, '--', ...part], cwd);
+    const r = run(bin, [...args, '--', ...part], cwd);
+    const code = r.code;
     const res = code === 0 ? 0 : code === 1 ? 1 : 2;
+    if (res) show(outLines(r));
     if (res) log(`${name} ${res === 1 ? 'found errors' : `failed (exit ${code})`} in ${dir || '.'}`);
     worst = Math.max(worst, res);
   }
@@ -145,25 +157,36 @@ function count(name, root, dir) {
   const bin = findTool(name, cwd);
   if (!bin) return { err: missing(name) };
   let n;
-  let code;
+  let detail = [];   // one human-readable line per counted error, shown only on a count-up
+  let r;
   if (name === 'pyright') {
-    const r = run(bin, ['--outputjson'], cwd);
-    code = r.code;
-    try { n = JSON.parse(r.stdout).summary.errorCount; } catch { n = undefined; }
-    if (code > 1) n = undefined;
+    r = run(bin, ['--outputjson'], cwd);
+    try {
+      const j = JSON.parse(r.stdout);
+      n = j.summary.errorCount;
+      detail = (j.generalDiagnostics || []).filter(x => x && x.severity === 'error')
+        .map(x => `${x.file}:${x.range && x.range.start ? x.range.start.line + 1 : '?'}: ${String(x.message).split('\n')[0]}`);
+    } catch { n = undefined; }
+    if (r.code > 1) n = undefined;
   } else {
-    const r = run(bin, ['--noEmit', '--pretty', 'false'], cwd);
-    code = r.code;
+    r = run(bin, ['--noEmit', '--pretty', 'false'], cwd);
     // Only located diagnostics count; a location-less one (config/global, e.g. TS5058) is a tool error.
-    const all = (r.stdout.match(/^.*error TS\d+:/gm) || []).length;
-    n = (r.stdout.match(/^\S.*\(\d+,\d+\): error TS\d+:/gm) || []).length;
-    if (all > n) { log(`tsc: ${all - n} error TS line(s) without a file location in ${dir || '.'}`); return { err: 2 }; }
+    const LOC = /^\S.*\(\d+,\d+\): error TS\d+:/;
+    const all = r.stdout.split(/\r?\n/).filter(l => /error TS\d+:/.test(l));
+    detail = all.filter(l => LOC.test(l)).map(l => (dir ? dir + '/' : '') + l);
+    n = detail.length;
+    if (all.length > n) {
+      show(all.filter(l => !LOC.test(l)));
+      log(`tsc: ${all.length - n} error TS line(s) without a file location in ${dir || '.'}`);
+      return { err: 2 };
+    }
   }
-  if (!Number.isInteger(n) || (code !== 0 && n === 0)) {
-    log(`${name} failed in ${dir || '.'} (exit ${code}, no readable error count)`);
+  if (!Number.isInteger(n) || (r.code !== 0 && n === 0)) {
+    show(outLines(r));
+    log(`${name} failed in ${dir || '.'} (exit ${r.code}, no readable error count)`);
     return { err: 2 };
   }
-  return { n };
+  return { n, detail };
 }
 
 function stagedFiles(root) {
@@ -188,13 +211,14 @@ function ratchetScope(root, cfg, quiet) {
 // Sum the counts per tool; {err} if any run failed.
 function counts(root, cfg) {
   const sums = {};
+  const details = {};
   let err = 0;
   for (const [name, dir] of ratchetScope(root, cfg, true)) {
     const c = count(name, root, dir);
     if (c.err) err = Math.max(err, c.err);
-    else sums[name] = (sums[name] || 0) + c.n;
+    else { sums[name] = (sums[name] || 0) + c.n; details[name] = (details[name] || []).concat(c.detail); }
   }
-  return { sums, err };
+  return { sums, details, err };
 }
 
 // False when git runs the hook on a temporary index (`git commit -- <paths>`): a `git add` there
@@ -248,8 +272,9 @@ function commitGate(root, cfg, baseFile) {
     const bin = findTool('gitleaks', root);
     if (!bin) worst = Math.max(worst, missing('gitleaks'));
     else {
-      const { code } = run(bin, ['protect', '--staged', '--redact', '--no-banner'], root);
-      if (code !== 0) { log(`gitleaks: exit ${code} (a hit or a failure)`); worst = Math.max(worst, code === 1 ? 1 : 2); }
+      const r = run(bin, ['protect', '--staged', '--redact', '--no-banner'], root);
+      const code = r.code;
+      if (code !== 0) { show(outLines(r)); log(`gitleaks: exit ${code} (a hit or a failure)`); worst = Math.max(worst, code === 1 ? 1 : 2); }
     }
   }
   if (cfg.tools.has('ruff')) {
@@ -266,14 +291,15 @@ function commitGate(root, cfg, baseFile) {
       log(`${cfg.baseline} is missing or unreadable; run: node .githooks/pre-commit --init, then commit it`);
       return 2;
     }
-    const { sums, err } = counts(root, cfg);
+    const { sums, details, err } = counts(root, cfg);
     worst = Math.max(worst, err);
     let dropped = false;
     for (const [name, n] of Object.entries(sums)) {
       const b = base.value[name];
       if (!Number.isInteger(b)) { log(`${cfg.baseline} has no "${name}" count; run --init`); worst = Math.max(worst, 2); continue; }
-      if (n > b) { log(`${name}: ${n} errors > baseline ${b}`); worst = Math.max(worst, 1); }
-      else if (n < b) { log(`${name}: ${n} errors < baseline ${b}; ratchet down`); dropped = true; }
+      if (n > b) { log(`${name} ${n} > ${b} (baseline); its errors:`); show(details[name], false); worst = Math.max(worst, 1); }
+      else if (n < b) { log(`${name} ${n} < ${b}; ratchet down`); dropped = true; }
+      else log(`${name} ${n} <= ${b}`);
     }
     if (worst === 0 && dropped && !defaultIndex(root)) {
       log('baseline rewrite deferred: `git commit -- <paths>` runs on a temporary index; the next normal commit ratchets');

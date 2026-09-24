@@ -38,6 +38,11 @@ verbatim to `<repo>/.githooks/pre-commit` when the repo's `.claude/project-profi
 - **Partial staging**: a staged `.py`/`.js`/`.jsx`/`.ts`/`.tsx` file that also has unstaged changes
   is exit 2 naming the file (ruff/eslint read the working tree, so the staged content would go
   unjudged). Stage or stash the rest, then commit.
+- **Output**: agents and night sessions commit through the hook, so its stderr lands in model
+  context. A passing tool prints nothing of its own; each ratchet tool prints one count line
+  (`gate: pyright 635 <= 635`). A blocking or failing lint/gitleaks run prints the last 40 lines of
+  its output; a count-up prints the count line plus the first 40 counted errors (`file:line:
+  message`). pyright's JSON and tsc's raw output are never echoed.
 
 ## Exit codes
 

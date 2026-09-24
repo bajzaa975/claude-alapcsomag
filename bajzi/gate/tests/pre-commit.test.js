@@ -285,6 +285,39 @@ test('manifest gate_tools install lines agree with the gate HINTS (manifest sync
   assert.strictEqual(m.pyright.install, HINTS.pyright);
 });
 
+// Q1: agents commit through the hook, so its stderr lands in model context. A pass must stay tiny.
+test('quiet on green: noisy passing tools and a 30 KB pyright JSON leave < 2 KB on stderr', () => {
+  const r = repo(Object.assign({}, PY, { 'a.py': 'x=1\n' }));
+  const noise = 'x'.repeat(200) + '\n';
+  const bigJson = JSON.stringify({ generalDiagnostics: Array.from({ length: 150 }, () => ({ severity: 'warning', message: noise })), summary: { errorCount: 3 } });
+  const bin = fakes({ gitleaks: { exit: 0, stdout: noise.repeat(50) }, ruff: { exit: 0, stdout: noise.repeat(50) }, pyright: { exit: 1, stdout: bigJson } });
+  const res = gate(r, bin);
+  assert.strictEqual(res.code, 0, res.out);
+  assert.ok(Buffer.byteLength(res.out) < 2048, `stderr is ${Buffer.byteLength(res.out)} bytes`);
+  assert.match(res.out, /pyright 3 <= 3/);
+});
+
+test('failing lint: its output is shown, capped to the last 40 lines', () => {
+  const r = repo(Object.assign({}, PY, { 'a.py': 'x=1\n' }));
+  const out = Array.from({ length: 300 }, (_, i) => `a.py:${i + 1}:1: E999 line-${i + 1}\n`).join('');
+  const res = gate(r, fakes({ gitleaks: CLEAN, ruff: { exit: 1, stdout: out }, pyright: pyright(3) }));
+  assert.strictEqual(res.code, 1);
+  assert.match(res.out, /line-300\n/);
+  assert.match(res.out, /line-261\n/);
+  assert.doesNotMatch(res.out, /line-260\n/);
+  assert.ok(Buffer.byteLength(res.out) < 4096, `stderr is ${Buffer.byteLength(res.out)} bytes`);
+});
+
+test('count-up: the count line plus at most 40 lines of error detail', () => {
+  const r = repo(Object.assign({}, PY, { 'a.py': 'x=1\n' }));
+  const diags = Array.from({ length: 100 }, (_, i) => ({ file: 'a.py', severity: 'error', message: `bad-${i}`, range: { start: { line: i } } }));
+  const res = gate(r, fakes({ gitleaks: CLEAN, ruff: CLEAN, pyright: { exit: 1, stdout: JSON.stringify({ generalDiagnostics: diags, summary: { errorCount: 100 } }) } }));
+  assert.strictEqual(res.code, 1);
+  assert.match(res.out, /pyright 100 > 3 \(baseline\)/);
+  assert.match(res.out, /a\.py:1: bad-0/);
+  assert.doesNotMatch(res.out, /bad-40\b/);
+});
+
 test('every gate run appends one GATE line to runtime/dispatch-sizes.log (T9 counts blocks); --init does not', () => {
   const r = repo(Object.assign({}, PY, { 'a.py': 'x=1\n' }));
   const logf = path.join(r, 'runtime', 'dispatch-sizes.log');
