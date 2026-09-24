@@ -259,8 +259,12 @@ agents. Fails open, as before.
   calibrate's range-less brief passes only on its `.blind.md` single-file opt-out — T6).
 - **R2'** — a dispatch whose `subagent_type` is not `fixer` but whose prompt names a
   `runtime/findings/*.md` or `*-review.md` file → deny: "use /bajzi:fix". A `fixer` dispatch must
-  name exactly one `*.fixer.md` path → else deny.
-- **R3** — unchanged 6000-char cap for every dispatch that is not `fixer`; `fixer` dispatches are
+  name exactly one `*.fixer.md` path → else deny. A `reviewer` dispatch is exempt too (amended
+  in T6): it is read-only, and calibrate names `runtime/findings/debt.blind.md` and round 2 names
+  the round-1 findings and the fixer report on purpose.
+- **R3** — the cap in force, 24576 chars, for every dispatch that is not `fixer` (amended in T6:
+  the earlier "unchanged 6000" predates the Task-10 interim bump to 24576, and T5's
+  `findings-cli.js` `BRIEF_MAX` 24000 would be denied under 6000); `fixer` dispatches are
   exempt (the `.fixer.md` is the input, and the parser caps it at 40 findings / 24 KB).
 - **R4** — unchanged logging.
 - The old ~24-char write-target heuristic is deleted.

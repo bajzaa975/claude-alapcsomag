@@ -60,13 +60,15 @@ function offListServed(payload, home) {
 
 if (require.main === module) {
   if (process.argv.includes('--off-list-served')) {
-    // stdin = the PostToolUse payload; one off-list served id per line; always exit 0.
+    // stdin = the PostToolUse payload; one '<off-list served id> <cause>' per line, cause = off-list (a valid
+    // list without it) or no-allowlist (the list is missing/invalid: a config error); always exit 0.
     let s = '';
     process.stdin.on('data', d => { s += d; }).on('end', () => {
       let v = null;
       try { v = JSON.parse(s); } catch { /* nothing to judge */ }
       const ids = v ? offListServed(v) : [];
-      if (ids.length) process.stdout.write(ids.join('\n') + '\n');
+      const cause = load().ok ? 'off-list' : 'no-allowlist';
+      if (ids.length) process.stdout.write(ids.map(m => `${m} ${cause}`).join('\n') + '\n');
     });
   } else {
     const r = load();

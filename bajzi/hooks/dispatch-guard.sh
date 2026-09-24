@@ -40,8 +40,9 @@
 #       a graph marker (code-review-graph, detect-changes, detect_changes_tool,
 #       get_review_context_tool, or a graph-*.json path), or -- the calibrate
 #       exemption -- NO range and the line
-#       'GRAPH: n/a single-file <...>runtime/findings/<name>.blind.md'. A range
-#       is a diff review, so the opt-out never covers one.
+#       'GRAPH: n/a single-file <...>runtime/findings/<name>.blind.md', and then
+#       no path-like token outside runtime/findings/ or runtime/briefs/
+#       (calib_extra). A range is a diff review, so the opt-out never covers one.
 #   R2  every class but FIXER and REVIEWER: deny ("use /bajzi:fix") if the prompt
 #       names a runtime/findings/*.md path or a *-review.md / *-rereview<n>.md /
 #       *-re-review<n>.md file (a slice id like code-review-r1.md is neither).
@@ -57,6 +58,7 @@
 #       A failed log write never changes the decision.
 # Prompt chars = UTF-8 characters of the decoded prompt (a \uXXXX escape counts
 # as one), counted by dropping continuation bytes, so the locale does not matter.
+# Paths are matched on the lowercased prompt with every \ turned into /.
 # The payload's newlines are flattened to spaces by json_fields, so the opt-out
 # "line" is matched as the marker preceded by start-of-prompt or whitespace.
 #
@@ -97,7 +99,9 @@ lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 # tokens are dropped from the text that is classified.
 nomd() { sed -E 's/[^ ]*\.md/ /g'; }
 sub_lc=$(lc "$sub")
-prompt_lc=$(lc "$prompt")
+# Backslashes -> / so a Windows path (runtime\findings\x.md) meets every path
+# regex (R1 opt-out, R2, fixer paths) exactly like its forward-slash form.
+prompt_lc=$(lc "$prompt" | tr '\\' '/')
 chars=$(printf '%s' "$prompt" | tr -d '\200-\277' | wc -c | tr -cd '0-9')
 [ -n "$chars" ] || chars=0
 
@@ -137,6 +141,14 @@ case "$sub_lc" in
         fi ;;
 esac
 
+# The calibrate opt-out's scope: the first path-like token (has a / or ends in
+# .<ext>, after trimming quotes/brackets/punctuation) that is NOT under
+# runtime/findings/ or runtime/briefs/. Empty = the brief names only its own files.
+# ponytail: token heuristic -- prose like "e.g." also counts; calibrate briefs are
+# machine-written (findings-cli.js brief calibrate), so that never bites.
+calib_extra() { printf '%s' "$prompt_lc" | tr -s '[:space:]' '\n' \
+    | sed -E "s/^[(\"'\`<]+//; s/[)\"'\`>.,;:]+\$//" | grep -vx 'n/a' \
+    | grep -E '/|[a-z0-9_-]\.[a-z0-9]{1,6}$' | grep -vE '(^|/)runtime/(findings|briefs)/[^/]+$' | head -n 1; }
 # Distinct *.fixer.md path tokens in the prompt.
 fixer_paths() { printf '%s' "$prompt_lc" | grep -oE "$FIXER_RE" 2>/dev/null | sort -u | wc -l | tr -cd '0-9'; }
 
@@ -153,6 +165,9 @@ if [ -d "$hookdir/../agents" ]; then
             elif ! [[ "$prompt_lc" =~ $CALIB_RE ]]; then
                 decision="deny:R1"
                 why="a bajzi:reviewer brief needs a <base>..<tip> commit range (FC brief review), or -- calibrate only -- 'GRAPH: n/a single-file runtime/findings/<x>.blind.md'."
+            elif [ -n "$(calib_extra)" ]; then
+                decision="deny:R1"
+                why="the calibrate opt-out brief names only its .blind.md and runtime/findings or runtime/briefs files; a review of other files needs a range and code-review-graph."
             fi ;;
         FIXER)
             [ "$(fixer_paths)" = "1" ] || { decision="deny:R2"

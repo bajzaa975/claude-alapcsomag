@@ -614,15 +614,18 @@ out=$(rvpay bajzi:reviewer a1 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MO
 [ "$out" = "{}" ] && [ ! -s "$viol" ] && pass "12t reviewer served on the list (<synthetic> ignored) -> nothing" || fail "12t" "$out $(cat "$viol" 2>&1)"
 served a2 claude-opus-5-5 glm-5.3 glm-5.3
 rvpay bajzi:reviewer a2 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
-[ "$(grep -c 'reviewer-model=' "$viol" 2>/dev/null)" = 1 ] && grep -qE '^[0-9TZ:-]+ level=claude reviewer-model=glm-5\.3$' "$viol" \
-    && pass "12t2 reviewer served glm-5.3 -> one reviewer-model=glm-5.3 line" || fail "12t2" "$(cat "$viol" 2>&1)"
+[ "$(grep -c 'reviewer-model=' "$viol" 2>/dev/null)" = 1 ] && grep -qE '^[0-9TZ:-]+ level=claude reviewer-model=glm-5\.3 cause=off-list$' "$viol" \
+    && pass "12t2 reviewer served glm-5.3 -> one reviewer-model=glm-5.3 cause=off-list line" || fail "12t2" "$(cat "$viol" 2>&1)"
 rm -f "$viol"
 rvpay bajzi:reviewer nosuch claude-sonnet-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
-grep -q 'reviewer-model=claude-sonnet-5$' "$viol" 2>/dev/null && pass "12t3 no transcript -> resolvedModel is judged" || fail "12t3" "$(cat "$viol" 2>&1)"
+grep -q 'reviewer-model=claude-sonnet-5 cause=off-list$' "$viol" 2>/dev/null && pass "12t3 no transcript -> resolvedModel is judged" || fail "12t3" "$(cat "$viol" 2>&1)"
 rm -f "$viol"
 printf '{"reviewer_models": ["glm-5.3"]}' > "$RMC"
 rvpay bajzi:reviewer a1 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
-grep -q 'reviewer-model=claude-opus-5-5$' "$viol" 2>/dev/null && pass "12t4 invalid allow-list -> nothing is on it, served opus logged" || fail "12t4" "$(cat "$viol" 2>&1)"
+grep -q 'reviewer-model=claude-opus-5-5 cause=no-allowlist$' "$viol" 2>/dev/null && pass "12t4 invalid allow-list -> served opus logged with cause=no-allowlist" || fail "12t4" "$(cat "$viol" 2>&1)"
+rm -f "$viol" "$RMC"
+rvpay bajzi:reviewer a1 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+grep -q 'reviewer-model=claude-opus-5-5 cause=no-allowlist$' "$viol" 2>/dev/null && pass "12t4b missing allow-list -> cause=no-allowlist (a config error, not a routing one)" || fail "12t4b" "$(cat "$viol" 2>&1)"
 rm -f "$viol"; printf '{"reviewer_models": ["claude-opus-5-5"]}' > "$RMC"
 rvpay bajzi:fixer a2 glm-5.3 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
 rvpay general-purpose a2 glm-5.3 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
@@ -717,6 +720,12 @@ out=$(dg 'calibrate debt' "$RV" 'Calibration mode.\nGRAPH: n/a single-file' $G)
 is_deny "$out" R1 && pass "13d4 opt-out without a path -> deny R1" || fail "13d4" "$out"
 out=$(dg 'calibrate debt' "$RV" 'GRAPH: n/a single-file runtime/findings/debt.blind.md.bak x' $G)
 is_deny "$out" R1 && pass "13d5 opt-out path must END in .blind.md -> deny R1" || fail "13d5" "$out"
+out=$(dg 'calibrate' "$RV" 'GRAPH: n/a single-file runtime/findings/debt.blind.md Review app/a.py and app/b.py fully' $G)
+is_deny "$out" R1 && pass "13d6 opt-out brief naming other source files -> deny R1" || fail "13d6" "$out"
+out=$(dg 'calibrate' "$RV" 'GRAPH: n/a single-file runtime/findings/debt.blind.md Also read x.sh' $G)
+is_deny "$out" R1 && pass "13d7 opt-out brief naming a bare file name -> deny R1" || fail "13d7" "$out"
+out=$(dg 'calibrate debt' "$RV" 'Calibration mode.\nGRAPH: n/a single-file D:\\r\\runtime\\findings\\debt.blind.md\nRead (D:\\r\\runtime\\findings\\debt.blind.md), see runtime/briefs/debt-calibrate.txt.' $G)
+is_allow "$out" && pass "13d8 opt-out with backslash paths + its own runtime/briefs file -> allow" || fail "13d8" "$out"
 # 13e: typed classification wins over the description; foreign FIX/OTHER never hit R1.
 out=$(dg 'implement code-review skill (review round 2 wiring)' "$IM" 'Build the code-review skill.' $G)
 is_allow "$out" && [ "$(logf 2)" = "IMPLEMENTER" ] && pass "13e implementer with 'review' in the description -> allow" || fail "13e" "$out $(lastlog)"
@@ -752,6 +761,10 @@ out=$(dg 'implement code-review' "$IM" 'Notes in docs/code-review-r1.md; diff at
 is_allow "$out" && pass "13f7 code-review-r1.md / runtime/briefs/*.diff -> not R2, allow" || fail "13f7" "$out"
 out=$(dg 'implement B5' "$IM" 'Implement per task-B5-brief.md; report in task-B5-report.md' $G)
 is_allow "$out" && pass "13f8 -brief.md / -report.md outside runtime/findings -> allow" || fail "13f8" "$out"
+out=$(dg 'implement s2' "$IM" 'Context: runtime\\findings\\s1-r1.md' $G)
+is_deny "$out" R2 && pass "13f9 backslash runtime\findings\*.md -> deny R2" || fail "13f9" "$out"
+out=$(dg 'implement s2' "$IM" 'Context: D:\\repo/runtime\\findings/s1-r1.md' $G)
+is_deny "$out" R2 && pass "13f10 mixed-slash findings path -> deny R2" || fail "13f10" "$out"
 # 13g: R2 does not apply to the reviewer (read-only: its round-2 brief NAMES the r1 file + report).
 out=$(dg 're-review code-review round 2' "$RV" "range: $S1..$S2\\n$GL\\ndiff: runtime/briefs/code-review-r2.diff\\nround-1 findings: runtime/findings/code-review-r1.md\\nfixer report: runtime/findings/code-review-r1.report.md" $G)
 is_allow "$out" && pass "13g reviewer round 2 naming runtime/findings/<id with review>-r1.md -> allow" || fail "13g" "$out"
