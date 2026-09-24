@@ -318,6 +318,19 @@ test('count-up: the count line plus at most 40 lines of error detail', () => {
   assert.doesNotMatch(res.out, /bad-40\b/);
 });
 
+test('count-up: errors in staged files are shown first, even when the tool lists them last', () => {
+  const r = repo(Object.assign({}, PY, { 'old.py': 'x=1\n', 'new.py': 'y=2\n' }), ['new.py']);
+  const diags = Array.from({ length: 99 }, (_, i) => ({ file: path.join(r, 'old.py'), severity: 'error', message: `old-${i}`, range: { start: { line: i } } }));
+  // pyright reports absolute paths; on Windows the case (drive letter) may differ from git's root.
+  const abs = path.join(r, 'new.py');
+  diags.push({ file: WIN ? abs.toUpperCase() : abs, severity: 'error', message: 'the-new-one', range: { start: { line: 0 } } });
+  const res = gate(r, fakes({ gitleaks: CLEAN, ruff: CLEAN, pyright: { exit: 1, stdout: JSON.stringify({ generalDiagnostics: diags, summary: { errorCount: 100 } }) } }));
+  assert.strictEqual(res.code, 1);
+  assert.match(res.out, /pyright 100 > 3 \(baseline\)/);
+  assert.match(res.out, /the-new-one/);
+  assert.doesNotMatch(res.out, /old-39\b/);
+});
+
 test('every gate run appends one GATE line to runtime/dispatch-sizes.log (T9 counts blocks); --init does not', () => {
   const r = repo(Object.assign({}, PY, { 'a.py': 'x=1\n' }));
   const logf = path.join(r, 'runtime', 'dispatch-sizes.log');

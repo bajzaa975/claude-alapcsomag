@@ -157,7 +157,7 @@ function count(name, root, dir) {
   const bin = findTool(name, cwd);
   if (!bin) return { err: missing(name) };
   let n;
-  let detail = [];   // one human-readable line per counted error, shown only on a count-up
+  let detail = [];   // {file (absolute), text} per counted error, shown only on a count-up
   let r;
   if (name === 'pyright') {
     r = run(bin, ['--outputjson'], cwd);
@@ -165,7 +165,7 @@ function count(name, root, dir) {
       const j = JSON.parse(r.stdout);
       n = j.summary.errorCount;
       detail = (j.generalDiagnostics || []).filter(x => x && x.severity === 'error')
-        .map(x => `${x.file}:${x.range && x.range.start ? x.range.start.line + 1 : '?'}: ${String(x.message).split('\n')[0]}`);
+        .map(x => ({ file: path.resolve(cwd, String(x.file)), text: `${x.file}:${x.range && x.range.start ? x.range.start.line + 1 : '?'}: ${String(x.message).split('\n')[0]}` }));
     } catch { n = undefined; }
     if (r.code > 1) n = undefined;
   } else {
@@ -173,7 +173,7 @@ function count(name, root, dir) {
     // Only located diagnostics count; a location-less one (config/global, e.g. TS5058) is a tool error.
     const LOC = /^\S.*\(\d+,\d+\): error TS\d+:/;
     const all = r.stdout.split(/\r?\n/).filter(l => /error TS\d+:/.test(l));
-    detail = all.filter(l => LOC.test(l)).map(l => (dir ? dir + '/' : '') + l);
+    detail = all.filter(l => LOC.test(l)).map(l => ({ file: path.resolve(cwd, l.replace(/\(\d+,\d+\): error TS.*$/, '')), text: (dir ? dir + '/' : '') + l }));
     n = detail.length;
     if (all.length > n) {
       show(all.filter(l => !LOC.test(l)));
@@ -293,11 +293,16 @@ function commitGate(root, cfg, baseFile) {
     }
     const { sums, details, err } = counts(root, cfg);
     worst = Math.max(worst, err);
+    // On a count-up, errors in staged files go first (stable sort) so the CAP shows the likely new
+    // ones. pyright reports absolute paths (backslashes, any drive-letter case on Windows): normalise.
+    const key = p => { const k = path.resolve(p).replace(/\\/g, '/'); return WIN ? k.toLowerCase() : k; };
+    const staged = new Set(files.map(f => key(path.join(root, f))));
+    const rank = d => (staged.has(key(d.file)) ? 0 : 1);
     let dropped = false;
     for (const [name, n] of Object.entries(sums)) {
       const b = base.value[name];
       if (!Number.isInteger(b)) { log(`${cfg.baseline} has no "${name}" count; run --init`); worst = Math.max(worst, 2); continue; }
-      if (n > b) { log(`${name} ${n} > ${b} (baseline); its errors:`); show(details[name], false); worst = Math.max(worst, 1); }
+      if (n > b) { log(`${name} ${n} > ${b} (baseline); its errors, staged files first:`); show(details[name].slice().sort((x, y) => rank(x) - rank(y)).map(d => d.text), false); worst = Math.max(worst, 1); }
       else if (n < b) { log(`${name} ${n} < ${b}; ratchet down`); dropped = true; }
       else log(`${name} ${n} <= ${b}`);
     }
