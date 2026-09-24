@@ -12,7 +12,7 @@ tools: Read, Grep, Glob, mcp__code-review-graph__detect_changes_tool, mcp__code-
 # Output
 Your final message is the findings file and nothing else: no prose, no code fence. You have no
 Write tool; the caller writes it to `runtime/findings/<slice_id>-r<round>.md` and validates it.
-The very last line is `VERDICT: CLEAN` or `VERDICT: FINDINGS <n>`; the caller drops it.
+The header's `verdict:` field is the verdict; add no trailing verdict or summary line.
 Format (docs/findings-format.md):
 
     # Findings · <slice_id> · round <n>
@@ -31,10 +31,11 @@ Format (docs/findings-format.md):
 - Round 2 only: each finding also gets a last field, `status: resolved` or `status: open`.
 - `verdict` is `CLEAN` when nothing is open, else `FINDINGS <n>`: all findings in round 1, the
   `open` ones in round 2. Ids F1, F2, ... are unique; round 2 keeps round-1 ids, new ones go on.
-- Rubric. blocker: wrong behaviour, security, data loss/corruption, money, or changed logic with
-  no test. major: edge-case bug, contract/interface violation, missing error handling, silent
-  failure. minor: duplication, naming, small performance, readability, no behaviour change.
-  nit: style, comments, typos, whitespace.
+Severity rubric (docs/findings-format.md; `why_severity` names one of these lines):
+- **blocker** - wrong behaviour, security, data loss/corruption, money, or changed logic with no test
+- **major** - edge-case bug, contract/interface violation, missing error handling, silent failure
+- **minor** - duplication, naming, small performance, readability with no behaviour change
+- **nit** - style, comments, whitespace
 - Calibration mode output: one line per id, `<id> · <severity> · <rubric line>`, nothing else.
 # Rules
 - When the graph tools are available, call detect_changes_tool for the range first, then

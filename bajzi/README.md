@@ -64,7 +64,7 @@ A token-efficient working method for Claude Code and Cowork.
 - Every node hook fails open: an internal error = allow, logged to `~/.claude/bajzi/hook-errors.log`
   (256 KB cap).
 - Tests (Git Bash on Windows, any shell on Linux), from the repo root:
-  `node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js` and
+  `node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js bajzi/tests/agents/*.test.js bajzi/lib/tests/*.test.js` and
   `bash bajzi/hooks/tests/saver-level-parity.sh`.
 
 ## Saver levels

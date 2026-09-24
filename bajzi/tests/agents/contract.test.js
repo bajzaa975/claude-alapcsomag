@@ -3,7 +3,7 @@
 // REAL agents through `claude -p` (plugin loaded from this checkout via --plugin-dir, session run
 // as the agent via --agent), so it needs a logged-in Claude subscription, takes minutes and costs
 // quota. Skipped unless BAJZI_CONTRACT=1, so the normal node suite stays offline.
-//   BAJZI_CONTRACT=1 TMP=D:/t3h node --test bajzi/agents/tests/contract.test.js
+//   BAJZI_CONTRACT=1 TMP=D:/t3h node --test bajzi/tests/agents/contract.test.js
 // L0 only: plain `claude` (override with BAJZI_CONTRACT_CLAUDE), never the glm/ccr/worker shims.
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -87,13 +87,11 @@ function runAgent(cwd, agent, prompt, extra) {
     cost: j.total_cost_usd, isError: j.is_error };
 }
 
-// The reviewer's final message is the findings file plus a last `VERDICT:` line (it has no Write
-// tool); the caller drops that line before writing/validating the file.
-function splitVerdict(text) {
-  const lines = text.trim().split(/\r?\n/);
-  const last = lines[lines.length - 1].trim();
-  assert.match(last, /^VERDICT: (CLEAN|FINDINGS \d+)$/, `reviewer last line: ${last}`);
-  return { file: `${lines.slice(0, -1).join('\n').trim()}\n`, verdict: last };
+// The reviewer's final message IS the findings file (it has no Write tool). No trailing VERDICT
+// line: findings.js would glue it onto the last field. The header `verdict:` carries the verdict.
+function reviewerFile(text) {
+  assert.doesNotMatch(text, /^VERDICT:/m, 'reviewer emitted a VERDICT: line');
+  return `${text.trim()}\n`;
 }
 
 const skip = process.env.BAJZI_CONTRACT === '1' ? false : 'set BAJZI_CONTRACT=1 (calls claude -p)';
@@ -118,17 +116,20 @@ test('reviewer + fixer contract on a two-defect fixture repo', { skip, timeout: 
     `slice_id: ${SLICE}`, 'round: 1', `range: ${base}..${tip}`, 'changed files:', '- cart.js',
     'diff:', diff, ''].join('\n'), ['--max-turns', '12']);
   assert.ok(rev.models.some((x) => /opus/.test(x)), `reviewer served ${rev.models}, not opus`);
-  const { file, verdict } = splitVerdict(rev.result);
+  const file = reviewerFile(rev.result);
   fs.mkdirSync(path.join(root, 'findings'));
   const r1 = path.join(root, 'findings', `${SLICE}-r1.md`);
   fs.writeFileSync(r1, file);
   const v = findings.validate(file);
   assert.ok(v.ok, `findings file invalid: ${v.errors.join('; ')}\n${file}`);
   assert.strictEqual(v.doc.slice, SLICE);
-  assert.strictEqual(verdict, `VERDICT: ${v.doc.header.verdict}`);
+  const verdict = v.doc.header.verdict;
   const fs1 = v.doc.findings;
-  const money = fs1.find((f) => f.file === 'cart.js' && ['major', 'blocker'].includes(f.severity)
-    && /cap|50|percent|coupon/i.test(f.finding));
+  // Anchored on the planted defect (cart.js:9 computes the cap, :10 ignores it) AND on wording that
+  // says the cap is not applied, so a "no test" or "percent not validated" finding cannot pass it.
+  const money = fs1.find((f) => /^cart\.js:(9|10)$/.test(f.location)
+    && ['major', 'blocker'].includes(f.severity)
+    && /cap/i.test(f.finding) && /ignor|never applied|not applied|unused|raw/i.test(f.finding));
   assert.ok(money, `money defect not rated >= major: ${fs1.map((f) => f.heading).join(' | ')}`);
   const nit = fs1.find((f) => /typo|teh|spell/i.test(`${f.finding} ${f.why_severity}`));
   assert.ok(nit, `typo nit not reported: ${fs1.map((f) => f.heading).join(' | ')}`);

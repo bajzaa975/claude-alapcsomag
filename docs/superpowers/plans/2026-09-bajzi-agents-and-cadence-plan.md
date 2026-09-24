@@ -230,8 +230,8 @@ Skills orchestrate; agents execute. Every skill logs one TSV line to
 only the spec; on `BLOCKED` stops and reports. The Tier-1 → opus rule is thereby a lookup, not a
 memory.
 
-**`/bajzi:review <slice-id> <range> [--round 2 --previous <file>]`** — dispatches `reviewer` with
-the write path; validates the file with `findings.js`; prints verdict and counts by severity.
+**`/bajzi:review <slice-id> <range> [--round 2 --previous <file>]`** — dispatches `reviewer`,
+receives the findings file as its final message and writes it (the reviewer has no write path, D1); validates the file with `findings.js`; prints verdict and counts by severity.
 Round 2 applies the close policy (D4): `open` blocker/major → `needs-owner.md`; `open` minor/nit
 that the fixer report marks `OUT_OF_SLICE` → `debt.md`; any `ATTEMPTED` id → escalated one level →
 `needs-owner.md`. Then checks the debt cap (D6) and prints `DEBT CAP HIT` if so.
