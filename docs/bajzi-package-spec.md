@@ -89,6 +89,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | `cc-router.js` + launcher install | `bajzi/bin/install.sh` (`install.sh:install_one`), launchers in `bajzi/bin/launchers/` (`worker`, `glm`, `ccr` + `.cmd` twins) | runs `node --test bajzi/bin/tests/cc-router.test.js` itself as a gate; `node --test bajzi/bin/tests/install.test.js` covers the installer against a decoy `HOME` | 1 (writes `~/.local/bin`) | An identical destination is left untouched; a different one is kept as `<name>.bak` (one generation — a later differing install overwrites it) before the copy (§8.1, §8.4). A failed backup aborts the run with that destination untouched; the copy goes to `<name>.tmp.<pid>` and is `mv`-ed over, so no half-written launcher is ever live. `install.test.js` strips `NODE_TEST_CONTEXT`, which would otherwise make the gate's nested `node --test` skip its files and exit 0. `.gitattributes` marks `bajzi/bin/launchers/**` `-text`: the bash launchers are LF, the `.cmd` twins CRLF, and no checkout may convert either. A plugin update does not refresh the installed copies (§8.3). |
 | Agent contract (frontmatter shape, `model` alias-only, `tools` allow-list, body ≤ 60 lines, no `Agent`/`Task` tool, required Input/Output/Rules/Never headings) | `bajzi/agents/*.md` (shipped by the plugin, auto-discovered — no manifest registration needed at the Claude Code level), validated by `bajzi/agents/tests/agents.test.js:validateAgent` | `node --test bajzi/agents/tests/agents.test.js` | 2 | `bajzi/agents/` ships empty of agent bodies in T1 (agents-and-cadence plan) — the contract is proven against `bajzi/agents/tests/fixtures/*.md` (one passing, one failing fixture per rule) so the suite does not pass vacuously; it re-validates every real `*.md` a later task (T3 reviewer/fixer, T4 implementer/implementer-risk) adds, with no test-file edit needed. `bajzi/skills/setup/manifest.json` `plugins[].why` for `bajzi@bajzi-plugins` names `agents` too (Invariant 5). |
 | Findings format, severity rubric, fixer/blind copies, D4 close policy, D6 debt cap | `docs/findings-format.md` (the contract), `bajzi/lib/findings.js:parse`/`validate`/`stripForFixer`/`stripSeverity`/`applyClosePolicy`/`mergeToDebt`/`debtCapHit` | `node --test bajzi/lib/tests/findings.test.js` | 1 | It decides what reaches the owner, what is parked in `debt.md` and what the fixer sees. Every emitting/routing function validates first and throws on an invalid file; `debtCapHit` fails closed (an unparseable `debt.md` is a hit). `applyClosePolicy` requires the round-1 file as its third argument: a finding new in round 2 was introduced by the fix and goes to the owner as rated (never debt), and a round-1 id absent from round 2 goes to the owner as unaccounted. `mergeToDebt` validates its arguments first and refuses (`DEBT CAP HIT`) a result over 24 KB. Keep `docs/findings-format.md` and the module in step: the doc's close-policy table mirrors `applyClosePolicy` branch for branch. |
+| `reviewer` / `fixer` agent bodies (role, output contract, severity-blind fixer) | `bajzi/agents/reviewer.md`, `bajzi/agents/fixer.md` (§6.12) | `node --test bajzi/agents/tests/agents.test.js`; live contract: `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/agents/tests/contract.test.js` (calls `claude -p`, minutes, quota) | 1 | The body is the single source of the role; nothing else restates it. The reviewer has **no Write tool** (read-only, D1): its final message is the findings file plus a last `VERDICT:` line that the caller drops before writing `runtime/findings/<slice>-r<n>.md` — a caller that forgets makes the VERDICT line a continuation of the last field. The findings template and rubric are embedded in the reviewer body because the agent runs in the target repo, where `docs/findings-format.md` does not exist — change both together. The fixer's input is always a `stripForFixer` copy. The contract test must strip `NODE_TEST_CONTEXT` from the child env, or a nested `node --test` silently runs nothing. |
 
 ## 3. Test commands
 
@@ -99,6 +100,7 @@ the PowerShell tool.
 | Suite | Command | Working dir | Shell |
 |---|---|---|---|
 | bajzi node hook tests | `node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js bajzi/agents/tests/*.test.js bajzi/lib/tests/*.test.js` | `bajzi-plugins-dev` | Git Bash or PowerShell (Node ≥18 expands the glob itself either way) |
+| agents live contract (opt-in, real `claude -p` at L0) | `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/agents/tests/contract.test.js` | `bajzi-plugins-dev` | Git Bash; needs a logged-in `claude` (plain CLI, never a shim); without the flag it is `# skipped 1` inside the node suite |
 | saver-level bash/node parity | `bash bajzi/hooks/tests/saver-level-parity.sh` | `bajzi-plugins-dev` | Git Bash only |
 | day-run / saver / dispatch-guard bash suite | `timeout 60 bash bajzi/skills/mode/tests/mode.sh </dev/null` | `bajzi-plugins-dev` | Git Bash; the `timeout` + `</dev/null` avoid a hang on a case that reads stdin |
 | cc-router shim tests | `node --test bajzi/bin/tests/*.test.js` (or `bash bajzi/bin/install.sh`, which runs them as a gate before copying) | `bajzi-plugins-dev` | Git Bash or PowerShell |
@@ -168,6 +170,10 @@ the PowerShell tool.
     status, review-queue item, push permission) is computed by the runner or a hook from runner-
     recorded facts (git refs, the git-dir ledger, the CLI's own stream-json records), never from a
     file the session wrote. Session-written files are claims (§6.11.7).
+13. **The fixer never sees severity, and the reviewer never writes.** `fixer` is dispatched on a
+    `stripForFixer` copy (no severity, `why_severity` or `if_unfixed`) and fixes every finding
+    alike; `reviewer` has only read tools and returns the findings file as its final message
+    (§6.12). Neither agent's `tools` includes `Agent`/`Task` (`agents.test.js`).
 
 ## 5. Architecture overview
 
@@ -1092,6 +1098,34 @@ frontend), else `pytest -q` + `ruff check .` through `.venv\Scripts\python.exe` 
 `python`). Only the exit code is read, never console text (`check.ps1:18-20`: RTK's summariser once
 printed "No issues found" for a command that exited 1).
 
+### 6.12 Agents and findings — technical
+
+Plugin agents (`bajzi/agents/*.md`, auto-discovered, namespaced `bajzi:<name>`). Every file meets
+the T1 contract in `agents.test.js:validateAgent` (alias-only `model`, allow-listed `tools`, body
+≤ 60 lines, Input/Output/Rules/Never, no `Agent`/`Task`). The findings file format, severity
+rubric, derived copies and close policy are `docs/findings-format.md` + `bajzi/lib/findings.js`.
+
+| Agent | model | tools | Input → output |
+|---|---|---|---|
+| `reviewer` | opus | Read, Grep, Glob, `detect_changes_tool`, `get_review_context_tool` | slice id, round, range, changed-file list + diff (caller runs git; round 2 adds the round-1 file and the fixer report) → final message = the findings file, last line `VERDICT: CLEAN\|FINDINGS <n>` |
+| `fixer` | sonnet | Read, Edit, Grep, Glob, Bash | `*.fixer.md` + slice id, slice files, test command → edits + tests, final message `FIX <slice> DONE <fixed>/<total>` then `<id> OUT_OF_SLICE` / `<id> ATTEMPTED: <why>` per untouched id (`findings.js:parseFixerReport`) |
+
+- The reviewer uses the code-review-graph tools when the session has them, otherwise it reads only
+  the changed files and what the diff calls. It has no shell, so the caller supplies the diff.
+  Calibration mode (a `# Blind re-rate` copy as input) answers one `<id> · <severity> · <rubric
+  line>` line per id.
+- The fixer creates a missing test file with `touch` (it has no Write tool), and reports
+  `ATTEMPTED: tests did not run` instead of debugging a broken test environment.
+- Live contract (`bajzi/agents/tests/contract.test.js`, opt-in `BAJZI_CONTRACT=1`): a throwaway
+  git repo whose tip adds `applyCoupon` with a money defect (the 50% cap is ignored) and a comment
+  typo; it runs `claude -p --plugin-dir bajzi --agent bajzi:reviewer` then `bajzi:fixer`
+  (`--strict-mcp-config --no-session-persistence`, fixer under `acceptEdits` + a `node --test`
+  Bash allow-list) and asserts: served models opus/sonnet, the file validates, the money defect is
+  ≥ major, the typo is reported, the fixer copy has no severity, the report line parses, fixture
+  tests are green and a hidden oracle (outside the repo) confirms the cap.
+- `--plugin-dir bajzi` registers every `*.md` under `bajzi/agents/`, recursively — including the
+  T1 harness fixtures as `bajzi:tests:fixtures:*` (open, see §11).
+
 ## 7. Shared state files
 
 Every file two or more components meet through. "Writer" is the only code that creates or changes
@@ -1560,4 +1594,5 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Review-queue state | — | no ledger, no items | — | `ls D:/AI/projektek/ClaudeCode/claude-orchestrator/.git/review-queue-ledger.tsv D:/AI/projektek/ClaudeCode/claude-orchestrator/runtime/review-queue` → both absent |
 | Agent scaffold + harness (§4.1, T0/T1 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): DAY-RUN-RULES.md Appendix A (T0); `bajzi/agents/` dir + `agents.test.js` contract + fixtures, `manifest.json` `plugins[].why` (T1) | no | agent bodies — `reviewer`/`fixer` (T3), `implementer`/`implementer-risk` (T4); skills (T5); dispatch-guard rewrite (T6); gate (T7); release 1.9.0 (T8) | `node --test bajzi/agents/tests/agents.test.js` → `# fail 0`; `bash bajzi/skills/mode/tests/mode.sh` → `PASS 169/169` |
 | Findings format + parser (§4.2, T2 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `docs/findings-format.md`, `bajzi/lib/findings.js`, `bajzi/lib/tests/findings.test.js` | no | callers — `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt` (T5); release 1.9.0 (T8) | `node --test bajzi/lib/tests/findings.test.js` → `# fail 0` |
+| `reviewer` + `fixer` agents (§6.12, T3 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/agents/reviewer.md`, `fixer.md`, `bajzi/agents/tests/contract.test.js` | no | callers — `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt` (T5); the T1 fixtures under `bajzi/agents/tests/fixtures/` load as live plugin agents (`bajzi:tests:fixtures:*`, one with the `Agent` tool) — move them out of `bajzi/agents/`; release 1.9.0 (T8) | `node --test bajzi/agents/tests/*.test.js` → `# fail 0`, `# skipped 1`; `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/agents/tests/contract.test.js` → `# pass 1` (2026-09-24: opus-5-5 reviewer F1 blocker/F2 major/F3 major/F4 nit, sonnet-5 fixer `DONE 4/4`) |
 | Context-guard accepted limits m-1/m-2 (§9.4) | — | — | await the owner's explicit acceptance | — (a decision, not a file) |
