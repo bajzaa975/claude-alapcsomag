@@ -8,7 +8,8 @@
 # fixture, so this test fails if SKILL.md's snippet drifts from the hook's.
 # Cases 4-11 run the real hook script against a fake plugin root; case 12 runs
 # the PostToolUse routing counter (hooks/routing-counter.sh), case 13 the
-# PreToolUse dispatch guard (hooks/dispatch-guard.sh).
+# PreToolUse dispatch guard (hooks/dispatch-guard.sh); case 16 the review/fix loop
+# skills' deterministic core (lib/findings-cli.js) and the four SKILL.md files.
 #
 # The real `claude` CLI is never invoked: PATH is prefixed with a shim that
 # exits 99 and drops a marker file; case 8 checks the marker never appeared.
@@ -800,6 +801,133 @@ expect "15e non-Anthropic session: no REVIEWER MODELS line" "$out" 'SAVER LEVEL 
 rm -rf "$FAKE_HOME/.claude/bajzi"
 # 15f: Fable depletion never restarts on the depleted model, even when entry [0] is Fable.
 grep -q 'the first REVIEWER MODELS id that is not a Fable model' "$RULES_MD"     && pass "15f Fable-depletion restart skips Fable ids" || fail "15f" "restart line may name the depleted model"
+
+# --- case 16: /bajzi:implement|review|fix|debt deterministic core (bajzi/lib/findings-cli.js) ---
+# The skills delegate every round, routing and cap decision to findings-cli.js; these cases run
+# it against fixture findings files in a temp repo. No model, no claude.
+CLI="$BAJZI_DIR/lib/findings-cli.js"
+SKILLS="$BAJZI_DIR/skills"
+CAD="$TMP/cadence"
+mkdir -p "$CAD/runtime/findings" "$CAD/runtime/slices"
+cli() { (cd "$CAD" && node "$CLI" "$@"); }
+fnd() { # $1 id, $2 severity, $3 location, $4 status (optional)
+    printf '## %s · %s · %s\nfinding: defect %s\nif_unfixed: users see %s break\nwhy_severity: %s - rubric\ntest: none\n' \
+        "$1" "$2" "$3" "$1" "$1" "$2"
+    [ -n "${4:-}" ] && printf 'status: %s\n' "$4"
+    printf '\n'
+}
+hdr() { printf '# Findings · %s · round %s\nrange: a..b\nreviewer: opus\nverdict: %s\nfiles_reviewed: 2\n\n' "$1" "$2" "$3"; }
+FD="$CAD/runtime/findings"
+{ hdr s1 1 'FINDINGS 7'
+  fnd F1 blocker app/a.py:1; fnd F2 major app/a.py:2; fnd F3 minor app/b.py:3; fnd F4 nit app/b.py:4
+  fnd F5 minor app/a.py:5; fnd F6 major app/a.py:6; fnd F7 minor app/c.py:7; } > "$FD/s1-r1.md"
+{ hdr s1 2 'FINDINGS 6'
+  fnd F1 blocker app/a.py:1 resolved; fnd F2 major app/a.py:2 open; fnd F3 minor app/b.py:3 open
+  fnd F4 nit app/b.py:4 open; fnd F5 minor app/a.py:5 open; fnd F6 major app/a.py:6 open
+  fnd F8 nit app/a.py:8 open; } > "$FD/s1-r2.md"
+printf 'FIX s1 DONE 2/7\nF2 OUT_OF_SLICE\nF3 OUT_OF_SLICE\nF4 OUT_OF_SLICE\nF5 ATTEMPTED: flaky clock\n' > "$FD/s1-r1.report.md"
+
+# 16a: /bajzi:fix stops after round 2 -- the r2 file gets no fixer copy, a round-3 file is refused,
+# and the skill text says so and never asks for a round 3.
+out="$(cli copy fixer runtime/findings/s1-r1.md)"; rc=$?
+if [ $rc -eq 0 ] && [ -f "$FD/s1-r1.fixer.md" ] && ! grep -qE 'blocker|major|minor|nit|why_severity|if_unfixed' "$FD/s1-r1.fixer.md"; then
+    pass "16a r1 -> severity-blind fixer copy"; else fail "16a r1 fixer copy" "rc=$rc $out"; fi
+out="$(cli copy fixer runtime/findings/s1-r2.md 2>&1)"; rc=$?
+if [ $rc -eq 3 ] && printf '%s' "$out" | grep -q 'STOP' && [ ! -f "$FD/s1-r2.fixer.md" ]; then
+    pass "16a2 r2 -> STOP exit 3, no fixer copy"; else fail "16a2 r2 fix not stopped" "rc=$rc $out"; fi
+cp "$FD/s1-r2.md" "$FD/s1-r3.md"
+out="$(cli validate runtime/findings/s1-r3.md 2>&1)"; rc=$?
+[ $rc -eq 3 ] && pass "16a3 round-3 file refused (exit 3)" || fail "16a3 round 3 accepted" "rc=$rc $out"
+rm -f "$FD/s1-r3.md"
+if grep -q 'copy fixer' "$SKILLS/fix/SKILL.md" && grep -q 'STOP' "$SKILLS/fix/SKILL.md" \
+    && ! grep -qE -- '--round 3' "$SKILLS/fix/SKILL.md" "$SKILLS/review/SKILL.md"; then
+    pass "16a4 fix SKILL.md stops after round 2, no round-3 call"; else fail "16a4 fix SKILL.md" "round cap text missing"; fi
+
+# 16b: review round 2 routes each D4 branch to the right file.
+out="$(cli validate runtime/findings/s1-r2.md)"
+[ "$out" = "FINDINGS 6 · blocker 0 · major 2 · minor 2 · nit 2" ] && pass "16b validate prints verdict + open counts" || fail "16b validate" "$out"
+out="$(cli close s1)"; rc=$?
+[ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | head -1)" = "closed 1 · owner 5 · debt 2" ] && pass "16b2 close summary" || fail "16b2 close" "rc=$rc $out"
+NO="$FD/needs-owner.md"; DB="$FD/debt.md"
+chk() { grep -qF -- "$2" "$3" && pass "$1" || fail "$1" "missing '$2' in $(basename "$3")"; }
+nchk() { ! grep -qF -- "$2" "$3" && pass "$1" || fail "$1" "unexpected '$2' in $(basename "$3")"; }
+chk "16b3 open major OUT_OF_SLICE -> owner as rated" "- s1/F2 · app/a.py:2 · major · " "$NO"
+chk "16b4 ATTEMPTED minor -> owner one level up" "- s1/F5 · app/a.py:5 · major (was minor) · users see F5 break · ATTEMPTED: flaky clock" "$NO"
+chk "16b5 claimed-fixed-but-open major -> owner as blocker" "- s1/F6 · app/a.py:6 · blocker (was major)" "$NO"
+chk "16b6 new in round 2 -> owner" "- s1/F8 · app/a.py:8 · nit · " "$NO"
+chk "16b7 round-1 id absent from r2 -> owner" "- s1/F7 · app/c.py:7 · minor · " "$NO"
+chk "16b8 OUT_OF_SLICE minor -> debt" "## s1/F3 · minor · app/b.py:3" "$DB"
+chk "16b9 OUT_OF_SLICE nit -> debt" "## s1/F4 · nit · app/b.py:4" "$DB"
+nchk "16b10 resolved F1 goes nowhere (owner)" "s1/F1" "$NO"
+nchk "16b11 resolved F1 goes nowhere (debt)" "s1/F1" "$DB"
+nchk "16b12 no owner item parked in debt" "s1/F2" "$DB"
+nchk "16b13 no debt item sent to owner" "s1/F3" "$NO"
+before="$(wc -l < "$NO")"; cli close s1 >/dev/null
+[ "$(wc -l < "$NO")" = "$before" ] && [ "$(grep -c '^## ' "$DB")" = 2 ] && pass "16b14 close is idempotent" || fail "16b14 re-close duplicated lines"
+
+# 16c: /bajzi:debt --check exits 1 on the D6 cap (>15 items, or >3 in one file), 0 under it.
+mkdebt() { # $1 = count, $2 = distinct files? (yes|no)
+    printf '# Debt\n\n'
+    local i f
+    for i in $(seq 1 "$1"); do
+        f="app/f$i.py"; [ "$2" = no ] && f="app/one.py"
+        printf '## s0/F%s · minor · %s:%s\nfinding: d\nif_unfixed: u\nwhy_severity: minor\ntest: none\norigin: s0\nparked: 2026-09-24\n\n' "$i" "$f" "$i"
+    done
+}
+mv "$DB" "$DB.keep"
+mkdebt 15 yes > "$DB"; out="$(cli check 2>&1)"; rc=$?
+[ $rc -eq 0 ] && pass "16c 15 items -> exit 0" || fail "16c 15 items" "rc=$rc $out"
+mkdebt 16 yes > "$DB"; out="$(cli check 2>&1)"; rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'DEBT CAP HIT' && pass "16c2 16 items -> exit 1 DEBT CAP HIT" || fail "16c2 16 items" "rc=$rc $out"
+mkdebt 4 no > "$DB"; out="$(cli check 2>&1)"; rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'app/one.py: 4 items' && pass "16c3 4 in one file -> exit 1" || fail "16c3 per-file" "rc=$rc $out"
+printf 'garbage\n' > "$DB"; cli check >/dev/null 2>&1; rc=$?
+[ $rc -eq 1 ] && pass "16c4 unparseable debt.md -> exit 1 (fails closed)" || fail "16c4" "rc=$rc"
+mkdebt 14 yes > "$DB"; out="$(cli close s1)"
+printf '%s' "$out" | grep -q 'DEBT CAP HIT: 16 items' && pass "16c5 close prints DEBT CAP HIT when parking crosses the cap" || fail "16c5" "$out"
+
+# 16d: --calibrate writes only disagreements to needs-owner.md, and blind_severity to debt.md.
+mv "$DB.keep" "$DB"; rm -f "$NO"
+printf 's1/F3 · minor · minor - rubric\ns1/F4 · minor · minor - rubric\n' > "$CAD/rerate.txt"
+out="$(cli calibrate rerate.txt)"; rc=$?
+[ $rc -eq 0 ] && [ "$out" = "calibrated 2 · disagreements 1" ] && pass "16d calibrate summary" || fail "16d calibrate" "rc=$rc $out"
+if [ "$(grep -c '^- ' "$NO")" = 1 ]; then
+    chk "16d2 only the disagreement reaches the owner" "- s1/F4 · app/b.py:4 · original: nit · blind: minor · users see F4 break" "$NO"
+else fail "16d2 needs-owner lines" "$(cat "$NO")"; fi
+[ "$(grep -c '^blind_severity: ' "$DB")" = 2 ] && pass "16d3 blind_severity written for every entry" || fail "16d3" "$(cat "$DB")"
+cp "$DB" "$DB.before"; printf 's1/F3 · major · x\n' > "$CAD/rerate.txt"
+cli calibrate rerate.txt >/dev/null 2>&1; rc=$?
+[ $rc -eq 2 ] && cmp -s "$DB" "$DB.before" && [ "$(grep -c '^- ' "$NO")" = 1 ] && pass "16d4 missing id -> exit 2, nothing written" || fail "16d4" "rc=$rc"
+cli copy blind >/dev/null
+! grep -qE '· (minor|nit) ·|why_severity|blind_severity' "$FD/debt.blind.md" && pass "16d5 blind copy has no severities" || fail "16d5" "$(cat "$FD/debt.blind.md")"
+
+# 16e: --drain drops resolved entries, keeps the rest, sends a drain-introduced finding to the owner.
+{ hdr debt 2 'FINDINGS 2'; fnd s1/F3 minor app/b.py:3 resolved; fnd s1/F4 nit app/b.py:4 open; fnd F9 major app/b.py:9 open; } > "$CAD/drain.md"
+out="$(cli drain drain.md)"; rc=$?
+if [ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | head -1)" = 'drained 1, remain 1' ] && ! grep -q 's1/F3' "$DB" \
+    && grep -q '## s1/F4 · nit' "$DB" && grep -qF -- '- drain/F9 · app/b.py:9 · major' "$NO"; then
+    pass "16e drain"; else fail "16e drain" "rc=$rc $out"; fi
+
+# 16f: /bajzi:implement picks the agent by the slice's tier (a lookup, not a memory).
+for t in 1 2 3; do printf '# Slice · sl%s\ntier: %s\nfiles: a.js\nacceptance: works\ntest: node --test\n' "$t" "$t" > "$CAD/runtime/slices/sl$t.md"; done
+if [ "$(cli slice sl1 | head -1)" = "agent: bajzi:implementer-risk" ] && [ "$(cli slice sl2 | head -1)" = "agent: bajzi:implementer" ] \
+    && [ "$(cli slice sl3 | head -1)" = "agent: bajzi:implementer" ]; then
+    pass "16f tier 1 -> implementer-risk, 2/3 -> implementer"; else fail "16f slice routing"; fi
+sed -i 's/^tier: 2/tier: 9/' "$CAD/runtime/slices/sl2.md"; cli slice sl2 >/dev/null 2>&1; rc=$?
+[ $rc -eq 2 ] && pass "16f2 bad tier refused" || fail "16f2" "rc=$rc"
+
+# 16g: every dispatch logs one R4-shaped TSV line.
+printf 'brief é\n' > "$CAD/b.txt"; cli log review bajzi:reviewer b.txt allow
+line="$(tail -1 "$CAD/runtime/dispatch-sizes.log")"
+if printf '%s' "$line" | grep -qE $'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\tSKILL-REVIEW\tbajzi:reviewer\t8\tallow$'; then
+    pass "16g dispatch log line (R4 format, chars not bytes)"; else fail "16g log" "$line"; fi
+
+# 16h: the four skills exist, are named, and route through findings-cli.js + the shared dispatch template.
+for s in implement review fix debt; do
+    f="$SKILLS/$s/SKILL.md"
+    if [ -f "$f" ] && sed -n 2p "$f" | grep -qx "name: $s" && grep -q 'findings-cli.js' "$f" && grep -q 'lib/dispatch.md' "$f"; then
+        pass "16h $s SKILL.md"; else fail "16h $s SKILL.md" "missing, misnamed or not wired"; fi
+done
 
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.

@@ -66,8 +66,10 @@ Changed logic without a test is at least major.
   `blind_severity:` once calibrated. No header fields. Merging an id already present is a no-op.
   `mergeToDebt` throws on a missing `origin`/`parked`/findings argument or an invalid item, and
   refuses (`DEBT CAP HIT: ...`) a merge whose result would exceed 24 KB; drain first.
-- `runtime/findings/needs-owner.md` - the items the owner decides, each with the ratings and the
-  `if_unfixed` line.
+- `runtime/findings/needs-owner.md` (`bajzi/lib/findings-cli.js:toOwner`) - the items the owner
+  decides, title `# Needs owner`, one appended line each:
+  `- <id> · <location> · <rating> · <if_unfixed> · <reason> · your call`, where rating is the
+  severity, `<new> (was <old>)` after an escalation, or `original: <x> · blind: <y>` (calibrate).
 
 ## Fixer report
 

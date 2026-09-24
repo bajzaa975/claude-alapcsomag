@@ -1,8 +1,8 @@
 # Slice format
 
 The contract between `/bajzi:implement` (T5) and the `implementer`/`implementer-risk` agents
-(`docs/superpowers/plans/2026-09-bajzi-agents-and-cadence-plan.md` §4.1, §4.3). No parser ships
-in this task (T4) — `/bajzi:implement` reads the file directly when it lands in T5.
+(`docs/superpowers/plans/2026-09-bajzi-agents-and-cadence-plan.md` §4.1, §4.3).
+`/bajzi:implement` parses the file with `bajzi/lib/findings-cli.js slice <id>`.
 
 ## Slice file
 
