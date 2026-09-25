@@ -559,13 +559,18 @@ and never by deleting the check.
 
 ### 4.5 Termination — the loop must end
 
-- **Maximum 3 review rounds.** Still blocking after round 3 → the story is
-  PARKED: not merged, not reported done. The PR stays open with the outstanding
-  findings written into its body, and the report lists it first under what the
-  owner should look at.
+- **Maximum 2 review rounds (ADR 0028 of claude-orchestrator).** Round 1 reviews
+  the diff; round 2 verifies the fixes and what they could have broken. Still
+  blocking after round 2 → the story is PARKED: not merged, not reported done.
+  The PR stays open with the outstanding findings written into its body, and
+  the report lists it first under what the owner should look at. A third round
+  is the OWNER's call, taken by hand in the morning — never by the session, and
+  never by hand-writing a brief the findings tool refused (SPRINT-147,
+  2026-09-25, did exactly that; the verdict was CLEAN and it was still a
+  decision taken without the owner).
 - **An identical blocking finding returned twice with no change in the diff
-  means the fixer is stuck. Park IMMEDIATELY** — do not spend a third round on
-  it — and say so in the park reason.
+  means the fixer is stuck. Park IMMEDIATELY** — do not spend the second round
+  on it — and say so in the park reason.
 - The loop is also bounded by your deadline and by the context thresholds in
   section 2; whichever floor is hit first wins. **Never begin a review round or
   a fixer round that cannot finish before {{STORY_FINALIZE_EPOCH}}**: run the

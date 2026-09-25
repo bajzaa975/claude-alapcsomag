@@ -481,10 +481,13 @@ silent compliance and never by deleting the check.
 
 "Loop until everything is green" needs a floor, or a story eats the night:
 
-- **Maximum 3 review rounds.** Still blocking after round 3 → the story is
-  PARKED, not merged, not reported done. The PR stays open with the outstanding
-  findings in its body, and the report lists it first under what the owner
-  should look at.
+- **Maximum 2 review rounds** (round 1 reviews the diff, round 2 verifies the
+  fixes; claude-orchestrator ADR 0028). Still blocking after round 2 → the story
+  is PARKED, not merged, not reported done. The PR stays open with the
+  outstanding findings in its body, and the report lists it first under what
+  the owner should look at. A third round is the owner's call in the morning,
+  never the session's (2026-09-25: SPRINT-147 hand-wrote a round-3 brief the
+  findings tool had refused).
 - The loop is also bounded by `PER_STORY_TIMEOUT` and by the context park
   thresholds in section 9. Whichever floor is hit first wins, and the park
   reason names which one it was: `review`, `timeout` or `context`.
