@@ -20,6 +20,10 @@
 #   WATCH_INTERVAL=900      seconds between ticks; 0 disables the watcher (exit 0)
 #   WATCH_MAX_RESTARTS=2    how many times a dead runner may be restarted
 #   WATCH_NOTIFY_CMD=""     optional command, gets ONE argument: the message
+#   WATCH_TRIAGE=1          tier 1: on every NEW terminal row in state.txt spawn ONE headless
+#                           `claude -p` tick (model WATCH_TRIAGE_MODEL, bypassPermissions) with
+#                           $NIGHT_DIR/WATCHER-BRIEF.md; 0 disables. Costs tokens only on events.
+#   WATCH_TRIAGE_MODEL=claude-sonnet-5   WATCH_TRIAGE_ESCALATION_MODEL=<reviewer allow-list [0]>
 #   DISK_FLOOR_GB           required, whole GB; below it the run is stopped
 #   NIGHT_DIR, BASE, PROJECT   as in run.sh
 #
@@ -410,6 +414,37 @@ maybe_notify(){ # status detail — only when the status CHANGED
   printf '%s\n' "$st" >"$STATUS_FILE" 2>/dev/null || true
 }
 
+# ------------------------------------------------------ tier 1: triage ---
+# Tier 0 (this script) never calls the model. Tier 1 does, but ONLY on an event: a NEW terminal row
+# in state.txt since the last check. One headless tick per event, detached, 10 min cap, logged to
+# $NIGHT_DIR/triage.log. The brief is rendered by the skill (PHASE C) into $NIGHT_DIR/WATCHER-BRIEF.md;
+# without it, or with WATCH_TRIAGE=0, this is a no-op.
+WATCH_TRIAGE=${WATCH_TRIAGE:-1}
+WATCH_TRIAGE_MODEL=${WATCH_TRIAGE_MODEL:-claude-sonnet-5}
+TRIAGE_BRIEF=$NIGHT_DIR/WATCHER-BRIEF.md
+TRIAGE_LOG=$NIGHT_DIR/triage.log
+TRIAGE_SEEN=0
+triage_check(){
+  [ "$WATCH_TRIAGE" = "1" ] || return 0
+  [ -f "$TRIAGE_BRIEF" ] || return 0
+  local sf; sf=$(state_file); [ -n "$sf" ] || return 0
+  local n; n=$(wc -l <"$sf" 2>/dev/null || echo 0)
+  [ "$n" -gt "$TRIAGE_SEEN" ] || return 0
+  local new; new=$(tail -n "$((n - TRIAGE_SEEN))" "$sf")
+  TRIAGE_SEEN=$n
+  command -v claude >/dev/null 2>&1 || { say "TRIAGE skipped: claude not on PATH"; return 0; }
+  local facts
+  facts=$(printf 'runner.log tail:\n%s\nstate.txt tail:\n%s\nwatch status: %s\n' \
+    "$(tail -n 15 "$NIGHT_DIR/logs/runner.log" 2>/dev/null)" "$(tail -n 10 "$sf")" "$(head -1 "$STATUS_FILE" 2>/dev/null)")
+  # awk, not sed: the event and the facts hold newlines and arbitrary characters.
+  local prompt
+  prompt=$(awk -v ev="new terminal rows in state.txt:
+$new" -v fa="$facts" '{ gsub(/\{\{EVENT\}\}/, ev); gsub(/\{\{FACTS\}\}/, fa); print }' "$TRIAGE_BRIEF")
+  say "TRIAGE tick: $(printf '%s' "$new" | tr '\n' ';')"
+  ( printf '%s' "$prompt" | timeout 600 claude -p --model "$WATCH_TRIAGE_MODEL" --permission-mode bypassPermissions \
+      --output-format text >>"$TRIAGE_LOG" 2>&1 || say "TRIAGE tick exited $?" ) 9>&- &
+}
+
 # THE RESTART BUDGET IS AN IN-MEMORY COUNTER, and this watcher's own memory is
 # the only authority for it. The watcher outlives every runner it restarts (a
 # second watcher spawned by a restarted runner exits on the single-instance
@@ -674,6 +709,7 @@ say "$PROG: watching $NIGHT_DIR (project=$PROJECT interval=${WATCH_INTERVAL}s ma
 init_restart_budget
 
 tick
+triage_check
 if [ $ONCE -eq 1 ] || [ "$TICK_EXIT" -eq 1 ]; then
   cleanup
   exit 0

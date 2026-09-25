@@ -269,6 +269,23 @@ Then write into `~/night-runs/<project>/`:
   in the rendered `{{QUEUE_TABLE}}` that same field is the column headed **`criteria`** —
   which is the header the brief's eight "acceptance-criteria cell" / "criteria column"
   references resolve against. `queue.txt` keeps `note`; the markdown header says `criteria`.
+- `WATCHER-BRIEF.md`, rendered from `templates/WATCHER-BRIEF.md.tmpl` into the night dir: substitute
+  `{{PROJECT}}` (config), `{{RUNNER}}` = `run.sh`, `{{RUN_DIR}}` = the night dir, `{{RUN_LOG}}` =
+  `<night dir>/logs/runner.log`, `{{TERMINAL_LINE_REGEX}}` = `^\S+ (merged|open|parked|blocked|DEFERRED-\S+) `,
+  `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the PHASE E launch
+  line, `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
+  `<night dir>/night-watch-summary.md`, `{{ESCALATION_MODEL}}` = entry [0] of the reviewer allow-list,
+  `{{ALLOWLIST}}` = the four lines below verbatim. Leave `{{EVENT}}` and `{{FACTS}}` in place: the
+  watchdog fills them per tick.
+  ```
+  - at L0: edit the session prompt template for the NEXT stories (log the diff), relaunch the runner from
+    the launch line minus finished stories, `claude -p --resume <id>` a session that exited cleanly without
+    its RESULT line (one time, 10 min cap), kill a session older than 45 min that is provably stuck.
+  - at L2/L3: read-only plus messaging; a guard-file edit would park the sprint.
+  - always: `git stash push -m "night-watch <HH:MM> orphaned wip"` when the tree has tracked changes and
+    no story session is running; never reset, checkout, push or touch main.
+  - never: runner scripts, hooks, settings, `.git/**`, review-queue ledger, a session under 45 min.
+  ```
 - `BRIEF.md`, rendered from `templates/BRIEF.md.tmpl` in three steps, in this order.
 
   **1. Substitute these THIRTEEN placeholders, and only these thirteen.**
@@ -520,6 +537,18 @@ EARLIER of `started_epoch` and the watcher's own start — because a restart rew
 BUDGET is counted in the watcher's memory, which outlives every runner it restarts;
 `watch.restarts` is only a crash hint, read once at start. A run it cannot date — no
 `run.meta`, no usable `started_epoch` — is reported `UNKNOWN` and nothing is restarted.
+
+**Tier 1, the triage watcher, is the only part that thinks — and it costs tokens only on an
+event.** With `WATCH_TRIAGE=1` (the default when `WATCHER-BRIEF.md` exists) the watchdog spawns ONE
+detached headless tick — `claude -p --model $WATCH_TRIAGE_MODEL --permission-mode bypassPermissions`,
+10 min cap, output in `triage.log` — every time `state.txt` gains a new terminal row. The tick gets the
+brief with the new rows as `{{EVENT}}` and the log tails as `{{FACTS}}`; it classifies EXPECTED vs
+ANOMALY mechanically, root-causes an anomaly within a fixed budget (one transcript tail; a sub-agent on
+the reviewer model only when that is not enough), acts inside the allowlist you rendered into the brief
+(prompt-template edit at L0, relaunch, one `--resume`, orphan stash), and appends one line per tick to
+`night-watch-state.md`. The last tick, on the queue end, writes `night-watch-summary.md` with a Lessons
+section. It never polls: the 2026-09-25 lesson was a watcher that logged "no status file" at 03:34 and
+waited for morning; the brief now tells it to diagnose and act.
 
 ## PHASE F — Morning follow-through (`report` mode)
 
