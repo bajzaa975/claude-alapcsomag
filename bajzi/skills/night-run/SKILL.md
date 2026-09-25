@@ -497,6 +497,10 @@ with `hours:8` puts eight hours of work into a 5.5-hour window and the rest is s
 > **Second likeliest:** the pgid check prints nothing and `console.log` ends with
 > `run.sh: config file not found`. Fix: check the path with
 > `ls -l ~/night-runs/<project>/config.env`, then re-run the launch line with the real one.
+> **`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`: export a LARGE value (e.g. `3600000`, one hour) for the
+> runner, never 0.** It is how long headless claude waits for a pending background task after the
+> session yields; the default is 600 s and 0 means no wait at all, so a session that yields while a
+> gate runs in the background exits immediately and its RESULT line is never written.
 > **Kill switch, any time:** `touch ~/night-runs/<project>/STOP`, checked between stories.
 
 **The watchdog starts itself.** `run.sh` spawns `night-watch.sh` (next to it) detached as soon

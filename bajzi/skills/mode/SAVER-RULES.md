@@ -3,7 +3,9 @@ FLASH RUNG (glm-5.3-flash): locate/map, tests/lint/build/shellcheck, read a file
   Dispatch = Bash:  glm -p --model haiku "<full task text>"
 GLM RUNG (glm-5.3): documents > 100 lines, implement a specified slice / TDD, fix review findings round 1.
   Dispatch = Bash:  glm -p "<full task text>"   (add --output-format json when you need usage;
-  run_in_background for anything over ~1 minute). Flash NEVER writes code.
+  run_in_background for anything over ~1 minute -- EXCEPT in a headless `claude -p` session, or
+  when the result decides your last action: there wait in the foreground, or the turn ends and the
+  task is killed before you act on it). Flash NEVER writes code.
 The worker cannot see this session: give it the repo path, file paths, acceptance criteria and the
 <=40-line report contract in the prompt.
 If no day-run routing table is in your context, everything not listed here stays on your session's model.
