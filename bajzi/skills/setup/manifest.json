@@ -1,6 +1,6 @@
 {
   "_comment": "The desired Claude Code state. ADDING A NEW ITEM = ONLY THIS FILE NEEDS EDITING.",
-  "updated": "2026-09-23",
+  "updated": "2026-09-26",
   "marketplaces": [
     {
       "source": "anthropics/claude-plugins-official",
@@ -8,7 +8,7 @@
     },
     {
       "source": "bajzaa975/claude-alapcsomag",
-      "why": "own plugin (bajzi)"
+      "why": "own plugin (bajzi). The same marketplace also lists bajzi-cowork, the claude.ai / Cowork-only variant: setup never installs it in Claude Code"
     },
     {
       "source": "DietrichGebert/ponytail",
@@ -229,6 +229,13 @@
       "cause": "TWO different failures, do not mix them up. (1) ON FIRST RUN: claude-mem's bun-runner.js downloads and installs the Bun runtime (https://bun.sh); from a cold start this exceeds the hook's 60 s limit — that is the 'timed out after 60s'. (2) PERSISTENTLY, on Windows: the worker communicates over a Unix socket (.sock), which does not work on Windows — that is the 'worker unreachable'. Installing Bun does NOT solve (2): on 2026-09-02 Bun was present on the laptop (~/.bun/bin/bun), yet the worker stayed unreachable.",
       "action": "On Windows do not chase Bun: disable the plugin and move on — in PowerShell, NOT inside Claude Code: `claude plugin disable claude-mem`. The hook does not affect the CLI. On Linux, installing Bun helps if you only see the (1) timeout: irm bun.sh/install.ps1 | iex (check: `where bun`). Do NOT rewrite the hook timeout in the plugin cache: the next update overwrites it.",
       "note": "2026-09-02: on the laptop (Win11) the worker stayed unreachable even with the latest claude-mem (13.23.1), with Bun ALREADY PRESENT — this ruled out a missing runtime as the cause. On the VM (Linux, 13.23.0) it is flawless. On Windows disabling is the final answer, not a workaround. IMPORTANT: `claude plugin disable` only affects a NEW session — an already running session keeps running its own, previously loaded MCP server (node -e bootstrap + scripts/mcp-server.cjs from the plugin's .mcp.json). So after disabling, close the running sessions, otherwise you will think the disable did not work. On 2026-09-02 this is exactly what misled us."
+    },
+    {
+      "when": "claude.ai / Cowork shows an old bajzi (stuck on 1.5.15) or the claude-alapcsomag marketplace says 'Sync failed'",
+      "symptom": "Claude Code has the new version, claude.ai and Cowork keep the old one; a manual marketplace update there fails.",
+      "cause": "claude.ai-hosted marketplace sync rejects plugins that ship bin/ executables; bajzi has shipped bin/ (cc-router + launchers) since 1.7.0.",
+      "action": "In claude.ai install bajzi-cowork (skills-only build of bajzi, made by tools/build-cowork.js) and uninstall the old bajzi there. If Claude Code then also lists bajzi-cowork@synced next to bajzi@bajzi-plugins, disable the synced one in a plain shell: `claude plugin disable bajzi-cowork@synced` (duplicate handoff/autopilot/modszertan skills otherwise compete for the same triggers).",
+      "note": "2026-09-26: diagnosed from the 'Sync failed' badge plus the bin/ first appearing in 1.7.0; the exact server error text was not captured."
     },
     {
       "when": "After you added a new skill to the bajzi plugin",
