@@ -9,5 +9,5 @@ UNCHANGED, on Claude exactly as in the table: implement/fix (sonnet), risk-beari
 debugging (opus), every review (REVIEWER, the reviewer allow-list), all ORCHESTRATOR-ONLY work.
 PEAK: if `glm` exits 75 (Z.ai peak window), do that task on haiku instead; do not retry GLM until the window closes.
 Dispatch first line: model: glm-flash -- saver L1.   DAY-RUN.log: model=glm-flash.
-After superpowers:writing-plans never ask the execution method; execute per this mode.
+After superpowers:writing-plans never ask the execution method; use superpowers:subagent-driven-development + the bajzi review loop.
 CLOSING REPORT: run `worker --usage <session start ISO>` and paste its last two lines.

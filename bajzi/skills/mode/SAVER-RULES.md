@@ -15,5 +15,5 @@ ESCALATION LADDER for the GLM-rung classes becomes: glm r1 -> sonnet r2 -> opus 
 PEAK: if `glm` exits 75 (Z.ai peak window), do that task on the Claude model the day-run table names
 (flash classes -> haiku, glm classes -> sonnet); do not retry GLM until the window closes.
 Dispatch first line: model: glm -- saver mode.   DAY-RUN.log: model=glm.
-After superpowers:writing-plans never ask the execution method; execute per this mode.
+After superpowers:writing-plans never ask the execution method; use superpowers:subagent-driven-development + the bajzi review loop.
 CLOSING REPORT: run `worker --usage <session start ISO>` and paste its last two lines.

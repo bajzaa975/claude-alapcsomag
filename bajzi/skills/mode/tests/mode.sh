@@ -852,6 +852,15 @@ out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.' $G)
 is_deny "$out" R1 && pass "13p log write failure -> decision unchanged (deny R1)" || fail "13p" "$out"
 rm -f "$FAKE_CWD/runtime"; mkdir -p "$FAKE_CWD/runtime"
 
+# --- case 14: writing-plans execution-method rule reaches every injected text ---
+# "never ask the execution method" after superpowers:writing-plans must be in every text the
+# hook can inject: the day-run rules and all three saver levels (L1, L2=SAVER-RULES.md, L3).
+for f in "$RULES_MD" "$MODE_DIR/SAVER-L1.md" "$MODE_DIR/SAVER-RULES.md" "$MODE_DIR/SAVER-L3.md"; do
+    grep -q 'never ask the execution method' "$f" \
+        && pass "14 $(basename "$f") carries the never-ask-execution-method line" \
+        || fail "14 $(basename "$f")" "line missing"
+done
+
 # --- case 15: the reviewer allow-list line (spec Invariant 3) ---
 # day-run on a Claude session appends REVIEWER MODELS from $HOME/.claude/bajzi/config.json; an
 # invalid list (GLM id, missing, malformed, empty) gets the stated Opus fallback + a setup warning;
