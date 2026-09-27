@@ -58,6 +58,7 @@ Log every dispatch, one line, exact format, appended to runtime/DAY-RUN.log:
 <ISO time> <task-class> model=<name> rounds=<n> result=<pass|fail|park|direct>
 Allowed questions, only these three: scope change; forbidden zone; park-or-continue. Everything
 else is decided and logged. Day-run never merges.
+After superpowers:writing-plans never ask the execution method; execute per this mode.
 ## Owner tasks — do it yourself
 Default: if you can do it, you do it. No question, no approval line. A step assigned
 to the owner is the exception and must name its rung:
