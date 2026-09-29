@@ -171,7 +171,7 @@
   "settings_merge": {
     "effortLevel": "xhigh",
     "modelSettings": {
-      "claude-opus-5": {
+      "claude-opus-5-5": {
         "effortLevel": "high"
       }
     },

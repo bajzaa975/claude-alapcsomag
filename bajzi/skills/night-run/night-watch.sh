@@ -23,7 +23,7 @@
 #   WATCH_TRIAGE=1          tier 1: on every NEW terminal row in state.txt spawn ONE headless
 #                           `claude -p` tick (model WATCH_TRIAGE_MODEL, bypassPermissions) with
 #                           $NIGHT_DIR/WATCHER-BRIEF.md; 0 disables. Costs tokens only on events.
-#   WATCH_TRIAGE_MODEL=claude-sonnet-5   WATCH_TRIAGE_ESCALATION_MODEL=<reviewer allow-list [0]>
+#   WATCH_TRIAGE_MODEL=sonnet            WATCH_TRIAGE_ESCALATION_MODEL=<reviewer allow-list [0]>
 #   DISK_FLOOR_GB           required, whole GB; below it the run is stopped
 #   NIGHT_DIR, BASE, PROJECT   as in run.sh
 #
@@ -420,7 +420,7 @@ maybe_notify(){ # status detail — only when the status CHANGED
 # $NIGHT_DIR/triage.log. The brief is rendered by the skill (PHASE C) into $NIGHT_DIR/WATCHER-BRIEF.md;
 # without it, or with WATCH_TRIAGE=0, this is a no-op.
 WATCH_TRIAGE=${WATCH_TRIAGE:-1}
-WATCH_TRIAGE_MODEL=${WATCH_TRIAGE_MODEL:-claude-sonnet-5}
+WATCH_TRIAGE_MODEL=${WATCH_TRIAGE_MODEL:-sonnet}   # alias: follows the newest Sonnet
 TRIAGE_BRIEF=$NIGHT_DIR/WATCHER-BRIEF.md
 TRIAGE_LOG=$NIGHT_DIR/triage.log
 TRIAGE_SEEN=0
