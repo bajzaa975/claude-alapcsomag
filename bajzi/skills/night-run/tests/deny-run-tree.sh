@@ -71,6 +71,20 @@ expect_fail rel 'Edit(runtime/**)' 'DENY COVERS RUN TREE: Edit(runtime/**)' \
   "a relative glob is BASE-relative: Edit(runtime/**) fails"
 expect_fail root "Edit(/${BASE}/**)" "DENY COVERS RUN TREE: Edit(/${BASE}/**)" \
   "Edit(//<BASE>/**) (absolute root) fails"
+expect_fail dirform 'Edit(~/bss-*)' 'DENY COVERS RUN TREE: Edit(~/bss-*)' \
+  "a directory-form deny without /** (~/bss-*) fails"
+expect_fail dirrt 'Edit(~/bss-night/runtime)' 'DENY COVERS RUN TREE: Edit(~/bss-night/runtime)' \
+  "Edit(<BASE>/runtime) (directory, no /**) fails"
+expect_fail dirslash 'Edit(~/bss-night/runtime/)' 'DENY COVERS RUN TREE: Edit(~/bss-night/runtime/)' \
+  "Edit(<BASE>/runtime/) (trailing slash) fails"
+expect_fail dotrel 'Edit(./runtime/**)' 'DENY COVERS RUN TREE: Edit(./runtime/**)' \
+  "Edit(./runtime/**) (./ form) fails"
+expect_fail anydepth 'Edit(handoff/)' 'DENY COVERS RUN TREE: Edit(handoff/)' \
+  "a slash-less Edit(handoff/) matches at any depth and fails"
+expect_fail anymd 'Edit(*.md)' 'DENY COVERS RUN TREE: Edit(*.md)' \
+  "a slash-less Edit(*.md) matches at any depth and fails"
+expect_pass anchored 'Edit(/handoff)' "an anchored Edit(/handoff) is BASE-root only and passes"
+expect_pass otherdir 'Edit(secrets/)' "a slash-less directory not on the run paths (secrets/) passes"
 expect_pass sibling 'Edit(~/bss-other/**)' "a sibling tree (~/bss-other/**) passes"
 expect_pass deeper  'Edit(~/bss-*/secrets/**)' "a narrower protected subtree (~/bss-*/secrets/**) passes"
 expect_pass etc     'Edit(//etc/**)'         "a rule outside the run trees (//etc/**) passes"

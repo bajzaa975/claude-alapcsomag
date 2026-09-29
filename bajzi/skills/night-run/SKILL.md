@@ -408,11 +408,22 @@ for r in bad:
 def rx(g):  # gitignore-style: ** crosses '/', * and ? do not
     t = re.findall(r"\*\*/|\*\*|[*?]|[^*?]+", g)
     return re.compile("".join({"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}.get(x) or re.escape(x) for x in t) + r"\Z")
-def path(g):  # '~/' = $HOME, '//' = absolute root, anything else is relative to BASE
-    return os.path.expanduser(g) if g.startswith("~/") else g[1:] if g.startswith("//") else base + "/" + g.lstrip("/")
+def path(g):  # '~/' = $HOME, '//' = absolute root, else BASE-relative ('./x' = 'x'); no inner '/' = any depth
+    g = g.rstrip("/") or g
+    if g.startswith("~/"):
+        return os.path.expanduser(g)
+    if g.startswith("//"):
+        return g[1:]
+    g = g[2:] if g.startswith("./") else g
+    return base + ("/" if "/" in g else "/**/") + g.lstrip("/")
+def up(p):  # the probe and every directory above it: a deny on a directory covers everything beneath it
+    while p:
+        yield p
+        p = p.rpartition("/")[0]
 probes = [base + "/runtime/AUTOPILOT-REPORT.md", base + "/runtime/handoff/x.md", night + "/wt/S1/file"]
 hits = [r for r in perms.get("deny", [])
-        if (m := re.fullmatch(r"(?:Edit|Write)\((.*)\)", r)) and any(rx(path(m[1])).match(p) for p in probes)]
+        if (m := re.fullmatch(r"(?:Edit|Write)\((.*)\)", r))
+        and any(rx(path(m[1])).match(a) for p in probes for a in up(p))]
 for r in hits:
     print("DENY COVERS RUN TREE:", r)
 sys.exit(1 if bad or hits else 0)

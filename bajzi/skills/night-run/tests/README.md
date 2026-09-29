@@ -12,10 +12,11 @@ bash tests/watch.sh            # ~35 s   (night-watch.sh only: no run.sh, no cla
 bash tests/deny-run-tree.sh     # ~1 s    (SKILL.md PHASE C rules check on the rendered settings template: no claude, no git)
 ```
 
-All three scripts are safe to run on a machine that has a real night running:
+All four scripts are safe to run on a machine that has a real night running:
 
 * they never execute the real `claude` — every session is a **fake claude**
-  script created by `lib.sh`, driven by a plan file;
+  script created by `lib.sh`, driven by a plan file (`deny-run-tree.sh` starts no
+  session at all: it only runs the SKILL.md rules check on strings);
 * everything they create lives under `$NR_SCRATCH` — ONE convention for all
   four files, default `${TMPDIR:-/tmp}/night-run-tests`, override it with
   `NR_SCRATCH=/some/dir`. `watch.sh` does not source `lib.sh` (it needs no fake
