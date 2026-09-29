@@ -405,9 +405,13 @@ rules = perms.get("allow", []) + perms.get("deny", []) + perms.get("ask", [])
 bad = [r for r in rules if re.search(r"<[A-Za-z]", r)]
 for r in bad:
     print("UNRENDERED RULE:", r)
-def rx(g):  # gitignore-style: ** crosses '/', * and ? do not
-    t = re.findall(r"\*\*/|\*\*|[*?]|[^*?]+", g)
-    return re.compile("".join({"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}.get(x) or re.escape(x) for x in t) + r"\Z")
+def rx(g):  # gitignore-style: ** crosses '/'; *, ? and [a-z] / [!a-z] do not
+    def tok(x):
+        if len(x) > 2 and x[0] == "[":
+            neg = x[1] in "!^"
+            return "[" + ("^/" if neg else "") + x[1 + neg:-1].replace("\\", "\\\\") + "]"
+        return {"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}.get(x) or re.escape(x)
+    return re.compile("".join(tok(x) for x in re.findall(r"\*\*/|\*\*|[*?]|\[[!^]?[^\]/]+\]|[^*?]", g)) + r"\Z")
 def path(g):  # '~/' = $HOME, '//' = absolute root, else BASE-relative ('./x' = 'x'); no inner '/' = any depth
     g = g.rstrip("/") or g
     if g.startswith("~/"):
@@ -420,7 +424,8 @@ def up(p):  # the probe and every directory above it: a deny on a directory cove
     while p:
         yield p
         p = p.rpartition("/")[0]
-probes = [base + "/runtime/AUTOPILOT-REPORT.md", base + "/runtime/handoff/x.md", night + "/wt/S1/file"]
+probes = [base + "/runtime/" + f for f in ("AUTOPILOT-REPORT.md", "DECISIONS.md", "handoff/night-S1.md",
+                                           "handoff/night-latest.md")] + [night + "/wt/S1/file"]
 hits = [r for r in perms.get("deny", [])
         if (m := re.fullmatch(r"(?:Edit|Write)\((.*)\)", r))
         and any(rx(path(m[1])).match(a) for p in probes for a in up(p))]
@@ -433,7 +438,7 @@ echo "rules rc=$?"   # 0 = every allow/deny/ask entry is rendered AND no Edit/Wr
 
 `<BASE>` and `<NIGHT_DIR>` are config.env's `BASE` and `NIGHT_DIR`, absolute (the same values
 that scope the `git -C` allow rules). The second check exists because the run's own sessions
-must be able to write in `<BASE>/runtime/` (`AUTOPILOT-REPORT.md`, `handoff/`) and in
+must be able to write in `<BASE>/runtime/` (`AUTOPILOT-REPORT.md`, `DECISIONS.md`, `handoff/night-*.md`) and in
 `<NIGHT_DIR>/wt/<id>/`: a section-3 `Edit(<glob>)` line that covers any of those (e.g. an
 innotel `Edit(~/bss-*/**)` next to `BASE=~/bss-night`) prints `DENY COVERS RUN TREE: <rule>`
 and fails the render. Narrow the glob to the protected subtree, or drop the rule. The check is

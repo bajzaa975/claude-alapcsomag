@@ -4,7 +4,8 @@
 # base worktree ~/bss-night, so story sessions could not write
 # runtime/AUTOPILOT-REPORT.md or runtime/handoff/). It runs the very snippet
 # SKILL.md ships (extracted, not copied) on the shipped template, rendered with
-# a sample BASE / NIGHT_DIR. Pure strings: nothing is created, no claude runs.
+# a sample BASE / NIGHT_DIR. No claude runs and nothing outside $NR_SCRATCH is
+# touched; the rendered JSON and check output go to a scratch dir it recreates.
 #
 # Usage:  bash tests/deny-run-tree.sh
 set -u
@@ -83,6 +84,16 @@ expect_fail anydepth 'Edit(handoff/)' 'DENY COVERS RUN TREE: Edit(handoff/)' \
   "a slash-less Edit(handoff/) matches at any depth and fails"
 expect_fail anymd 'Edit(*.md)' 'DENY COVERS RUN TREE: Edit(*.md)' \
   "a slash-less Edit(*.md) matches at any depth and fails"
+expect_fail decrel 'Edit(runtime/DECISIONS.md)' 'DENY COVERS RUN TREE: Edit(runtime/DECISIONS.md)' \
+  "Edit(runtime/DECISIONS.md) fails"
+expect_fail decany 'Edit(DECISIONS.md)' 'DENY COVERS RUN TREE: Edit(DECISIONS.md)' \
+  "a slash-less Edit(DECISIONS.md) fails"
+expect_fail hoglob 'Edit(runtime/handoff/night-*.md)' 'DENY COVERS RUN TREE: Edit(runtime/handoff/night-*.md)' \
+  "Edit(runtime/handoff/night-*.md) (the real handoff names) fails"
+expect_fail range 'Edit(~/bss-[a-z]*/**)' 'DENY COVERS RUN TREE: Edit(~/bss-[a-z]*/**)' \
+  "a bracket range covering the base (~/bss-[a-z]*/**) fails"
+expect_pass range2 'Edit(~/bss-[x-z]*/**)' "a bracket range that excludes the base (~/bss-[x-z]*/**) passes"
+expect_pass negrange 'Edit(~/bss-[!n]*/**)' "a negated range that excludes the base (~/bss-[!n]*/**) passes"
 expect_pass anchored 'Edit(/handoff)' "an anchored Edit(/handoff) is BASE-root only and passes"
 expect_pass otherdir 'Edit(secrets/)' "a slash-less directory not on the run paths (secrets/) passes"
 expect_pass sibling 'Edit(~/bss-other/**)' "a sibling tree (~/bss-other/**) passes"
