@@ -9,6 +9,7 @@ cd bajzi/skills/night-run
 bash tests/lock-race.sh        # ~90 s   (40 race trials; `bash tests/lock-race.sh 8` for a quick pass)
 bash tests/quota.sh            # ~95 s
 bash tests/watch.sh            # ~35 s   (night-watch.sh only: no run.sh, no claude)
+bash tests/deny-run-tree.sh     # ~1 s    (SKILL.md PHASE C rules check on the rendered settings template: no claude, no git)
 ```
 
 All three scripts are safe to run on a machine that has a real night running:
@@ -35,6 +36,7 @@ That is how the "before" numbers below were measured.
 | `lock-race.sh` | the run lock and per-story session liveness |
 | `quota.sh` | what happens when the model says "You've hit your session limit" |
 | `watch.sh` | `night-watch.sh` alone: its statuses, its marker dating, its restart budget, its single-instance guard and its mode gate. Standalone — it sources nothing, fakes `run.sh` with stubs that record their argv (one of them also behaving like the real runner at queue start), and shadows `update-monitor` with a stub on `PATH` |
+| `deny-run-tree.sh` | the SKILL.md PHASE C rules check, extracted and run on the shipped settings template rendered with a sample BASE/NIGHT_DIR: a section-3 `Edit`/`Write` deny that covers `<BASE>/runtime/` or `<NIGHT_DIR>/wt/` must print `DENY COVERS RUN TREE:` and fail; sibling, narrower and `Read` rules must pass. Pure strings, sources `lib.sh` only for the tally |
 
 ### The fake claude
 

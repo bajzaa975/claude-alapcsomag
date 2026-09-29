@@ -397,17 +397,36 @@ Then prove the render, with the `~` expanded:
 
 ```bash
 python3 -c "import json;json.load(open('/home/ubuntu/night-runs/<project>/settings.local.json'))" && echo JSON_OK
-python3 - /home/ubuntu/night-runs/<project>/settings.local.json <<'PY'
-import json, re, sys
+python3 - /home/ubuntu/night-runs/<project>/settings.local.json <BASE> <NIGHT_DIR> <<'PY'
+import json, os, re, sys
 perms = json.load(open(sys.argv[1]))["permissions"]
+base, night = sys.argv[2].rstrip("/"), sys.argv[3].rstrip("/")   # config.env BASE / NIGHT_DIR, absolute
 rules = perms.get("allow", []) + perms.get("deny", []) + perms.get("ask", [])
 bad = [r for r in rules if re.search(r"<[A-Za-z]", r)]
 for r in bad:
     print("UNRENDERED RULE:", r)
-sys.exit(1 if bad else 0)
+def rx(g):  # gitignore-style: ** crosses '/', * and ? do not
+    t = re.findall(r"\*\*/|\*\*|[*?]|[^*?]+", g)
+    return re.compile("".join({"**/": "(?:.*/)?", "**": ".*", "*": "[^/]*", "?": "[^/]"}.get(x) or re.escape(x) for x in t) + r"\Z")
+def path(g):  # '~/' = $HOME, '//' = absolute root, anything else is relative to BASE
+    return os.path.expanduser(g) if g.startswith("~/") else g[1:] if g.startswith("//") else base + "/" + g.lstrip("/")
+probes = [base + "/runtime/AUTOPILOT-REPORT.md", base + "/runtime/handoff/x.md", night + "/wt/S1/file"]
+hits = [r for r in perms.get("deny", [])
+        if (m := re.fullmatch(r"(?:Edit|Write)\((.*)\)", r)) and any(rx(path(m[1])).match(p) for p in probes)]
+for r in hits:
+    print("DENY COVERS RUN TREE:", r)
+sys.exit(1 if bad or hits else 0)
 PY
-echo "rules rc=$?"   # 0 = every allow/deny/ask entry is rendered; anything else = the lines above
+echo "rules rc=$?"   # 0 = every allow/deny/ask entry is rendered AND no Edit/Write deny covers the run's own trees; anything else = the lines above
 ```
+
+`<BASE>` and `<NIGHT_DIR>` are config.env's `BASE` and `NIGHT_DIR`, absolute (the same values
+that scope the `git -C` allow rules). The second check exists because the run's own sessions
+must be able to write in `<BASE>/runtime/` (`AUTOPILOT-REPORT.md`, `handoff/`) and in
+`<NIGHT_DIR>/wt/<id>/`: a section-3 `Edit(<glob>)` line that covers any of those (e.g. an
+innotel `Edit(~/bss-*/**)` next to `BASE=~/bss-night`) prints `DENY COVERS RUN TREE: <rule>`
+and fails the render. Narrow the glob to the protected subtree, or drop the rule. The check is
+proved by `bajzi/skills/night-run/tests/deny-run-tree.sh`, which runs THIS snippet.
 
 **The check is scoped to the RULES, never to the whole file, and that is load-bearing.** A
 whole-file `grep '<[A-Za-z]'` is UNSATISFIABLE: on a PERFECT render it still returns 6 hits,
@@ -433,7 +452,7 @@ for hours while the owner sleeps, so the gate is not optional. Show:
 3. what was deferred, and why; 4. every blocker PHASE A found;
 5. one line that the PHASE C render gate came back clean: no leftover `{{placeholder}}` in
    `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
-   `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:` line (`rules rc=0`).
+   `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:` and no `DENY COVERS RUN TREE:` line (`rules rc=0`).
    Say it in those words. The `_comment*` keys of `settings.local.json` DO still contain
    `<angle-bracket>` text and that is correct — they are documentation, they are not rules,
    and they are outside the check on purpose. If the rules check did not come back 0, you
