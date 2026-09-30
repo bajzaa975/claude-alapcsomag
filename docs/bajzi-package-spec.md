@@ -327,9 +327,9 @@ block `:9-30`):
 > risk-bearing slice (locks, concurrency, quotas, auth, money, migrations, destructive scripts;
 > file count alone is not risk) → **opus, always, never sonnet, never GLM**; review a diff →
 > **Opus 5.5, always**; final whole-branch review → **Opus 5.5, always**; debugging → sonnet when a
-> failing test or repro command exists, else opus (no repro; it climbs to ORCH next, never down to sonnet); design/planning/
-> brainstorming → the orchestrator's own model, main thread, always. ESCALATION LADDER: sonnet r1 →
-> fresh sonnet r2 → opus r3 → ORCH r4 → park.
+> failing test or repro command exists, else opus (no repro; it climbs to ORCH next,
+> never down to sonnet); design/planning/brainstorming → the orchestrator's own model, main thread,
+> always. ESCALATION LADDER: sonnet r1 → fresh sonnet r2 → opus r3 → ORCH r4 (main thread) → park.
 
 Why sonnet for the fix r2 rung, repro debugging and non-risk 3+ file slices (1.10.0): Sonnet 5.5
 scores close to Opus 5.5 on the published coding benchmarks at half the per-token price, while Opus

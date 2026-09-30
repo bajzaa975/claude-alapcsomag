@@ -21,7 +21,7 @@ ROUTING TABLE, task class -> model:
 - debugging -> sonnet when a failing test or repro command exists (give it verbatim), climbing the
   ESCALATION LADDER below; else opus (no repro), which climbs to ORCH next, never down to sonnet
 - design/planning/brainstorming -> ORCH, main thread, always
-ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 (a new sub-agent) -> opus r3 -> ORCH r4 -> park.
+ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 (a new sub-agent) -> opus r3 -> ORCH r4 (main thread) -> park.
 Climbs on the FIRST failure, not the second. An identical blocking finding twice with no diff change parks immediately.
 REVIEW LOOP -- this is how every development is done, no exceptions, however small it looks:
 Each task ends with its own REVIEWER review giving TWO verdicts, spec compliance and quality. When
