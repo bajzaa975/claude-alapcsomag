@@ -262,7 +262,7 @@ grep -q 'Sub-agent tiers below are fixed regardless of ORCH' "$RULES_MD" && pass
 for kp in 'two verdicts per task: spec compliance, quality' 'STARTUP INJECTIONS: keep SessionStart hook output small' 'CLAUDE_MEM_CONTEXT_OBSERVATIONS=5' 'REVIEW LOOP, every development' 'DIRECT-EDIT THRESHOLD, all four' 'ESCALATION LADDER' 'FABLE DEPLETION' 'Only three questions allowed' 'Day-run never merges' '## Owner tasks'; do
     grep -qF -- "$kp" "$RULES_MD" && pass "7 rules keep: $kp" || fail "7 rule missing" "$kp"
 done
-# every ALL-CAPS-HYPHEN label SAVER-*.md cites (…-ONLY) must exist in the base rules
+# every ALL-CAPS-HYPHEN label SAVER-*.md cites (ORCH-ONLY) must exist in the base rules
 for lbl in $(grep -ho '[A-Z]\{3,\}-ONLY' "$MODE_DIR"/SAVER-*.md | sort -u); do
     grep -qF -- "$lbl" "$RULES_MD" && pass "7 SAVER label $lbl exists in DAY-RUN-RULES.md" || fail "7 SAVER label $lbl missing from DAY-RUN-RULES.md" "cited but absent"
 done
