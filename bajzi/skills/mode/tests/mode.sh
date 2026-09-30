@@ -252,6 +252,13 @@ if [ "$rules_lines" -le 80 ]; then
 else
     fail "7 DAY-RUN-RULES.md line count" "$rules_lines"
 fi
+rules_bytes="$(wc -c < "$RULES_MD" | tr -d ' ')"
+if [ "$rules_lines" -le 45 ] && [ "$rules_bytes" -le 4096 ]; then
+    pass "7 DAY-RUN-RULES.md <= 45 lines and <= 4096 bytes ($rules_lines/$rules_bytes)"
+else
+    fail "7 DAY-RUN-RULES.md size budget" "$rules_lines lines $rules_bytes bytes"
+fi
+grep -q 'Sub-agent tiers below are fixed regardless of ORCH' "$RULES_MD" && pass "7 rules keep: sub-agent tiers fixed regardless of ORCH" || fail "7 tiers-fixed rule" "missing"
 # the hook's head cap must not silently truncate the rules file again
 if printf '%s' "$out" | grep -q 'Day-run never merges\.'; then
     pass "7 last line of DAY-RUN-RULES.md survives the head cap"
@@ -893,6 +900,7 @@ expect "15e non-Anthropic session: no REVIEWER MODELS line" "$out" 'SAVER LEVEL 
 rm -rf "$FAKE_HOME/.claude/bajzi"
 # 15f: Fable depletion never restarts on the depleted model, even when entry [0] is Fable.
 grep -q 'the first REVIEWER MODELS id that is not a Fable model' "$RULES_MD"     && pass "15f Fable-depletion restart skips Fable ids" || fail "15f" "restart line may name the depleted model"
+grep -q 'no rung spends Fable' "$RULES_MD" && pass "15f FABLE DEPLETION keeps: no rung spends Fable" || fail "15f" "no-rung-spends-Fable rule missing"
 
 # --- case 16: /bajzi:implement|review|fix|debt deterministic core (bajzi/lib/findings-cli.js) ---
 # The skills delegate every round, routing and cap decision to findings-cli.js; these cases run
