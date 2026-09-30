@@ -19,7 +19,7 @@ ROUTING TABLE, task class -> model:
 - final whole-branch review -> REVIEWER, ALWAYS, on every development without exception. It does not
   matter what ORCH is or what wrote the code; the reviewer model is not a variable.
 - debugging -> sonnet when a failing test or repro command exists (give it verbatim), else opus;
-  opus after a failed sonnet round; ORCH takes it in the main thread after the third failed round
+  climbs the ESCALATION LADDER below (a fresh sonnet r2, opus r3, ORCH r4 in the main thread)
 - design/planning/brainstorming -> ORCH, main thread, always
 ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 (a new sub-agent) -> opus r3 -> ORCH r4 -> park.
 Climbs on the FIRST failure, not the second. An identical blocking finding twice with no diff change parks immediately.
