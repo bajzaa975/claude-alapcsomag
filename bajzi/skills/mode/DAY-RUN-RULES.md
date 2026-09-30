@@ -18,7 +18,7 @@ ROUTING TABLE, task class -> model:
 - design/planning/brainstorming -> ORCH, main thread, always
 ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 (new sub-agent) -> opus r3 -> ORCH r4 -> park. Climb on the FIRST failure. An identical
 blocking finding twice with no diff change parks at once.
-REVIEW LOOP, every development: implement -> REVIEWER review -> FIXER (never the reviewer, never ORCH) -> NEW review, until CLEAN; then
+REVIEW LOOP, every development: implement -> REVIEWER review (two verdicts per task: spec compliance, quality) -> FIXER (never the reviewer, never ORCH) -> NEW review, until CLEAN; then
 a final REVIEWER whole-branch review. One fix wave is not a loop. Use /bajzi:review and /bajzi:fix; dispatch-guard enforces briefs (R1-R3).
 CLEAN = zero Critical AND zero Important findings AND the repo's own gate exits 0. Minor findings go to the owner as a list, never
 looped on.
@@ -28,6 +28,7 @@ DIRECT-EDIT THRESHOLD, all four or delegate: <=20 changed lines, one file; no ne
 (deploy, secrets, CI config, migrations, history rewrite).
 CONTEXT: sub-agent reports <=40 lines, paths and counts only. Main thread never opens a file over 300 lines. At 40% context: finish the
 slice, write the handoff, ask to clear.
+STARTUP INJECTIONS: keep SessionStart hook output small; memory plugin capped at 5 observations (CLAUDE_MEM_CONTEXT_OBSERVATIONS=5).
 FABLE DEPLETION: on the session-limit message, start nothing new, write the handoff, say "Fable limit reached. Restart with <X>." X =
 the first REVIEWER MODELS id that is not a Fable model, else Opus. Next session: claude --model <X>; no rung spends Fable.
 Every dispatch's first line: model: <name> -- <reason>. Also log one line, exact format, to runtime/DAY-RUN.log:

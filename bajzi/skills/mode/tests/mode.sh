@@ -253,12 +253,19 @@ else
     fail "7 DAY-RUN-RULES.md line count" "$rules_lines"
 fi
 rules_bytes="$(wc -c < "$RULES_MD" | tr -d ' ')"
-if [ "$rules_lines" -le 45 ] && [ "$rules_bytes" -le 4096 ]; then
-    pass "7 DAY-RUN-RULES.md <= 45 lines and <= 4096 bytes ($rules_lines/$rules_bytes)"
+if [ "$rules_lines" -le 45 ] && [ "$rules_bytes" -le 4352 ]; then
+    pass "7 DAY-RUN-RULES.md <= 45 lines and <= 4352 bytes ($rules_lines/$rules_bytes)"
 else
     fail "7 DAY-RUN-RULES.md size budget" "$rules_lines lines $rules_bytes bytes"
 fi
 grep -q 'Sub-agent tiers below are fixed regardless of ORCH' "$RULES_MD" && pass "7 rules keep: sub-agent tiers fixed regardless of ORCH" || fail "7 tiers-fixed rule" "missing"
+for kp in 'two verdicts per task: spec compliance, quality' 'STARTUP INJECTIONS: keep SessionStart hook output small' 'CLAUDE_MEM_CONTEXT_OBSERVATIONS=5' 'REVIEW LOOP, every development' 'DIRECT-EDIT THRESHOLD, all four' 'ESCALATION LADDER' 'FABLE DEPLETION' 'Only three questions allowed' 'Day-run never merges' '## Owner tasks'; do
+    grep -qF -- "$kp" "$RULES_MD" && pass "7 rules keep: $kp" || fail "7 rule missing" "$kp"
+done
+# every ALL-CAPS-HYPHEN label SAVER-*.md cites (…-ONLY) must exist in the base rules
+for lbl in $(grep -ho '[A-Z]\{3,\}-ONLY' "$MODE_DIR"/SAVER-*.md | sort -u); do
+    grep -qF -- "$lbl" "$RULES_MD" && pass "7 SAVER label $lbl exists in DAY-RUN-RULES.md" || fail "7 SAVER label $lbl missing from DAY-RUN-RULES.md" "cited but absent"
+done
 # the hook's head cap must not silently truncate the rules file again
 last_rule="$(tail -n 1 "$RULES_MD" | tr -d '\r')"
 last_rule="${last_rule##*\" }"  # JSON escapes quotes; match the text after the last one

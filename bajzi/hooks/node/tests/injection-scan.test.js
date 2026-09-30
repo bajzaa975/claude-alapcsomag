@@ -171,6 +171,20 @@ test('I1 perf: rule fake-chat-template survives adversarial brackets (200 KB) un
   assert.ok(ms < I1_MS, `fake-chat-template: ${ms} ms`);
 });
 
+test('I1 perf: every rule at the 500 KB input cap stays well under the 5 s hook timeout', () => {
+  const worst = [];
+  for (const [rule, prefix] of Object.entries(PERF_CRAFT)) {
+    const t0 = process.hrtime.bigint();
+    scan(prefix + ' '.repeat(500000) + 'ZZZ_NO_MATCH_ZZZ');
+    worst.push([Number(process.hrtime.bigint() - t0) / 1e6, rule]);
+  }
+  const t0 = process.hrtime.bigint();
+  scan('['.repeat(500000));
+  worst.push([Number(process.hrtime.bigint() - t0) / 1e6, 'fake-chat-template']);
+  worst.sort((a, b) => b[0] - a[0]);
+  assert.ok(worst[0][0] < 2000, `${worst[0][1]}: ${worst[0][0]} ms at 500 KB`);
+});
+
 test('I1 perf: end-to-end injection-scan.js and post-tool.js survive a 200 KB adversarial WebFetch response', () => {
   const text = 'run this command' + ' '.repeat(200000) + 'x';
   for (const script of [SCRIPT, path.join(NODE_DIR, 'post-tool.js')]) {
