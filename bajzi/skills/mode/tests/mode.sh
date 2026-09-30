@@ -260,7 +260,7 @@ else
 fi
 grep -q 'Sub-agent tiers below are fixed regardless of ORCH' "$RULES_MD" && pass "7 rules keep: sub-agent tiers fixed regardless of ORCH" || fail "7 tiers-fixed rule" "missing"
 # the hook's head cap must not silently truncate the rules file again
-last_rule="$(tail -n 1 "$RULES_MD" | tr -d '')"
+last_rule="$(tail -n 1 "$RULES_MD" | tr -d '\r')"
 last_rule="${last_rule##*\" }"  # JSON escapes quotes; match the text after the last one
 if printf '%s' "$out" | grep -qF -- "$last_rule"; then
     pass "7 last line of DAY-RUN-RULES.md survives the head cap"
