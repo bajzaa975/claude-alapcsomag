@@ -20,7 +20,7 @@ test: node --test
 - Title: `# Slice · <slice-id>`, matching the filename.
 - Fields, all mandatory, one per line (`key: value`):
   - `tier`: `1`, `2` or `3` (plan §2 change-map semantics; Tier 1 = locks, concurrency, quotas,
-    auth, money, migrations, destructive scripts, or ≥ 3 files).
+    auth, money, migrations, destructive scripts; file count alone is not Tier 1).
   - `files`: comma-separated paths the agent may touch — the ownership boundary: the agent edits
     exactly these, in any directory (`docs/**` included, so a Tier-3 docs slice goes through the
     agent too), and never `runtime/**`, guard files, hooks, settings or `.githooks/**`.

@@ -9,10 +9,10 @@ const ROOT = path.join(BAJZI, '..');
 const read = p => fs.readFileSync(p, 'utf8');
 const noAlap = t => t.replace(/claude-alapcsomag/g, '').toLowerCase().includes('alapcsomag');
 
-test('version 1.9.0 in plugin.json and marketplace.json', () => {
-  assert.strictEqual(JSON.parse(read(path.join(BAJZI, '.claude-plugin', 'plugin.json'))).version, '1.9.0');
+test('plugin.json and marketplace.json carry the same bajzi version', () => {
+  const v = JSON.parse(read(path.join(BAJZI, '.claude-plugin', 'plugin.json'))).version;
   const m = JSON.parse(read(path.join(ROOT, '.claude-plugin', 'marketplace.json')));
-  assert.strictEqual(m.plugins.find(p => p.name === 'bajzi').version, '1.9.0');
+  assert.strictEqual(m.plugins.find(p => p.name === 'bajzi').version, v);
 });
 
 test('alapcsomag is retired: skill dir gone, no references left (the repo name aside)', () => {

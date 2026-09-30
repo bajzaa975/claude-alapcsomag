@@ -1,8 +1,8 @@
 model: sonnet - implementing a specified slice with TDD.
 
 Use opus instead, from round 1, when the slice is risk-bearing: locks,
-concurrency, quotas, auth, money, migrations, destructive scripts, or the
-slice touches 3+ files.
+concurrency, quotas, auth, money, migrations, destructive scripts. File count
+alone is not risk: a 3+ file slice stays on sonnet.
 
 Use this template to dispatch the implementer for one slice.
 

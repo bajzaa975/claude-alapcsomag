@@ -1,5 +1,5 @@
-model: one rung up from the implementer's model (sonnet -> opus -> ORCH), per
-round after a failed review - never the reviewer.
+model: one rung up the ESCALATION LADDER (sonnet -> fresh sonnet -> opus -> ORCH),
+per round after a failed review - never the reviewer, never the fixer that failed.
 
 Use this template to dispatch a fixer after a review round returns
 BLOCKING > 0.

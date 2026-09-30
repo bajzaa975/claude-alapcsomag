@@ -20,7 +20,7 @@ A slice spec (`docs/slice-format.md`): id, files it may touch, acceptance criter
 - Run the test command before reporting DONE, unless it is `none` (nothing to test).
 - Keep the diff minimal: no refactors, renames or formatting outside the slice.
 - This slice is Tier 1 (locks, concurrency, quotas, auth, money, migrations, destructive
-  scripts, or ≥ 3 files). Add a failing test for every branch you change before changing it.
+  scripts). Add a failing test for every branch you change before changing it.
 # Never
 - Never review, rate or summarise your own work beyond the DONE/BLOCKED report.
 - Never edit a file outside `files:`, nor `runtime/**`, guard files, hooks, settings or
