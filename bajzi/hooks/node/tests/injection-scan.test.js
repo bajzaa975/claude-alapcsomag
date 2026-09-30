@@ -5,7 +5,7 @@ const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set 
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { NODE_DIR, runScript } = require('./helpers');
+const { NODE_DIR, tmpDir, runScript } = require('./helpers');
 const { scan, RULE_IDS } = require('../lib/injection-rules');
 const { decide } = require('../injection-scan');
 
@@ -100,12 +100,36 @@ test('RF2: injection scanner survives bad stdin', () => {
   assert.match(JSON.parse(bom.stdout).hookSpecificOutput.additionalContext, /ignore-previous/);
 });
 
-test('hooks.json wires the scanner on Read|WebFetch|WebSearch|mcp__.*', () => {
+test('hooks.json wires the scanner (via post-tool.js) on exactly Read|WebFetch|WebSearch|mcp__.*', () => {
   const h = JSON.parse(fs.readFileSync(path.join(NODE_DIR, '..', 'hooks.json'), 'utf8')).hooks;
-  const e = h.PostToolUse.find(x => x.hooks.some(k => k.command === 'node "${CLAUDE_PLUGIN_ROOT}/hooks/node/injection-scan.js"'));
+  const e = h.PostToolUse.find(x => x.hooks.some(k => k.command === 'node "${CLAUDE_PLUGIN_ROOT}/hooks/node/post-tool.js"'));
   assert.ok(e);
-  assert.strictEqual(e.matcher, 'Read|WebFetch|WebSearch|mcp__.*');
+  assert.strictEqual(e.matcher, '.*');
   assert.strictEqual(e.hooks[0].timeout, 5);
+  assert.ok(!JSON.stringify(h).includes('injection-scan.js'), 'injection-scan.js must not also be wired directly');
+  // post-tool.js runs the scanner on exactly the old matcher's tools; pre-tool.js never does.
+  const dir = tmpDir('bajzi-probe-');
+  fs.mkdirSync(path.join(dir, 'lib'));
+  for (const f of ['pre-tool.js', 'post-tool.js', path.join('lib', 'hook-io.js')]) {
+    fs.copyFileSync(path.join(NODE_DIR, f), path.join(dir, f));
+  }
+  for (const c of ['context-guard', 'secret-guard', 'injection-scan']) {   // probes naming themselves
+    fs.writeFileSync(path.join(dir, `${c}.js`), `module.exports = { check: i => i.hook_event_name === 'PostToolUse'
+      ? { kind: 'context', text: 'probe:${c}' } : { kind: 'deny', rule: 'probe', reason: 'probe:${c}' } };\n`);
+  }
+  const covered = ['Read', 'WebFetch', 'WebSearch', 'mcp__srv__get', 'mcp__github__get_file_contents'];
+  for (const tool of [...covered, 'Bash', 'PowerShell', 'Grep', 'Glob', 'Write', 'Edit', 'Agent', 'Task', 'Skill']) {
+    for (const [ev, script] of [['PreToolUse', 'pre-tool.js'], ['PostToolUse', 'post-tool.js']]) {
+      const r = runScript(path.join(dir, script), JSON.stringify({ hook_event_name: ev, tool_name: tool, tool_input: {} }));
+      assert.strictEqual(r.stdout.includes('probe:injection-scan'), ev === 'PostToolUse' && covered.includes(tool), `${ev} ${tool}`);
+    }
+  }
+  // The real scanner is live through the real post-tool.js on every covered tool.
+  for (const tool of covered) {
+    const r = runScript(path.join(NODE_DIR, 'post-tool.js'),
+      JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: tool, tool_input: {}, tool_response: SAMPLES['ignore-previous'] }));
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /^\[bajzi:injection-scan\] [^\n]*ignore-previous/, tool);
+  }
 });
 
 test('500 KB of text scans in under 100 ms', PERF, () => {

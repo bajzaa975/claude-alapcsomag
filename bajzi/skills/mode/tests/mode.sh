@@ -832,8 +832,8 @@ case "$pre" in
 esac
 # 13m2: the merged hooks.json wires every hook of both branches exactly once per event.
 wired=$(node -e 'const h=require(process.argv[1]).hooks;const o=[];for(const[e,a]of Object.entries(h))for(const m of a)for(const c of m.hooks)o.push(e+":"+c.command.replace(/.*\/hooks\//,"").replace(/"$/,""));console.log(o.sort().join(" "))' "$BAJZI_DIR/hooks/hooks.json" 2>&1)
-want="PostToolUse:node/context-guard.js PostToolUse:node/injection-scan.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/context-guard.js PreToolUse:node/secret-guard.js PreToolUse:noise-filter.sh SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"
-[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 10 hooks of both branches wired exactly once" || fail "13m2" "got: $wired"
+want="PostToolUse:node/post-tool.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/pre-tool.js PreToolUse:noise-filter.sh SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"
+[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 8 hook entries wired exactly once (node checks via pre-tool.js/post-tool.js)" || fail "13m2" "got: $wired"
 # 13n: non-ASCII prompt -- characters, not bytes, under both locales; \u escape = 1 char.
 for loc in C C.UTF-8; do
     rm -f "$dlog"

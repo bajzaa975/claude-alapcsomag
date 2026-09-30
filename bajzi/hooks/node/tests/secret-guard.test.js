@@ -196,12 +196,37 @@ test('RF2: secret guard survives bad stdin', () => {
   assert.match(JSON.parse(bom.stdout).hookSpecificOutput.permissionDecisionReason, /^\[bajzi:env-file\]/);
 });
 
-test('hooks.json wires the secret guard on Read|Grep|Glob|Bash|PowerShell', () => {
+test('hooks.json wires the secret guard (via pre-tool.js) on exactly Read|Grep|Glob|Bash|PowerShell', () => {
   const h = JSON.parse(fs.readFileSync(path.join(NODE_DIR, '..', 'hooks.json'), 'utf8')).hooks;
-  const e = h.PreToolUse.find(x => x.hooks.some(k => k.command === 'node "${CLAUDE_PLUGIN_ROOT}/hooks/node/secret-guard.js"'));
+  const e = h.PreToolUse.find(x => x.hooks.some(k => k.command === 'node "${CLAUDE_PLUGIN_ROOT}/hooks/node/pre-tool.js"'));
   assert.ok(e);
-  assert.strictEqual(e.matcher, 'Read|Grep|Glob|Bash|PowerShell');
+  assert.strictEqual(e.matcher, '.*');
   assert.strictEqual(e.hooks[0].timeout, 5);
+  assert.ok(!JSON.stringify(h).includes('secret-guard.js'), 'secret-guard.js must not also be wired directly');
+  // pre-tool.js runs the secret check on exactly the old matcher's tools; post-tool.js never does.
+  const dir = tmpDir('bajzi-probe-');
+  fs.mkdirSync(path.join(dir, 'lib'));
+  for (const f of ['pre-tool.js', 'post-tool.js', path.join('lib', 'hook-io.js')]) {
+    fs.copyFileSync(path.join(NODE_DIR, f), path.join(dir, f));
+  }
+  for (const c of ['context-guard', 'secret-guard', 'injection-scan']) {   // probes naming themselves
+    fs.writeFileSync(path.join(dir, `${c}.js`), `module.exports = { check: i => i.hook_event_name === 'PostToolUse'
+      ? { kind: 'context', text: 'probe:${c}' } : { kind: 'deny', rule: 'probe', reason: 'probe:${c}' } };\n`);
+  }
+  const covered = ['Read', 'Grep', 'Glob', 'Bash', 'PowerShell'];
+  for (const tool of [...covered, 'BashOutput', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch',
+    'WebSearch', 'Agent', 'Task', 'Skill', 'mcp__srv__read']) {
+    for (const [ev, script] of [['PreToolUse', 'pre-tool.js'], ['PostToolUse', 'post-tool.js']]) {
+      const r = runScript(path.join(dir, script), JSON.stringify({ hook_event_name: ev, tool_name: tool, tool_input: {} }));
+      assert.strictEqual(r.stdout.includes('probe:secret-guard'), ev === 'PreToolUse' && covered.includes(tool), `${ev} ${tool}`);
+    }
+  }
+  // The real check is live through the real pre-tool.js on every covered tool.
+  for (const input of [read('.env'), { tool_name: 'Grep', tool_input: { pattern: 'x', path: '.env' } },
+    { tool_name: 'Glob', tool_input: { pattern: '.env' } }, bash('cat .env'), ps('Get-Content .env')]) {
+    const r = runScript(path.join(NODE_DIR, 'pre-tool.js'), JSON.stringify(input));
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /^\[bajzi:env-file\] /, input.tool_name);
+  }
 });
 
 // Best of 3 batches, as in context-guard.test.js: `node --test` runs the test FILES in parallel,
