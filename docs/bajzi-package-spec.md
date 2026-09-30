@@ -324,10 +324,19 @@ block `:9-30`):
 > ROUTING TABLE, task class → model: locate/map → haiku (or GLM flash at L1+); tests/lint/build →
 > haiku; read a file > 300 lines → haiku, summary only; documents > 100 lines → sonnet (or GLM at
 > L2+); implement a specified slice / TDD → sonnet, the default fixer (or GLM at L2+); a
-> risk-bearing slice (locks, concurrency, quotas, auth, money, migrations, destructive scripts, or
-> 3+ files) → **opus, always, never sonnet, never GLM**; review a diff → **Opus 5.5, always**;
-> final whole-branch review → **Opus 5.5, always**; debugging → opus; design/planning/
-> brainstorming → the orchestrator's own model, main thread, always.
+> risk-bearing slice (locks, concurrency, quotas, auth, money, migrations, destructive scripts;
+> file count alone is not risk) → **opus, always, never sonnet, never GLM**; review a diff →
+> **Opus 5.5, always**; final whole-branch review → **Opus 5.5, always**; debugging → sonnet when a
+> failing test or repro command exists, else opus (opus after a failed sonnet round); design/planning/
+> brainstorming → the orchestrator's own model, main thread, always. ESCALATION LADDER: sonnet r1 →
+> fresh sonnet r2 → opus r3 → ORCH r4 → park.
+
+Why sonnet for the fix r2 rung, repro debugging and non-risk 3+ file slices (1.10.0): Sonnet 5.5
+scores close to Opus 5.5 on the published coding benchmarks at half the per-token price, while Opus
+stays clearly ahead on open-ended judgment — so the Opus rung moves one step later instead of
+disappearing, and reviews, real Tier-1 slices and orchestration stay Opus. L1 follows the table;
+L2 keeps debugging on opus, because `routing-counter.sh` counts every sonnet dispatch at L2/L3 as a
+GLM bypass (it sees the model, not the task class).
 
 At **L3**, GLM cannot reach an Opus review at all — so the review obligation is met differently:
 the session **queues** the review instead of performing it (`SAVER-L3.md:6-11`): it appends
@@ -1439,6 +1448,8 @@ Success for the whole run: PHASE E's `setup --check: clean`.
    bump `claude plugin update` is a no-op (`manifest.json` `known_pitfalls`, "Releasing a new
    version" and "After you added a new skill"). In the same commit run `node tools/build-cowork.js`
    (restamps `bajzi-cowork` to the same version); `tools/tests/cowork-variant.test.js` fails otherwise.
+   Move the version pin in `bajzi/skills/project-setup/tests/release.test.js` in the same commit too
+   (it sat at 1.9.0 through 1.9.4, failing unnoticed).
    claude.ai / Cowork picks the release up when the marketplace is synced there (Customize →
    Plugins → Manage marketplaces → claude-alapcsomag); in claude.ai install `bajzi-cowork`, never `bajzi`.
 2. Each machine (plain shell): `claude plugin update bajzi@bajzi-plugins`, then

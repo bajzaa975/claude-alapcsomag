@@ -9,8 +9,8 @@ ROUTING TABLE, task class -> model:
 - read a file > 300 lines -> haiku; summary only
 - documents > 100 lines (handoffs, release notes) -> sonnet
 - implement a specified slice / TDD -> sonnet, the default fixer
-- risk-bearing slice (locks, concurrency, quotas, auth, money, migrations, destructive scripts, or
-  3+ files) -> opus starting round 1, never sonnet
+- risk-bearing slice (locks, concurrency, quotas, auth, money, migrations, destructive scripts)
+  -> opus starting round 1, never sonnet. File count alone is not risk: a 3+ file slice stays sonnet
 - fix review findings -> implementer's model, one rung up after a failed round; never the reviewer
 - review a diff -> REVIEWER, ALWAYS. Never ORCH's model, never the implementer's model, never a
   cheaper tier because the diff "looks small". Fresh context every round; EVIDENCE line required
@@ -18,10 +18,11 @@ ROUTING TABLE, task class -> model:
   after this block, else `reviewer_models` in ~/.claude/bajzi/config.json); never GLM.
 - final whole-branch review -> REVIEWER, ALWAYS, on every development without exception. It does not
   matter what ORCH is or what wrote the code; the reviewer model is not a variable.
-- debugging -> opus; ORCH takes it in the main thread after the third failed round
+- debugging -> sonnet when a failing test or repro command exists (give it verbatim), else opus;
+  opus after a failed sonnet round; ORCH takes it in the main thread after the third failed round
 - design/planning/brainstorming -> ORCH, main thread, always
-ESCALATION LADDER: sonnet r1 -> opus r2 -> ORCH r3 -> park. Climbs on the FIRST failure, not the
-second. An identical blocking finding twice with no diff change parks immediately.
+ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 (a new sub-agent) -> opus r3 -> ORCH r4 -> park.
+Climbs on the FIRST failure, not the second. An identical blocking finding twice with no diff change parks immediately.
 REVIEW LOOP -- this is how every development is done, no exceptions, however small it looks:
 Each task ends with its own REVIEWER review giving TWO verdicts, spec compliance and quality. When
 all tasks are done the branch gets a final REVIEWER whole-branch review. Findings go to a FIXER
