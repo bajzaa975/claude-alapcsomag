@@ -108,6 +108,7 @@ the PowerShell tool.
 | Suite | Command | Working dir | Shell |
 |---|---|---|---|
 | bajzi node hook tests | `node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js bajzi/tests/agents/*.test.js bajzi/lib/tests/*.test.js bajzi/gate/tests/*.test.js` | `bajzi-plugins-dev` | Git Bash or PowerShell (Node ≥18 expands the glob itself either way) |
+| latency budgets (opt-in) | `BAJZI_PERF=1 node --test bajzi/hooks/node/tests/*.test.js` | `bajzi-plugins-dev` | Git Bash or PowerShell; without the flag budget tests are skipped ("latency budget: set BAJZI_PERF=1"); the injection-scan `I1` adversarial tests always run with loose bounds (3 s per rule, 5 s end to end) |
 | agents live contract — reviewer/fixer (opt-in, real `claude -p` at L0) | `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/tests/agents/contract.test.js` | `bajzi-plugins-dev` | Git Bash; needs a logged-in `claude` (plain CLI, never a shim); without the flag it is `# skipped 1` inside the node suite |
 | agents live contract — implementer (opt-in, real `claude -p` at L0) | `BAJZI_CONTRACT=1 TMP=D:/t4h/tmp node --test bajzi/tests/agents/contract-implementer.test.js` | `bajzi-plugins-dev` | Git Bash; needs a logged-in `claude` (plain CLI, never a shim); `HOME`/`USERPROFILE` must stay real (decoying them loses the CLI credentials, "Not logged in"); without the flag it is `# skipped 1` inside the node suite |
 | bajzi-cowork build drift | `node --test tools/tests/cowork-variant.test.js` | `bajzi-plugins-dev` | Git Bash or PowerShell |
@@ -588,7 +589,7 @@ git spawn ≈ 120 ms). The budget test is opt-in: it runs only with `BAJZI_PERF=
 **Tests**: `node --test bajzi/hooks/node/tests/statusline.test.js` (exact-line fixture assertions,
 ANSI-stripped; a dedicated p95 timing test, opt-in via `BAJZI_PERF=1`).
 
-**Opt-in latency budgets**: every wall-clock budget test in `bajzi/hooks/node/tests/` (status line p95 < 150 ms; context-guard and secret-guard p95 < 100 ms; the `injection-scan.test.js` 500 KB, `I1 perf` and end-to-end timing tests) runs only with `BAJZI_PERF=1`; otherwise node:test reports it skipped with "latency budget: set BAJZI_PERF=1". Assertions are unchanged when set. Night-run test note: `bajzi/skills/night-run/tests/watch.sh` scenarios that probe runner liveness (1-5, 8, 10, 14-17) need `flock`; without it they print `SKIP (no flock)` and do not count as failures.
+**Opt-in latency budgets**: every wall-clock budget test in `bajzi/hooks/node/tests/` (status line p95 < 150 ms; context-guard and secret-guard p95 < 100 ms; the `injection-scan.test.js` 500 KB timing test and the tight 100 ms `I1` bounds) runs only with `BAJZI_PERF=1`; otherwise node:test reports it skipped with "latency budget: set BAJZI_PERF=1". Assertions are unchanged when set. Night-run test note: `bajzi/skills/night-run/tests/watch.sh` scenarios that probe runner liveness (1-5, 8, 10-11, 13-17) need `flock`; without it they print `SKIP (no flock)` and do not count as failures.
 
 ### 6.6 Context guard — technical
 
@@ -760,8 +761,8 @@ higher-trust channel. Pinned by the `I3:` test.
 
 **Linear-time guarantee**: no unbounded quantifier is immediately adjacent to another unbounded
 quantifier with only an optional single token between them (the `\s*X?\s*` shape). Each of the
-15 regex rules has its own 200 KB adversarial perf test (< 100 ms; opt-in via `BAJZI_PERF=1`, skipped otherwise) plus one end-to-end hook-process
-perf test (the `I1:` tests). Why it matters: a quadratic `tool-coercion` regex took 16.4 s on a
+15 regex rules has its own 200 KB adversarial perf test (always run, < 3 s bound to catch quadratic blowup; tight < 100 ms with `BAJZI_PERF=1`) plus one end-to-end hook-process
+test (always run, < 5 s) (the `I1:` tests). Why it matters: a quadratic `tool-coercion` regex took 16.4 s on a
 200 KB probe — past the hook's 5 s timeout, which silently drops the warning.
 
 **Source hygiene**: the `\uXXXX` escapes for `ZERO_WIDTH`/`BIDI` and the fixture

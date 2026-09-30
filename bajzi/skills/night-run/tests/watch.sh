@@ -254,6 +254,7 @@ check "12 fresh STOP + dead runner: STOPPED" " STOPPED " "$OUT"
 sleep 0.3
 if [ -s "$WT/stub.calls" ]; then bad "12 a stopped run was restarted"; else ok "12 no restart after a fresh STOP"; fi
 
+if [ "$HAVE_FLOCK" = 1 ]; then
 # ------------------------------------------- 13. an undatable run = fail closed ---
 # No run.meta (or no sane started_epoch) means the watcher cannot tell tonight's
 # markers from an older night's. It says UNKNOWN and restarts NOTHING.
@@ -268,6 +269,7 @@ if [ -s "$WT/stub.calls" ]; then bad "13 restarted a run it cannot date"; else o
 printf 'mode=queue\nstarted_epoch=2026-09-18T01:00:00Z\n' >"$ND/run.meta"
 OUT=$(run_watch "$ND"); RC=$?
 check "13 unusable started_epoch: UNKNOWN" " UNKNOWN " "$OUT"
+else echo "SKIP (no flock): scenario 13"; fi
 
 if [ "$HAVE_FLOCK" = 1 ]; then
 # ------------------------------------------ 14. DEFERRED-* is never counted done ---

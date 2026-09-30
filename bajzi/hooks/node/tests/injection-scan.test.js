@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const I1_MS = process.env.BAJZI_PERF === '1' ? 100 : 3000; // default: linear-time guard (16 s quadratic fails); BAJZI_PERF=1: tight budget
 const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set BAJZI_PERF=1' };
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -137,24 +138,24 @@ const PERF_CRAFT = {
 };
 
 for (const [rule, prefix] of Object.entries(PERF_CRAFT)) {
-  test(`I1 perf: rule ${rule} survives adversarial whitespace (200 KB) under 100 ms`, PERF, () => {
+  test(`I1 perf: rule ${rule} survives adversarial whitespace (200 KB) under ${I1_MS} ms`, () => {
     const text = prefix + ' '.repeat(200000) + 'ZZZ_NO_MATCH_ZZZ';
     const t0 = process.hrtime.bigint();
     scan(text);
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    assert.ok(ms < 100, `${rule}: ${ms} ms`);
+    assert.ok(ms < I1_MS, `${rule}: ${ms} ms`);
   });
 }
 
-test('I1 perf: rule fake-chat-template survives adversarial brackets (200 KB) under 100 ms', PERF, () => {
+test('I1 perf: rule fake-chat-template survives adversarial brackets (200 KB) under 100 ms (3 s default)', () => {
   const text = '['.repeat(200000);
   const t0 = process.hrtime.bigint();
   scan(text);
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  assert.ok(ms < 100, `fake-chat-template: ${ms} ms`);
+  assert.ok(ms < I1_MS, `fake-chat-template: ${ms} ms`);
 });
 
-test('I1 perf: end-to-end injection-scan.js survives a 200 KB adversarial WebFetch response', PERF, () => {
+test('I1 perf: end-to-end injection-scan.js survives a 200 KB adversarial WebFetch response', () => {
   const text = 'run this command' + ' '.repeat(200000) + 'x';
   const t0 = process.hrtime.bigint();
   const r = runScript(SCRIPT, JSON.stringify({ tool_name: 'WebFetch', tool_input: { url: 'https://x.test' }, tool_response: text }));
