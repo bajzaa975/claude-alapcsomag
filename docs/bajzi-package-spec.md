@@ -471,7 +471,10 @@ Violations are appended to `<cwd>/runtime/routing-violations.log` (§7.2).
 the reviewer allow-list adds one `level=<l> reviewer-model=<served> cause=<off-list|no-allowlist>` line
 per off-list id, at any level. Served = the assistant `message.model` ids of the sub-agent's own transcript
 (`<transcript_path minus .jsonl>/subagents/agent-<tool_response.agentId>.jsonl`, `<synthetic>`
-skipped), else `tool_response.resolvedModel` (an async launch has no transcript yet). The one
+skipped), else `tool_response.resolvedModel` (an async launch has no transcript yet). On Windows a
+POSIX `transcript_path` (from Git Bash, which never converts paths inside the stdin JSON) is mapped
+through `cygpath -w` first (`reviewer-models.js:nativePath`); no `cygpath` → the path as given, so an
+unreadable transcript falls back to `resolvedModel`. The one
 validator judges it: `node hooks/node/lib/reviewer-models.js --off-list-served`
 (`reviewer-models.js:offListServed`), `BAJZI_HOME` defaulting to the hook's `HOME`; an invalid list
 has no members, so everything served is logged, with `cause=no-allowlist` (a config error, not a
