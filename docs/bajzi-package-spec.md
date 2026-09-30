@@ -335,8 +335,9 @@ Why sonnet for the fix r2 rung, repro debugging and non-risk 3+ file slices (1.1
 scores close to Opus 5.5 on the published coding benchmarks at half the per-token price, while Opus
 stays clearly ahead on open-ended judgment — so the Opus rung moves one step later instead of
 disappearing, and reviews, real Tier-1 slices and orchestration stay Opus. L1 follows the table;
-L2 keeps debugging on opus, because `routing-counter.sh` counts every sonnet dispatch at L2/L3 as a
-GLM bypass (it sees the model, not the task class).
+L2 keeps debugging on opus, because sonnet at L2 is only the ladder r2 rung and the peak fallback,
+never a first-choice dispatch (`routing-counter.sh` sees the model, not the task class, so a
+first-choice sonnet dispatch would count as a GLM bypass).
 
 At **L3**, GLM cannot reach an Opus review at all — so the review obligation is met differently:
 the session **queues** the review instead of performing it (`SAVER-L3.md:6-11`): it appends
