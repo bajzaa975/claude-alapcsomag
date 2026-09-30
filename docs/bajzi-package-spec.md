@@ -364,6 +364,12 @@ L2 keeps debugging on opus, because sonnet at L2 is only the ladder r2 rung and 
 never a first-choice dispatch (`routing-counter.sh` sees the model, not the task class, so a
 first-choice sonnet dispatch would count as a GLM bypass).
 
+1.10.1 (current plugin version) summary: green test baseline (`BAJZI_PERF` opt-in for the perf
+tests, flock tests skipped where flock is absent); off-list reviewer log fix on Windows; the
+context-guard, secret-guard and injection-scan hooks merged into `hooks/node/pre-tool.js` and
+`hooks/node/post-tool.js`; day-run rules trimmed to <= 45 lines / 4096 bytes; advisor pilot until
+2026-10-14 (see "Advisor pilot (1.10.1)").
+
 At **L3**, GLM cannot reach an Opus review at all — so the review obligation is met differently:
 the session **queues** the review instead of performing it (`SAVER-L3.md:6-11`): it appends
 tier, slice, changed files, cited lines and its own findings under `## Evidence` in

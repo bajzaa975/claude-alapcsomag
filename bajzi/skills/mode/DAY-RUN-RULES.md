@@ -32,7 +32,8 @@ FABLE DEPLETION: on the session-limit message, start nothing new, write the hand
 the first REVIEWER MODELS id that is not a Fable model, else Opus. Next session: claude --model <X>; no rung spends Fable.
 Every dispatch's first line: model: <name> -- <reason>. Also log one line, exact format, to runtime/DAY-RUN.log:
 <ISO time> <task-class> model=<name> rounds=<n> result=<pass|fail|park|direct>
-Only three questions allowed: scope change; forbidden zone; park-or-continue. Everything else is decided and logged. Day-run never merges. After superpowers:writing-plans never ask the execution method; execute per this mode.
+Only three questions allowed: scope change; forbidden zone; park-or-continue. Everything else is decided and logged.
+Day-run never merges. After superpowers:writing-plans never ask the execution method; execute per this mode.
 ## Owner tasks -- do it yourself
 Default: you do it, no approval line. Owner steps name their rung:
 1. Permission-gated (~/.claude, settings, deploy/release, secrets, git history, another repo's commit, anything auto-mode blocks) ->
