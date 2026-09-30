@@ -259,10 +259,15 @@ function decide(input, { nowMs = Date.now(), dir } = {}) {
   return { kind: 'allow' };
 }
 
+// The whole check, as main() and pre-tool.js / post-tool.js run it (may throw: callers fail open).
+function check(input) {
+  loadLibs();
+  return decide(input);
+}
+
 function main() {
   runHook('context-guard', () => {
-    loadLibs();
-    const d = decide(readInput());
+    const d = check(readInput());
     if (d.kind === 'deny') deny(d.reason, d.rule);
     else if (d.kind === 'context') addContext('PostToolUse', d.text);
   });
@@ -271,5 +276,5 @@ function main() {
 if (require.main === module) main(); else loadLibs();
 
 module.exports = {
-  decide, exempt, exemptRule, isHandoffPath, slugify, handoffFile, WARN_AT, BLOCK_AT, WARN_EVERY,
+  check, decide, exempt, exemptRule, isHandoffPath, slugify, handoffFile, WARN_AT, BLOCK_AT, WARN_EVERY,
 };

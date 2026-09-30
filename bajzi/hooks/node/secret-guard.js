@@ -41,16 +41,22 @@ function reasonFor(hit, tool) {
   return `${tool} would read a protected secret file (${b}). Do not read secrets into the context; read ${alt} instead if the project has one, or ask the user for the specific non-secret value. Note: this is a pattern guard, not a shell parser.`;
 }
 
+// The whole check, as main() and pre-tool.js run it: null or {kind:'deny', rule, reason}. May
+// throw: callers fail open.
+function check(input) {
+  loadLibs();
+  if (!input) return null;
+  const hit = decide(input, rules.loadExtraPatterns(pluginRoot()));
+  return hit ? { kind: 'deny', rule: hit.rule, reason: reasonFor(hit, input.tool_name) } : null;
+}
+
 function main() {
   runHook('secret-guard', () => {
-    loadLibs();
-    const input = readInput();
-    if (!input) return;
-    const hit = decide(input, rules.loadExtraPatterns(pluginRoot()));
-    if (hit) deny(reasonFor(hit, input.tool_name), hit.rule);
+    const d = check(readInput());
+    if (d) deny(d.reason, d.rule);
   });
 }
 
 if (require.main === module) main(); else loadLibs();
 
-module.exports = { decide, reasonFor, pluginRoot };
+module.exports = { check, decide, reasonFor, pluginRoot };
