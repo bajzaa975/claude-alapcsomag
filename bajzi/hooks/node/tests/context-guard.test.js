@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { NODE_DIR, tmpDir, runScript, p95 } = require('./helpers');
+const { NODE_DIR, tmpDir, runScript, p95, probeCopy } = require('./helpers');
 const { writeBridge } = require('../lib/bridge');
 const { decide, slugify } = require('../context-guard');
 
@@ -256,21 +256,6 @@ function spawnGuard(stdin, pct, script = SCRIPT) {
   const tmp = tmpDir('bajzi-cgt-');
   if (pct !== undefined) writeBridge('s1', pct, Date.now(), tmp);
   return runScript(script, stdin, { TMPDIR: tmp });
-}
-
-// A copy of pre-tool.js + post-tool.js whose check modules are probes naming themselves in the
-// output (a deny on PreToolUse, a context on PostToolUse): the output lists the checks that ran.
-function probeCopy() {
-  const dir = tmpDir('bajzi-probe-');
-  fs.mkdirSync(path.join(dir, 'lib'));
-  for (const f of ['pre-tool.js', 'post-tool.js', path.join('lib', 'hook-io.js')]) {
-    fs.copyFileSync(path.join(NODE_DIR, f), path.join(dir, f));
-  }
-  for (const c of ['context-guard', 'secret-guard', 'injection-scan']) {
-    fs.writeFileSync(path.join(dir, `${c}.js`), `module.exports = { check: i => i.hook_event_name === 'PostToolUse'
-      ? { kind: 'context', text: 'probe:${c}' } : { kind: 'deny', rule: 'probe', reason: 'probe:${c}' } };\n`);
-  }
-  return dir;
 }
 
 test('RF2: context guard survives bad stdin', () => {

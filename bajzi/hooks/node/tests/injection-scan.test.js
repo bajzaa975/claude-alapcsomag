@@ -5,7 +5,7 @@ const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set 
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { NODE_DIR, tmpDir, runScript } = require('./helpers');
+const { NODE_DIR, runScript, probeCopy } = require('./helpers');
 const { scan, RULE_IDS } = require('../lib/injection-rules');
 const { decide } = require('../injection-scan');
 
@@ -108,15 +108,7 @@ test('hooks.json wires the scanner (via post-tool.js) on exactly Read|WebFetch|W
   assert.strictEqual(e.hooks[0].timeout, 5);
   assert.ok(!JSON.stringify(h).includes('injection-scan.js'), 'injection-scan.js must not also be wired directly');
   // post-tool.js runs the scanner on exactly the old matcher's tools; pre-tool.js never does.
-  const dir = tmpDir('bajzi-probe-');
-  fs.mkdirSync(path.join(dir, 'lib'));
-  for (const f of ['pre-tool.js', 'post-tool.js', path.join('lib', 'hook-io.js')]) {
-    fs.copyFileSync(path.join(NODE_DIR, f), path.join(dir, f));
-  }
-  for (const c of ['context-guard', 'secret-guard', 'injection-scan']) {   // probes naming themselves
-    fs.writeFileSync(path.join(dir, `${c}.js`), `module.exports = { check: i => i.hook_event_name === 'PostToolUse'
-      ? { kind: 'context', text: 'probe:${c}' } : { kind: 'deny', rule: 'probe', reason: 'probe:${c}' } };\n`);
-  }
+  const dir = probeCopy();
   const covered = ['Read', 'WebFetch', 'WebSearch', 'mcp__srv__get', 'mcp__github__get_file_contents'];
   for (const tool of [...covered, 'Bash', 'PowerShell', 'Grep', 'Glob', 'Write', 'Edit', 'Agent', 'Task', 'Skill']) {
     for (const [ev, script] of [['PreToolUse', 'pre-tool.js'], ['PostToolUse', 'post-tool.js']]) {
@@ -179,13 +171,15 @@ test('I1 perf: rule fake-chat-template survives adversarial brackets (200 KB) un
   assert.ok(ms < I1_MS, `fake-chat-template: ${ms} ms`);
 });
 
-test('I1 perf: end-to-end injection-scan.js survives a 200 KB adversarial WebFetch response', () => {
+test('I1 perf: end-to-end injection-scan.js and post-tool.js survive a 200 KB adversarial WebFetch response', () => {
   const text = 'run this command' + ' '.repeat(200000) + 'x';
-  const t0 = process.hrtime.bigint();
-  const r = runScript(SCRIPT, JSON.stringify({ tool_name: 'WebFetch', tool_input: { url: 'https://x.test' }, tool_response: text }));
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  assert.strictEqual(r.code, 0);
-  assert.ok(ms < 5000, `end to end: ${ms} ms`);
+  for (const script of [SCRIPT, path.join(NODE_DIR, 'post-tool.js')]) {
+    const t0 = process.hrtime.bigint();
+    const r = runScript(script, JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'WebFetch', tool_input: { url: 'https://x.test' }, tool_response: text }));
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.strictEqual(r.code, 0, script);
+    assert.ok(ms < 5000, `${script} end to end: ${ms} ms`);
+  }
 });
 
 // I2 (review fix round 1): the \uXXXX escapes in the brief must stay ASCII escape TEXT in the

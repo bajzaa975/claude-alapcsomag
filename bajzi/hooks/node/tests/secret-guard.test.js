@@ -4,7 +4,7 @@ const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set 
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { NODE_DIR, tmpDir, runScript, p95 } = require('./helpers');
+const { NODE_DIR, tmpDir, runScript, p95, probeCopy } = require('./helpers');
 const rules = require('../lib/secret-rules');
 const { decide } = require('../secret-guard');
 
@@ -204,15 +204,7 @@ test('hooks.json wires the secret guard (via pre-tool.js) on exactly Read|Grep|G
   assert.strictEqual(e.hooks[0].timeout, 5);
   assert.ok(!JSON.stringify(h).includes('secret-guard.js'), 'secret-guard.js must not also be wired directly');
   // pre-tool.js runs the secret check on exactly the old matcher's tools; post-tool.js never does.
-  const dir = tmpDir('bajzi-probe-');
-  fs.mkdirSync(path.join(dir, 'lib'));
-  for (const f of ['pre-tool.js', 'post-tool.js', path.join('lib', 'hook-io.js')]) {
-    fs.copyFileSync(path.join(NODE_DIR, f), path.join(dir, f));
-  }
-  for (const c of ['context-guard', 'secret-guard', 'injection-scan']) {   // probes naming themselves
-    fs.writeFileSync(path.join(dir, `${c}.js`), `module.exports = { check: i => i.hook_event_name === 'PostToolUse'
-      ? { kind: 'context', text: 'probe:${c}' } : { kind: 'deny', rule: 'probe', reason: 'probe:${c}' } };\n`);
-  }
+  const dir = probeCopy();
   const covered = ['Read', 'Grep', 'Glob', 'Bash', 'PowerShell'];
   for (const tool of [...covered, 'BashOutput', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch',
     'WebSearch', 'Agent', 'Task', 'Skill', 'mcp__srv__read']) {
@@ -230,14 +222,17 @@ test('hooks.json wires the secret guard (via pre-tool.js) on exactly Read|Grep|G
 });
 
 // Best of 3 batches, as in context-guard.test.js: `node --test` runs the test FILES in parallel,
-// so one batch can measure CPU contention rather than the guard.
-test('p95 of 20 runs < 100 ms, best of 3 batches', PERF, () => {
-  const stdin = JSON.stringify(bash('git status && cat README.md'));
-  const batches = [];
-  for (let b = 0; b < 3 && !(batches.length && Math.min(...batches) < 100); b++) {
-    const ms = [];
-    for (let i = 0; i < 20; i++) ms.push(runScript(SCRIPT, stdin).ms);
-    batches.push(p95(ms));
+// so one batch can measure CPU contention rather than the guard. Also through pre-tool.js, the
+// wired entry: a Bash call loads both the context and the secret check there.
+test('p95 of 20 runs < 100 ms (secret-guard.js and pre-tool.js), best of 3 batches', PERF, () => {
+  const stdin = JSON.stringify(Object.assign({ session_id: 's1', hook_event_name: 'PreToolUse' }, bash('git status && cat README.md')));
+  for (const script of [SCRIPT, path.join(NODE_DIR, 'pre-tool.js')]) {
+    const batches = [];
+    for (let b = 0; b < 3 && !(batches.length && Math.min(...batches) < 100); b++) {
+      const ms = [];
+      for (let i = 0; i < 20; i++) ms.push(runScript(script, stdin).ms);
+      batches.push(p95(ms));
+    }
+    assert.ok(Math.min(...batches) < 100, `${script} p95 per batch ${batches.map(x => x.toFixed(1)).join(' / ')} ms`);
   }
-  assert.ok(Math.min(...batches) < 100, `p95 per batch ${batches.map(x => x.toFixed(1)).join(' / ')} ms`);
 });
