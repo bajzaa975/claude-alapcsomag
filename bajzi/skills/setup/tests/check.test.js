@@ -116,7 +116,7 @@ test('advisorModel: real manifest carries it and check reports drift on it', () 
   assert.strictEqual(JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8')).settings_merge.advisorModel, 'opus');
   const m = machine();
   fs.writeFileSync(m.env.BAJZI_MANIFEST, JSON.stringify(Object.assign({}, MANIFEST, { settings_merge: Object.assign({}, MANIFEST.settings_merge, { advisorModel: 'opus' }) })));
-  let r = run(m);
+  const r = run(m);
   assert.match(r.out, /^DRIFT setting-drift advisorModel is undefined, want "opus"$/m);
   edit(m, '.claude/settings.json', v => { v.advisorModel = 'opus'; });
   assert.strictEqual(run(m).out, 'setup --check: clean\n');

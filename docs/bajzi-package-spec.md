@@ -109,7 +109,7 @@ Docs: https://code.claude.com/docs/en/advisor
 - **Minimum Claude Code:** 2.1.260.
 - **Pairing rule:** the advisor must be at least as capable as the executor. An Opus advisor does not serve a Fable main thread.
 - **Off at saver L2+ by design:** requests go through the `ANTHROPIC_BASE_URL` router (Claude Code retries without the tool), and cc-router sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`.
-- **Off switches:** `/advisor off`; remove the key; `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`.
+- **Off switches:** `/advisor off` and `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` are session-level only. Removing the key from user settings is drift (`--check` reports it, the next `/bajzi:setup` merges it back). The only lasting off switch is deleting `advisorModel` from `settings_merge` in `bajzi/skills/setup/manifest.json`.
 - **Measure:** `runtime/DAY-RUN.log` review rounds and fix/escalation counts before vs after; `/usage` advisor share.
 - **Pilot end:** 2026-10-14. The owner keeps or removes it then.
 
