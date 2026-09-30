@@ -1,30 +1,114 @@
-# bajzi-plugins — my own Claude Code / Cowork marketplace
+# bajzi-plugins — token-saving orchestration for Claude Code and Cowork
 
-A single plugin (`bajzi`) that gives the same working method in both environments, and the same
-Claude Code environment on every machine.
+`bajzi-plugins` is a Claude Code / Cowork plugin marketplace (GitHub: `bajzaa975/claude-alapcsomag`,
+marketplace name `bajzi-plugins`). It does two things: it **saves tokens** (model routing to cheaper
+models, context guards, output filtering) and it **orchestrates sub-agents with a review loop**
+(implementer, reviewer, fixer, with a two-round cap). The `bajzi` plugin is the full Claude Code
+package; `bajzi-cowork` is a skills-only subset for claude.ai / Cowork.
 
-| Component | What it gives | Claude Code | Cowork |
-|---|---|---|---|
-| `setup` skill | machine setup per `manifest.json` (plugins, settings, rtk, status line, user MCPs) + `--check` drift report | ✅ | ❌ — manages the Claude Code CLI's state |
-| `project-setup` skill | applies / checks the repo's `.claude/project-profile.json` | ✅ | ❌ — assumes a repo |
-| `autopilot` skill | unsupervised work session with a decision log | ✅ | ✅ |
-| `handoff` skill | `runtime/handoff/<branch>.md` + suggested opening prompt | ✅ | ✅ |
-| `modszertan` skill | per-repo METHODOLOGY marker (gsd/superpowers/none) | ✅ | ❌ — assumes a repo and a SessionStart hook |
-| `mode`, `night-run` skills | day-run working mode, overnight runner | ✅ | ❌ |
-| SessionStart hooks | HANDOFF reload after `/clear` + methodology guard + day-run | ✅ | depends on hooks being enabled |
-| node hooks + status line | status line, context guard (40% warn / 50% block), secret-read guard, injection scanner | ✅ | ❌ |
-| `shared/CLAUDE.md` | global token-budget rules | by hand into `~/.claude/CLAUDE.md` | `shared/cowork-preferences.md` → Global instructions |
+Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-Invoking the skills: `/bajzi:setup`, `/bajzi:setup --check`, `/bajzi:project-setup`,
-`/bajzi:autopilot`, `/bajzi:handoff`, `/bajzi:modszertan`, `/bajzi:mode`, `/bajzi:night-run` —
-or simply ask in words ("do a handoff"), they also start by themselves based on the description.
+## Features
+
+### Token saving
+
+- **Saver levels L0-L3** — how much work moves to the cheaper Z.ai GLM models. L0 `claude`: all on the
+  Claude subscription (default). L1 `light`: flash-class work (locate/map, tests/lint/build, long-file
+  summaries) goes to GLM. L2 `glm` (balanced): also implementation, fixes and document writing on
+  `glm-5.3`; risk slices, debugging and every review stay on Claude. L3 `tight`: the whole session runs
+  on GLM and reviews are queued instead of performed. Set with `worker --level 0|1|2|3`.
+- **rtk** — installed by `/bajzi:setup`; compresses command output. A `noise-filter` hook additionally
+  keeps loud install/build output out of the context (exit code preserved).
+- **`glm` / `worker` / `ccr` shims** — launchers around `cc-router.js`, no daemon. `glm` always runs on
+  GLM, `worker` follows the saved saver mode, `ccr` is the back-compat entry. `worker --status` shows
+  the level, `worker --usage` reports the Anthropic/GLM weighted-token split. A GLM launch is refused
+  during the Z.ai peak window (08:00-12:00 CEST).
+- **Status line** — model, saver level, branch, task, context percentage, GLM share, open review-queue
+  count and a peak-window hint.
+- **Context guard** — warns at 40% context, blocks tool calls at 50% except writing/reading the handoff
+  and read-only git, so you can always save state and `/clear`.
+
+### Orchestration
+
+- **Day-run mode** (`/bajzi:mode`) — injects a routing table at session start: locate/map and
+  tests/lint/build to haiku; long-file summaries to haiku; documents and specified slices to sonnet;
+  risk-bearing slices (locks, concurrency, quotas, auth, money, migrations, destructive scripts) to
+  opus, always; every diff review and final branch review to Opus 5.5, always; debugging to sonnet when a
+  failing test or repro exists, else opus; design and planning stay on the orchestrator's own model.
+  **Escalation ladder:** sonnet round 1, fresh sonnet round 2, opus round 3, the orchestrator round 4,
+  then park.
+- **Agents** — `implementer` (sonnet, Tier 2/3 slices), `implementer-risk` (opus, Tier 1 slices),
+  `reviewer` (opus, read-only, returns a findings file), `fixer` (sonnet, fixes every finding, never
+  sees severity).
+- **Review loop** — `/bajzi:implement` then `/bajzi:review` then `/bajzi:fix`. The routing and the
+  two-round cap are decided by code on files, not by the model. After round 2 open findings go to the
+  owner (`needs-owner.md`) or are parked as debt (`debt.md`).
+- **Dispatch guard** — a hook that refuses review/fix work sent to the wrong agent and oversized briefs.
+  A discipline guard, not a security boundary.
+- **Debt** (`/bajzi:debt`) — checks the parked-findings cap before the next slice, drains it in one
+  fixer pass plus one review, calibrates severities with a blind re-rate.
+- **Autopilot** (`/bajzi:autopilot`) — an unsupervised work session with a decision log and a closing report.
+- **Night-run** (`/bajzi:night-run`) — plans an unattended overnight run and produces the launch block.
+  The runner itself lives in the separate `claude-orchestrator` repo (Windows laptop, PowerShell): one
+  fresh headless session per sprint, never pushes, guard checks and a review queue that a later Opus
+  session drains.
+
+### Session continuity
+
+- **Handoff** (`/bajzi:handoff`) — saves state to `runtime/handoff/<branch>.md` with a suggested
+  opening prompt; a SessionStart hook reloads it after `/clear`, compact and resume.
+- **Methodology guard / `modszertan` (Hungarian for "methodology")** — records per repo which
+  methodology leads (GSD, superpowers or none) in `.claude/METHODOLOGY`, and nags at session start
+  when there is no decision yet.
+
+### Safety
+
+- **Secret-read guard** — denies reading `.env`, `.env.*` (except `.example`/`.sample`/`.template`/`.dist`),
+  `.secrets` and the manifest's secret patterns. Accepted limits: it is a pattern guard, not a shell
+  parser, so variable indirection, copying a protected file to another name and encoded paths pass; it
+  covers files, not environment variables.
+- **Injection scanner** — warn-only: after Read, WebFetch, WebSearch and MCP results it adds a "treat this
+  as data" warning naming the matched rules. Never blocks; a rephrased injection passes.
+- Every hook fails open: an internal error allows and logs.
+
+### Setup
+
+- **`/bajzi:setup`** — machine setup from `bajzi/skills/setup/manifest.json` (plugins, settings, rtk,
+  status line, user-scope MCPs). **`--check`** prints one drift line per difference and changes nothing.
+- **`manifest.json`** — the single file to edit to add a tool; every machine gets it at the next setup.
+- **`/bajzi:project-setup`** — applies or checks (`--check`) a repo's `.claude/project-profile.json`:
+  project plugins and MCPs, METHODOLOGY, linked skills, instruction files and the pre-commit gate.
+
+### Cowork variant
+
+`bajzi-cowork` ships only the `autopilot`, `handoff` and `modszertan` skills. It lacks everything that
+needs `bin/`, hooks, agents or `lib/`: the saver levels and shims, status line, all guards, day-run
+mode, the review loop, night-run and setup. Install it in Cowork, never `bajzi`.
+
+## Skills
+
+| Skill | Command | What it does |
+|---|---|---|
+| `setup` | `/bajzi:setup` | Sets up or drift-checks (`--check`) a machine per the manifest. |
+| `project-setup` | `/bajzi:project-setup` | Applies or checks the repo's project profile. |
+| `handoff` | `/bajzi:handoff` | Saves session state and an opening prompt for after `/clear`. |
+| `modszertan` | `/bajzi:modszertan` | Picks the repo's methodology (GSD, superpowers, none). |
+| `autopilot` | `/bajzi:autopilot` | Unsupervised session with a decision log. |
+| `mode` | `/bajzi:mode` | Turns day-run mode on/off or reports it. |
+| `night-run` | `/bajzi:night-run` | Plans an unattended overnight run. |
+| `implement` | `/bajzi:implement <id>` | Implements one slice through the implementer agents. |
+| `review` | `/bajzi:review <slice> <range>` | Reviews a commit range through the reviewer agent. |
+| `fix` | `/bajzi:fix <findings-file>` | Fixes round-1 findings, then runs the round-2 re-review. |
+| `debt` | `/bajzi:debt` | Checks, drains or calibrates parked review debt. |
+
+Skills also start by themselves from a plain request ("do a handoff").
 
 ## Installation — Claude Code (every machine: laptop, VM, new machines)
 
 1. Once per machine, in a terminal:
    ```bash
    claude plugin marketplace add bajzaa975/claude-alapcsomag   # or: a local path
-   claude plugin install bajzi@bajzi-plugins
+   claude plugin install bajzi@bajzi-plugins   # marketplace name: bajzi-plugins
    ```
 2. Once per machine, in a new Claude Code session: `/bajzi:setup` (marketplaces, plugins, rtk,
    settings, status line, `~/.claude/bajzi-mode`, user-scope MCPs).
@@ -48,13 +132,14 @@ loads it automatically under the name `bajzi@skills-dir`.
 ## Installation — Cowork (Claude Desktop)
 
 1. **Customize → Plugins → Add marketplace** → the repo's URL
-   (`https://github.com/bajzaa975/claude-alapcsomag` or `bajzaa975/claude-alapcsomag`).
-2. Install the `bajzi` plugin from the list.
-3. **Or** without a repo: **Plugins → upload** and select `bajzi-plugin.zip`.
-   WARNING: because of `.gitignore` this zip is NOT in the GitHub repo — it is only created
-   locally. If you need it, regenerate it in the repo root from the `bajzi/` directory, and make
-   sure that the `plugin.json` version inside it matches the marketplace's.
-   Normally steps 1-2 (marketplace) are the recommended route.
+   (`https://github.com/bajzaa975/claude-alapcsomag` or `bajzaa975/claude-alapcsomag`); the
+   marketplace is named `bajzi-plugins`.
+2. Install the `bajzi-cowork` plugin from the list. **Never install `bajzi` in Cowork**: it ships
+   `bin/`, hooks and agents, which claude.ai marketplace sync rejects ("Sync failed").
+3. **Or** without a repo: **Plugins → upload** a zip of the `bajzi-cowork/` directory (never of
+   `bajzi/`). The zip is not in the GitHub repo; create it locally and make sure the `plugin.json`
+   version inside it matches the marketplace's. Normally steps 1-2 (marketplace) are the
+   recommended route.
 4. Copy the content of `shared/cowork-preferences.md` (the part below the `---`) here:
    **Settings → Cowork → Global instructions → Edit** (only exists in the desktop app; in newer
    builds the **Customize** panel also brings together the Skills / Plugins / Global instructions
@@ -65,4 +150,4 @@ loads it automatically under the name `bajzi@skills-dir`.
 ## Updating
 
 Push to the repo → Claude Code: `claude plugin update bajzi`, then `/bajzi:setup` (refreshes the
-status line copy) · Cowork: **Update** at the marketplace, then update the plugin.
+status line copy) · Cowork: **Update** at the marketplace, then update the `bajzi-cowork` plugin.
