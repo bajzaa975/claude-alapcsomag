@@ -6,7 +6,7 @@ The worker cannot see this session: give it the repo path, file paths, acceptanc
 <=40-line report contract in the prompt. Flash NEVER writes code.
 If no day-run routing table is in your context, everything not listed here stays on your session's model.
 UNCHANGED, on Claude exactly as in the table: implement/fix (sonnet), risk-bearing slices (opus),
-debugging (sonnet with a failing repro, else opus), every review (REVIEWER, the reviewer allow-list), all ORCHESTRATOR-ONLY work.
+debugging (sonnet with a failing repro, else opus), every review (REVIEWER, the reviewer allow-list), all ORCH-ONLY work.
 PEAK: if `glm` exits 75 (Z.ai peak window), do that task on haiku instead; do not retry GLM until the window closes.
 Dispatch first line: model: glm-flash -- saver L1.   DAY-RUN.log: model=glm-flash.
 After superpowers:writing-plans never ask the execution method; use superpowers:subagent-driven-development + the bajzi review loop.

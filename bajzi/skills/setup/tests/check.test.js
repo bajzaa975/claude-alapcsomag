@@ -112,6 +112,16 @@ test('settings_merge: wrong scalar and missing array item drift', () => {
   assert.match(r.out, /^DRIFT setting-drift permissions\.deny missing "Read\(\.env\)"$/m);
 });
 
+test('advisorModel: real manifest carries it and check reports drift on it', () => {
+  assert.strictEqual(JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8')).settings_merge.advisorModel, 'opus');
+  const m = machine();
+  fs.writeFileSync(m.env.BAJZI_MANIFEST, JSON.stringify(Object.assign({}, MANIFEST, { settings_merge: Object.assign({}, MANIFEST.settings_merge, { advisorModel: 'opus' }) })));
+  const r = run(m);
+  assert.match(r.out, /^DRIFT setting-drift advisorModel is undefined, want "opus"$/m);
+  edit(m, '.claude/settings.json', v => { v.advisorModel = 'opus'; });
+  assert.strictEqual(run(m).out, 'setup --check: clean\n');
+});
+
 test('permissions.defaultMode: missing and different values drift (owner 2026-09-23)', () => {
   const m = machine();
   edit(m, '.claude/settings.json', v => { delete v.permissions.defaultMode; });

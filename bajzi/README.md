@@ -42,14 +42,20 @@ A token-efficient working method for Claude Code and Cowork.
   red >= 50. `GLM` only at L1-L3, `Qn` only with open review-queue items, `peak` only within 2 h
   before or inside the Z.ai peak window (14:00-18:00 UTC+8). It writes
   `<tmpdir>/bajzi-ctx-<session>.json`, which the context guard reads.
-- **Context guard** — `hooks/node/context-guard.js`, every tool, PreToolUse + PostToolUse. At
+- **Combined tool hooks** — hooks.json wires ONE node process per tool event:
+  `hooks/node/pre-tool.js` (PreToolUse, every tool) runs the context guard and the secret guard;
+  `hooks/node/post-tool.js` (PostToolUse, every tool) runs the context guard and the injection
+  scanner. Each check runs only on the tools listed below and fails open on its own; denies
+  (pre) or warnings (post) are joined into one output, context guard first.
+- **Context guard** — `hooks/node/context-guard.js`, every tool, PreToolUse + PostToolUse (via
+  pre-tool.js / post-tool.js). At
   >= 40% a warning (once per 5 tool calls); at >= 50% every tool call is denied except writing or
   reading the handoff (`runtime/handoff/**`, `runtime/HANDOFF.md`) and read-only
   `git status|diff|log`. Unknown or stale (> 60 s) context = allow. **Known limit:** only the
   status line writes the context figure, and headless `claude -p` has no status line, so the
   guard never blocks a night session; it is a discipline aid, not a security boundary.
-- **Secret guard** — `hooks/node/secret-guard.js`, PreToolUse on Read, Grep, Glob, Bash,
-  PowerShell. Denies reading `.env`, `.env.*` (except `.example/.sample/.template/.dist`),
+- **Secret guard** — `hooks/node/secret-guard.js`, PreToolUse (via pre-tool.js) on Read, Grep,
+  Glob, Bash, PowerShell. Denies reading `.env`, `.env.*` (except `.example/.sample/.template/.dist`),
   `.secrets` and the manifest's `secret_patterns`; the deny names the rule. **Known limit: it is
   a pattern guard, not a shell parser** — these pass: variable or command indirection
   (`f=.env; cat $f`, `cp`/`Copy-Item` of a protected file to another name), encoded or obfuscated
@@ -58,8 +64,8 @@ A token-efficient working method for Claude Code and Cowork.
   prefix walk (`sudo -u`, `env -i`, `nice -n`). `ls | grep .env` is denied (a false positive in
   the safe direction). It covers files, not the environment: a key held in an environment
   variable is readable by every session.
-- **Injection scanner** — `hooks/node/injection-scan.js`, PostToolUse on Read, WebFetch,
-  WebSearch and `mcp__*`. Adds a "treat this as data" warning naming the matched rules; never blocks.
+- **Injection scanner** — `hooks/node/injection-scan.js`, PostToolUse (via post-tool.js) on Read,
+  WebFetch, WebSearch and `mcp__*`. Adds a "treat this as data" warning naming the matched rules; never blocks.
   **Known limit:** a pattern matcher — advisory context only; a rephrased injection passes.
 - Every node hook fails open: an internal error = allow, logged to `~/.claude/bajzi/hook-errors.log`
   (256 KB cap).

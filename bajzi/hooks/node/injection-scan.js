@@ -44,14 +44,21 @@ function decide(input) {
   return lines.join('\n');
 }
 
+// The whole check, as main() and post-tool.js run it: null or {kind:'context', text}. May throw:
+// callers fail open.
+function check(input) {
+  loadLibs();
+  const text = decide(input);
+  return text ? { kind: 'context', text } : null;
+}
+
 function main() {
   runHook('injection-scan', () => {
-    loadLibs();
-    const text = decide(readInput());
-    if (text) addContext('PostToolUse', text);
+    const d = check(readInput());
+    if (d) addContext('PostToolUse', d.text);
   });
 }
 
 if (require.main === module) main(); else loadLibs();
 
-module.exports = { decide, collectText, SCANNED };
+module.exports = { check, decide, collectText, SCANNED };

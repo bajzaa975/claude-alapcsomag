@@ -170,6 +170,7 @@
   },
   "settings_merge": {
     "effortLevel": "xhigh",
+    "advisorModel": "opus",
     "modelSettings": {
       "claude-opus-5-5": {
         "effortLevel": "xhigh"

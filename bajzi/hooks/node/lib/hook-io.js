@@ -97,6 +97,24 @@ function logError(name, err, home = os.homedir()) {
   }
 }
 
+// The combined tool-hook entries (pre-tool.js, post-tool.js): results of every check whose
+// matcher covers the tool, in `checks` order ([name, covers(tool), load] rows). Each check fails
+// open on its own: a throw (a missing module included) is logged under its name, the rest still run.
+function runChecks(checks, input) {
+  const tool = input && typeof input.tool_name === 'string' ? input.tool_name : '';
+  const results = [];
+  for (const [name, covers, load] of checks) {
+    if (!covers(tool)) continue;
+    try {
+      const r = load().check(input);
+      if (r) results.push(r);
+    } catch (err) {
+      logError(name, err);
+    }
+  }
+  return results;
+}
+
 let handlersInstalled = false;
 
 // fn MUST be synchronous: runHook awaits nothing and sets exitCode as soon as fn returns.
@@ -122,5 +140,5 @@ function runHook(name, fn) {
 }
 
 module.exports = {
-  parseInput, readInput, allow, deny, addContext, denyPayload, contextPayload, logError, runHook, writeAll, LOG_CAP,
+  parseInput, readInput, allow, deny, addContext, denyPayload, contextPayload, logError, runChecks, runHook, writeAll, LOG_CAP,
 };

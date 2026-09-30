@@ -1,10 +1,11 @@
 'use strict';
 const { test } = require('node:test');
+const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set BAJZI_PERF=1' };
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { NODE_DIR, tmpDir, runScript, p95 } = require('./helpers');
+const { NODE_DIR, tmpDir, runScript, p95, probeCopy } = require('./helpers');
 const { writeBridge } = require('../lib/bridge');
 const { decide, slugify } = require('../context-guard');
 
@@ -251,10 +252,10 @@ test('unknown hook_event_name = allow', () => {
   assert.deepStrictEqual(at(90, { session_id: 's1', hook_event_name: 'Stop' }), { kind: 'allow' });
 });
 
-function spawnGuard(stdin, pct) {
+function spawnGuard(stdin, pct, script = SCRIPT) {
   const tmp = tmpDir('bajzi-cgt-');
   if (pct !== undefined) writeBridge('s1', pct, Date.now(), tmp);
-  return runScript(SCRIPT, stdin, { TMPDIR: tmp });
+  return runScript(script, stdin, { TMPDIR: tmp });
 }
 
 test('RF2: context guard survives bad stdin', () => {
@@ -281,21 +282,35 @@ test('end to end: deny envelope, exempt = no output, warn envelope', () => {
   assert.match(w.hookSpecificOutput.additionalContext, /^\[bajzi:ctx-warn-40\]/);
 });
 
-test('hooks.json wires the guard on PreToolUse and PostToolUse for every tool', () => {
+test('hooks.json wires the guard (via pre-tool.js / post-tool.js) on PreToolUse and PostToolUse for every tool', () => {
   const h = JSON.parse(fs.readFileSync(path.join(NODE_DIR, '..', 'hooks.json'), 'utf8')).hooks;
-  const cmd = 'node "${CLAUDE_PLUGIN_ROOT}/hooks/node/context-guard.js"';
-  for (const ev of ['PreToolUse', 'PostToolUse']) {
-    const e = h[ev].find(x => x.hooks.some(k => k.command === cmd));
+  for (const [ev, script] of [['PreToolUse', 'pre-tool.js'], ['PostToolUse', 'post-tool.js']]) {
+    const e = h[ev].find(x => x.hooks.some(k => k.command === `node "\${CLAUDE_PLUGIN_ROOT}/hooks/node/${script}"`));
     assert.ok(e, ev);
     assert.strictEqual(e.matcher, '.*');
     assert.strictEqual(e.hooks[0].timeout, 5);
   }
+  assert.ok(!JSON.stringify(h).includes('context-guard.js'), 'context-guard.js must not also be wired directly');
   assert.strictEqual(h.PostToolUse[0].matcher, 'Agent|Task');   // mode.sh case 12s pins this
+  // Both combined scripts run the context check on every tool.
+  const dir = probeCopy();
+  for (const tool of ['Agent', 'Task', 'Read', 'Write', 'Edit', 'Bash', 'PowerShell', 'Grep', 'Glob', 'Skill',
+    'WebFetch', 'WebSearch', 'mcp__srv__get', 'SomeFutureTool']) {
+    for (const [ev, script] of [['PreToolUse', 'pre-tool.js'], ['PostToolUse', 'post-tool.js']]) {
+      const r = runScript(path.join(dir, script), JSON.stringify({ session_id: 's1', hook_event_name: ev, tool_name: tool, tool_input: {} }));
+      assert.match(r.stdout, /probe:context-guard/, `${ev} ${tool}`);
+    }
+  }
+  // The real check is live through the real combined scripts.
+  const d = JSON.parse(spawnGuard(JSON.stringify(pre('Agent', { prompt: 'x' })), 55, path.join(NODE_DIR, 'pre-tool.js')).stdout);
+  assert.match(d.hookSpecificOutput.permissionDecisionReason, /^\[bajzi:ctx-block-50\]/);
+  const w = JSON.parse(spawnGuard(JSON.stringify(post('Write')), 42, path.join(NODE_DIR, 'post-tool.js')).stdout);
+  assert.match(w.hookSpecificOutput.additionalContext, /^\[bajzi:ctx-warn-40\]/);
 });
 
 // Best of 3 batches: `node --test` runs the test FILES in parallel, and a batch that overlaps the
 // status line's own p95 test measures CPU contention, not the guard.
-test('p95 of 20 runs < 100 ms (exempt path and deny path), best of 3 batches', () => {
+test('p95 of 20 runs < 100 ms (exempt path and deny path), best of 3 batches', PERF, () => {
   const tmp = tmpDir('bajzi-cgt-');
   for (const input of [pre('Write', { file_path: 'runtime/handoff/x.md' }), pre('Agent', { prompt: 'x' })]) {
     const stdin = JSON.stringify(input);

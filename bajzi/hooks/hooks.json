@@ -49,17 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/context-guard.js\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Grep|Glob|Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/secret-guard.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/pre-tool.js\"",
             "timeout": 5
           }
         ]
@@ -91,17 +81,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/context-guard.js\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Read|WebFetch|WebSearch|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/injection-scan.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/post-tool.js\"",
             "timeout": 5
           }
         ]

@@ -252,11 +252,27 @@ if [ "$rules_lines" -le 80 ]; then
 else
     fail "7 DAY-RUN-RULES.md line count" "$rules_lines"
 fi
+rules_bytes="$(wc -c < "$RULES_MD" | tr -d ' ')"
+if [ "$rules_lines" -le 45 ] && [ "$rules_bytes" -le 4352 ]; then
+    pass "7 DAY-RUN-RULES.md <= 45 lines and <= 4352 bytes ($rules_lines/$rules_bytes)"
+else
+    fail "7 DAY-RUN-RULES.md size budget" "$rules_lines lines $rules_bytes bytes"
+fi
+grep -q 'Sub-agent tiers below are fixed regardless of ORCH' "$RULES_MD" && pass "7 rules keep: sub-agent tiers fixed regardless of ORCH" || fail "7 tiers-fixed rule" "missing"
+for kp in 'two verdicts per task: spec compliance, quality' 'STARTUP INJECTIONS: keep SessionStart hook output small' 'CLAUDE_MEM_CONTEXT_OBSERVATIONS=5' 'REVIEW LOOP, every development' 'DIRECT-EDIT THRESHOLD, all four' 'ESCALATION LADDER' 'FABLE DEPLETION' 'Only three questions allowed' 'Day-run never merges' '## Owner tasks'; do
+    grep -qF -- "$kp" "$RULES_MD" && pass "7 rules keep: $kp" || fail "7 rule missing" "$kp"
+done
+# every ALL-CAPS-ONLY label SAVER-*.md cites (e.g. ORCH-ONLY) must exist in the base rules
+for lbl in $(grep -ho '[A-Z]\{3,\}-ONLY' "$MODE_DIR"/SAVER-*.md | sort -u); do
+    grep -qF -- "$lbl" "$RULES_MD" && pass "7 SAVER label $lbl exists in DAY-RUN-RULES.md" || fail "7 SAVER label $lbl missing from DAY-RUN-RULES.md" "cited but absent"
+done
 # the hook's head cap must not silently truncate the rules file again
-if printf '%s' "$out" | grep -q 'Day-run never merges\.'; then
+last_rule="$(tail -n 1 "$RULES_MD" | tr -d '\r')"
+last_rule="${last_rule##*\" }"  # JSON escapes quotes; match the text after the last one
+if printf '%s' "$out" | grep -qF -- "$last_rule"; then
     pass "7 last line of DAY-RUN-RULES.md survives the head cap"
 else
-    fail "7 rules file truncated by the head cap" "missing 'Day-run never merges.'"
+    fail "7 rules file truncated by the head cap" "missing last rules line"
 fi
 if printf '%s' "$out" | json_ok; then
     pass "7 day-run output is valid JSON"
@@ -832,8 +848,8 @@ case "$pre" in
 esac
 # 13m2: the merged hooks.json wires every hook of both branches exactly once per event.
 wired=$(node -e 'const h=require(process.argv[1]).hooks;const o=[];for(const[e,a]of Object.entries(h))for(const m of a)for(const c of m.hooks)o.push(e+":"+c.command.replace(/.*\/hooks\//,"").replace(/"$/,""));console.log(o.sort().join(" "))' "$BAJZI_DIR/hooks/hooks.json" 2>&1)
-want="PostToolUse:node/context-guard.js PostToolUse:node/injection-scan.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/context-guard.js PreToolUse:node/secret-guard.js PreToolUse:noise-filter.sh SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"
-[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 10 hooks of both branches wired exactly once" || fail "13m2" "got: $wired"
+want="PostToolUse:node/post-tool.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/pre-tool.js PreToolUse:noise-filter.sh SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"
+[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 8 hook entries wired exactly once (node checks via pre-tool.js/post-tool.js)" || fail "13m2" "got: $wired"
 # 13n: non-ASCII prompt -- characters, not bytes, under both locales; \u escape = 1 char.
 for loc in C C.UTF-8; do
     rm -f "$dlog"
@@ -893,6 +909,7 @@ expect "15e non-Anthropic session: no REVIEWER MODELS line" "$out" 'SAVER LEVEL 
 rm -rf "$FAKE_HOME/.claude/bajzi"
 # 15f: Fable depletion never restarts on the depleted model, even when entry [0] is Fable.
 grep -q 'the first REVIEWER MODELS id that is not a Fable model' "$RULES_MD"     && pass "15f Fable-depletion restart skips Fable ids" || fail "15f" "restart line may name the depleted model"
+grep -q 'no rung spends Fable' "$RULES_MD" && pass "15f FABLE DEPLETION keeps: no rung spends Fable" || fail "15f" "no-rung-spends-Fable rule missing"
 
 # --- case 16: /bajzi:implement|review|fix|debt deterministic core (bajzi/lib/findings-cli.js) ---
 # The skills delegate every round, routing and cap decision to findings-cli.js; these cases run

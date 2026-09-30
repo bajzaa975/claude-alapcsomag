@@ -21,10 +21,14 @@ the two texts against each other.
 4. Project override wins over the user file, both directions.
 5. Hook emits `{}` for normal/absent/empty/garbage; block only for day-run.
 6. `"  DAY-RUN <space>\n"` normalizes to `day-run`.
-7. Output caps. The hook emits `head -80` of DAY-RUN-RULES.md plus, in saver
-   mode, `head -40` of SAVER-RULES.md; the test asserts `additionalContext`
-   <= 85 escaped-newlines, DAY-RUN-RULES.md <= 80 lines, that its last line
-   survives the cap, and that the output is valid JSON.
+7. Output caps and rules budget. The hook emits `head -80` of DAY-RUN-RULES.md
+   plus, in saver mode, `head -40` of SAVER-RULES.md; the test asserts
+   `additionalContext` <= 85 escaped-newlines, DAY-RUN-RULES.md <= 80 lines,
+   and <= 45 lines and <= 4352 bytes (the trimmed budget), that the kept rule
+   "sub-agent tiers fixed regardless of ORCH" is still present, that every kept rule
+   key phrase is present in DAY-RUN-RULES.md, that every `*-ONLY` label the
+   SAVER-*.md files cite exists in DAY-RUN-RULES.md, that its actual last
+   line survives the cap, and that the output is valid JSON.
 8. The `claude` shim was never invoked (checked last, over every case).
 9. A missing DAY-RUN-RULES.md yields `{}`, not a failure.
 10. Saver gate: worker-mode=glm + launcher on PATH -> SAVER block; `claude`,

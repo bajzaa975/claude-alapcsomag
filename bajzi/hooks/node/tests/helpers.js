@@ -36,9 +36,24 @@ function runScript(script, stdin, extraEnv = {}, opts = {}) {
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '', home, tmp, ms };
 }
 
+// A copy of pre-tool.js + post-tool.js whose check modules are probes naming themselves in the
+// output (a deny on PreToolUse, a context on PostToolUse): the output lists the checks that ran.
+function probeCopy() {
+  const dir = tmpDir('bajzi-probe-');
+  fs.mkdirSync(path.join(dir, 'lib'));
+  for (const f of ['pre-tool.js', 'post-tool.js', path.join('lib', 'hook-io.js')]) {
+    fs.copyFileSync(path.join(NODE_DIR, f), path.join(dir, f));
+  }
+  for (const c of ['context-guard', 'secret-guard', 'injection-scan']) {
+    fs.writeFileSync(path.join(dir, `${c}.js`), `module.exports = { check: i => i.hook_event_name === 'PostToolUse'
+      ? { kind: 'context', text: 'probe:${c}' } : { kind: 'deny', rule: 'probe', reason: 'probe:${c}' } };\n`);
+  }
+  return dir;
+}
+
 function p95(samples) {
   const s = [...samples].sort((a, b) => a - b);
   return s[Math.min(s.length - 1, Math.ceil(s.length * 0.95) - 1)];
 }
 
-module.exports = { NODE_DIR, tmpDir, runScript, p95 };
+module.exports = { NODE_DIR, tmpDir, runScript, p95, probeCopy };

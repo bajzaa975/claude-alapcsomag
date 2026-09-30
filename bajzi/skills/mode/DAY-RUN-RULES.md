@@ -1,72 +1,45 @@
 DAY-RUN MODE -- /bajzi:mode normal turns this off.
-ORCH = the model this session started with. Sub-agent tiers below are fixed regardless of ORCH.
-ORCHESTRATOR-ONLY, never delegate: ask/brainstorm; design, spec, architecture; decomposition into
-slices with disjoint file ownership and written acceptance criteria; judging verdicts (pass/fix/
-park); the consistency pass after parallel fixers; edits meeting the direct-edit threshold below.
+ORCH = the model this session started with. Sub-agent tiers below are fixed regardless of ORCH. ORCH-ONLY, never delegate:
+ask/brainstorm; design, spec, architecture; slice decomposition (disjoint files, written acceptance criteria); verdicts
+(pass/fix/park); consistency pass after parallel fixers; direct edits meeting the DIRECT-EDIT THRESHOLD below.
 ROUTING TABLE, task class -> model:
-- locate/map/"where is X" -> haiku; paths+line numbers only; retry once with sonnet; never main thread
+- locate/map/"where is X" -> haiku; paths+lines only; retry once with sonnet; never main thread
 - tests/lint/build/shellcheck -> haiku; pass/fail counts + first failing assertion only
-- read a file > 300 lines -> haiku; summary only
-- documents > 100 lines (handoffs, release notes) -> sonnet
+- read a file > 300 lines -> haiku, summary only; documents > 100 lines -> sonnet
 - implement a specified slice / TDD -> sonnet, the default fixer
-- risk-bearing slice (locks, concurrency, quotas, auth, money, migrations, destructive scripts)
-  -> opus starting round 1, never sonnet. File count alone is not risk: a 3+ file slice stays sonnet
+- risk-bearing slice (locks, concurrency, quotas, auth, money, migrations, destructive scripts) -> opus from round 1, never sonnet.
+  File count alone is not risk: a 3+ file slice stays sonnet
 - fix review findings -> implementer's model, one rung up after a failed round; never the reviewer
-- review a diff -> REVIEWER, ALWAYS. Never ORCH's model, never the implementer's model, never a
-  cheaper tier because the diff "looks small". Fresh context every round; EVIDENCE line required
-  or the verdict is FAIL. REVIEWER = a model on the reviewer allow-list (the REVIEWER MODELS line
-  after this block, else `reviewer_models` in ~/.claude/bajzi/config.json); never GLM.
-- final whole-branch review -> REVIEWER, ALWAYS, on every development without exception. It does not
-  matter what ORCH is or what wrote the code; the reviewer model is not a variable.
-- debugging -> sonnet when a failing test or repro command exists (give it verbatim), climbing the
-  ESCALATION LADDER below; else opus (no repro), which climbs to ORCH next, never down to sonnet
+- review a diff / final whole-branch review -> REVIEWER, ALWAYS. Never ORCH's or the implementer's model, never a cheaper tier for a
+  "small" diff. Fresh context each round; EVIDENCE line required or FAIL. REVIEWER = a model from the REVIEWER MODELS line after this
+  block, else `reviewer_models` in ~/.claude/bajzi/config.json; never GLM.
+- debugging -> sonnet when a failing test/repro exists (give it verbatim), climbing the LADDER; else opus (no repro), which climbs to
+  ORCH next, never down to sonnet
 - design/planning/brainstorming -> ORCH, main thread, always
-ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 (a new sub-agent) -> opus r3 -> ORCH r4 (main thread) -> park.
-Climbs on the FIRST failure, not the second. An identical blocking finding twice with no diff change parks immediately.
-REVIEW LOOP -- this is how every development is done, no exceptions, however small it looks:
-Each task ends with its own REVIEWER review giving TWO verdicts, spec compliance and quality. When
-all tasks are done the branch gets a final REVIEWER whole-branch review. Findings go to a FIXER
-sub-agent -- never the reviewer that raised them, never ORCH -- and the fix gets a NEW REVIEWER
-review round. Loop fix -> review -> fix -> review until it comes back clean. One-and-done is not
-a review; a single fix wave is not a loop.
-CLEAN = zero Critical AND zero Important findings AND the repo's own gate exits 0. Minor/cosmetic
-findings are collected into a list handed to the owner, never looped on -- style nits regenerate
-forever and would spin the loop without making the code safer.
-NEVER report work as done before that loop terminates clean. "The tests pass" is not done. "The
-implementer says it works" is not done. A clean review round plus a green gate is done.
-Watch for tests that pass for the wrong reason: a test asserting only that *something* was
-refused, when the code has several refusal paths, stays green after the security check is deleted.
-A reviewer that cannot say WHICH path refused has not verified the test.
-DISPATCH BRIEF -- enforced by the dispatch-guard hook (every deny names its rule, R1-R3):
-Reviews run through /bajzi:review (bajzi:reviewer), fixes through /bajzi:fix (bajzi:fixer). R1: any
-other agent sent a review/re-review is refused; a reviewer brief carries a <base>..<tip> range plus
-code-review-graph output (FC brief writes both). R2: any agent but the fixer/reviewer handed a
-runtime/findings/*.md or *-review.md file is refused; a fixer brief names exactly one .fixer.md.
-R3: any brief but the fixer's over 24576 chars (24 KB) means you pasted history -- cut it.
-DIRECT-EDIT THRESHOLD -- all four required, else delegate:
-<=20 changed lines, one file; no new logic; the file is already in context; not a forbidden zone
+ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 (new sub-agent) -> opus r3 -> ORCH r4 -> park. Climb on the FIRST failure. An identical
+blocking finding twice with no diff change parks at once.
+REVIEW LOOP, every development: implement -> REVIEWER review (two verdicts per task: spec compliance, quality) -> FIXER (never the reviewer, never ORCH) -> NEW review, until CLEAN; then
+a final REVIEWER whole-branch review. One fix wave is not a loop. Use /bajzi:review and /bajzi:fix; dispatch-guard enforces briefs (R1-R3).
+CLEAN = zero Critical AND zero Important findings AND the repo's own gate exits 0. Minor findings go to the owner as a list, never
+looped on.
+Never report done before the loop ends clean; "tests pass" is not done. Beware tests green for the wrong reason: asserting only that
+*something* was refused stays green after the security check is deleted. A reviewer must say WHICH path refused.
+DIRECT-EDIT THRESHOLD, all four or delegate: <=20 changed lines, one file; no new logic; file already in context; not a forbidden zone
 (deploy, secrets, CI config, migrations, history rewrite).
-CONTEXT DISCIPLINE: sub-agent reports <=40 lines, paths and counts only, never file contents, raw
-test output or diffs. Main thread never opens a file over 300 lines. At 40% context: finish the
-slice, write the handoff, ask to clear. Parallel fixers own disjoint files, then one consistency
-pass.
-STARTUP INJECTIONS cost ORCH price too: keep SessionStart hook output small; memory plugin caps at 5 obs on owner machines (CLAUDE_MEM_CONTEXT_OBSERVATIONS=5).
-FABLE DEPLETION: on the session-limit message, start nothing new, write the handoff, say "Fable
-limit reached. Restart with <X>." X = the first REVIEWER MODELS id that is not a Fable model, else
-Opus. Next session: claude --model <X>. Same rules reload; no rung spends Fable.
-Every dispatch's first line: model: <name> -- <reason>.
-Log every dispatch, one line, exact format, appended to runtime/DAY-RUN.log:
+CONTEXT: sub-agent reports <=40 lines, paths and counts only. Main thread never opens a file over 300 lines. At 40% context: finish the
+slice, write the handoff, ask to clear.
+STARTUP INJECTIONS: keep SessionStart hook output small; memory plugin capped at 5 observations (CLAUDE_MEM_CONTEXT_OBSERVATIONS=5).
+FABLE DEPLETION: on the session-limit message, start nothing new, write the handoff, say "Fable limit reached. Restart with <X>." X =
+the first REVIEWER MODELS id that is not a Fable model, else Opus. Next session: claude --model <X>; no rung spends Fable.
+Every dispatch's first line: model: <name> -- <reason>. Also log one line, exact format, to runtime/DAY-RUN.log:
 <ISO time> <task-class> model=<name> rounds=<n> result=<pass|fail|park|direct>
-Allowed questions, only these three: scope change; forbidden zone; park-or-continue. Everything
-else is decided and logged. Day-run never merges.
-After superpowers:writing-plans never ask the execution method; execute per this mode.
-## Owner tasks — do it yourself
-Default: if you can do it, you do it. No question, no approval line. A step assigned
-to the owner is the exception and must name its rung:
-1. Permission-gated (~/.claude, settings, deploy/release, secrets, git history, another
-   repo's commit, anything auto-mode still blocks) → STILL your task: one approval
-   line, then you run it. Never turn an approval into an owner task.
-2. Impossible even with approval (elevation, login, UI, a machine you have no tool on)
-   → scripts/owner/<name>.ps1|.sh, idempotent; the owner runs one command.
-3. Not scriptable (physical action, wizard, owner-only judgment) → numbered steps.
-"Who" in any plan or table is "me" unless rung 2/3; a "you" cell names its rung.
+Only three questions allowed: scope change; forbidden zone; park-or-continue. Everything else is decided and logged.
+Day-run never merges. After superpowers:writing-plans never ask the execution method; execute per this mode.
+## Owner tasks -- do it yourself
+Default: you do it, no approval line. Owner steps name their rung:
+1. Permission-gated (~/.claude, settings, deploy/release, secrets, git history, another repo's commit, anything auto-mode blocks) ->
+   still yours: one approval line, then you run it.
+2. Impossible even with approval (elevation, login, UI, no tool there) -> scripts/owner/<name>.ps1|.sh, idempotent; owner runs one
+   command.
+3. Not scriptable (physical, wizard, owner judgment) -> numbered steps.
+"Who" in a plan or table is "me" unless rung 2/3.

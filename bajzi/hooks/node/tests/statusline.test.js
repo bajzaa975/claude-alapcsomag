@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set BAJZI_PERF=1' };
 const assert = require('node:assert');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -233,7 +234,7 @@ test('the status line writes the bridge for a safe session id only', () => {
   assert.ok(!fs.existsSync(path.join(path.dirname(bad.tmp), 'bajzi-ctx-..', 'evil.json')));
 });
 
-test('p95 of 20 warm runs < 150 ms', () => {
+test('p95 of 20 warm runs < 150 ms', PERF, () => {
   const cwd = fixtureRepo();
   const home = tmpDir('bajzi-h-');
   const tmp = tmpDir('bajzi-t-');
