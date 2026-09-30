@@ -25,7 +25,7 @@ the two texts against each other.
    plus, in saver mode, `head -40` of SAVER-RULES.md; the test asserts
    `additionalContext` <= 85 escaped-newlines, DAY-RUN-RULES.md <= 80 lines,
    and <= 45 lines and <= 4096 bytes (the trimmed budget), that the kept rule
-   "sub-agent tiers fixed regardless of ORCH" is still present, that its last
+   "sub-agent tiers fixed regardless of ORCH" is still present, that its actual last
    line survives the cap, and that the output is valid JSON.
 8. The `claude` shim was never invoked (checked last, over every case).
 9. A missing DAY-RUN-RULES.md yields `{}`, not a failure.

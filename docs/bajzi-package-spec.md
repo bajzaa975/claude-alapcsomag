@@ -1766,7 +1766,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
   context guard, secret guard, injection scanner, setup drift checker, project-setup) and
   `saver-levels` (the dispatch guard) branches (`git merge-base --is-ancestor env-unify origin/main`
   → exit 0). The local `main` ref equals `origin/main`.
-- `bajzi-plugins-dev` branch **`agents-cadence`** = bajzi **1.9.0** in both manifests, not released,
+- `bajzi-plugins-dev` branch **`agents-cadence`** = bajzi **1.10.1** in both manifests, not released,
   not pushed; it is `origin/main` plus the agents-and-cadence plan's T0-T8
   (`git merge-base --is-ancestor origin/main agents-cadence` → exit 0). §6/§7 line numbers are
   pinned to `e4ef6f4` (this document's own commits change no code).
@@ -1796,7 +1796,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 
 | Component | Built (where) | Installed on the laptop | Not yet built / open | Verify (command → expected today) |
 |---|---|---|---|---|
-| bajzi plugin release | `origin/main` = 1.8.0 (`4c996c2`); `agents-cadence` = 1.9.0 (unreleased) | **1.8.0**, scope user, enabled, from GitHub | 1.9.0 release (double bump, §8.3) | `claude plugin list` → `Version: 1.8.0`, `Status: ✔ enabled` |
+| bajzi plugin release | `origin/main` = 1.8.0 (`4c996c2`); `agents-cadence` = 1.10.1 (unreleased) | **1.8.0**, scope user, enabled, from GitHub | 1.10.1 release (double bump, §8.3) | `claude plugin list` → `Version: 1.8.0`, `Status: ✔ enabled` |
 | `cc-router.js` shim (§6.2) | yes, released since 1.7.0 | **yes**, v1.2.0 (+ `.bak`) | — | `sha256sum ~/.local/bin/cc-router.js bajzi/bin/cc-router.js ~/.claude/plugins/cache/bajzi-plugins/bajzi/1.8.0/bin/cc-router.js` → three identical hashes |
 | `worker`/`glm`/`ccr` launchers | `env-unify`, `bajzi/bin/launchers/` (byte-identical to the laptop's six) | **yes**, + `.cmd` twins | — | `which glm worker ccr` → `/c/Users/andra/.local/bin/…` |
 | Saver mode | — | **L0**; `glm_fast_model` = `glm-5.3-flash` | — | `worker --status` → `level           L0 (claude)`, `ZAI_API_KEY     found` |
@@ -1814,7 +1814,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Night-run inner layer (§6.11, §9.2) | `workspace` | **yes** in the live checkout; `core.hooksPath` = `.githooks` | the drain banner at `nr:380` still prints `(WorkerMode glm)` (cosmetic; the launch is L0) | `git -C D:/AI/projektek/ClaudeCode/claude-orchestrator config core.hooksPath` → `.githooks` |
 | Night-run pinned guard set (§9.2-§9.3) | **not built, not designed** | no | all of §9.3. **Owner decision 2026-09-23: no night run happens before it is built and review-clean.** The `skip-worktree` flag is set on claude-orchestrator's `.claude/settings.json` (owner to clear) | `grep -c 'python -I' scripts/nightrun.ps1` → `0`; `git ls-files -v .claude/settings.json` → `S .claude/settings.json` (both in claude-orchestrator) |
 | Review-queue state | — | no ledger, no items | — | `ls D:/AI/projektek/ClaudeCode/claude-orchestrator/.git/review-queue-ledger.tsv D:/AI/projektek/ClaudeCode/claude-orchestrator/runtime/review-queue` → both absent |
-| Standing rule "Owner tasks -- do it yourself" (T0 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/skills/mode/DAY-RUN-RULES.md` Appendix A | no | release 1.9.0 (T8) | `wc -l < bajzi/skills/mode/DAY-RUN-RULES.md` → `43` (under the `head -80` cap) |
+| Standing rule "Owner tasks -- do it yourself" (T0 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/skills/mode/DAY-RUN-RULES.md` Appendix A | no | release 1.9.0 (T8) | `wc -l < bajzi/skills/mode/DAY-RUN-RULES.md` → `44` (under the `head -80` cap) |
 | Agent scaffold + harness (§4.1, T1 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/agents/` dir + `agents.test.js` contract + fixtures, `manifest.json` `plugins[].why` (T1) | no | release 1.9.0 (T8) | `node --test bajzi/tests/agents/agents.test.js` → `# pass 19`, `# fail 0` |
 | Findings format + parser (§4.2, T2 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `docs/findings-format.md`, `bajzi/lib/findings.js`, `bajzi/lib/tests/findings.test.js` | no | release 1.9.0 (T8) | `node --test bajzi/lib/tests/findings.test.js` → `# fail 0` |
 | `reviewer` + `fixer` agents (§6.12, T3 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/agents/reviewer.md`, `fixer.md`, `bajzi/tests/agents/contract.test.js`; review r1 fixes: no `VERDICT:` trailer, per-agent `PINS`, anchored money assertion, rubric synced to the doc, harness moved out of `bajzi/agents/` | no | release 1.9.0 (T8) | `node --test bajzi/tests/agents/*.test.js` → `# pass 19`, `# fail 0`, `# skipped 2` (one skip per contract file); `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/tests/agents/contract.test.js` → `# pass 1` (2026-09-24, after r1 fixes: opus-5-5 reviewer F1 blocker cart.js:10/F2 blocker/F3 major/F4 nit, sonnet-5 fixer `DONE 4/4`); the stream-json `init` event of `claude -p --plugin-dir bajzi` lists only `bajzi:fixer`, `bajzi:reviewer` |

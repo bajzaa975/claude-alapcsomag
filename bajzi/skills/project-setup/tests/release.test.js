@@ -65,3 +65,9 @@ test('every skill directory appears in the README Skills table', () => {
     }
   }
 });
+
+test('spec §11 plugin-release row names the current plugin version', () => {
+  const v = JSON.parse(read(path.join(BAJZI, '.claude-plugin', 'plugin.json'))).version;
+  const row = read(path.join(ROOT, 'docs', 'bajzi-package-spec.md')).split('\n').find(l => l.startsWith('| bajzi plugin release |'));
+  assert.ok(row && row.includes(v), row);
+});

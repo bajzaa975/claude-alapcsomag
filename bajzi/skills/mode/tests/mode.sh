@@ -260,10 +260,12 @@ else
 fi
 grep -q 'Sub-agent tiers below are fixed regardless of ORCH' "$RULES_MD" && pass "7 rules keep: sub-agent tiers fixed regardless of ORCH" || fail "7 tiers-fixed rule" "missing"
 # the hook's head cap must not silently truncate the rules file again
-if printf '%s' "$out" | grep -q 'Day-run never merges\.'; then
+last_rule="$(tail -n 1 "$RULES_MD" | tr -d '')"
+last_rule="${last_rule##*\" }"  # JSON escapes quotes; match the text after the last one
+if printf '%s' "$out" | grep -qF -- "$last_rule"; then
     pass "7 last line of DAY-RUN-RULES.md survives the head cap"
 else
-    fail "7 rules file truncated by the head cap" "missing 'Day-run never merges.'"
+    fail "7 rules file truncated by the head cap" "missing last rules line"
 fi
 if printf '%s' "$out" | json_ok; then
     pass "7 day-run output is valid JSON"
