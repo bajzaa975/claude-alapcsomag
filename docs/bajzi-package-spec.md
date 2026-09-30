@@ -583,10 +583,12 @@ of that file — the context guard (§6.6) is a pure consumer.
 `hook-errors.log`, and the process still exits 0.
 
 **Timing budget**: p95 < 150 ms warm on Windows (measured p95 warm ≈ 56-63 ms, cache-miss with a
-git spawn ≈ 120 ms).
+git spawn ≈ 120 ms). The budget test is opt-in: it runs only with `BAJZI_PERF=1`, otherwise node:test reports it skipped ("latency budget: set BAJZI_PERF=1").
 
 **Tests**: `node --test bajzi/hooks/node/tests/statusline.test.js` (exact-line fixture assertions,
-ANSI-stripped; a dedicated p95 timing test).
+ANSI-stripped; a dedicated p95 timing test, opt-in via `BAJZI_PERF=1`).
+
+**Opt-in latency budgets**: every wall-clock budget test in `bajzi/hooks/node/tests/` (status line p95 < 150 ms; context-guard and secret-guard p95 < 100 ms; the `injection-scan.test.js` 500 KB, `I1 perf` and end-to-end timing tests) runs only with `BAJZI_PERF=1`; otherwise node:test reports it skipped with "latency budget: set BAJZI_PERF=1". Assertions are unchanged when set. Night-run test note: `bajzi/skills/night-run/tests/watch.sh` scenarios that probe runner liveness (1-5, 8, 10, 14-17) need `flock`; without it they print `SKIP (no flock)` and do not count as failures.
 
 ### 6.6 Context guard — technical
 
@@ -758,7 +760,7 @@ higher-trust channel. Pinned by the `I3:` test.
 
 **Linear-time guarantee**: no unbounded quantifier is immediately adjacent to another unbounded
 quantifier with only an optional single token between them (the `\s*X?\s*` shape). Each of the
-15 regex rules has its own 200 KB adversarial perf test (< 100 ms) plus one end-to-end hook-process
+15 regex rules has its own 200 KB adversarial perf test (< 100 ms; opt-in via `BAJZI_PERF=1`, skipped otherwise) plus one end-to-end hook-process
 perf test (the `I1:` tests). Why it matters: a quadratic `tool-coercion` regex took 16.4 s on a
 200 KB probe — past the hook's 5 s timeout, which silently drops the warning.
 

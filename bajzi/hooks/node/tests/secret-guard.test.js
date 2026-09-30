@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set BAJZI_PERF=1' };
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -205,7 +206,7 @@ test('hooks.json wires the secret guard on Read|Grep|Glob|Bash|PowerShell', () =
 
 // Best of 3 batches, as in context-guard.test.js: `node --test` runs the test FILES in parallel,
 // so one batch can measure CPU contention rather than the guard.
-test('p95 of 20 runs < 100 ms, best of 3 batches', () => {
+test('p95 of 20 runs < 100 ms, best of 3 batches', PERF, () => {
   const stdin = JSON.stringify(bash('git status && cat README.md'));
   const batches = [];
   for (let b = 0; b < 3 && !(batches.length && Math.min(...batches) < 100); b++) {

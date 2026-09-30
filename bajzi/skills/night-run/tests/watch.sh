@@ -25,6 +25,8 @@ NR_SCRATCH=${NR_SCRATCH:-${TMPDIR:-/tmp}/night-run-tests}
 mkdir -p "$NR_SCRATCH" || exit 1
 WT=$(mktemp -d "$NR_SCRATCH/watch.XXXXXX") || exit 1
 FAILED=0
+# Scenarios that probe runner liveness need flock; without it they SKIP, not FAIL.
+if command -v flock >/dev/null 2>&1; then HAVE_FLOCK=1; else HAVE_FLOCK=0; fi
 HOLDERS=""
 
 # ---------------------------------------------------------------- helpers ---
@@ -107,6 +109,7 @@ run_watch(){ # NIGHT_DIR [extra args...] -> stdout
 }
 RC=0
 
+if [ "$HAVE_FLOCK" = 1 ]; then
 # ------------------------------------------------------------ 1. healthy ----
 ND=$(mkenv healthy); hold "$ND"; touch "$ND/heartbeat"
 OUT=$(run_watch "$ND"); RC=$?
@@ -158,6 +161,7 @@ OUT=$(run_watch "$ND"); RC=$?
 check "5 past quota-until: no second margin" " quota=none" "$OUT"
 case "$OUT" in *QUOTA-WAIT*) bad "5 QUOTA_MARGIN_SEC was added a second time";; *) ok "5 QUOTA_MARGIN_SEC is not applied twice";; esac
 
+else echo "SKIP (no flock): scenarios 1-5"; fi
 # -------------------------------------------------------------- 6. disk -----
 ND=$(mkenv disk 999999); touch "$ND/heartbeat"
 OUT=$(run_watch "$ND"); RC=$?
@@ -175,6 +179,7 @@ OUT=$(run_watch "$ND"); RC=$?
 check "7 finished marker: FINISHED" " FINISHED " "$OUT"
 if [ "$RC" = 0 ]; then ok "7 exit 0 on FINISHED"; else bad "7 expected exit 0, got $RC"; fi
 
+if [ "$HAVE_FLOCK" = 1 ]; then
 # ------------------------------------------------------------ 8. notify -----
 ND=$(mkenv notify); hold "$ND"; touch "$ND/heartbeat"
 cat >"$WT/notify.sh" <<EOS
@@ -194,6 +199,7 @@ run_watch "$ND" >/dev/null
 N=$(wc -l <"$WT/notify.log")
 if [ "$N" = 2 ]; then ok "8 a status change notifies again"; else bad "8 expected 2 notify lines, got $N: $(cat "$WT/notify.log")"; fi
 
+else echo "SKIP (no flock): scenario 8"; fi
 # ----------------------------------------------------------- 9. mode gate ---
 # BELT AND BRACES, and unreachable in a normal night: only a queue run publishes
 # run.meta at all, so a real one always says mode=queue. The gate exists for the
@@ -210,6 +216,7 @@ sleep 0.3
 if [ -s "$WT/stub.calls" ]; then bad "9 a report run was restarted"; else ok "9 no restart for a report run"; fi
 case "$OUT" in *" runner="*) bad "9 the mode gate ticked instead of exiting";; *) ok "9 the mode gate exits before the first tick";; esac
 
+if [ "$HAVE_FLOCK" = 1 ]; then
 # ------------------------------------------ 10. a SECOND night in the same dir ---
 # NIGHT_DIR is the project's PERMANENT directory: last night's finished, STOP and
 # watch.restarts are still lying in it when tonight's runner starts. Everything
@@ -238,6 +245,7 @@ OUT=$(run_watch "$ND"); RC=$?
 check "11 fresh finished: FINISHED" " FINISHED " "$OUT"
 if [ "$RC" = 0 ]; then ok "11 exit 0 on a fresh finished"; else bad "11 expected exit 0, got $RC"; fi
 
+else echo "SKIP (no flock): scenarios 10-11"; fi
 # --------------------------------- 12. tonight's OWN STOP still stops the watch ---
 ND=$(mkenv fresh-stop); touch "$ND/heartbeat"; : >"$WT/stub.calls"
 printf 'kill switch\n' >"$ND/STOP"
@@ -261,6 +269,7 @@ printf 'mode=queue\nstarted_epoch=2026-09-18T01:00:00Z\n' >"$ND/run.meta"
 OUT=$(run_watch "$ND"); RC=$?
 check "13 unusable started_epoch: UNKNOWN" " UNKNOWN " "$OUT"
 
+if [ "$HAVE_FLOCK" = 1 ]; then
 # ------------------------------------------ 14. DEFERRED-* is never counted done ---
 # run.sh adds tokens over time (DEFERRED-needs, -quota, -quota-weekly, -alive):
 # the counting is PREFIX based, so a new one needs no change here.
@@ -374,6 +383,7 @@ else
   case "$SA" in *"ignoring stale STOP"*) bad "17 the STOP was treated as an earlier night's";; *) ok "17 the STOP was not called stale";; esac
 fi
 
+else echo "SKIP (no flock): scenarios 14-17"; fi
 # ------------------------------------------------------------- teardown -----
 for p in $HOLDERS; do kill "$p" 2>/dev/null; done
 sleep 0.5

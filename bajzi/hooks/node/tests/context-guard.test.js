@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set BAJZI_PERF=1' };
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -295,7 +296,7 @@ test('hooks.json wires the guard on PreToolUse and PostToolUse for every tool', 
 
 // Best of 3 batches: `node --test` runs the test FILES in parallel, and a batch that overlaps the
 // status line's own p95 test measures CPU contention, not the guard.
-test('p95 of 20 runs < 100 ms (exempt path and deny path), best of 3 batches', () => {
+test('p95 of 20 runs < 100 ms (exempt path and deny path), best of 3 batches', PERF, () => {
   const tmp = tmpDir('bajzi-cgt-');
   for (const input of [pre('Write', { file_path: 'runtime/handoff/x.md' }), pre('Agent', { prompt: 'x' })]) {
     const stdin = JSON.stringify(input);

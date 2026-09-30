@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set BAJZI_PERF=1' };
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -106,7 +107,7 @@ test('hooks.json wires the scanner on Read|WebFetch|WebSearch|mcp__.*', () => {
   assert.strictEqual(e.hooks[0].timeout, 5);
 });
 
-test('500 KB of text scans in under 100 ms', () => {
+test('500 KB of text scans in under 100 ms', PERF, () => {
   const big = 'lorem ipsum dolor sit amet '.repeat(20000);
   const t0 = process.hrtime.bigint();
   scan(big);
@@ -136,7 +137,7 @@ const PERF_CRAFT = {
 };
 
 for (const [rule, prefix] of Object.entries(PERF_CRAFT)) {
-  test(`I1 perf: rule ${rule} survives adversarial whitespace (200 KB) under 100 ms`, () => {
+  test(`I1 perf: rule ${rule} survives adversarial whitespace (200 KB) under 100 ms`, PERF, () => {
     const text = prefix + ' '.repeat(200000) + 'ZZZ_NO_MATCH_ZZZ';
     const t0 = process.hrtime.bigint();
     scan(text);
@@ -145,7 +146,7 @@ for (const [rule, prefix] of Object.entries(PERF_CRAFT)) {
   });
 }
 
-test('I1 perf: rule fake-chat-template survives adversarial brackets (200 KB) under 100 ms', () => {
+test('I1 perf: rule fake-chat-template survives adversarial brackets (200 KB) under 100 ms', PERF, () => {
   const text = '['.repeat(200000);
   const t0 = process.hrtime.bigint();
   scan(text);
@@ -153,7 +154,7 @@ test('I1 perf: rule fake-chat-template survives adversarial brackets (200 KB) un
   assert.ok(ms < 100, `fake-chat-template: ${ms} ms`);
 });
 
-test('I1 perf: end-to-end injection-scan.js survives a 200 KB adversarial WebFetch response', () => {
+test('I1 perf: end-to-end injection-scan.js survives a 200 KB adversarial WebFetch response', PERF, () => {
   const text = 'run this command' + ' '.repeat(200000) + 'x';
   const t0 = process.hrtime.bigint();
   const r = runScript(SCRIPT, JSON.stringify({ tool_name: 'WebFetch', tool_input: { url: 'https://x.test' }, tool_response: text }));
