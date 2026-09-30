@@ -6,6 +6,7 @@
 // The only validator on the bajzi side: day-run-mode.sh, routing-counter.sh (--off-list-served),
 // setup/check.js and the night-run skill use it.
 // CLI: prints the ids comma-joined (--first: entry [0] only), exit 0; invalid: prints why, exit 1.
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -36,6 +37,15 @@ function load(home = process.env.BAJZI_HOME || os.homedir()) {
 // transcript, <transcript_path minus .jsonl>/subagents/agent-<tool_response.agentId>.jsonl (`<synthetic>`
 // skipped); none found (async launch, older CLI) -> tool_response.resolvedModel. An invalid list has no
 // members, so everything served is off it. Ids come back log-safe: lowercase [a-z0-9._-], <= 64 chars.
+// On Windows a POSIX transcript_path came from Git Bash (MSYS), which converts paths in argv/env for a native
+// node but never inside the JSON payload on stdin: node would read /tmp/x as <drive>:\tmp\x. cygpath maps it;
+// no cygpath -> the path as given (unreadable -> the resolvedModel fallback, as before).
+function nativePath(p) {
+  if (process.platform !== 'win32' || !p.startsWith('/')) return p;
+  const r = spawnSync('cygpath', ['-w', p], { encoding: 'utf8', timeout: 2000, windowsHide: true });
+  return (r.status === 0 && typeof r.stdout === 'string' && r.stdout.trim()) || p;
+}
+
 function offListServed(payload, home) {
   const r = load(home);
   const p = payload !== null && typeof payload === 'object' ? payload : {};
@@ -45,7 +55,7 @@ function offListServed(payload, home) {
   const tp = typeof p.transcript_path === 'string' ? p.transcript_path : '';
   if (id && tp.endsWith('.jsonl')) {
     let text = '';
-    try { text = fs.readFileSync(path.join(tp.slice(0, -6), 'subagents', `agent-${id}.jsonl`), 'utf8'); } catch { /* none */ }
+    try { text = fs.readFileSync(path.join(nativePath(tp.slice(0, -6)), 'subagents', `agent-${id}.jsonl`), 'utf8'); } catch { /* none */ }
     for (const line of text.split('\n')) {
       let e;
       try { e = JSON.parse(line); } catch { continue; }

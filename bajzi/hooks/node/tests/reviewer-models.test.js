@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { tmpDir } = require('./helpers');
 const { load, configPath, offListServed } = require('../lib/reviewer-models');
@@ -106,4 +107,22 @@ test('offListServed: sub-agent transcript models, <synthetic> skipped, resolvedM
   assert.deepStrictEqual(offListServed({ tool_response: null }, h), []);
   assert.deepStrictEqual(offListServed(null, h), []);
   assert.deepStrictEqual(offListServed(pay('a1', ''), home({ reviewer_models: ['glm-5.3'] })), ['claude-opus-5-5', 'glm-5.3']);
+});
+
+// mode.sh 12t2 on Windows: Git Bash converts POSIX paths in argv/env for a native node, never inside the
+// JSON payload on stdin, so transcript_path arrived as /tmp/... and node read <drive>:\tmp\... (ENOENT); the
+// resolvedModel fallback (on the list) then hid the off-list served model.
+const cyg = process.platform === 'win32' && spawnSync('cygpath', ['-u', os.tmpdir()], { encoding: 'utf8' }).status === 0;
+test('offListServed: a Git Bash (MSYS) transcript_path on Windows is read; no cygpath -> resolvedModel', { skip: !cyg && 'win32 + cygpath only' }, () => {
+  const h = home({ reviewer_models: ['claude-opus-5-5'] });
+  const tx = tmpDir('bajzi-tx-');
+  fs.mkdirSync(path.join(tx, 's', 'subagents'), { recursive: true });
+  fs.writeFileSync(path.join(tx, 's', 'subagents', 'agent-a2.jsonl'), JSON.stringify({ type: 'assistant', message: { model: 'glm-5.3' } }) + '\n');
+  const msys = spawnSync('cygpath', ['-u', path.join(tx, 's.jsonl')], { encoding: 'utf8' }).stdout.trim();
+  assert.match(msys, /^\//);
+  const pay = { transcript_path: msys, tool_response: { agentId: 'a2', resolvedModel: 'claude-opus-5-5' } };
+  assert.deepStrictEqual(offListServed(pay, h), ['glm-5.3']);
+  const saved = process.env.PATH;
+  process.env.PATH = '';
+  try { assert.deepStrictEqual(offListServed(pay, h), []); } finally { process.env.PATH = saved; }
 });
