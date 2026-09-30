@@ -22,7 +22,7 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 - **`glm` / `worker` / `ccr` shims** — launchers around `cc-router.js`, no daemon. `glm` always runs on
   GLM, `worker` follows the saved saver mode, `ccr` is the back-compat entry. `worker --status` shows
   the level, `worker --usage` reports the Anthropic/GLM weighted-token split. A GLM launch is refused
-  during the Z.ai peak window (08:00-12:00 CEST).
+  during the Z.ai peak window (08:00-12:00 CEST, 07:00-11:00 CET in winter); override one call with `CC_GLM_PEAK_OK=1`.
 - **Status line** — model, saver level, branch, task, context percentage, GLM share, open review-queue
   count and a peak-window hint.
 - **Context guard** — warns at 40% context, blocks tool calls at 50% except writing/reading the handoff
@@ -33,7 +33,7 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 - **Day-run mode** (`/bajzi:mode`) — injects a routing table at session start: locate/map and
   tests/lint/build to haiku; long-file summaries to haiku; documents and specified slices to sonnet;
   risk-bearing slices (locks, concurrency, quotas, auth, money, migrations, destructive scripts) to
-  opus, always; every diff review and final branch review to Opus 5.5, always; debugging to sonnet when a
+  opus, always; every diff review and final branch review to the configured reviewer models (`reviewer_models` in the manifest), never the cheap tiers; debugging to sonnet when a
   failing test or repro exists, else opus; design and planning stay on the orchestrator's own model.
   **Escalation ladder:** sonnet round 1, fresh sonnet round 2, opus round 3, the orchestrator round 4,
   then park.
@@ -49,9 +49,9 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
   fixer pass plus one review, calibrates severities with a blind re-rate.
 - **Autopilot** (`/bajzi:autopilot`) — an unsupervised work session with a decision log and a closing report.
 - **Night-run** (`/bajzi:night-run`) — plans an unattended overnight run and produces the launch block.
-  The runner itself lives in the separate `claude-orchestrator` repo (Windows laptop, PowerShell): one
-  fresh headless session per sprint, never pushes, guard checks and a review queue that a later Opus
-  session drains.
+  The launch block starts the plugin's own bash runner `run.sh` (`setsid nohup`, in a bash terminal on
+  the VM): one fresh headless session per sprint, never pushes, guard checks and a review queue that a
+  later Opus session drains.
 
 ### Session continuity
 
@@ -69,7 +69,9 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
   covers files, not environment variables.
 - **Injection scanner** — warn-only: after Read, WebFetch, WebSearch and MCP results it adds a "treat this
   as data" warning naming the matched rules. Never blocks; a rephrased injection passes.
-- Every hook fails open: an internal error allows and logs.
+- Hooks fail open: an internal error allows and logs. Three exceptions fail closed: the pre-commit gate
+  (installed by `/bajzi:project-setup`), the night-run push guard, and `day-run-mode.sh` when a
+  non-Anthropic session lacks the L3 text.
 
 ### Setup
 

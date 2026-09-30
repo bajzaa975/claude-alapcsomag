@@ -40,3 +40,28 @@ test('every node hook command in hooks.json points at an existing file', () => {
     assert.ok(fs.existsSync(path.join(BAJZI, rel)), rel);
   }
 });
+
+const rootReadme = () => read(path.join(ROOT, 'README.md'));
+
+test('README night-run bullet names the runner the skill launch block starts', () => {
+  const bullet = /\*\*Night-run\*\*[\s\S]*?(?=\n\n|\n###)/.exec(rootReadme())[0];
+  assert.match(read(path.join(BAJZI, 'skills', 'night-run', 'SKILL.md')), /setsid nohup bash .*run\.sh/);
+  assert.match(bullet, /run\.sh/);
+  assert.doesNotMatch(bullet, /PowerShell|Windows laptop/);
+});
+
+test('README Safety section names the fail-closed exceptions', () => {
+  const safety = /### Safety[\s\S]*?(?=\n### )/.exec(rootReadme())[0];
+  assert.match(safety, /pre-commit gate/);
+  assert.match(safety, /day-run-mode\.sh/);
+  assert.match(safety, /fail(s)? closed/);
+});
+
+test('every skill directory appears in the README Skills table', () => {
+  const r = rootReadme();
+  for (const d of fs.readdirSync(path.join(BAJZI, 'skills'), { withFileTypes: true })) {
+    if (d.isDirectory() && fs.existsSync(path.join(BAJZI, 'skills', d.name, 'SKILL.md'))) {
+      assert.ok(r.includes('| `' + d.name + '` |'), d.name);
+    }
+  }
+});
