@@ -171,16 +171,16 @@ test('M3: 8 concurrent status lines start at most one refresh', () => {
   const home = tmpDir('bajzi-h-');
   const hits = path.join(home, 'hits.txt');
   const script = path.join(home, 'race.js');
-  fs.writeFileSync(script, `const parts = require(${JSON.stringify(path.join(NODE_DIR, 'lib', 'status-parts.js'))});
+  fs.writeFileSync(script, `const parts = require(process.argv[3]);
 const fs = require('node:fs');
 const start = Number(process.argv[2]);
 while (Date.now() < start) { /* align the racers */ }
-parts.glmShare({ nowMs: Date.now(), home: ${JSON.stringify(home)}, env: {}, refresh: () => fs.appendFileSync(${JSON.stringify(hits)}, 'x') });
+parts.glmShare({ nowMs: Date.now(), home: process.argv[4], env: {}, refresh: () => fs.appendFileSync(process.argv[5], 'x') });
 `);
   const { spawn } = require('node:child_process');
   const start = Date.now() + 700;
   const kids = [];
-  for (let i = 0; i < 8; i++) kids.push(spawn(process.execPath, [script, String(start)], { stdio: 'ignore' }));
+  for (let i = 0; i < 8; i++) kids.push(spawn(process.execPath, [script, String(start), path.join(NODE_DIR, 'lib', 'status-parts.js'), home, hits], { stdio: 'ignore' }));
   return Promise.all(kids.map(k => new Promise(r => k.on('exit', r)))).then(() => {
     assert.strictEqual(fs.readFileSync(hits, 'utf8').length, 1);
   });
