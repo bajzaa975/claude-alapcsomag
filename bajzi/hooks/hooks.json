@@ -1,5 +1,5 @@
 {
-  "description": "Automatic HANDOFF loading + per-repo methodology selection + day-run working-mode injection + noisy-output filter + saver routing-violation counter + context guard (40% warn, 50% block) + secret-read guard + prompt-injection scanner + sub-agent dispatch guard",
+  "description": "Automatic HANDOFF loading + per-repo methodology selection + day-run working-mode injection + radar new-report notice + noisy-output filter + saver routing-violation counter + context guard (40% warn, 50% block) + secret-read guard + prompt-injection scanner + sub-agent dispatch guard",
   "hooks": {
     "SessionStart": [
       {
@@ -28,6 +28,16 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/day-run-mode.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/skills/radar/radar.js\" notice",
             "timeout": 5
           }
         ]
