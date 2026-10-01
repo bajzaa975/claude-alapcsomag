@@ -1388,8 +1388,12 @@ and, through its `claude plugin marketplace update` pre-step, the marketplace cl
   `ANTHROPIC_BASE_URL` pointing at a closed port, so no model call): the init event listed only the
   five tools, no MCP server and only the built-in plugins `cc-plugin-agents-md` and
   `cc-plugin-telemetry`, and no hook event fired; without the two flags the owner's 12 plugins
-  loaded and 6 SessionStart hooks ran. The `WebFetch(domain:…)` refusal itself is pinned by
-  `radar.test.js`, not smoke-checked. Earlier smoke check 2026-10-01, CLI 2.1.286, the flags before
+  loaded and 6 SessionStart hooks ran. `radar.test.js` pins only the `WebFetch(domain:…)`
+  argument list against prompt.md's hosts. The refusal itself was smoke-checked live on 2026-10-01
+  (CLI 2.1.286, `claudeArgs()` with `--model haiku`, real model calls): `WebFetch
+  https://example.com/` was denied, `raw.githubusercontent.com/.../CHANGELOG.md` returned
+  `# Changelog`, the tool list was Glob, Grep, Read, WebFetch, WebSearch, and OAuth login worked
+  under `--setting-sources ''`. Earlier smoke check 2026-10-01, CLI 2.1.286, the flags before
   the WebFetch hosts and the two isolation flags, with `--model haiku` and the prompt "Use the Bash tool to run: echo
   radar-smoke": with `--allowedTools` alone (no `--tools`) the init event listed Bash, Edit, Write
   and Task, and `echo radar-smoke` ran (the owner's settings allow rules apply under `dontAsk`);
