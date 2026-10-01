@@ -223,7 +223,7 @@ test('run derives since from the newest report mtime, else now - 14 days', async
   const e = runEnv();
   const s0 = {};
   await R.run({ state: e.state, now: NOW, claude: p => { s0.p = p; return { code: 1, stdout: '', stderr: '' }; }, exec: e.exec, home: e.home, projectsDir: e.f.projects });
-  assert.match(s0.p, new RegExp('since: ' + new Date(NOW - 14 * 864e5).toISOString().replace(/\./g, '\\.')));
+  assert.ok(s0.p.includes('since: ' + new Date(NOW - 14 * 864e5).toISOString()));
   const rd = path.join(e.state, 'reports');
   write(path.join(rd, '2026-09-01.md'), '# bajzi radar - 2026-09-01\n');
   write(path.join(rd, '2026-09-10.md'), '# bajzi radar - 2026-09-10\n');
@@ -250,7 +250,7 @@ test('run: the next window starts where the previous digest window ended', async
   await go(at(28), () => ({ code: 1, stdout: '', stderr: '' }));
   const s2 = {};
   await go(at(29), okClaude(s2));
-  assert.match(s2.prompt, new RegExp('since: ' + at(14).toISOString().replace(/\./g, '\\.')));
+  assert.ok(s2.prompt.includes('since: ' + at(14).toISOString()));
 });
 
 test('run writes last-error.log when the report rename fails', async t => {
@@ -305,7 +305,7 @@ test('claude args: WebFetch is limited to the pinned source and GitHub API hosts
   const a = R.claudeArgs();
   const p = fs.readFileSync(path.join(__dirname, '..', 'prompt.md'), 'utf8');
   const hosts = [...new Set([...p.matchAll(/https:\/\/([A-Za-z0-9.-]+)\//g)].map(m => m[1]))].sort();
-  assert.ok(hosts.includes('api.github.com'), hosts.join());
+  assert.ok(new Set(hosts).has('api.github.com'), hosts.join());
   const allow = argsAfter(a, '--allowedTools');
   assert.ok(!allow.includes('WebFetch'), 'bare WebFetch allows every host');
   assert.deepStrictEqual(allow.filter(t => t.startsWith('WebFetch')).sort(), hosts.map(h => `WebFetch(domain:${h})`));
