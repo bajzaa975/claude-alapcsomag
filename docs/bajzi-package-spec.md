@@ -100,6 +100,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Review/fix loop skills (`/bajzi:implement`, `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt`): round cap, D4 routing to `needs-owner.md`/`debt.md`, D6 cap check, D7 calibrate, dispatch log | `bajzi/skills/{implement,review,fix,debt}/SKILL.md` (the procedure), `bajzi/skills/lib/dispatch.md` (brief templates, dispatch table, log step), the night-session copies of the cap: `bajzi/skills/night-run/run.sh` `prompt_for` + `templates/BRIEF.md.tmpl` §4.5 ("Maximum 2 review rounds"), claude-orchestrator `scripts/nightrun-prompt.md` hard rule 10 (2026-09-25: SPRINT-147 hand-wrote the round-3 brief `FC brief` refused; all three prompts now say so, keep them in step with the skills), `bajzi/lib/findings-cli.js` `cmds.slice`/`cmds.validate`/`cmds.copy`/`cmds.brief`/`cmds.close`/`cmds.check`/`cmds.drain`/`cmds.calibrate`/`cmds.log`, `toOwner` (the `needs-owner.md` renderer) | `timeout 300 bash bajzi/skills/mode/tests/mode.sh </dev/null` (case 16) | 1 | The routing decisions (which agent, which round, where an open finding goes, cap hit) are made by `findings-cli.js` on files, never by the model; the scope checks, the gate run and the range ends are the skill's steps. The round cap is per slice: `copy fixer` on a round-2 file or on an r1 whose `-r2.md` exists, `brief review <slice> 1` when `-r2.md` exists, and `validate` on a `-r3.md` file all exit 3 (`STOP`); only the owner deletes an `-r2.md`. `close` writes `needs-owner.md` before it merges `debt.md`, so a refused merge (exit 4) never loses an owner item. `close` needs `<slice>-r1.md`, `-r2.md` and `-r1.report.md` (the fixer's final message, saved by `/bajzi:fix`). The skills' `SKILL-<CLASS>` log lines sit beside the dispatch guard's own R4 lines when its gate is open; count one or the other, not both. |
 | Pre-commit gate (tools, scope, ratchet, exit codes) and its install | `bajzi/gate/pre-commit.js:main`, `:lint`, `:count`, `:ratchetScope`, `:findTool`, `:config`, `HINTS`/`TOOLS`; install `bajzi/skills/project-setup/profile.js:plan`/`preflight`/`apply` (`gate`, `gate-hookspath`, `gate-mode` actions, `:gateIndexMode`), `profile.js:validate` (`gate` key); contract `docs/gate.md`; install lines `manifest.json` `gate_tools` | `node --test bajzi/gate/tests/pre-commit.test.js bajzi/skills/project-setup/tests/profile.test.js` | 1 | Fails **closed** (Invariant 14): a needed tool missing, a tool error, an unreadable count, baseline or profile is exit 2, never green. Only exit codes decide; the two counts come from machine output (`pyright --outputjson`, located `file(l,c): error TSnnnn:` lines of `tsc --pretty false`; a location-less `error TS` line, or a non-zero exit with 0 counted, is exit 2). The installed `.githooks/pre-commit` is a verbatim copy: change the source, and every repo shows `DRIFT gate` until `/bajzi:project-setup` reruns. `HINTS` and `manifest.json` `gate_tools` must agree (the test asserts it). The tests run every tool as a fake shim on a minimal PATH; on Windows that PATH needs Git's `cmd/` dir or the hook's `/usr/bin/env` is not found. |
 | Public feature overview | `README.md` | `node --test bajzi/skills/project-setup/tests/release.test.js` (asserts the night-run bullet, the Safety fail-closed exceptions and that every skill is in the Skills table) | 3 | Any user-visible feature add/removal updates the README Features section. |
+| Radar: the biweekly read-only setup review (digest, headless run, report/error files, SessionStart notice, schedule) | `bajzi/skills/radar/radar.js` (`digest`, `run`, `claudeArgs`, `realClaude`, `notice`, `seen`, `installTask`, `taskCommand`, `cronLine`, `LAUNCHER`), `bajzi/skills/radar/prompt.md` (what the session reviews, output contract), `bajzi/skills/radar/SKILL.md` (§6.14) | `node --test bajzi/skills/radar/tests/*.test.js` | 1 | `--tools` is the sandbox, not `--allowedTools`: with `--allowedTools` alone under `dontAsk` the session still has Bash and the owner's settings allow rules run it (smoke check, §6.14); `radar.test.js` pins the exact five. The digest emits counts and `LABEL`-whitelisted names only; a new digest field must not carry text. `notice` is a SessionStart hook: only `stat`s, silent and exit 0 on any error. Registering it in `hooks.json` also moves the node-command count in `release.test.js` and the `mode.sh` 13m2 list. |
 
 ### Advisor pilot (1.10.1)
 
@@ -239,6 +240,7 @@ At install time, files move from the **versioned plugin cache**
 | `bajzi/hooks/*.sh`, `bajzi/hooks/node/*.js` (guards) | **not copied** — run straight from the plugin cache via `${CLAUDE_PLUGIN_ROOT}` in `hooks.json` | the plugin loader itself (§8.2) |
 | `bajzi/bin/launchers/` — `worker` / `glm` / `ccr` launcher scripts (+ `.cmd` twins on Windows) | `~/.local/bin/` (a different previous copy → `<name>.bak`) | `bash bajzi/bin/install.sh`, same run as `cc-router.js` (§8.1 step 4) |
 | `bajzi/gate/pre-commit.js` | `<repo>/.githooks/pre-commit`, per repo whose profile has `gate` | `/bajzi:project-setup` (`profile.js:apply`, §6.10, §6.13) |
+| `bajzi/skills/radar/radar.js` `LAUNCHER` | `~/.claude/bajzi/radar/launch.js` (it resolves the current plugin install at each launch) | `radar.js install-task` (`/bajzi:radar install`, §8.6) |
 
 The settings.json `statusLine` command is pointed at the **copy** (`~/.claude/bajzi/statusline.js`),
 never at the versioned cache path, so a plugin update does not silently break the status line
@@ -269,6 +271,8 @@ SessionStart (matcher startup|clear|compact|resume)
   day-run-mode.sh          -> saver level + day-run routing table, gated by lib-saver-level.sh
                                (silent {} unless day-run is on, CC_WORKER_MODE is set, or the
                                provider is non-Anthropic)
+  radar.js notice          -> one systemMessage when a radar report (or a newer failed run) is
+                               unseen; only stats files, silent otherwise (§6.14)
 
 statusLine command (re-rendered by the UI on its own cadence)
   statusline.js: reads context_window%, git branch/dirty (5s cache), handoff task, GLM share
@@ -1340,6 +1344,96 @@ decision D3 of the agents-and-cadence plan: block on the staged files, ratchet t
 - **Tests**: `bajzi/gate/tests/pre-commit.test.js` — fixture repos, every tool a fake shim on a
   minimal PATH (fake bin + node + git), one optional real-`gitleaks` case skipped when absent.
 
+### 6.14 Radar (`/bajzi:radar`) — functional then technical
+
+**Functional.** Every second Monday at 10:00 a scheduled task runs one headless Opus session that
+reviews the owner's Claude setup and writes a report of at most 5 proposals, each with evidence, an
+exact diff or manifest change, cost/risk and effort ("Nothing worth changing" is valid). It folds
+in the old monthly plugin review (desired state from the manifest's `plugins` and
+`deliberately_skipped`, catalog vs installed, third-party supply chain, token cost, the exact
+manifest line) and adds Anthropic / Claude Code / model / API changes since the last run (pinned
+sources in `prompt.md`), methodology news and the owner's own usage friction. The next session
+start announces the report; `/bajzi:radar` presents it, declined items go to `declined.md` (later
+runs skip them), adopted items become normal development work. It edits nothing but its state dir.
+
+**Technical** (`bajzi/skills/radar/radar.js`, Node stdlib only; CLI
+`node radar.js <digest|run|notice|seen|install-task>`; state dir `$BAJZI_RADAR_HOME` else
+`~/.claude/bajzi/radar/`, files in §7.5):
+- **Inputs** (`run`): `since` = the newest report's mtime, else now − 14 days. Best-effort pre-steps
+  through the injectable `exec`: `claude plugin marketplace update`, `claude --version`,
+  `claude plugin list --json` (reduced to `<id>@<version>` lines); each failure becomes a
+  `FAILED (...)` line in the context, never fatal. Prompt = `prompt.md` + a context block (date,
+  since, state dir, the last 2 reports, `declined.md`, `~/.claude/CLAUDE.md`, `~/.claude/RTK.md`,
+  the installed bajzi root = `installed_plugins.json` `bajzi@bajzi-plugins[0].installPath` and its
+  `skills/setup/manifest.json`, the marketplace clone `~/.claude/plugins/marketplaces/bajzi-plugins`
+  with its `docs/bajzi-package-spec.md` and `bajzi/skills/mode/DAY-RUN-RULES.md`, the catalog glob)
+  + the digest. The context carries paths; the session Reads them itself.
+- **Read-only boundary** (`claudeArgs`, `realClaude`): `claude -p --model opus --permission-mode
+  dontAsk --tools Read Glob Grep WebFetch WebSearch --allowedTools Read Glob Grep WebFetch WebSearch
+  --strict-mcp-config --no-session-persistence`; binary `BAJZI_RADAR_CLAUDE` else `claude` on PATH,
+  no shell; cwd = the state dir; prompt on stdin; killed after 40 min. No Bash, Edit, Write, Agent,
+  Skill or MCP tool exists in the session, so only `radar.js` writes. Smoke check 2026-10-01, CLI
+  2.1.286, the same flags with `--model haiku` and the prompt "Use the Bash tool to run: echo
+  radar-smoke": with `--allowedTools` alone (no `--tools`) the init event listed Bash, Edit, Write
+  and Task, and `echo radar-smoke` ran (the owner's settings allow rules apply under `dontAsk`);
+  with `--tools` the init listed only the five, the Bash call failed with "No such tool available:
+  Bash", and `mcp_servers` was empty. Read outside the cwd (`~/.claude/RTK.md`) and WebFetch
+  (`api.github.com/repos/obra/superpowers/releases`) work under the same flags, no denials.
+  The server-side `advisor` tool (user setting `advisorModel`) stays available; it only consults a
+  model and has no file or command access.
+- **Acceptance**: exit 0 and the first non-empty stdout line starts with `# bajzi radar` → the
+  report is written tmp + rename to `reports/<local YYYY-MM-DD>.md` (`-2`, `-3`… if taken),
+  leading blank lines dropped. Anything else, a spawn error or the timeout included →
+  `last-error.log` (exit code, reason, last 40 stderr lines, first 20 stdout lines), no report, CLI
+  exit 1.
+- **Digest** (`digest({projectsDir, since, now})`, ≤ 150 lines, counts only): reads
+  `<projects>/*/*.jsonl` and `<projects>/*/*/subagents/*.jsonl` with mtime ≥ since, line by line
+  through `readline` (the real dir is ~1 GB); malformed lines are skipped and counted; only entries
+  whose `timestamp` ≥ since count. Sections: sessions (distinct `sessionId`) per project = basename
+  of `cwd`, top 10; assistant messages and the sums of `input_tokens`, `output_tokens`,
+  `cache_read_input_tokens`, `cache_creation_input_tokens` per `message.model`, deduped by
+  `message.id` (Claude Code writes one line per content block, each repeating id and usage); tool
+  uses by name, top 15; `Skill` by `input.skill`; `Agent`/`Task` by `input.subagent_type` and by
+  `input.model` (`inherit` when absent); `is_error` tool results by tool name (tool_use_id → name);
+  permission denials, approximate ("Permission to use", "denied by", "doesn't want to proceed" in
+  an error result); slash commands from `<command-name>`; compactions (`compact_boundary` system
+  entries or `isCompactSummary`, the larger count per session); DAY-RUN: for each distinct `cwd` in
+  the window, `<cwd>/runtime/DAY-RUN.log` lines with time ≥ since, count + summed rounds per
+  task-class × model, a results tally and malformed lines (the 5 leading fields of
+  `<ISO> <task-class> model=<m> rounds=<n> result=<r>`; any tail is ignored, and a token's detail
+  suffix is cut to its leading word: `review(s157-s1)` → `review`, `pass(CLEAN)` → `pass`). It never emits message
+  text, tool inputs other than skill / subagent_type / model / tool / command names, or a path other
+  than a project basename: every emitted name must match `LABEL` (`^[A-Za-z0-9:_.@/<>-]{1,64}$`),
+  else it is `(other)`. `node radar.js digest` prints it for the current window.
+- **Notice** (`notice`, SessionStart): registered in `bajzi/hooks/hooks.json` as
+  `node "${CLAUDE_PLUGIN_ROOT}/skills/radar/radar.js" notice` (§5.3). Newest report mtime > `.seen`
+  mtime, or `.seen` missing → `{"systemMessage":"bajzi radar: new report <path> - run /bajzi:radar
+  to review"}`; else `last-error.log` newer than both the newest report and `.seen` →
+  `{"systemMessage":"bajzi radar: last run failed - <path>"}`; else no output. Only `stat`s, never
+  reads a transcript, always exit 0, a missing state dir is silent. `seen` touches `.seen`;
+  `/bajzi:radar` runs it after the review.
+- **Launcher and schedule** (`installTask`, `LAUNCHER`, `taskCommand`, `cronLine`): writes
+  `<state>/launch.js`, which at every launch resolves the CURRENT `bajzi@bajzi-plugins` installPath
+  from `installed_plugins.json` and runs that version's `skills/radar/radar.js run` with
+  `BAJZI_RADAR_HOME` = its own dir (unresolvable → `last-error.log`, exit 1), so a plugin update
+  never breaks the task. Windows: `taskCommand` (pure) builds the PowerShell, run through
+  `powershell.exe -EncodedCommand`: `Register-ScheduledTask -TaskName bajzi-radar -Force` for the
+  current user only (`-LogonType Interactive -RunLevel Limited`; no SYSTEM, no Highest, no
+  elevation), trigger weekly `-WeeksInterval 2 -DaysOfWeek Monday -At '10:00'` local, settings
+  StartWhenAvailable, RunOnlyIfNetworkAvailable, ExecutionTimeLimit 1 h, MultipleInstances
+  IgnoreNew, action = absolute `process.execPath` + `launch.js`; prints NextRunTime. Elsewhere it
+  prints a crontab line (`0 10 * * 1` plus an epoch-week parity test, cron has no "every 2 weeks")
+  and registers nothing.
+- **Skill** (`SKILL.md`): no argument = present the newest report tersely, ask which items to adopt,
+  append declined ones to `declined.md` (`<date> | <title> | <reason>`), then `radar.js seen`;
+  `now` = `radar.js run` in the background; `install` = owner rung 1 (one approval line), then
+  `radar.js install-task`.
+- **Tests**: `bajzi/skills/radar/tests/radar.test.js` — tmp dirs, fake `claude`/`exec`, no network:
+  digest counts, since filter, no-leak (a secret in user text, tool inputs, results and a DAY-RUN
+  tail), DAY-RUN aggregation, run report / error paths, since from the newest report, notice
+  states, the pinned `claudeArgs`, the install command builder and its failure path, `launch.js`
+  resolution and its failure path (exit 1, `last-error.log`, the notice).
+
 ## 7. Shared state files
 
 Every file two or more components meet through. "Writer" is the only code that creates or changes
@@ -1403,6 +1497,16 @@ root. Line numbers are pinned to the commits in §11.
 | `runtime/nightrun/<stamp>/` | `nr` | the owner, `rq` | `nightrun.log` (`nr:85`), `<sprint>-<tag>.jsonl` / `.err.txt` / `.prompt.txt` (tags `main`, `resume`, `fix`, `fix-resume`, `drain`; `nr:114-116`), `.attemptN` / `.killed-attemptN` copies, `gate-<label>.txt` (`nr:95`), `<sprint>.status` (line 1 = status, line 2 = note), `SUMMARY.md` (`nr:614-619`) | one directory per run, never deleted by code |
 | `runtime/nightrun/.lock` | `nr:403-416` | `nr` | runner PID | removed at exit (`nr:591`) |
 | `refs/tags/nightrun-start-<stamp>` | `nr:394` | the owner (rollback) | git tag | kept |
+
+### 7.5 Radar (`~/.claude/bajzi/radar/`, `BAJZI_RADAR_HOME` overrides)
+
+| Path | Writer | Readers | Format | Lifecycle |
+|---|---|---|---|---|
+| `reports/<YYYY-MM-DD>[-<n>].md` | `radar.js:run` (tmp + rename, only on exit 0 + the `# bajzi radar` first line) | `radar.js:notice` (mtime), `/bajzi:radar`, the next `run` (since = newest mtime; the last 2 go into its context) | markdown, first line `# bajzi radar - <date>` | never deleted by code |
+| `last-error.log` | `radar.js:run` on a rejected run; `launch.js` when it cannot resolve the install | `notice` (mtime), `/bajzi:radar`, the owner | text: time, exit code, reason, last 40 stderr lines, first 20 stdout lines | overwritten per failure |
+| `.seen` | `radar.js seen` (run by `/bajzi:radar`) | `notice` (mtime only) | one ISO time | touched per review |
+| `declined.md` | `/bajzi:radar` (the session, per `SKILL.md`) | the next `run` (the prompt skips listed items) | `<YYYY-MM-DD> \| <title> \| <reason>` lines | append-only; the owner prunes it |
+| `launch.js` | `radar.js install-task` | the `bajzi-radar` scheduled task / the cron line | Node script | rewritten per `install-task` |
 
 ## 8. Install, update, migrate, rollback
 
@@ -1637,6 +1741,26 @@ laptop's; on Linux drop the `/d/...` prefixes and use `B=~/gsd-removed-$(date +%
     and parity suites, `/bajzi:setup`, step 6 with `B=~/gsd-removed-$(date +%Y%m%d)`, and
     `/bajzi:setup --check` → `setup --check: clean`.
 
+### 8.6 Radar schedule (`install-task`)
+
+Once per machine, after the plugin carries radar (1.11.0+). A plugin update needs no re-install:
+`launch.js` resolves the current install at every launch (§6.14).
+1. In a Claude Code session: `/bajzi:radar install` (one approval line), or in a plain shell:
+   ```
+   node ~/.claude/plugins/cache/bajzi-plugins/bajzi/<version>/skills/radar/radar.js install-task
+   ```
+   Windows success: `NextRunTime: <a Monday> 10:00:00` (the task `bajzi-radar`, current user,
+   not elevated). Linux/macOS: it prints a crontab line instead; paste it into `crontab -e`.
+2. Verify (PowerShell): `(Get-ScheduledTaskInfo -TaskName bajzi-radar).NextRunTime`. Likeliest
+   failure: `Access is denied` from `Register-ScheduledTask` — a machine policy that forbids user
+   tasks; elevation is not the fix (the task must stay non-elevated), the policy is.
+3. One run now: `/bajzi:radar now`. Remove the schedule (PowerShell):
+   `Unregister-ScheduledTask -TaskName bajzi-radar -Confirm:$false`.
+
+On Windows the task (interactive logon, not elevated) shows a `node.exe` console window for the
+whole run, up to the 40-minute session limit; closing it kills the run before `last-error.log` is
+written, so that run leaves no trace.
+
 ## 9. Security model and known limits
 
 ### 9.1 What the guards do and do not protect against
@@ -1658,6 +1782,14 @@ laptop's; on Linux drop the `/d/...` prefixes and use `B=~/gsd-removed-$(date +%
   guard, git-dir ledger, ancestry + patch-id judging, exit-77 owner-only closes, tripwire, pinned
   guard code), because it is the only place an unattended, hours-long, partly GLM-controlled
   session runs with `bypassPermissions`.
+- **Radar** (§6.14): read-only by its tool set, not by its prompt. The headless session has only
+  Read, Glob, Grep, WebFetch and WebSearch (`--tools`) and no MCP server, so it cannot write, run a
+  command or dispatch an agent; only `radar.js` writes, and only in its state dir. Web content is
+  untrusted data: `prompt.md` tells the session to ignore instructions inside it, and the report is
+  only a proposal the owner adopts or declines. The usage digest carries counts and whitelisted
+  names, never message text, tool inputs or paths beyond a project basename. Accepted limit: like
+  any session it can Read every file the owner can and sends what it reads to the model provider; a
+  prompt injection can still skew what the report proposes.
 
 ### 9.2 The night-run guard set: two layers
 
@@ -1796,7 +1928,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 
 | Component | Built (where) | Installed on the laptop | Not yet built / open | Verify (command → expected today) |
 |---|---|---|---|---|
-| bajzi plugin release | `origin/main` = 1.8.0 (`4c996c2`); `agents-cadence` = 1.10.1 (unreleased) | **1.8.0**, scope user, enabled, from GitHub | 1.10.1 release (double bump, §8.3) | `claude plugin list` → `Version: 1.8.0`, `Status: ✔ enabled` |
+| bajzi plugin release | `origin/main` = 1.8.0 (`4c996c2`); `agents-cadence` = 1.10.1 (unreleased); `feat/radar` = 1.11.0 (unreleased, adds radar §6.14) | **1.8.0**, scope user, enabled, from GitHub | 1.11.0 release (double bump, §8.3) | `claude plugin list` → `Version: 1.8.0`, `Status: ✔ enabled` |
 | `cc-router.js` shim (§6.2) | yes, released since 1.7.0 | **yes**, v1.2.0 (+ `.bak`) | — | `sha256sum ~/.local/bin/cc-router.js bajzi/bin/cc-router.js ~/.claude/plugins/cache/bajzi-plugins/bajzi/1.8.0/bin/cc-router.js` → three identical hashes |
 | `worker`/`glm`/`ccr` launchers | `env-unify`, `bajzi/bin/launchers/` (byte-identical to the laptop's six) | **yes**, + `.cmd` twins | — | `which glm worker ccr` → `/c/Users/andra/.local/bin/…` |
 | Saver mode | — | **L0**; `glm_fast_model` = `glm-5.3-flash` | — | `worker --status` → `level           L0 (claude)`, `ZAI_API_KEY     found` |
@@ -1824,3 +1956,4 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Pre-commit gate + `--init` + project-setup install (§6.13, §6.10, T7 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): `bajzi/gate/pre-commit.js`, `bajzi/gate/tests/pre-commit.test.js`, `docs/gate.md`, `profile.js` `gate` key + install, `manifest.json` `gate_tools`, the skills commit through it | no | release 1.9.0 (T8) | `node --test bajzi/gate/tests/pre-commit.test.js bajzi/skills/project-setup/tests/profile.test.js` → `# pass 42`, `# fail 0` |
 | Spec + release 1.9.0 (this document §4 Invariant 13, §6.4, §6.12, §2, §7.2, §11; T8 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): both manifests 1.9.0; `findings-cli.js:cmds.slice` refuses control-plane `files:` entries (`mode.sh` 16f6); `fixer.md` skips a `none` test command; claude-orchestrator `workspace` @ `567883a` + `380f2b7`: `.githooks/pre-commit` = the bajzi gate, profile `gate` key (`gitleaks`, `ruff`, `eslint`, `pyright`; no `tsconfig.json`, so no `tsc`), `.gate-baseline.json` = `{"pyright": 635}` | no — `claude plugin list` shows 1.8.0 until the owner releases 1.9.0 (§8.3) | the release (push + reinstall, owner step); whole-branch review | `node -p "require('./bajzi/.claude-plugin/plugin.json').version"` → `1.9.0`; `node bajzi/skills/project-setup/profile.js --check --repo D:/AI/projektek/ClaudeCode/claude-orchestrator` → `project-setup --check: clean` |
 | Context-guard accepted limits m-1/m-2 (§9.4) | — | — | await the owner's explicit acceptance | — (a decision, not a file) |
+| Radar 1.11.0 (§6.14, §7.5, §8.6) | `feat/radar` (unreleased): `bajzi/skills/radar/` (`radar.js`, `prompt.md`, `SKILL.md`, `tests/radar.test.js`); both manifests 1.11.0 | no | the `hooks.json` SessionStart entry for `radar.js notice` (a separate commit; until it lands no session announces a report); the 1.11.0 release (§8.3); `install-task` on each machine (§8.6); `shared/routine-plugin-review.md` becomes a pointer (separate commit) | `node --test bajzi/skills/radar/tests/*.test.js` → `# pass 23`, `# fail 0`; `node bajzi/skills/radar/radar.js digest` on the laptop (2026-10-01): 1730 files, ~8 s, 117 lines |

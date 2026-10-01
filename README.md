@@ -102,6 +102,7 @@ mode, the review loop, night-run and setup. Install it in Cowork, never `bajzi`.
 | `review` | `/bajzi:review <slice> <range>` | Reviews a commit range through the reviewer agent. |
 | `fix` | `/bajzi:fix <findings-file>` | Fixes round-1 findings, then runs the round-2 re-review. |
 | `debt` | `/bajzi:debt` | Checks, drains or calibrates parked review debt. |
+| `radar` | `/bajzi:radar [now\|install]` | Biweekly read-only review of plugins, Claude news and own usage; adopt or decline its items. |
 
 Skills also start by themselves from a plain request ("do a handoff").
 
