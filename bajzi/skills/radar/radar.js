@@ -251,15 +251,20 @@ const claudeArgs = () => ['-p', '--model', 'opus', '--permission-mode', 'dontAsk
   '--allowedTools', ...RO_TOOLS.filter(t => t !== 'WebFetch'), ...WEB_HOSTS.map(h => `WebFetch(domain:${h})`),
   '--setting-sources', '', '--settings', '{"disableAllHooks":true}', '--strict-mcp-config', '--no-session-persistence'];
 
-function realExec(bin, args) {
-  const r = spawnSync(bin, args, { encoding: 'utf8', timeout: 120e3, windowsHide: true, maxBuffer: 16 << 20 });
+// The session and pre-steps run on the owner's subscription even when /bajzi:radar now is started
+// from a glm/worker/ccr session: drop the provider variables (same set as bin/cc-router.js:286).
+const PROVIDER_ENV = /^(ANTHROPIC_|CLAUDE_CODE_SUBAGENT_MODEL$|CLAUDECODE$|CC_ROUTER_ENTRY$|CC_ROUTER_WORKER$)/;
+const childEnv = env => Object.fromEntries(Object.entries(env).filter(([k]) => !PROVIDER_ENV.test(k)));
+
+function realExec(bin, args, env) {
+  const r = spawnSync(bin, args, { encoding: 'utf8', timeout: 120e3, windowsHide: true, maxBuffer: 16 << 20, env });
   if (r.error) throw r.error;
   return r;
 }
 
-function realClaude(prompt, { cwd }) {
+function realClaude(prompt, { cwd, env }) {
   const r = spawnSync(claudeBin(), claudeArgs(), {
-    cwd, input: prompt, encoding: 'utf8', timeout: 40 * 60e3, killSignal: 'SIGKILL', maxBuffer: 64 << 20, windowsHide: true,
+    cwd, env, input: prompt, encoding: 'utf8', timeout: 40 * 60e3, killSignal: 'SIGKILL', maxBuffer: 64 << 20, windowsHide: true,
   });
   return { code: r.status, stdout: r.stdout || '', stderr: (r.stderr || '') + (r.error ? '\n' + r.error.message : '') };
 }
@@ -287,8 +292,9 @@ async function run(opts = {}) {
   }
 }
 
-async function attempt({ state, now = new Date(), claude = realClaude, exec = realExec, home = os.homedir(), projectsDir }) {
+async function attempt({ state, now = new Date(), claude = realClaude, exec = realExec, home = os.homedir(), projectsDir, env = process.env }) {
   now = +now;
+  const cenv = childEnv(env);
   projectsDir = projectsDir || path.join(home, '.claude', 'projects');
   const reportsDir = path.join(state, 'reports');
   fs.mkdirSync(reportsDir, { recursive: true });
@@ -298,7 +304,7 @@ async function attempt({ state, now = new Date(), claude = realClaude, exec = re
   const bin = claudeBin();
   const step = (args, fn) => {
     try {
-      const r = exec(bin, args);
+      const r = exec(bin, args, cenv);
       if (!r || r.status !== 0) throw new Error('exit ' + (r && r.status) + (r && oneLine(r.stderr) ? ': ' + oneLine(r.stderr) : ''));
       return fn(String(r.stdout || ''));
     } catch (e) { return [`FAILED (${oneLine(e && e.message) || 'error'})`]; }
@@ -306,7 +312,7 @@ async function attempt({ state, now = new Date(), claude = realClaude, exec = re
   const upd = step(['plugin', 'marketplace', 'update'], () => ['ok']);
   const ver = step(['--version'], out => [oneLine(out) || '(empty)']);
   const plugins = step(['plugin', 'list', '--json'], out => JSON.parse(out)
-    .map(p => `  - ${p.id}@${p.version}${p.enabled === false ? ' (disabled)' : ''}`));
+    .map(p => `  - ${p.id}@${p.version}${p.enabled === false ? ' (disabled)' : ''}${typeof p.installPath === 'string' ? ' installPath: ' + p.installPath : ''}`));
 
   const root = bajziRoot(home);
   const mp = path.join(home, '.claude', 'plugins', 'marketplaces');
@@ -323,6 +329,7 @@ async function attempt({ state, now = new Date(), claude = realClaude, exec = re
       : '- installed bajzi root: NOT FOUND in installed_plugins.json',
     `- bajzi marketplace clone: ${clone}; spec: ${path.join(clone, 'docs', 'bajzi-package-spec.md')}; day-run rules: ${path.join(clone, 'bajzi', 'skills', 'mode', 'DAY-RUN-RULES.md')}`,
     `- plugin catalogs: ${path.join(mp, '*', '.claude-plugin', 'marketplace.json')}`,
+    `- installed plugins file (each entry's installPath): ${path.join(home, '.claude', 'plugins', 'installed_plugins.json')}`,
     `- claude plugin marketplace update: ${upd.join(' ')}`,
     `- claude --version: ${ver.join(' ')}`,
     plugins.length === 1 && plugins[0].startsWith('FAILED') ? `- installed plugins: ${plugins[0]}` : '- installed plugins (claude plugin list --json):',
@@ -333,7 +340,7 @@ async function attempt({ state, now = new Date(), claude = realClaude, exec = re
   const prompt = fs.readFileSync(path.join(__dirname, 'prompt.md'), 'utf8').trimEnd() + '\n\n' + ctx.join('\n') + '\n\n' + dig;
 
   let res;
-  try { res = await claude(prompt, { cwd: state }); } catch (e) { res = { code: null, stdout: '', stderr: String((e && e.message) || e) }; }
+  try { res = await claude(prompt, { cwd: state, env: cenv }); } catch (e) { res = { code: null, stdout: '', stderr: String((e && e.message) || e) }; }
   const out = String((res && res.stdout) || '');
   const lines = out.split(/\r?\n/);
   const first = lines.findIndex(l => l.trim());

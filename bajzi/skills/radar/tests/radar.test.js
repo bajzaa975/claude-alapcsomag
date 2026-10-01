@@ -150,15 +150,18 @@ function runEnv() {
   write(path.join(home, '.claude', 'plugins', 'installed_plugins.json'),
     JSON.stringify({ version: 2, plugins: { 'bajzi@bajzi-plugins': [{ installPath: path.join(home, 'cache', 'bajzi', '1.11.0') }] } }));
   const calls = [];
-  const exec = (bin, args) => {
+  const envs = [];
+  const exec = (bin, args, env) => {
     calls.push(args.join(' '));
+    envs.push(env);
     if (args[0] === '--version') return { status: 0, stdout: '2.1.286 (Claude Code)\n', stderr: '' };
     if (args.join(' ') === 'plugin list --json') {
-      return { status: 0, stdout: JSON.stringify([{ id: 'bajzi@bajzi-plugins', version: '1.11.0', enabled: true }, { id: 'x@y', version: '0.1.0', enabled: false }]), stderr: '' };
+      return { status: 0, stdout: JSON.stringify([{ id: 'bajzi@bajzi-plugins', version: '1.11.0', enabled: true, installPath: path.join(home, 'cache', 'bajzi', '1.11.0') },
+        { id: 'x@y', version: '0.1.0', enabled: false, installPath: path.join(home, 'cache', 'y', 'x', '0.1.0') }]), stderr: '' };
     }
     throw new Error('network down');
   };
-  return { f, home, state, exec, calls };
+  return { f, home, state, exec, calls, envs };
 }
 const okClaude = seen => (prompt, opts) => { seen.prompt = prompt; seen.opts = opts; return { code: 0, stdout: '\n# bajzi radar - 2026-10-01\n\nNothing worth changing.\n', stderr: '' }; };
 const reports = state => { try { return fs.readdirSync(path.join(state, 'reports')).sort(); } catch { return []; } };
@@ -175,8 +178,10 @@ test('run writes the report on sentinel + exit 0, atomically, with -2 on a same-
   assert.ok(p.startsWith(fs.readFileSync(path.join(__dirname, '..', 'prompt.md'), 'utf8').trimEnd()));
   assert.match(p, /claude plugin marketplace update: FAILED \(network down\)/);
   assert.match(p, /2\.1\.286 \(Claude Code\)/);
-  assert.match(p, /- bajzi@bajzi-plugins@1\.11\.0\n/);
-  assert.match(p, /- x@y@0\.1\.0 \(disabled\)/);
+  // every installed plugin carries its installPath (supply-chain hooks/.mcp.json diff, token cost Glob)
+  assert.ok(p.includes('- bajzi@bajzi-plugins@1.11.0 installPath: ' + path.join(e.home, 'cache', 'bajzi', '1.11.0') + '\n'), p);
+  assert.ok(p.includes('- x@y@0.1.0 (disabled) installPath: ' + path.join(e.home, 'cache', 'y', 'x', '0.1.0') + '\n'), p);
+  assert.ok(p.includes(path.join(e.home, '.claude', 'plugins', 'installed_plugins.json')), p);
   assert.ok(p.includes(path.join(e.home, 'cache', 'bajzi', '1.11.0', 'skills', 'setup', 'manifest.json')));
   assert.ok(p.includes(path.join(e.home, '.claude', 'CLAUDE.md')) && p.includes(path.join(e.home, '.claude', 'RTK.md')));
   assert.ok(p.includes(path.join(e.home, '.claude', 'plugins', 'marketplaces', 'bajzi-plugins', 'docs', 'bajzi-package-spec.md')));
@@ -259,6 +264,18 @@ test('run writes last-error.log when the report rename fails', async t => {
   assert.deepStrictEqual(reports(e.state), []);
 });
 
+test('run started from a glm/worker/ccr session spawns the session and pre-steps without the provider variables', async () => {
+  const e = runEnv();
+  const seen = {};
+  const env = { KEEP_ME: '1', ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', ANTHROPIC_AUTH_TOKEN: 'k', ANTHROPIC_MODEL: 'glm',
+    ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm', CLAUDE_CODE_SUBAGENT_MODEL: 'glm', CLAUDECODE: '1', CC_ROUTER_WORKER: '1' };
+  const before = { ...env };
+  await R.run({ state: e.state, now: NOW, claude: okClaude(seen), exec: e.exec, home: e.home, projectsDir: e.f.projects, env });
+  assert.deepStrictEqual(env, before);
+  assert.ok(e.envs.length >= 3);
+  for (const x of [seen.opts.env, ...e.envs]) assert.deepStrictEqual(x, { KEEP_ME: '1' });
+});
+
 test('CLI run exits 1 and writes last-error.log when the claude binary fails (real spawn, no shell)', () => {
   const e = runEnv();
   const r = spawnSync(process.execPath, [RADAR, 'run'], {
@@ -326,6 +343,16 @@ test('notice: a failure with no report and no .seen is reported', () => {
   const state = tmp('bajzi-radar-n-');
   write(path.join(state, 'last-error.log'), 'x');
   assert.match(JSON.parse(R.notice(state)).systemMessage, /^bajzi radar: last run failed - /);
+});
+
+test('notice: a failure with no report goes silent once seen is newer than last-error.log', () => {
+  const state = tmp('bajzi-radar-n-');
+  const err = path.join(state, 'last-error.log');
+  write(err, 'x');
+  setM(err, new Date(Date.now() - 60e3));
+  assert.match(JSON.parse(R.notice(state)).systemMessage, /^bajzi radar: last run failed - /);
+  R.seen(state);
+  assert.strictEqual(R.notice(state), '');
 });
 
 test('notice CLI: a missing state dir is silent with exit 0', () => {

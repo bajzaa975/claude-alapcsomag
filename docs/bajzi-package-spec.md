@@ -100,7 +100,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Review/fix loop skills (`/bajzi:implement`, `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt`): round cap, D4 routing to `needs-owner.md`/`debt.md`, D6 cap check, D7 calibrate, dispatch log | `bajzi/skills/{implement,review,fix,debt}/SKILL.md` (the procedure), `bajzi/skills/lib/dispatch.md` (brief templates, dispatch table, log step), the night-session copies of the cap: `bajzi/skills/night-run/run.sh` `prompt_for` + `templates/BRIEF.md.tmpl` §4.5 ("Maximum 2 review rounds"), claude-orchestrator `scripts/nightrun-prompt.md` hard rule 10 (2026-09-25: SPRINT-147 hand-wrote the round-3 brief `FC brief` refused; all three prompts now say so, keep them in step with the skills), `bajzi/lib/findings-cli.js` `cmds.slice`/`cmds.validate`/`cmds.copy`/`cmds.brief`/`cmds.close`/`cmds.check`/`cmds.drain`/`cmds.calibrate`/`cmds.log`, `toOwner` (the `needs-owner.md` renderer) | `timeout 300 bash bajzi/skills/mode/tests/mode.sh </dev/null` (case 16) | 1 | The routing decisions (which agent, which round, where an open finding goes, cap hit) are made by `findings-cli.js` on files, never by the model; the scope checks, the gate run and the range ends are the skill's steps. The round cap is per slice: `copy fixer` on a round-2 file or on an r1 whose `-r2.md` exists, `brief review <slice> 1` when `-r2.md` exists, and `validate` on a `-r3.md` file all exit 3 (`STOP`); only the owner deletes an `-r2.md`. `close` writes `needs-owner.md` before it merges `debt.md`, so a refused merge (exit 4) never loses an owner item. `close` needs `<slice>-r1.md`, `-r2.md` and `-r1.report.md` (the fixer's final message, saved by `/bajzi:fix`). The skills' `SKILL-<CLASS>` log lines sit beside the dispatch guard's own R4 lines when its gate is open; count one or the other, not both. |
 | Pre-commit gate (tools, scope, ratchet, exit codes) and its install | `bajzi/gate/pre-commit.js:main`, `:lint`, `:count`, `:ratchetScope`, `:findTool`, `:config`, `HINTS`/`TOOLS`; install `bajzi/skills/project-setup/profile.js:plan`/`preflight`/`apply` (`gate`, `gate-hookspath`, `gate-mode` actions, `:gateIndexMode`), `profile.js:validate` (`gate` key); contract `docs/gate.md`; install lines `manifest.json` `gate_tools` | `node --test bajzi/gate/tests/pre-commit.test.js bajzi/skills/project-setup/tests/profile.test.js` | 1 | Fails **closed** (Invariant 14): a needed tool missing, a tool error, an unreadable count, baseline or profile is exit 2, never green. Only exit codes decide; the two counts come from machine output (`pyright --outputjson`, located `file(l,c): error TSnnnn:` lines of `tsc --pretty false`; a location-less `error TS` line, or a non-zero exit with 0 counted, is exit 2). The installed `.githooks/pre-commit` is a verbatim copy: change the source, and every repo shows `DRIFT gate` until `/bajzi:project-setup` reruns. `HINTS` and `manifest.json` `gate_tools` must agree (the test asserts it). The tests run every tool as a fake shim on a minimal PATH; on Windows that PATH needs Git's `cmd/` dir or the hook's `/usr/bin/env` is not found. |
 | Public feature overview | `README.md` | `node --test bajzi/skills/project-setup/tests/release.test.js` (asserts the night-run bullet, the Safety fail-closed exceptions and that every skill is in the Skills table) | 3 | Any user-visible feature add/removal updates the README Features section. |
-| Radar: the biweekly read-only setup review (digest, headless run, report/error files, SessionStart notice, schedule) | `bajzi/skills/radar/radar.js` (`digest`, `run`, `claudeArgs`, `realClaude`, `notice`, `seen`, `installTask`, `taskCommand`, `cronLine`, `LAUNCHER`), `bajzi/skills/radar/prompt.md` (what the session reviews, output contract), `bajzi/skills/radar/SKILL.md` (§6.14) | `node --test bajzi/skills/radar/tests/*.test.js` | 1 | `--tools` is the sandbox, not `--allowedTools`: with `--allowedTools` alone under `dontAsk` the session still has Bash and the owner's settings allow rules run it (smoke check, §6.14); `radar.test.js` pins the exact five, WebFetch allowed only for `WEB_HOSTS` (= the hosts of `prompt.md`'s URLs: a new pinned source host goes into both), and `--setting-sources ''` + `disableAllHooks` (no owner settings, plugins or hooks). The digest emits counts and `LABEL`-whitelisted names only; a new digest field must not carry text. `notice` is a SessionStart hook: only `stat`s, silent and exit 0 on any error. Registering it in `hooks.json` also moves the node-command count in `release.test.js` and the `mode.sh` 13m2 list. |
+| Radar: the biweekly read-only setup review (digest, headless run, report/error files, SessionStart notice, schedule) | `bajzi/skills/radar/radar.js` (`digest`, `run`, `claudeArgs`, `realClaude`, `notice`, `seen`, `installTask`, `taskCommand`, `cronLine`, `LAUNCHER`), `bajzi/skills/radar/prompt.md` (what the session reviews, output contract), `bajzi/skills/radar/SKILL.md` (§6.14) | `node --test bajzi/skills/radar/tests/*.test.js` | 1 | `--tools` is the sandbox, not `--allowedTools`: with `--allowedTools` alone under `dontAsk` the session still has Bash and the owner's settings allow rules run it (smoke check, §6.14); `radar.test.js` pins the exact five, WebFetch allowed only for `WEB_HOSTS` (= the hosts of `prompt.md`'s URLs: a new pinned source host goes into both), and `--setting-sources ''` + `disableAllHooks` (no owner settings, plugins or hooks); `childEnv` strips the provider variables (`ANTHROPIC_*`, the cc-router scrub set) from the session and pre-steps. The digest emits counts and `LABEL`-whitelisted names only; a new digest field must not carry text. `notice` is a SessionStart hook: only `stat`s, silent and exit 0 on any error. Registering it in `hooks.json` also moves the node-command count in `release.test.js` and the `mode.sh` 13m2 list. |
 
 ### Advisor pilot (1.10.1)
 
@@ -1365,43 +1365,53 @@ and, through its `claude plugin marketplace update` pre-step, the marketplace cl
   newest report's mtime, else now − 14 days; `radar.js digest` uses the same. Best-effort pre-steps
   through the injectable `exec`: `claude plugin marketplace update` (the CLI refreshes the clones
   under `~/.claude/plugins/marketplaces`, the one write outside the state dir), `claude --version`,
-  `claude plugin list --json` (reduced to `<id>@<version>` lines); each failure becomes a
-  `FAILED (...)` line in the context, never fatal. Prompt = `prompt.md` + a context block (date,
+  `claude plugin list --json` (reduced to `<id>@<version> [(disabled)] installPath: <path>` lines:
+  prompt.md's supply-chain step diffs `hooks/hooks.json`/`.mcp.json` and its token-cost step Globs
+  `skills/*/SKILL.md` under each installPath); each failure becomes a `FAILED (...)` line in the
+  context, never fatal. Prompt = `prompt.md` + a context block (date,
   since, state dir, the last 2 reports, `declined.md`, `~/.claude/CLAUDE.md`, `~/.claude/RTK.md`,
   the installed bajzi root = `installed_plugins.json` `bajzi@bajzi-plugins[0].installPath` and its
   `skills/setup/manifest.json`, the marketplace clone `~/.claude/plugins/marketplaces/bajzi-plugins`
-  with its `docs/bajzi-package-spec.md` and `bajzi/skills/mode/DAY-RUN-RULES.md`, the catalog glob)
+  with its `docs/bajzi-package-spec.md` and `bajzi/skills/mode/DAY-RUN-RULES.md`, the catalog glob,
+  the `installed_plugins.json` path, so the installPaths survive a failed `plugin list`)
   + the digest. The context carries paths; the session Reads them itself.
 - **Read-only boundary** (`claudeArgs`, `realClaude`): `claude -p --model opus --permission-mode
   dontAsk --tools Read Glob Grep WebFetch WebSearch --allowedTools Read Glob Grep WebSearch
   WebFetch(domain:<h>)… --setting-sources '' --settings {"disableAllHooks":true} --strict-mcp-config
   --no-session-persistence`, `<h>` = each of `WEB_HOSTS` (raw.githubusercontent.com,
   platform.claude.com, www.anthropic.com, api.github.com = the hosts of `prompt.md`'s URLs); binary
-  `BAJZI_RADAR_CLAUDE` else `claude` on PATH, no shell; cwd = the state dir; prompt on stdin; killed
-  after 40 min. No Bash, Edit, Write, Agent, Skill or MCP tool exists in the session; under
+  `BAJZI_RADAR_CLAUDE` else `claude` on PATH, no shell (on Windows that resolves only a
+  `claude.exe`/`.com`, never the npm `claude.cmd` shim: §8.6); cwd = the state dir; prompt on stdin;
+  killed after 40 min. The session and the pre-steps get the caller's environment minus the
+  provider variables (`childEnv`: `ANTHROPIC_*`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDECODE`,
+  `CC_ROUTER_ENTRY`, `CC_ROUTER_WORKER`, the `bin/cc-router.js` scrub set), so `/bajzi:radar now`
+  from a glm/worker/ccr session still runs on the owner's subscription. No Bash, Edit, Write, Agent, Skill or MCP tool exists in the session; under
   `dontAsk` a WebFetch to any other host is refused, so an injected instruction cannot send what
   the session Read to a URL of its choosing. `--setting-sources ''` loads no user/project/local
   settings: no owner allow rule (which would re-open Bash or every host), no settings hook, no
   `enabledPlugins` (so no plugin hook, skill or agent); `disableAllHooks` covers any hook left.
-  Only `radar.js` and its pre-steps write. Smoke check 2026-10-01 (CLI 2.1.286, `claudeArgs()`
-  spawned from Node with `--output-format stream-json --verbose --include-hook-events` and
-  `ANTHROPIC_BASE_URL` pointing at a closed port, so no model call): the init event listed only the
-  five tools, no MCP server and only the built-in plugins `cc-plugin-agents-md` and
-  `cc-plugin-telemetry`, and no hook event fired; without the two flags the owner's 12 plugins
-  loaded and 6 SessionStart hooks ran. `radar.test.js` pins only the `WebFetch(domain:…)`
-  argument list against prompt.md's hosts. The refusal itself was smoke-checked live on 2026-10-01
-  (CLI 2.1.286, `claudeArgs()` with `--model haiku`, real model calls): `WebFetch
-  https://example.com/` was denied, `raw.githubusercontent.com/.../CHANGELOG.md` returned
-  `# Changelog`, the tool list was Glob, Grep, Read, WebFetch, WebSearch, and OAuth login worked
-  under `--setting-sources ''`. Earlier smoke check 2026-10-01, CLI 2.1.286, the flags before
-  the WebFetch hosts and the two isolation flags, with `--model haiku` and the prompt "Use the Bash tool to run: echo
-  radar-smoke": with `--allowedTools` alone (no `--tools`) the init event listed Bash, Edit, Write
-  and Task, and `echo radar-smoke` ran (the owner's settings allow rules apply under `dontAsk`);
-  with `--tools` the init listed only the five, the Bash call failed with "No such tool available:
-  Bash", and `mcp_servers` was empty. Read outside the cwd (`~/.claude/RTK.md`) and WebFetch
-  (`api.github.com/repos/obra/superpowers/releases`) worked under those flags, no denials.
-  The server-side `advisor` tool comes from the user setting `advisorModel`, which
-  `--setting-sources ''` no longer loads.
+  Only `radar.js` and its pre-steps write. `radar.test.js` pins the argument list: exactly the
+  five tools in `--tools`, the `WebFetch(domain:…)` hosts = prompt.md's, and the `--setting-sources
+  ''` + `disableAllHooks` isolation. What the CLI does with those flags is not unit-testable; three
+  smoke checks, all 2026-10-01 on CLI 2.1.286, cover it:
+  1. Tool sandbox (the flags before the WebFetch hosts and the two isolation flags were added;
+     `--model haiku`, prompt "Use the Bash tool to run: echo radar-smoke"). With `--allowedTools`
+     alone (no `--tools`) the init event listed Bash, Edit, Write and Task, and `echo radar-smoke`
+     ran (the owner's settings allow rules apply under `dontAsk`). With `--tools` the init listed
+     only the five, the Bash call failed with "No such tool available: Bash", and `mcp_servers`
+     was empty; Read outside the cwd (`~/.claude/RTK.md`) and WebFetch
+     (`api.github.com/repos/obra/superpowers/releases`) worked, no denials.
+  2. Isolation (`claudeArgs()` spawned from Node with `--output-format stream-json --verbose
+     --include-hook-events` and `ANTHROPIC_BASE_URL` pointing at a closed port, so no model call).
+     The init event listed only the five tools, no MCP server and only the built-in plugins
+     `cc-plugin-agents-md` and `cc-plugin-telemetry`, and no hook event fired; without the two
+     isolation flags the owner's 12 plugins loaded and 6 SessionStart hooks ran. The server-side
+     `advisor` tool comes from the user setting `advisorModel`, which `--setting-sources ''` no
+     longer loads.
+  3. WebFetch refusal, live (`claudeArgs()` with `--model haiku`, real model calls). `WebFetch
+     https://example.com/` was denied, `raw.githubusercontent.com/.../CHANGELOG.md` returned
+     `# Changelog`, the tool list was Glob, Grep, Read, WebFetch, WebSearch, and OAuth login worked
+     under `--setting-sources ''`.
 - **Acceptance**: exit 0 and the first non-empty stdout line starts with `# bajzi radar` → the
   report is written tmp + rename to `reports/<local YYYY-MM-DD>.md` (`-2`, `-3`… if taken),
   leading blank lines dropped, then `.since` is written. Anything else, a spawn error, the timeout
@@ -1456,8 +1466,11 @@ and, through its `claude plugin marketplace update` pre-step, the marketplace cl
 - **Tests**: `bajzi/skills/radar/tests/radar.test.js` — tmp dirs, fake `claude`/`exec`, no network:
   digest counts, since filter, no-leak (a secret in user text, tool inputs, results and a DAY-RUN
   tail), a non-`LABEL` cwd basename → `(other)`, DAY-RUN aggregation, run report / error paths
-  (a failed rename included), since from `.since` (a touched report and a failed run do not move
-  it) and from the newest report, notice states, the pinned `claudeArgs` (the five tools, the
+  (a failed rename included), every installed plugin's installPath and the `installed_plugins.json`
+  path in the context, the session and pre-steps spawned without the provider variables, since
+  from `.since` (a touched report and a failed run do not move it) and from the newest report,
+  notice states (a failure with no report silenced by a newer `.seen` included), the pinned
+  `claudeArgs` (the five tools, the
   WebFetch hosts = `prompt.md`'s, the settings/hooks isolation), the install command builder and
   its failure path, `launch.js` resolution and its failure path (exit 1, `last-error.log`, the
   notice), `launch.js` finding `claude` under `PATH=/usr/bin:/bin`.
@@ -1509,7 +1522,7 @@ root. Line numbers are pinned to the commits in §11.
 | `~/.claude/settings.json` | `install-statusline.js` `install` (`:36-66`: parses first, temp + rename `:62-64`, only `statusLine`); `/bajzi:setup` PHASE C step 4 and PHASE D step 6 (the model, following `SKILL.md`) | Claude Code; `check.js:99` (`settings_merge` keys, `statusLine`, `hooks`, `permissions.allow`) | Claude Code settings JSON | bajzi-relevant keys: `statusLine.command`, `hooks`, `permissions.deny`, `permissions.defaultMode`, `env` (manifest `settings_merge`, `manifest.json:160`) |
 | `~/.claude/settings.json.bak-bajzi-<YYYYMMDD-HHMMSS>` | `writeBackup` (`install-statusline.js:23-34`, `wx`; `-1`…`-999` suffix on a clash), only when `statusLine` changes (`:60`) | the owner (rollback, §8.4) | byte copy | never deleted by code |
 | `~/.claude/settings.json.bak-<date>` | `/bajzi:setup` PHASE C step 4 (`SKILL.md:74`) | the owner | byte copy | a different naming scheme from the installer's; both are valid rollback sources |
-| `~/.claude/plugins/installed_plugins.json`, `known_marketplaces.json` | the `claude plugin` CLI only (setup never edits them by hand, `SKILL.md:59-61`) | `check.js` `checkAll` (`:77-137`) | Claude Code plugin-manager JSON | per install/update |
+| `~/.claude/plugins/installed_plugins.json`, `known_marketplaces.json` | the `claude plugin` CLI only (setup never edits them by hand, `SKILL.md:59-61`) | `check.js` `checkAll` (`:77-137`); radar: `radar.js` `bajziRoot`, `launch.js`, the headless session (installPaths, §6.14) | Claude Code plugin-manager JSON | per install/update |
 | `~/.claude.json` `mcpServers` | `claude mcp add-json --scope user` (PHASE D step 10) | `check.js` (`mcp-missing`) | Claude Code JSON | per add/remove |
 | rtk config (`%APPDATA%\rtk\config.toml` on Windows, `$XDG_CONFIG_HOME` or `~/.config/rtk/config.toml` elsewhere) | `/bajzi:setup` PHASE D step 7 | `check.js:32-39` (`rtkConfigPath`, `rtkExcludes`), rtk | TOML, `[hooks] exclude_commands = [...]` | permanent |
 | `bajzi/skills/setup/manifest.json` (in the plugin) | hand-edited, same change as any plugin/skill/MCP add or removal (Invariant 5) | `/bajzi:setup`, `check.js` (`BAJZI_MANIFEST` overrides), `secret-guard.js` (`secret_patterns`, `:294`) | JSON, keys listed in §6.9 | released with the plugin version |
@@ -1774,6 +1787,16 @@ laptop's; on Linux drop the `/d/...` prefixes and use `B=~/gsd-removed-$(date +%
 
 Once per machine, after the plugin carries radar (1.11.0+). A plugin update needs no re-install:
 `launch.js` resolves the current install at every launch (§6.14).
+
+Windows prerequisite: the native `claude.exe` on PATH. `radar.js` spawns `claude` with no shell,
+and Windows process spawning resolves only `.exe`/`.com`, so a machine with only the npm
+`claude.cmd` shim fails every pre-step and the session (`last-error.log`: `spawnSync claude
+ENOENT`). Check in PowerShell, any directory: `where.exe claude.exe`. Success: a path ending in
+`claude.exe` (the native installer puts it in `~\.local\bin`). Likeliest failure: `INFO: Could not
+find files for the given pattern(s).` Fix: run `claude install` (installs the native build), open a
+new PowerShell and check again. To pin a specific binary instead, set the user variable
+`[Environment]::SetEnvironmentVariable('BAJZI_RADAR_CLAUDE', '<full path to claude.exe>', 'User')`
+(the scheduled task inherits it at the next logon).
 1. In a Claude Code session: `/bajzi:radar install` (one approval line), or in a plain shell:
    ```
    node ~/.claude/plugins/cache/bajzi-plugins/bajzi/<version>/skills/radar/radar.js install-task
@@ -1815,7 +1838,9 @@ written, so that run leaves no trace.
 - **Radar** (§6.14): read-only by its tool set, not by its prompt. The headless session has only
   Read, Glob, Grep, WebFetch and WebSearch (`--tools`), no MCP server, and none of the owner's
   settings, plugins or hooks (`--setting-sources ''`, `disableAllHooks`), so neither it nor a hook
-  can write, run a command or dispatch an agent. WebFetch is allowed only for the pinned sources'
+  can write, run a command or dispatch an agent. It runs on the owner's subscription: the caller's
+  provider variables (`ANTHROPIC_BASE_URL`, the auth token, model mapping) are dropped, so what it
+  Reads never goes to a glm/worker provider. WebFetch is allowed only for the pinned sources'
   hosts and `api.github.com` (`WEB_HOSTS`); under `dontAsk` any other host is refused, so an
   injected instruction cannot send what the session Read to its own URL. `radar.js` writes only in
   its state dir; its `claude plugin marketplace update` pre-step (the CLI, before the session)
