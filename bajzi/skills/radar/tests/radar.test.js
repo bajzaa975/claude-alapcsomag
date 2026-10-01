@@ -116,6 +116,18 @@ test('digest DAY-RUN aggregation: count + rounds per task-class x model, results
   has(out, '- malformed lines: 1');
 });
 
+test('digest: a cwd basename failing LABEL is reported as (other)', async () => {
+  const root = tmp('bajzi-radar-b-');
+  write(path.join(root, 'p', 'a.jsonl'), jl([
+    { sessionId: 's1', cwd: '/w/my project "x"=1', timestamp: T, type: 'user', message: { role: 'user', content: 'hi' } },
+    { sessionId: 's2', cwd: '/w/ok-name', timestamp: T, type: 'user', message: { role: 'user', content: 'hi' } },
+  ]));
+  const out = await R.digest({ projectsDir: root, since: SINCE, now: NOW });
+  has(out, '- (other): 1');
+  has(out, '- ok-name: 1');
+  assert.ok(!out.includes('my project'), out);
+});
+
 test('digest stays at most 150 lines on a wide fixture', async () => {
   const root = tmp('bajzi-radar-wide-');
   const rows = [];
@@ -220,6 +232,33 @@ test('run derives since from the newest report mtime, else now - 14 days', async
   assert.doesNotMatch(s.p, /- alpha: 1/);
 });
 
+test('run: the next window starts where the previous digest window ended', async () => {
+  const e = runEnv();
+  const at = d => new Date(+NOW + d * 864e5);
+  const go = (now, claude) => R.run({ state: e.state, now, claude, exec: e.exec, home: e.home, projectsDir: e.f.projects });
+  assert.strictEqual((await go(NOW, okClaude({}))).ok, true);
+  setM(path.join(e.state, 'reports', '2026-10-01.md'), new Date(+NOW + 40 * 60e3));
+  const s = {};
+  await go(at(14), okClaude(s));
+  assert.match(s.prompt, /since: 2026-10-01T09:00:00\.000Z/);
+  // a failed run does not advance the window
+  await go(at(28), () => ({ code: 1, stdout: '', stderr: '' }));
+  const s2 = {};
+  await go(at(29), okClaude(s2));
+  assert.match(s2.prompt, new RegExp('since: ' + at(14).toISOString().replace(/\./g, '\\.')));
+});
+
+test('run writes last-error.log when the report rename fails', async t => {
+  const e = runEnv();
+  t.mock.method(fs, 'renameSync', () => { throw new Error('EPERM: rename blocked'); });
+  const r = await R.run({ state: e.state, now: NOW, claude: okClaude({}), exec: e.exec, home: e.home, projectsDir: e.f.projects });
+  t.mock.restoreAll();
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.path, path.join(e.state, 'last-error.log'));
+  assert.match(fs.readFileSync(r.path, 'utf8'), /rename blocked/);
+  assert.deepStrictEqual(reports(e.state), []);
+});
+
 test('CLI run exits 1 and writes last-error.log when the claude binary fails (real spawn, no shell)', () => {
   const e = runEnv();
   const r = spawnSync(process.execPath, [RADAR, 'run'], {
@@ -231,16 +270,35 @@ test('CLI run exits 1 and writes last-error.log when the claude binary fails (re
   assert.deepStrictEqual(reports(e.state), []);
 });
 
+const argsAfter = (a, flag) => { const i = a.indexOf(flag); assert.ok(i >= 0, flag); const out = []; for (let j = i + 1; j < a.length && !a[j].startsWith('-'); j++) out.push(a[j]); return out; };
+
 test('claude args: --tools is exactly the five read-only tools; no write/exec/agent tool anywhere', () => {
   const a = R.claudeArgs();
   const RO = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'];
-  const after = flag => { const i = a.indexOf(flag); assert.ok(i >= 0, flag); const out = []; for (let j = i + 1; j < a.length && !a[j].startsWith('-'); j++) out.push(a[j]); return out; };
+  const after = flag => argsAfter(a, flag);
   assert.deepStrictEqual(after('--tools'), RO);
-  assert.deepStrictEqual(after('--allowedTools'), RO);
+  assert.deepStrictEqual(after('--allowedTools').filter(t => !t.startsWith('WebFetch(domain:')), ['Read', 'Glob', 'Grep', 'WebSearch']);
   for (const f of ['-p', '--strict-mcp-config', '--no-session-persistence']) assert.ok(a.includes(f), f);
   assert.deepStrictEqual(after('--model'), ['opus']);
   assert.deepStrictEqual(after('--permission-mode'), ['dontAsk']);
   for (const t of ['Bash', 'Edit', 'Write', 'Agent', 'Task', 'PowerShell', 'Skill', 'NotebookEdit']) assert.ok(!a.includes(t), t);
+});
+
+test('claude args: WebFetch is limited to the pinned source and GitHub API hosts', () => {
+  const a = R.claudeArgs();
+  const p = fs.readFileSync(path.join(__dirname, '..', 'prompt.md'), 'utf8');
+  const hosts = [...new Set([...p.matchAll(/https:\/\/([A-Za-z0-9.-]+)\//g)].map(m => m[1]))].sort();
+  assert.ok(hosts.includes('api.github.com'), hosts.join());
+  const allow = argsAfter(a, '--allowedTools');
+  assert.ok(!allow.includes('WebFetch'), 'bare WebFetch allows every host');
+  assert.deepStrictEqual(allow.filter(t => t.startsWith('WebFetch')).sort(), hosts.map(h => `WebFetch(domain:${h})`));
+  assert.ok(argsAfter(a, '--tools').includes('WebFetch'));
+});
+
+test('claude args isolate the session from user settings and plugin hooks', () => {
+  const a = R.claudeArgs();
+  assert.deepStrictEqual(argsAfter(a, '--setting-sources'), ['']);
+  assert.deepStrictEqual(JSON.parse(argsAfter(a, '--settings')[0]), { disableAllHooks: true });
 });
 
 // ---------- notice / seen ----------
@@ -353,6 +411,26 @@ test('launch.js resolves the CURRENT bajzi installPath at launch and runs its ra
   assert.strictEqual(JSON.parse(fs.readFileSync(marker, 'utf8')).ver, '1.12.0');
 });
 
+test('the cron command finds claude under an env with PATH=/usr/bin:/bin', () => {
+  const state = tmp('bajzi-radar-c-');
+  const home = tmp('bajzi-radar-h-');
+  const bin = tmp('bajzi-radar-bin-');
+  write(path.join(bin, 'claude'), '#!/bin/sh\n');
+  // install-task runs from the owner's shell, where claude is on PATH
+  R.installTask({ platform: 'linux', state, node: process.execPath, env: { PATH: bin + path.delimiter + '/usr/bin' }, exec: () => { throw new Error('must not exec'); } });
+  const marker = path.join(home, 'found.json');
+  const root = path.join(home, 'cache', '1.11.0');
+  write(path.join(root, 'skills', 'radar', 'radar.js'), `const fs = require('fs'), path = require('path');
+fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify((process.env.PATH || '').split(path.delimiter).find(d => d && fs.existsSync(path.join(d, 'claude'))) || null));`);
+  write(path.join(home, '.claude', 'plugins', 'installed_plugins.json'),
+    JSON.stringify({ version: 2, plugins: { 'bajzi@bajzi-plugins': [{ installPath: root }] } }));
+  // cron's environment: PATH=/usr/bin:/bin, nothing from the owner's shell
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^path$/i.test(k) && k !== 'BAJZI_RADAR_HOME'));
+  Object.assign(env, { PATH: '/usr/bin:/bin', HOME: home, USERPROFILE: home });
+  assert.strictEqual(spawnSync(process.execPath, [path.join(state, 'launch.js')], { env }).status, 0);
+  assert.strictEqual(JSON.parse(fs.readFileSync(marker, 'utf8')), bin);
+});
+
 test('launch.js with no resolvable install exits 1, writes last-error.log, and notice reports it', () => {
   const state = tmp('bajzi-radar-l-');
   const home = tmp('bajzi-radar-h-');
@@ -372,7 +450,7 @@ test('launch.js with no resolvable install exits 1, writes last-error.log, and n
 
 test('prompt.md carries the pinned sources, the untrusted-web rule and the output contract', () => {
   const p = fs.readFileSync(path.join(__dirname, '..', 'prompt.md'), 'utf8');
-  for (const s of ['https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md', 'https://docs.claude.com/en/release-notes/overview',
+  for (const s of ['https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md', 'https://platform.claude.com/docs/en/release-notes/overview',
     'https://www.anthropic.com/news', 'https://www.anthropic.com/engineering', 'https://api.github.com/repos/obra/superpowers/releases',
     '# bajzi radar - <YYYY-MM-DD>', 'deliberately_skipped', 'declined.md', 'Considered and dropped', 'Nothing worth changing', 'untrusted']) {
     assert.ok(p.includes(s), s);

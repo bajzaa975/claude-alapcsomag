@@ -2,8 +2,9 @@
 'use strict';
 // bajzi radar: a biweekly, local, READ-ONLY review of the owner's Claude setup (spec §6.14).
 // Node stdlib only. CLI: node radar.js <digest|run|notice|seen|install-task>
-// Only this script writes, and only inside the state dir; the headless session it starts has
-// read-only tools (claudeArgs) and the usage digest it gets carries counts, never text.
+// The headless session it starts has read-only tools, no settings, plugins or hooks (claudeArgs);
+// this script writes only inside the state dir, its `claude plugin marketplace update` pre-step
+// refreshes ~/.claude/plugins/marketplaces. The usage digest carries counts, never text.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -21,7 +22,7 @@ const LABEL = /^[A-Za-z0-9:_.@/<>-]{1,64}$/;
 const label = v => (typeof v === 'string' && LABEL.test(v) ? v : '(other)');
 // DAY-RUN tokens often carry a detail suffix (review(s157-s1), pass(CLEAN)): keep the leading word.
 const head = v => label((/^[A-Za-z0-9_.:@/-]+/.exec(v) || [''])[0]);
-const basename = cwd => (cwd.split(/[\\/]/).filter(Boolean).pop() || '').replace(/[\x00-\x1f]/g, '').slice(0, 64) || '(other)';
+const basename = cwd => label(cwd.split(/[\\/]/).filter(Boolean).pop() || '');
 const iso = t => new Date(t).toISOString();
 const num = v => (Number.isFinite(v) ? v : 0);
 const inc = (m, k, n = 1) => m.set(k, (m.get(k) || 0) + n);
@@ -220,6 +221,16 @@ function listReports(state) {
     .filter(r => r.mtimeMs !== null).sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
+// The next window starts where the last reported digest window ended (`.since`, written with
+// the report): not the report mtime, which is up to 40 min later and moves on any touch.
+function sinceOf(state, now, reps) {
+  try {
+    const t = Date.parse(fs.readFileSync(path.join(state, '.since'), 'utf8').trim());
+    if (Number.isFinite(t)) return t;
+  } catch { /* no reported window yet */ }
+  return reps.length ? reps[0].mtimeMs : now - 14 * DAY;
+}
+
 function bajziRoot(home) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'plugins', 'installed_plugins.json'), 'utf8'));
@@ -230,9 +241,15 @@ function bajziRoot(home) {
 const claudeBin = () => process.env.BAJZI_RADAR_CLAUDE || 'claude';
 // --tools is the sandbox: with --allowedTools alone the session still had Bash and the
 // owner's settings allow rules ran it (smoke check, CLI 2.1.286). --allowedTools keeps the
-// five from being refused under dontAsk.
+// five from being refused under dontAsk. WebFetch is allowed only for the hosts of prompt.md's
+// URLs, so under dontAsk an injected instruction cannot send what the session Read to its own
+// URL. --setting-sources '' drops the owner's user/project/local settings: their allow rules
+// (which would re-open any host or Bash), hooks and enabledPlugins (no plugin hook runs);
+// disableAllHooks covers any hook left (smoke check, §6.14).
+const WEB_HOSTS = ['raw.githubusercontent.com', 'platform.claude.com', 'www.anthropic.com', 'api.github.com'];
 const claudeArgs = () => ['-p', '--model', 'opus', '--permission-mode', 'dontAsk', '--tools', ...RO_TOOLS,
-  '--allowedTools', ...RO_TOOLS, '--strict-mcp-config', '--no-session-persistence'];
+  '--allowedTools', ...RO_TOOLS.filter(t => t !== 'WebFetch'), ...WEB_HOSTS.map(h => `WebFetch(domain:${h})`),
+  '--setting-sources', '', '--settings', '{"disableAllHooks":true}', '--strict-mcp-config', '--no-session-persistence'];
 
 function realExec(bin, args) {
   const r = spawnSync(bin, args, { encoding: 'utf8', timeout: 120e3, windowsHide: true, maxBuffer: 16 << 20 });
@@ -249,13 +266,34 @@ function realClaude(prompt, { cwd }) {
 
 const oneLine = s => String(s || '').split(/\r?\n/).map(x => x.trim()).find(Boolean) || '';
 
-async function run({ state = stateDir(), now = new Date(), claude = realClaude, exec = realExec, home = os.homedir(), projectsDir } = {}) {
+function writeError(state, code, reason, stderr, stdoutLines) {
+  const errFile = path.join(state, 'last-error.log');
+  fs.writeFileSync(errFile, [
+    `time: ${new Date().toISOString()}`,
+    `exit code: ${code}`,
+    `reason: ${reason}`,
+    '--- stderr (last 40 lines) ---', ...String(stderr || '').split(/\r?\n/).slice(-40),
+    '--- stdout (first 20 lines) ---', ...stdoutLines.slice(0, 20), '',
+  ].join('\n'));
+  return errFile;
+}
+
+// A throw outside the session call (prompt.md, the dirs, the report write) still leaves a
+// last-error.log for the notice; only an unwritable state dir reaches main's stderr.
+async function run(opts = {}) {
+  const state = opts.state || stateDir();
+  try { return await attempt({ ...opts, state }); } catch (e) {
+    return { ok: false, path: writeError(state, null, 'radar.js: ' + ((e && e.message) || e), '', []) };
+  }
+}
+
+async function attempt({ state, now = new Date(), claude = realClaude, exec = realExec, home = os.homedir(), projectsDir }) {
   now = +now;
   projectsDir = projectsDir || path.join(home, '.claude', 'projects');
   const reportsDir = path.join(state, 'reports');
   fs.mkdirSync(reportsDir, { recursive: true });
   const reps = listReports(state);
-  const since = reps.length ? reps[0].mtimeMs : now - 14 * DAY;
+  const since = sinceOf(state, now, reps);
 
   const bin = claudeBin();
   const step = (args, fn) => {
@@ -306,19 +344,17 @@ async function run({ state = stateDir(), now = new Date(), claude = realClaude, 
     // ponytail: exists-then-rename; two runs in the same second could pick one name. The task is
     // single-instance (MultipleInstances IgnoreNew), so only a manual `now` can race it.
     const tmpf = file + '.tmp-' + process.pid;
-    fs.writeFileSync(tmpf, lines.slice(first).join('\n'));
-    fs.renameSync(tmpf, file);
+    try {
+      fs.writeFileSync(tmpf, lines.slice(first).join('\n'));
+      fs.renameSync(tmpf, file);
+    } catch (e) {
+      try { fs.rmSync(tmpf, { force: true }); } catch { /* keep the first error */ }
+      throw e;
+    }
+    fs.writeFileSync(path.join(state, '.since'), iso(now) + '\n');
     return { ok: true, path: file };
   }
-  const errFile = path.join(state, 'last-error.log');
-  fs.writeFileSync(errFile, [
-    `time: ${new Date().toISOString()}`,
-    `exit code: ${code}`,
-    `reason: ${code !== 0 ? 'non-zero exit' : 'stdout does not start with "# bajzi radar"'}`,
-    '--- stderr (last 40 lines) ---', ...String((res && res.stderr) || '').split(/\r?\n/).slice(-40),
-    '--- stdout (first 20 lines) ---', ...lines.slice(0, 20), '',
-  ].join('\n'));
-  return { ok: false, path: errFile };
+  return { ok: false, path: writeError(state, code, code !== 0 ? 'non-zero exit' : 'stdout does not start with "# bajzi radar"', res && res.stderr, lines) };
 }
 
 function notice(state = stateDir()) {
@@ -347,6 +383,9 @@ const LAUNCHER = `'use strict';
 // from installed_plugins.json at every launch, so a plugin update never breaks the schedule.
 const fs = require('fs'), os = require('os'), path = require('path');
 const { spawnSync } = require('child_process');
+// Off Windows install-task bakes the installing shell's PATH in here: cron runs jobs with
+// PATH=/usr/bin:/bin, where neither claude nor the node an npm-installed claude needs is found.
+const PATH0 = null;
 let radar;
 try {
   const j = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json'), 'utf8'));
@@ -356,7 +395,7 @@ try {
   fs.writeFileSync(path.join(__dirname, 'last-error.log'), 'launcher: cannot resolve the bajzi install: ' + e.message + '\\n');
   process.exit(1);
 }
-const r = spawnSync(process.execPath, [radar, 'run'], { stdio: 'inherit', env: Object.assign({}, process.env, { BAJZI_RADAR_HOME: __dirname }) });
+const r = spawnSync(process.execPath, [radar, 'run'], { stdio: 'inherit', env: Object.assign({}, process.env, PATH0 ? { PATH: PATH0 } : {}, { BAJZI_RADAR_HOME: __dirname }) });
 process.exit(r.status === null ? 1 : r.status);
 `;
 
@@ -377,10 +416,11 @@ function taskCommand({ node, launch }) {
 const cronLine = ({ node, launch }) => '# bajzi radar, every 2nd Monday 10:00 (add with: crontab -e)\n'
   + `0 10 * * 1 [ $(( $(date +\\%s) / 604800 \\% 2 )) -eq 0 ] && "${node}" "${launch}"`;
 
-function installTask({ platform = process.platform, state = stateDir(), node = process.execPath, exec = realExec } = {}) {
+function installTask({ platform = process.platform, state = stateDir(), node = process.execPath, exec = realExec, env = process.env } = {}) {
   fs.mkdirSync(state, { recursive: true });
   const launch = path.join(state, 'launch.js');
-  fs.writeFileSync(launch, LAUNCHER);
+  fs.writeFileSync(launch, platform === 'win32' ? LAUNCHER
+    : LAUNCHER.replace('const PATH0 = null;', () => `const PATH0 = ${JSON.stringify(env.PATH || null)};`));
   if (platform !== 'win32') return { code: 0, out: cronLine({ node, launch }) };
   const enc = Buffer.from(taskCommand({ node, launch }), 'utf16le').toString('base64');
   let r;
@@ -394,9 +434,8 @@ function installTask({ platform = process.platform, state = stateDir(), node = p
 async function main(cmd) {
   const state = stateDir();
   if (cmd === 'digest') {
-    const reps = listReports(state);
     const now = Date.now();
-    process.stdout.write(await digest({ projectsDir: path.join(os.homedir(), '.claude', 'projects'), since: reps.length ? reps[0].mtimeMs : now - 14 * DAY, now }));
+    process.stdout.write(await digest({ projectsDir: path.join(os.homedir(), '.claude', 'projects'), since: sinceOf(state, now, listReports(state)), now }));
     return 0;
   }
   if (cmd === 'run') {

@@ -7,7 +7,7 @@ description: Biweekly read-only review of the owner's Claude setup (plugins and 
 
 `radar.js` (this directory) writes every file; the review itself runs headless with read-only
 tools. State dir: `$BAJZI_RADAR_HOME`, else `~/.claude/bajzi/radar/` (reports in `reports/`,
-`declined.md`, `.seen`, `last-error.log`, `launch.js`).
+`declined.md`, `.seen`, `.since`, `last-error.log`, `launch.js`).
 
 ## No argument: review the newest report
 
