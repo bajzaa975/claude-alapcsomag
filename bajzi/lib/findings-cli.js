@@ -22,7 +22,8 @@
 //   check                          D6 debt cap: exit 4 on hit
 //   drain <review-file>            drops resolved debt entries, new ones -> needs-owner.md
 //   calibrate <rerate-file>        writes blind_severity; only disagreements -> needs-owner.md
-//   log <class> <subagent> <brief-file> <allow|deny>   one R4 TSV line to runtime/dispatch-sizes.log
+//   log <class> <subagent> <brief-file> <allow|deny>   one R4 TSV line to runtime/dispatch-sizes.log;
+//                                  an allow writes nothing while the dispatch guard's gate is open
 
 const fs = require('fs');
 const path = require('path');
@@ -262,6 +263,19 @@ const cmds = {
     checkId(cls, 'class');
     if (!/^[a-z0-9][a-z0-9:_-]{0,63}$/i.test(sub)) die(2, `bad subagent: ${JSON.stringify(sub)}`);
     const chars = Array.from(mustRead(brief)).length;
+    // With the dispatch guard's gate open the hook already wrote its own R4 line for this dispatch,
+    // so an allow here would be a duplicate. Same resolver as the hook (bash, not a Node port), on
+    // the repo root (the hook's cwd). Any failure -> write: a duplicate line, never a lost one.
+    // A deny is always written: a refusal by the harness or the user never reaches the hook's log.
+    if (decision === 'allow') {
+      let gate = '';
+      try {
+        gate = execFileSync('bash', ['-c', '. "$1" && saver_resolve "$2" && printf %s "$SAVER_GATE_OPEN"', 'bash',
+          fwd(path.join(__dirname, '..', 'hooks', 'lib-saver-level.sh')), fwd(process.cwd())],
+        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+      } catch { gate = ''; }
+      if (gate === 'yes') return;
+    }
     fs.mkdirSync('runtime', { recursive: true });
     const iso = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     fs.appendFileSync('runtime/dispatch-sizes.log', `${iso}\tSKILL-${cls.toUpperCase()}\t${sub}\t${chars}\t${decision}\n`);
