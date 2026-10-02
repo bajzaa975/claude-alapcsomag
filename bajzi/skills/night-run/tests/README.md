@@ -10,15 +10,20 @@ bash tests/lock-race.sh        # ~90 s   (40 race trials; `bash tests/lock-race.
 bash tests/quota.sh            # ~95 s
 bash tests/watch.sh            # ~35 s   (night-watch.sh only: no run.sh, no claude)
 bash tests/deny-run-tree.sh     # ~1 s    (SKILL.md PHASE C rules check on the rendered settings template: no claude, no git)
+bash tests/triage.sh           # ~45 s on Git Bash (night-watch.sh tier-1 tick vs a fake claude: argv, cwd, init-record check)
 ```
 
-All four scripts are safe to run on a machine that has a real night running:
+`triage.sh` needs no `flock`, `setsid` or `pgrep`, so it runs under Git Bash on Windows as well
+as on Linux.
+
+All five scripts are safe to run on a machine that has a real night running:
 
 * they never execute the real `claude` — every session is a **fake claude**
-  script created by `lib.sh`, driven by a plan file (`deny-run-tree.sh` starts no
+  script created by `lib.sh`, driven by a plan file (`triage.sh` brings its own
+  fake claude, see below; `deny-run-tree.sh` starts no
   session at all: it only runs the SKILL.md rules check on strings);
 * everything they create lives under `$NR_SCRATCH` — ONE convention for all
-  four files, default `${TMPDIR:-/tmp}/night-run-tests`, override it with
+  five files, default `${TMPDIR:-/tmp}/night-run-tests`, override it with
   `NR_SCRATCH=/some/dir`. `watch.sh` does not source `lib.sh` (it needs no fake
   claude and no git base) but uses the same variable and the same default;
 * the only processes they ever signal are ones they started themselves, found
@@ -37,6 +42,7 @@ That is how the "before" numbers below were measured.
 | `lock-race.sh` | the run lock and per-story session liveness |
 | `quota.sh` | what happens when the model says "You've hit your session limit" |
 | `watch.sh` | `night-watch.sh` alone: its statuses, its marker dating, its restart budget, its single-instance guard and its mode gate. Standalone — it sources nothing, fakes `run.sh` with stubs that record their argv (one of them also behaving like the real runner at queue start), and shadows `update-monitor` with a stub on `PATH` |
+| `triage.sh` | `night-watch.sh`'s tier-1 triage tick. Standalone, like `watch.sh`, with its OWN fake `claude` first on `PATH` (records argv, cwd, pid and stdin; prints N hook lines, a configurable stream-json init record, optionally sleeps, then a result line). Proves the tick runs in `BASE` with `-p --model --permission-mode bypassPermissions --settings <BASE>/.claude/settings.local.json --output-format stream-json --verbose`, logs the decoded result plus `TICK CONFIG OK`, and fails closed with `TICK MISCONFIGURED` (result not logged) on a wrong model (the tick is killed mid-stream), a wrong permission mode, no init record, an init with no readable model, a missing settings file or a missing `BASE` (claude never started), an unsupported `WATCH_TRIAGE_MODEL` (opusplan, `sonnet[1m]`: refused before launch), and a pid file that cannot be written (claude never started). Also: a tick that ignores TERM is dead before `tick killed` is logged; a startup crash or a post-init crash is logged as `TICK MISCONFIGURED no init record` / `TICK FAILED` naming the `.err` file and the exit code, never a plain `CONFIG OK`. Teardown signals only a pid whose `/proc` command line still names the scratch dir, then sweeps `/proc` for any process mentioning it |
 | `deny-run-tree.sh` | the SKILL.md PHASE C rules check, extracted and run on the shipped settings template rendered with a sample BASE/NIGHT_DIR: a section-3 `Edit`/`Write` deny that covers `<BASE>/runtime/` or `<NIGHT_DIR>/wt/` must print `DENY COVERS RUN TREE:` and fail; sibling, narrower and `Read` rules must pass. Pure strings, sources `lib.sh` only for the tally |
 
 ### The fake claude
