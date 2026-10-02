@@ -179,6 +179,7 @@
     "tui": "fullscreen",
     "theme": "dark",
     "agentPushNotifEnabled": true,
+    "remoteControlAtStartup": true,
     "disableClaudeAiConnectors": true,
     "permissions": {
       "defaultMode": "auto",

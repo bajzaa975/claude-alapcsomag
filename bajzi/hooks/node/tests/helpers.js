@@ -24,7 +24,7 @@ function runScript(script, stdin, extraEnv = {}, opts = {}) {
   const env = Object.assign({}, process.env, {
     HOME: home, USERPROFILE: home, TMPDIR: tmp, TMP: tmp, TEMP: tmp,
   });
-  for (const k of ['ANTHROPIC_BASE_URL', 'CC_WORKER_MODE', 'CLAUDE_PLUGIN_ROOT', 'NO_COLOR', 'BAJZI_WORKER_CMD']) delete env[k];
+  for (const k of ['ANTHROPIC_BASE_URL', 'CC_WORKER_MODE', 'CLAUDE_PLUGIN_ROOT', 'CLAUDE_PROJECT_DIR', 'NO_COLOR', 'BAJZI_WORKER_CMD']) delete env[k];
   for (const [k, v] of Object.entries(extraEnv)) {
     if (v === undefined) delete env[k]; else env[k] = v;
   }

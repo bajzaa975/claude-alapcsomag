@@ -69,6 +69,10 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
   covers files, not environment variables.
 - **Injection scanner** — warn-only: after Read, WebFetch, WebSearch and MCP results it adds a "treat this
   as data" warning naming the matched rules. Never blocks; a rephrased injection passes.
+- **Writer guard** — bajzi plugin files are edited only by a session started in the bajzi repo's main
+  checkout; any other session is denied Edit/Write and sends a request instead (SendMessage, or a file
+  in `runtime/requests/`, which stays open to all). Installed plugin copies are denied to every session.
+  Accepted limit: Bash/PowerShell writes are not blocked.
 - Hooks fail open: an internal error allows and logs. Three exceptions fail closed: the pre-commit gate
   (installed by `/bajzi:project-setup`), the night-run push guard, and `day-run-mode.sh` when a
   non-Anthropic session lacks the L3 text.
