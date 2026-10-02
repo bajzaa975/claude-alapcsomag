@@ -22,7 +22,8 @@
 //   check                          D6 debt cap: exit 4 on hit
 //   drain <review-file>            drops resolved debt entries, new ones -> needs-owner.md
 //   calibrate <rerate-file>        writes blind_severity; only disagreements -> needs-owner.md
-//   log <class> <subagent> <brief-file> <allow|deny>   one R4 TSV line to runtime/dispatch-sizes.log
+//   log <class> <subagent> <brief-file> <allow|deny>   one R4 TSV line to runtime/dispatch-sizes.log;
+//                                  an allow writes nothing while the dispatch guard's gate is open
 
 const fs = require('fs');
 const path = require('path');
@@ -262,6 +263,24 @@ const cmds = {
     checkId(cls, 'class');
     if (!/^[a-z0-9][a-z0-9:_-]{0,63}$/i.test(sub)) die(2, `bad subagent: ${JSON.stringify(sub)}`);
     const chars = Array.from(mustRead(brief)).length;
+    // With the dispatch guard's gate open the hook already wrote its own R4 line for this dispatch,
+    // so an allow here would be a duplicate. Same resolver as the hook (bash, not a Node port), on
+    // the repo root (the hook's cwd). Any failure -> write (a possible duplicate line).
+    // ponytail: an allowed dispatch goes unlogged when the hook failed open without logging (empty or
+    // unparseable payload, missing lib = broken install) or when the session cwd and the repo root resolve
+    // the gate differently (the hook then logs into the cwd's own runtime/). Accepted: the log is size/count
+    // telemetry, not an audit trail; upgrade = pair the skill's line with the hook's line in the log.
+    // A deny is always written here: it cannot tell a guard refusal from a harness or user refusal.
+    // The skill (dispatch.md step 3) skips this call for `dispatch-guard R<n>:` refusals, which the hook logged.
+    if (decision === 'allow') {
+      let gate = '';
+      try {
+        gate = execFileSync('bash', ['-c', '. "$1" && saver_resolve "$2" && printf %s "$SAVER_GATE_OPEN"', 'bash',
+          fwd(path.join(__dirname, '..', 'hooks', 'lib-saver-level.sh')), fwd(process.cwd())],
+        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+      } catch { gate = ''; }
+      if (gate === 'yes') return;
+    }
     fs.mkdirSync('runtime', { recursive: true });
     const iso = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     fs.appendFileSync('runtime/dispatch-sizes.log', `${iso}\tSKILL-${cls.toUpperCase()}\t${sub}\t${chars}\t${decision}\n`);

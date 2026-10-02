@@ -663,8 +663,8 @@ rm -f "$viol" "$RMC"
 #       <sha>..<sha> range + a graph marker, or (no range) the calibrate opt-out
 #       'GRAPH: n/a single-file runtime/findings/<x>.blind.md'.
 #   R2  anything but fixer/reviewer naming runtime/findings/*.md or a *-review.md /
-#       *-rereview<n>.md file -> deny "use /bajzi:fix"; bajzi:fixer names exactly one
-#       *.fixer.md.
+#       *-rereview<n>.md file -> deny "use /bajzi:fix" (not the built-in read-only
+#       case-sensitive Explore / Plan / claude-code-guide); bajzi:fixer names exactly one *.fixer.md.
 #   R3  every dispatch but fixer: <= 24576 chars.
 #   R4  one TSV line per dispatch.
 # Every deny test asserts WHICH rule refused.
@@ -781,6 +781,31 @@ out=$(dg 'implement s2' "$IM" 'Context: runtime\\findings\\s1-r1.md' $G)
 is_deny "$out" R2 && pass "13f9 backslash runtime\findings\*.md -> deny R2" || fail "13f9" "$out"
 out=$(dg 'implement s2' "$IM" 'Context: D:\\repo/runtime\\findings/s1-r1.md' $G)
 is_deny "$out" R2 && pass "13f10 mixed-slash findings path -> deny R2" || fail "13f10" "$out"
+# the built-in read-only agents (the case-sensitive names Explore / Plan / claude-code-guide; a lowercase custom name gets no exemption) may read a findings file;
+# R1, R3 and R4 still apply to them, and every other agent keeps R2.
+RO_P='List the open items in runtime/findings/s1-r1.md'
+for ro in Explore Plan claude-code-guide; do
+    out=$(dg 'audit s1' "$ro" "$RO_P" $G)
+    is_allow "$out" && [ "$(logf 3)" = "$ro" ] && [ "$(logf 5)" = "allow" ] \
+        && pass "13f11 read-only built-in '$ro' naming a findings path -> allow, logged" || fail "13f11 $ro" "$out $(lastlog)"
+done
+out=$(dg 'audit s1' explore "$RO_P" $G)
+is_deny "$out" R2 && pass "13f11b lowercase custom agent explore -> deny R2 (built-ins are case-sensitive)" || fail "13f11b" "$out"
+out=$(dg 'audit s1' 'general-purpose' "$RO_P" $G)
+is_deny "$out" R2 && case "$out" in *'Explore or Plan'*) true ;; *) false ;; esac \
+    && pass "13f12 general-purpose naming a findings path -> deny R2, hints Explore or Plan" || fail "13f12" "$out"
+out=$(dg 'audit s1' 'statusline-setup' "$RO_P" $G)
+is_deny "$out" R2 && pass "13f13 statusline-setup (has Edit) -> deny R2" || fail "13f13" "$out"
+out=$(dg 'audit s1' 'explore-deep' "$RO_P" $G)
+is_deny "$out" R2 && pass "13f14 exact match only: 'explore-deep' -> deny R2" || fail "13f14" "$out"
+out=$(dg 'review s1 round 1' 'Explore' "$RO_P" $G)
+is_deny "$out" R1 && pass "13f15 Explore with a REVIEW-class description -> still deny R1" || fail "13f15" "$out"
+out=$(dg 'audit s1' 'Explore' "$(head -c 24577 /dev/zero | tr '\0' a)" $G)
+is_deny "$out" R3 && pass "13f16 Explore over 24576 chars -> still deny R3" || fail "13f16" "${out:0:200}"
+LP="runtime/findings/$(head -c 300 /dev/zero | tr '\0' x)-r1.md"
+out=$(dg 'audit s1' 'general-purpose' "Read $LP" $G)
+is_deny "$out" R2 && case "$out" in *'Explore or Plan'*) true ;; *) false ;; esac \
+    && pass "13f17 a 300-char findings path does not cut the Explore/Plan hint" || fail "13f17" "$out"
 # 13g: R2 does not apply to the reviewer (read-only: its round-2 brief NAMES the r1 file + report).
 out=$(dg 're-review code-review round 2' "$RV" "range: $S1..$S2\\n$GL\\ndiff: runtime/briefs/code-review-r2.diff\\nround-1 findings: runtime/findings/code-review-r1.md\\nfixer report: runtime/findings/code-review-r1.report.md" $G)
 is_allow "$out" && pass "13g reviewer round 2 naming runtime/findings/<id with review>-r1.md -> allow" || fail "13g" "$out"
@@ -1062,16 +1087,33 @@ out="$(cli slice sl6 2>&1)"; rc=$?
 [ $rc -eq 0 ] || ok=0
 [ $ok -eq 1 ] && pass "16f6 files: control-plane/absolute/.. paths refused, normal paths pass" || fail "16f6" "rc=$rc $out"
 
-# 16g: every dispatch logs one R4-shaped TSV line.
-printf 'brief é\n' > "$CAD/b.txt"; cli log review bajzi:reviewer b.txt allow
+# 16g: every dispatch logs one R4-shaped TSV line -- with the dispatch guard's gate CLOSED
+# (an empty HOME, no runtime/bajzi-mode, no provider env), whatever this machine's real gate is.
+mkdir -p "$TMP/home-closed"; rm -f "$CAD/runtime/bajzi-mode"
+clic() { (cd "$CAD" && env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$TMP/home-closed" node "$CLI" "$@"); }
+printf 'brief é\n' > "$CAD/b.txt"; clic log review bajzi:reviewer b.txt allow
 line="$(tail -1 "$CAD/runtime/dispatch-sizes.log")"
 if printf '%s' "$line" | grep -qE $'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\tSKILL-REVIEW\tbajzi:reviewer\t8\tallow$'; then
     pass "16g dispatch log line (R4 format, chars not bytes)"; else fail "16g log" "$line"; fi
-out="$(cli log "$(printf 'z\tforged')" bajzi:reviewer b.txt allow 2>&1)"; rc=$?
+out="$(clic log "$(printf 'z\tforged')" bajzi:reviewer b.txt allow 2>&1)"; rc=$?
 [ $rc -eq 2 ] && [ "$(tail -1 "$CAD/runtime/dispatch-sizes.log")" = "$line" ] && pass "16g2 a class with a tab is refused, no forged TSV line" || fail "16g2" "rc=$rc $out"
 printf '# Needs owner\n\n- owner note' > "$NO"
 printf 's1/F4 · minor · x\n' > "$CAD/rerate.txt"; cli calibrate rerate.txt >/dev/null
 grep -qx -- '- owner note' "$NO" && pass "16g3 append to a needs-owner.md without a final newline keeps lines apart" || fail "16g3" "$(cat "$NO")"
+# 16g4: gate OPEN (day-run in the repo's runtime/bajzi-mode) -> the hook already logged the dispatch,
+# so an allow appends nothing; a deny (the harness refused, the hook never saw it) is still written.
+printf 'day-run\n' > "$CAD/runtime/bajzi-mode"
+DL="$CAD/runtime/dispatch-sizes.log"; n0="$(wc -l < "$DL")"
+clic log review bajzi:reviewer b.txt allow; rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$n0" ] && pass "16g4 gate open: allow -> no SKILL- line, exit 0" || fail "16g4" "rc=$rc $(tail -1 "$DL")"
+clic log review bajzi:reviewer b.txt deny; rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && tail -1 "$DL" | grep -qE $'\tSKILL-REVIEW\tbajzi:reviewer\t8\tdeny$' \
+    && pass "16g4b gate open: deny -> SKILL- line still written" || fail "16g4b" "rc=$rc $(tail -1 "$DL")"
+# 16g5: the gate check cannot run (no hooks/lib-saver-level.sh next to lib/) -> fail toward a duplicate line.
+mkdir -p "$TMP/nohooks"; cp -r "$BAJZI_DIR/lib" "$TMP/nohooks/lib"; n0="$(wc -l < "$DL")"
+(cd "$CAD" && env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$TMP/home-closed" node "$TMP/nohooks/lib/findings-cli.js" log review bajzi:reviewer b.txt allow); rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && pass "16g5 gate unresolvable (no lib) -> allow line written" || fail "16g5" "rc=$rc"
+rm -f "$CAD/runtime/bajzi-mode"
 
 # 16i (I4/I5/I3/M6): reviewer briefs pass PATHS, not contents -- a huge diff plus a big round-1
 # file still gives a small brief that names the full .diff, carries resolved SHAs, and the
