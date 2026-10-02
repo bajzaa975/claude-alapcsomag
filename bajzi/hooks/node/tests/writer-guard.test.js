@@ -209,6 +209,9 @@ test('CLI: the standalone PreToolUse hook denies a foreign edit, allows the owne
   assert.strictEqual(o.permissionDecision, 'deny');
   assert.ok(o.permissionDecisionReason.startsWith(`[bajzi:bajzi-writer] bajzi plugin changes are made only by a session started in ${m} `));
   assert.strictEqual(runScript(SCRIPT, JSON.stringify(edit(m, f))).stdout, '');
+  // CLAUDE_PROJECT_DIR (the start directory) wins over cwd in the real hook process.
+  assert.strictEqual(runScript(SCRIPT, JSON.stringify(edit(tmpDir('bajzi-wgf-'), f)), { CLAUDE_PROJECT_DIR: m }).stdout, '');
+  assert.strictEqual(JSON.parse(runScript(SCRIPT, JSON.stringify(edit(m, f)), { CLAUDE_PROJECT_DIR: tmpDir('bajzi-wgf-') }).stdout).hookSpecificOutput.permissionDecision, 'deny');
   for (const stdin of ['', 'not json', '[]', '{"tool_name":"Edit","tool_input":null}']) {
     const b = runScript(SCRIPT, stdin);
     assert.deepStrictEqual([b.code, b.stdout, b.stderr], [0, '', ''], stdin);

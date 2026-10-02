@@ -50,8 +50,9 @@ test('README night-run bullet names the runner the skill launch block starts', (
   assert.doesNotMatch(bullet, /PowerShell|Windows laptop/);
 });
 
-test('README Safety section names the fail-closed exceptions', () => {
+test('README Safety section names the fail-closed exceptions and the writer guard', () => {
   const safety = /### Safety[\s\S]*?(?=\n### )/.exec(rootReadme())[0];
+  assert.match(safety, /\*\*Writer guard\*\*/);
   assert.match(safety, /pre-commit gate/);
   assert.match(safety, /day-run-mode\.sh/);
   assert.match(safety, /fail(s)? closed/);
