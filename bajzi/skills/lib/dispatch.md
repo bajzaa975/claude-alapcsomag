@@ -16,8 +16,7 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
 3. **Log**: run `FC log` after every dispatch EXCEPT a refusal whose reason starts
    `dispatch-guard R<n>:` (the hook already logged it): `allow`, or `deny` for a harness or user
    refusal. With the dispatch guard's gate open an `allow` writes nothing (the hook's own line covers it).
-   `FC log <class> bajzi:<agent> runtime/briefs/<slice>-<class>.txt allow` (`deny` if the harness
-   or user refused the dispatch). It appends `<ISO-UTC>\tSKILL-<CLASS>\t<agent>\t<chars>\t<allow|deny>`
+   `FC log <class> bajzi:<agent> runtime/briefs/<slice>-<class>.txt allow`. It appends `<ISO-UTC>\tSKILL-<CLASS>\t<agent>\t<chars>\t<allow|deny>`
    to `runtime/dispatch-sizes.log`; the `SKILL-` prefix keeps it apart from the hook's own line.
    **Denied** (the reason starts `dispatch-guard R<n>:`) -> print the reason with its rule id and
    STOP the skill. Never retry with a trimmed or reworded brief; the owner decides.
