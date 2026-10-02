@@ -11,7 +11,7 @@ const { check, notice } = require('../writer-guard');
 
 const SCRIPT = path.join(NODE_DIR, 'writer-guard.js');
 const HOME = tmpDir('bajzi-wgh-');
-const opts = { home: HOME };
+const opts = { home: HOME, projectDir: '' };   // '' = no CLAUDE_PROJECT_DIR: the start directory is cwd
 
 function tree(root, name = 'bajzi-plugins') {
   fs.mkdirSync(path.join(root, '.claude-plugin'), { recursive: true });
@@ -78,10 +78,28 @@ test('a bajzi tree that is not a main checkout (no .git, a non-worktree .git fil
   const copy = tree(path.join(tmpDir('bajzi-wgc-'), 'bajzi-copy'));
   const d = check(edit(copy, path.join(copy, 'bajzi', 'x.js')), opts);
   isDeny(d);
-  assert.ok(d.reason.includes(`started in ${copy} `), d.reason);
+  assert.ok(!d.reason.includes('started in'), d.reason);   // no session can own it: do not send the user to one
+  assert.ok(d.reason.includes(copy) && d.reason.includes('runtime'), d.reason);
   const sub = tree(path.join(tmpDir('bajzi-wgc-'), 'bajzi-sub'));
   fs.writeFileSync(path.join(sub, '.git'), 'gitdir: ../.git/modules/bajzi\n');
   isDeny(check(edit(sub, path.join(sub, 'bajzi', 'x.js')), opts));
+});
+
+test('the owner is the session START directory (projectDir), not the current cwd', () => {
+  const m = mainRepo();
+  const w = worktree(m);
+  // Started in main(R), cwd moved into its own linked worktree: may edit that worktree.
+  assert.strictEqual(check(edit(w, path.join(w, 'bajzi', 'x.js')), { home: HOME, projectDir: m }), null);
+  // Started elsewhere, cwd moved into main(R): denied.
+  isDeny(check(edit(m, path.join(m, 'bajzi', 'x.js')), { home: HOME, projectDir: tmpDir('bajzi-wgf-') }));
+});
+
+test('a separate-git-dir bajzi checkout (gitdir file, not a worktree): deny, no pointer to an owner session', () => {
+  const sep = tree(path.join(tmpDir('bajzi-wgs-'), 'bajzi-sep'));
+  fs.writeFileSync(path.join(sep, '.git'), `gitdir: ${tmpDir('bajzi-wgg-').replace(/\\/g, '/')}\n`);
+  const d = check(edit(sep, path.join(sep, 'bajzi', 'x.js')), opts);
+  isDeny(d);
+  assert.ok(!d.reason.includes('started in'), d.reason);
 });
 
 test('a session in another bajzi main checkout is not the owner of this one: deny', () => {

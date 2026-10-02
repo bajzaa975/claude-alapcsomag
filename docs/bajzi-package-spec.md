@@ -1500,9 +1500,9 @@ the `pre-tool.js` matcher `/^(?:Edit|Write|MultiEdit|NotebookEdit)$/`. `check` a
 for any other tool.
 
 **Inputs**: stdin `tool_name`, `cwd` and `tool_input.file_path` (`notebook_path` for
-NotebookEdit). A relative target is resolved against `cwd`. `check(input, {home, platform})`:
-`home` defaults to `os.homedir()` and `platform` to `process.platform`; both are injectable for
-tests.
+NotebookEdit). A relative target is resolved against `cwd`. `check(input, {home, platform, projectDir})`:
+`home` defaults to `os.homedir()`, `platform` to `process.platform` and `projectDir` to
+`CLAUDE_PROJECT_DIR` (the session's start directory); all are injectable for tests.
 
 **Classification**, in this order:
 - **(a) Installed copies.** A target under `<home>/.claude/plugins/cache/bajzi-plugins/` or
@@ -1516,16 +1516,16 @@ tests.
   - a directory: R is a main checkout and main(R) = R;
   - a file `gitdir: <main>/.git/worktrees/<n>` (a relative gitdir is resolved against R): R is
     a linked worktree and main(R) = `<main>`;
-  - anything else (no `.git`, or a submodule's `gitdir: ../.git/modules/...`): main(R) = R, and
-    R is not a main checkout.
+  - anything else (no `.git`, or a submodule's or separate-git-dir clone's `gitdir:` file that is
+    not a linked worktree): main(R) = R, R is not a main checkout and no session can own it.
 - **(c) Anything else** is allowed.
 
 Paths are compared by a key: `/` separators, no trailing slash, lower-cased on win32. "Under"
 means the key starts with the directory's key plus `/`, so `bajzi-plugins-other` is not under
 `bajzi-plugins`. Deny reasons print the real resolved paths, never the key.
 
-**Owner rule**: the owner is the session whose `cwd` is inside a bajzi tree R0 that is a main
-checkout (the same walk, starting at `cwd` itself). For a target in tree R:
+**Owner rule**: the owner is the session whose start directory (`CLAUDE_PROJECT_DIR`, else `cwd`) is inside a bajzi tree R0 that is a main
+checkout (the same walk, starting at that directory itself). For a target in tree R:
 - allow when the session is the owner and main(R) == R0 (the owner may edit its own linked
   worktrees);
 - else allow a target under `main(R)/runtime/requests/` (the inbox, open to every session,
@@ -1539,6 +1539,9 @@ the worktree's own `runtime/requests/` is not the inbox.
 - (b): "bajzi plugin changes are made only by a session started in <main(R)> (the bajzi repo
   main checkout). Send the request with SendMessage to that session, or write it to
   <main(R)>/runtime/requests/<YYYY-MM-DD>-<topic>.md."
+- (b), no owner possible (R is not a main checkout): "<R> is a bajzi tree with no main checkout
+  (no .git directory, not a linked worktree), so no session can own it. Edit the real bajzi repo
+  main checkout instead, or write it to <R>/runtime/requests/<YYYY-MM-DD>-<topic>.md."
 - (a): "Installed bajzi copies change only through a release and `claude plugin update`. Send
   the request to the session started in the bajzi repo main checkout (see 'bajzi plugin changes'
   in ~/.claude/CLAUDE.md)."
@@ -1570,7 +1573,8 @@ and `pre-tool.js`'s `runChecks` keeps a throwing writer guard from hiding anothe
 
 **Known ceiling** (the `ponytail:` comment in `writer-guard.js`; §9.1): only the four file-edit
 tools are covered. Bash/PowerShell writes (`sed -i`, a `git commit` made by a foreign session)
-are not blocked; the global rule text covers intent.
+are not blocked; the global rule text covers intent. Also, when the host sets no
+`CLAUDE_PROJECT_DIR`, the owner test uses the current `cwd`, so a `cd` can move ownership.
 
 **Tests**:
 - `node --test bajzi/hooks/node/tests/writer-guard.test.js`, on fake repos in tmp dirs (a real
@@ -1952,6 +1956,8 @@ written, so that run leaves no trace.
       a foreign session.
     - A path that reaches the repo through a symlink or junction.
     - A bajzi tree whose `marketplace.json` is unreadable.
+    - Ownership when the host sets no `CLAUDE_PROJECT_DIR`: the guard then uses the current `cwd`,
+      so a `cd` can move it.
   - It fails open, and the global rule text in `~/.claude/CLAUDE.md` covers intent.
 - **Night-run guard set**: the only place with fail-closed security engineering (fail-closed push
   guard, git-dir ledger, ancestry + patch-id judging, exit-77 owner-only closes, tripwire, pinned

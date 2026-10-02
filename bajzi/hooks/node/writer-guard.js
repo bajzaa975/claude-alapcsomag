@@ -3,7 +3,8 @@
 // bajzi plugin change is made only by the session started in the bajzi repo's main checkout.
 // Installed copies (plugin cache, marketplace clone) are denied to every session; a bajzi repo
 // tree is open only to that owner session, except main(R)/runtime/requests/ (the inbox, open to
-// all). `node writer-guard.js notice` is the SessionStart inbox count. Fs only; fails open.
+// all). Known ceiling: without CLAUDE_PROJECT_DIR the owner test falls back to the current cwd, so
+// a `cd` can move ownership. `node writer-guard.js notice` is the SessionStart inbox count. Fs only; fails open.
 // ponytail: Bash/PowerShell writes (sed -i, a git commit made by a foreign session) are not
 // blocked; the global "bajzi plugin changes" rule text covers intent. A Bash parser if it matters.
 const fs = require('node:fs');
@@ -46,16 +47,16 @@ function findTree(dir) {
   return null;
 }
 
-// main(R) and whether R is itself a main checkout. A `.git` file `gitdir: <main>/.git/worktrees/<n>`
+// main(R), whether R is itself a main checkout, and whether main(R) can have an owner session. A `.git` file `gitdir: <main>/.git/worktrees/<n>`
 // is a linked worktree of <main>; anything else that is not a `.git` dir counts as main(R) = R.
 function mainOf(r) {
   const g = path.join(r, '.git');
   let st;
-  try { st = fs.statSync(g); } catch { return { main: r, isMain: false }; }
-  if (st.isDirectory()) return { main: r, isMain: true };
+  try { st = fs.statSync(g); } catch { return { main: r, isMain: false, owned: false }; }
+  if (st.isDirectory()) return { main: r, isMain: true, owned: true };
   const m = /^gitdir:[ \t]*(.+?)[ \t]*$/m.exec(fs.readFileSync(g, 'utf8'));
   const wt = m && /^(.+)\/\.git\/worktrees\/[^/]+$/.exec(path.resolve(r, m[1]).replace(/\\/g, '/'));
-  return { main: wt ? path.resolve(wt[1]) : r, isMain: false };
+  return { main: wt ? path.resolve(wt[1]) : r, isMain: false, owned: !!wt };
 }
 
 function denied(reason) {
@@ -64,7 +65,7 @@ function denied(reason) {
 
 // The whole check, as main() and pre-tool.js run it: null or {kind:'deny', rule, reason}. Any
 // internal error is null (fail open).
-function check(input, { home = os.homedir(), platform = process.platform } = {}) {
+function check(input, { home = os.homedir(), platform = process.platform, projectDir = process.env.CLAUDE_PROJECT_DIR } = {}) {
   try {
     if (!input || typeof input !== 'object' || !COVERED.test(input.tool_name)) return null;
     const ti = input.tool_input;
@@ -78,12 +79,15 @@ function check(input, { home = os.homedir(), platform = process.platform } = {})
     }
     const r = findTree(path.dirname(target));
     if (!r) return null;
-    const { main } = mainOf(r);
-    const r0 = findTree(path.resolve(cwd));
+    const { main, owned } = mainOf(r);
+    // The session's START directory (CLAUDE_PROJECT_DIR), not its current cwd, when the host sets it.
+    const r0 = findTree(path.resolve(projectDir || cwd));
     if (r0 && mainOf(r0).isMain && key(r0, platform) === key(main, platform)) return null;
     const inbox = path.join(main, 'runtime', 'requests');
     if (under(target, inbox, platform)) return null;
-    return denied(`bajzi plugin changes are made only by a session started in ${main} (the bajzi repo main checkout). Send the request with SendMessage to that session, or write it to ${path.join(inbox, '<YYYY-MM-DD>-<topic>.md')}.`);
+    const to = `write it to ${path.join(inbox, '<YYYY-MM-DD>-<topic>.md')}`;
+    if (!owned) return denied(`${main} is a bajzi tree with no main checkout (no .git directory, not a linked worktree), so no session can own it. Edit the real bajzi repo main checkout instead, or ${to}.`);
+    return denied(`bajzi plugin changes are made only by a session started in ${main} (the bajzi repo main checkout). Send the request with SendMessage to that session, or ${to}.`);
   } catch {
     return null;
   }
