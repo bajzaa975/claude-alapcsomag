@@ -23,6 +23,9 @@
 #   WATCH_TRIAGE=1          tier 1: on every NEW terminal row in state.txt spawn ONE headless
 #                           `claude -p` tick (model WATCH_TRIAGE_MODEL, bypassPermissions) with
 #                           $NIGHT_DIR/WATCHER-BRIEF.md; 0 disables. Costs tokens only on events.
+#                           The tick runs in BASE with --settings $BASE/.claude/settings.local.json
+#                           and stream-json; an init record with another model/permission mode, or
+#                           none, kills it: `TICK MISCONFIGURED` in triage.log (raw: triage/*.jsonl).
 #   WATCH_TRIAGE_MODEL=sonnet            escalation = reviewer allow-list [0], rendered into the brief (no key)
 #   DISK_FLOOR_GB           required, whole GB; below it the run is stopped
 #   NIGHT_DIR, BASE, PROJECT   as in run.sh
@@ -423,7 +426,49 @@ WATCH_TRIAGE=${WATCH_TRIAGE:-1}
 WATCH_TRIAGE_MODEL=${WATCH_TRIAGE_MODEL:-sonnet}   # alias: follows the newest Sonnet
 TRIAGE_BRIEF=$NIGHT_DIR/WATCHER-BRIEF.md
 TRIAGE_LOG=$NIGHT_DIR/triage.log
+TRIAGE_DIR=$NIGHT_DIR/triage        # per tick: <epoch>-<pid>.jsonl (raw stream), .err, .pid
 TRIAGE_SEEN=0
+tick_say(){ say "$*"; say "$*" >>"$TRIAGE_LOG" 2>/dev/null; }
+
+# THE TICK'S INIT RECORD, CHECKED AS THE STREAM ARRIVES — FAIL CLOSED. The tick may commit a fix
+# (WATCHER-BRIEF duty 4), so a tick on the wrong model or permission mode must not get to act:
+# the first stream line with "type":"system" and "subtype":"init" (NOT line 1 — the hook lines
+# come first) must say permissionMode=bypassPermissions and a model starting with <want>. On a
+# mismatch the claude process is killed at once and nothing it said reaches triage.log; a stream
+# with no init record, or an init field that cannot be read, is a mismatch too. bash `read`, not
+# awk: mawk buffers a pipe until 4 KB or EOF, so it would see the init only after the damage.
+triage_scan(){ # want raw pidfile < the tick's stream-json on stdin
+  local want=$1 raw=$2 pidf=$3 line model perm res
+  local re_sys='"type"[[:space:]]*:[[:space:]]*"system"' re_init='"subtype"[[:space:]]*:[[:space:]]*"init"'
+  local re_model='"model"[[:space:]]*:[[:space:]]*"([^"]*)"'
+  local re_perm='"permissionMode"[[:space:]]*:[[:space:]]*"([^"]*)"'
+  local re_res='"result"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf '%s\n' "$line" >>"$raw"
+    [[ $line =~ $re_sys && $line =~ $re_init ]] || continue
+    model="?"; perm="?"
+    [[ $line =~ $re_model ]] && model=${BASH_REMATCH[1]}
+    [[ $line =~ $re_perm ]] && perm=${BASH_REMATCH[1]}
+    if [ "$perm" != bypassPermissions ] || [ "${model#"$want"}" = "$model" ]; then
+      kill "$(cat "$pidf" 2>/dev/null)" 2>/dev/null
+      tick_say "TICK MISCONFIGURED model=$model permissionMode=$perm, wanted model=$want* permissionMode=bypassPermissions — tick killed, output ignored ($raw)"
+      return 0
+    fi
+    cat >>"$raw"                       # the rest of the stream, until the tick ends
+    # The final result line's text, JSON-decoded: \" first, then printf %b for \n \t \\ \uXXXX.
+    res=$(grep -E '"type"[[:space:]]*:[[:space:]]*"result"' "$raw" | tail -n 1)
+    if [[ $res =~ $re_res ]]; then
+      res=${BASH_REMATCH[1]}; res=${res//\\\"/\"}
+      printf '%b\n' "$res" >>"$TRIAGE_LOG"
+    else
+      tick_say "TRIAGE tick: no result line in $raw"
+    fi
+    tick_say "TICK CONFIG OK model=$model permissionMode=$perm"
+    return 0
+  done
+  tick_say "TICK MISCONFIGURED no init record in the stream — output ignored ($raw)"
+}
+
 triage_check(){
   [ "$WATCH_TRIAGE" = "1" ] || return 0
   [ -f "$TRIAGE_BRIEF" ] || return 0
@@ -441,8 +486,24 @@ triage_check(){
   prompt=$(awk -v ev="new terminal rows in state.txt:
 $new" -v fa="$facts" '{ gsub(/\{\{EVENT\}\}/, ev); gsub(/\{\{FACTS\}\}/, fa); print }' "$TRIAGE_BRIEF")
   say "TRIAGE tick: $(printf '%s' "$new" | tr '\n' ';')"
-  ( printf '%s' "$prompt" | timeout 600 claude -p --model "$WATCH_TRIAGE_MODEL" --permission-mode bypassPermissions \
-      --output-format text >>"$TRIAGE_LOG" 2>&1 || say "TRIAGE tick exited $?" ) 9>&- &
+  # Never unsandboxed: cwd = BASE and the project's settings (its deny list) passed explicitly, both
+  # checked before claude starts; then triage_scan checks the init record. Fail closed throughout.
+  local settings=$BASE/.claude/settings.local.json want raw
+  case "$WATCH_TRIAGE_MODEL" in claude-*) want=$WATCH_TRIAGE_MODEL;; *) want=claude-$WATCH_TRIAGE_MODEL;; esac
+  mkdir -p "$TRIAGE_DIR" 2>/dev/null
+  raw=$TRIAGE_DIR/$(date +%s)-$$.jsonl
+  ( [ -d "$BASE" ] || { tick_say "TICK MISCONFIGURED BASE is not a directory: $BASE — claude not launched"; exit 0; }
+    [ -f "$settings" ] || { tick_say "TICK MISCONFIGURED settings file missing: $settings — claude not launched"; exit 0; }
+    # The middle element records ITS pid, then execs timeout under it: that is the pid
+    # triage_scan kills, and timeout passes the signal on to claude. A failed cd launches nothing,
+    # so the scan finds no init record: still MISCONFIGURED.
+    printf '%s' "$prompt" \
+      | { printf '%s\n' "$BASHPID" >"${raw%.jsonl}.pid"
+          cd "$BASE" && exec timeout 600 claude -p --model "$WATCH_TRIAGE_MODEL" --permission-mode bypassPermissions \
+            --settings "$settings" --output-format stream-json --verbose; } 2>"${raw%.jsonl}.err" \
+      | triage_scan "$want" "$raw" "${raw%.jsonl}.pid"
+    rc=${PIPESTATUS[1]}; [ "$rc" -eq 0 ] || say "TRIAGE tick exited $rc"
+  ) 9>&- &
 }
 
 # THE RESTART BUDGET IS AN IN-MEMORY COUNTER, and this watcher's own memory is
