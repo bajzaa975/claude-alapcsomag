@@ -664,7 +664,7 @@ rm -f "$viol" "$RMC"
 #       'GRAPH: n/a single-file runtime/findings/<x>.blind.md'.
 #   R2  anything but fixer/reviewer naming runtime/findings/*.md or a *-review.md /
 #       *-rereview<n>.md file -> deny "use /bajzi:fix" (not the built-in read-only
-#       explore / plan / claude-code-guide); bajzi:fixer names exactly one *.fixer.md.
+#       case-sensitive Explore / Plan / claude-code-guide); bajzi:fixer names exactly one *.fixer.md.
 #   R3  every dispatch but fixer: <= 24576 chars.
 #   R4  one TSV line per dispatch.
 # Every deny test asserts WHICH rule refused.
@@ -781,7 +781,7 @@ out=$(dg 'implement s2' "$IM" 'Context: runtime\\findings\\s1-r1.md' $G)
 is_deny "$out" R2 && pass "13f9 backslash runtime\findings\*.md -> deny R2" || fail "13f9" "$out"
 out=$(dg 'implement s2' "$IM" 'Context: D:\\repo/runtime\\findings/s1-r1.md' $G)
 is_deny "$out" R2 && pass "13f10 mixed-slash findings path -> deny R2" || fail "13f10" "$out"
-# the built-in read-only agents (exactly explore / plan / claude-code-guide) may read a findings file;
+# the built-in read-only agents (the case-sensitive names Explore / Plan / claude-code-guide; a lowercase custom name gets no exemption) may read a findings file;
 # R1, R3 and R4 still apply to them, and every other agent keeps R2.
 RO_P='List the open items in runtime/findings/s1-r1.md'
 for ro in Explore Plan claude-code-guide; do

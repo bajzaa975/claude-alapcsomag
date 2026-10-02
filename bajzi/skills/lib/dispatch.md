@@ -13,14 +13,12 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
    tool). Never tell an agent to "read the brief/plan/review".
 2. **Dispatch** with the Agent tool: `subagent_type: bajzi:<agent>`, `prompt` = the brief file's
    text verbatim, `description` = the row's description below (the dispatch guard classifies on it).
-3. **Log** one line, whatever happened:
+3. **Log**: run `FC log` after every dispatch EXCEPT a refusal whose reason starts
+   `dispatch-guard R<n>:` (the hook already logged it): `allow`, or `deny` for a harness or user
+   refusal. With the dispatch guard's gate open an `allow` writes nothing (the hook's own line covers it).
    `FC log <class> bajzi:<agent> runtime/briefs/<slice>-<class>.txt allow` (`deny` if the harness
-   refused the dispatch). It appends `<ISO-UTC>\tSKILL-<CLASS>\t<agent>\t<chars>\t<allow|deny>`
+   or user refused the dispatch). It appends `<ISO-UTC>\tSKILL-<CLASS>\t<agent>\t<chars>\t<allow|deny>`
    to `runtime/dispatch-sizes.log`; the `SKILL-` prefix keeps it apart from the hook's own line.
-   For an `allow` it writes nothing when the dispatch guard's gate is open (the hook already
-   logged that dispatch); a `deny` is always written. Run this step every time, EXCEPT when the
-   refusal reason starts `dispatch-guard R<n>:`: the hook already logged that refusal, so do NOT
-   run `FC log` for it. Every other refusal (harness, user) is logged as `deny`.
    **Denied** (the reason starts `dispatch-guard R<n>:`) -> print the reason with its rule id and
    STOP the skill. Never retry with a trimmed or reworded brief; the owner decides.
 4. **Save the final message** verbatim where the row says (Write tool), before reading it.
