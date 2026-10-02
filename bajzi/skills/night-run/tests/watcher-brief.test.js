@@ -92,7 +92,7 @@ test('duty 4 checks branch, live sessions and fingerprint before any edit (F1, F
 test('duty 4 commits only inside tier 0 relaunch budget (r2 F5)', () => {
   const d = duty4();
   has(d, 'counting only the lines after its last `watch: started for` line (the whole file if there is none), holds no `FIXED <fp>` line for this fingerprint and fewer than 2 `FIXED` lines.');
-  has(d, 'Over that budget tier 0 will not relaunch, so nothing would re-run the full gate: no commit, ESCALATE.');
+  has(d, 'Over that two-fix budget tier 0 will not relaunch, so nothing would re-run the full gate: no commit, ESCALATE.');
   assert.ok(d.indexOf('fewer than 2 `FIXED` lines') < d.indexOf('Fix the cause'), 'budget check before the edit step');
 });
 
@@ -150,4 +150,20 @@ test('every placeholder the renderers fill is still present', () => {
     'PROMPT_TEMPLATE', 'LAUNCH_LINE', 'LEVEL', 'STATE_FILE', 'SUMMARY_FILE', 'ESCALATION_MODEL', 'ALLOWLIST']) {
     has(RAW, `{{${p}}}`);
   }
+});
+
+test('tick start time, check order and the interrupted-fix summary line (final r2 F1, F4)', () => {
+  const block = flat(dutiesBlock());
+  has(block, 'Before anything else, run `date +%s` and note it as the tick start: every time limit below counts from it.');
+  has(block, 'plus every `FIXING` line there without a matching `FIXED` line (an interrupted fix: name its paths and any `night-watch fix:` commit)');
+  const d = duty4();
+  const abort = d.indexOf('The facts hold an `aborted: baseline RED fp=<fp> head=<sha>` line.');
+  const without = d.indexOf('A BLOCKING failure without that line');
+  const budget = d.indexOf('fewer than 2 `FIXED` lines');
+  const over = d.indexOf('Over that two-fix budget');
+  const cut = d.indexOf('`FIXING <fp>` line without a matching');
+  const time = d.indexOf("at least 5 of the tick's 10 minutes remain");
+  assert.ok(abort >= 0 && abort < without && without < budget && budget < over && over < cut && cut < time,
+    'abort line -> its no-commit sentence -> budget -> its over-budget sentence -> cut-off check -> time check');
+  assert.ok(time < d.indexOf('Fix the cause'), 'every check before the edit step');
 });

@@ -22,6 +22,7 @@ ask, act and log. English only.
 - escalation model for a root-cause pass: {{ESCALATION_MODEL}}
 
 ## Duties, in order (stop at the first that ends the tick)
+Before anything else, run `date +%s` and note it as the tick start: every time limit below counts from it.
 1. **Classify the event** as EXPECTED or ANOMALY, mechanically:
    - EXPECTED: DONE/merged with a green gate; PARKED/BLOCKED with a stated reason; a quota wait.
    - ANOMALY: a terminal status with commits but no status file / no RESULT line; a session that exited
@@ -45,18 +46,23 @@ ask, act and log. English only.
 4. **Fix a BLOCKING failure whose cause is the environment or the test harness** — only when duty 2
    proved that cause with evidence (a path, an env var, a tool version, a harness helper; never
    product code):
-   - FIRST, before any edit: HEAD is not main and not detached (the orchestrator runs on `workspace`);
-     no runner or sprint session is alive (re-list the processes); the facts hold an
-     `aborted: baseline RED fp=<fp> head=<sha>` line; and the state file, counting only the lines after
-     its last `watch: started for` line (the whole file if there is none), holds no `FIXED <fp>` line for
-     this fingerprint and fewer than 2 `FIXED` lines. The same scan of that window must find no `FIXING <fp>`
-     line without a matching `FIXED <fp>` line: that is a cut-off earlier tick, so make no new fix; restore
-     any path listed on that `FIXING` line that is still uncommitted (`git checkout -- <paths>`, remove new
-     files); if HEAD has a `night-watch fix:` commit after the abort head and no `FIXED` line, name its sha;
-     end with ESCALATE `interrupted watcher fix fp=<fp> [commit=<sha>]` for the owner to review in the
-     morning. Duty 4 starts only if at least 5 of the tick's 10 minutes remain, else no edit, ESCALATE. A BLOCKING failure without that line: no commit;
-     ESCALATE with the cause and the proposed fix as a diff in the escalation text. Over that budget tier 0
-     will not relaunch, so nothing would re-run the full gate: no commit, ESCALATE. Only then edit.
+   - FIRST, before any edit: check all of these in order; the first that fails ends duty 4:
+     a. HEAD is not main and not detached (the orchestrator runs on `workspace`); no runner or sprint
+        session is alive (re-list the processes). Else no edit, ESCALATE.
+     b. The facts hold an `aborted: baseline RED fp=<fp> head=<sha>` line. A BLOCKING failure without
+        that line: no commit; ESCALATE with the cause and the proposed fix as a diff in the escalation text.
+     c. Relaunch budget: the state file, counting only the lines after its last `watch: started for`
+        line (the whole file if there is none), holds no `FIXED <fp>` line for this fingerprint and
+        fewer than 2 `FIXED` lines. Over that two-fix budget tier 0 will not relaunch, so nothing would
+        re-run the full gate: no commit, ESCALATE.
+     d. Cut-off earlier tick: the same window holds no `FIXING <fp>` line without a matching `FIXED <fp>`
+        line. If it does, that is a cut-off earlier tick, so make no new fix; restore any path listed on
+        that `FIXING` line that is still uncommitted (`git checkout -- <paths>`, remove new files); if HEAD
+        has a `night-watch fix:` commit after the abort head and no `FIXED` line, name its sha; end with
+        ESCALATE `interrupted watcher fix fp=<fp> [commit=<sha>]` for the owner to review in the morning.
+     e. Time: Duty 4 starts only if at least 5 of the tick's 10 minutes remain, else no edit, ESCALATE.
+        Count from the tick start you noted at the top of the duties.
+     Only then edit.
    - Before the first edit append `<HH:MM> FIXING <fp> <space-separated paths>` to the state file (the
      paths you are about to change).
    - Fix the cause with the fewest changed files inside the project tree. Never edit runner scripts,
@@ -81,7 +87,8 @@ ask, act and log. English only.
 5. **Rule of two**: a sprint that reached the same failure twice is excluded from any relaunch; log why.
 6. **Queue finished** (the facts say so): write {{SUMMARY_FILE}} — per sprint: status, commits, gate,
    anomaly + action taken — a `## Watcher fixes (review due)` section listing every `FIXED` and
-   `REVIEW DUE` line after the state file's last `watch: started for` line, and a `## Lessons` section: what you saw, what you did, what you could not
+   `REVIEW DUE` line after the state file's last `watch: started for` line, plus every `FIXING` line there
+   without a matching `FIXED` line (an interrupted fix: name its paths and any `night-watch fix:` commit), and a `## Lessons` section: what you saw, what you did, what you could not
    do and why, what the owner should change before the next run. Then stop.
 
 ## Output contract
