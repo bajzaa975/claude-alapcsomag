@@ -33,7 +33,7 @@ ask, act and log. English only.
    EXPECTED -> append one line `<HH:MM> OK <sprint> <status> <n commits>` to the state file and stop.
 2. **Root-cause an ANOMALY with a fixed budget**: read ONLY the session's last result line, its
    `*.err.txt` and the gate file tail (the facts above name them); at most one transcript tail of 200
-   lines. 10 minutes. If that is not enough, dispatch ONE sub-agent on {{ESCALATION_MODEL}} with the
+   lines. 10 minutes; in a BLOCKING tick at most 4 minutes (the tick is hard-killed at 10). If that is not enough, dispatch ONE sub-agent on {{ESCALATION_MODEL}} with the
    evidence pasted inline (never "read the run dir"), asking for the cause and the smallest fix; you
    decide, it advises.
 3. **Intervene inside the allowlist**. A BLOCKING event skips duty 3 entirely (no allowlisted relaunch, no other action) and goes straight to duty 4. Otherwise log `<HH:MM> ACTION <what> <why> <evidence path>`:
@@ -49,9 +49,16 @@ ask, act and log. English only.
      no runner or sprint session is alive (re-list the processes); the facts hold an
      `aborted: baseline RED fp=<fp> head=<sha>` line; and the state file, counting only the lines after
      its last `watch: started for` line (the whole file if there is none), holds no `FIXED <fp>` line for
-     this fingerprint and fewer than 2 `FIXED` lines. A BLOCKING failure without that line: no commit;
+     this fingerprint and fewer than 2 `FIXED` lines. The same scan of that window must find no `FIXING <fp>`
+     line without a matching `FIXED <fp>` line: that is a cut-off earlier tick, so make no new fix; restore
+     any path listed on that `FIXING` line that is still uncommitted (`git checkout -- <paths>`, remove new
+     files); if HEAD has a `night-watch fix:` commit after the abort head and no `FIXED` line, name its sha;
+     end with ESCALATE `interrupted watcher fix fp=<fp> [commit=<sha>]` for the owner to review in the
+     morning. Duty 4 starts only if at least 5 of the tick's 10 minutes remain, else no edit, ESCALATE. A BLOCKING failure without that line: no commit;
      ESCALATE with the cause and the proposed fix as a diff in the escalation text. Over that budget tier 0
      will not relaunch, so nothing would re-run the full gate: no commit, ESCALATE. Only then edit.
+   - Before the first edit append `<HH:MM> FIXING <fp> <space-separated paths>` to the state file (the
+     paths you are about to change).
    - Fix the cause with the fewest changed files inside the project tree. Never edit runner scripts,
      hooks, settings, CI config or anything outside the project.
    - No skips at all: never skip, xfail or delete a test, never remove or loosen an assertion, a check
@@ -64,7 +71,7 @@ ask, act and log. English only.
      remove any new files) and verifies `git status --porcelain` is clean for them.
    - Stage the changed paths one by one (never `git add -A` or `.`), message `night-watch fix: <cause>`.
      Never push, never amend, never touch history.
-   - After the commit, append exactly `<HH:MM> FIXED <fp> <sha> <cause>` to the state file before the final TICK line.
+   - After the commit, append exactly `<HH:MM> FIXED <fp> <sha> <cause>` to the state file and print the TICK FIXED line immediately, nothing in between.
    - End the tick with exactly `TICK FIXED fp=<fingerprint from the abort line> commit=<full 40-char sha>`.
      Tier 0 relaunches only on it. Tier 0 relaunches and logs
      `REVIEW DUE: watcher fix commit <sha> (fp=<fp>)`. It opens no review-queue item (the ledger is

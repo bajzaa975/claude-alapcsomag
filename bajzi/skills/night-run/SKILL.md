@@ -575,12 +575,20 @@ BUDGET is counted in the watcher's memory, which outlives every runner it restar
 
 **Tier 1, the triage watcher, is the only part that thinks — and it costs tokens only on an
 event.** With `WATCH_TRIAGE=1` (the default when `WATCHER-BRIEF.md` exists) the watchdog spawns ONE
-detached headless tick — `claude -p --model $WATCH_TRIAGE_MODEL --permission-mode bypassPermissions`,
-10 min cap, output in `triage.log` — every time `state.txt` gains a new terminal row. The tick gets the
+detached headless tick — `claude -p --model $WATCH_TRIAGE_MODEL --permission-mode bypassPermissions`
+run with cwd = BASE, an explicit `--settings $BASE/.claude/settings.local.json` and `--output-format
+stream-json --verbose` (raw stream in `triage/<epoch>-<pid>.jsonl`, stderr in `triage/<id>.err`), 10 min
+cap, decoded result in `triage.log` — every time `state.txt` gains a new terminal row. The tick gets the
 brief with the new rows as `{{EVENT}}` and the log tails as `{{FACTS}}`; it classifies EXPECTED vs
 ANOMALY mechanically, root-causes an anomaly within a fixed budget (one transcript tail; a sub-agent on
 the reviewer model only when that is not enough), acts inside the allowlist you rendered into the brief
-(prompt-template edit at L0, relaunch, one `--resume`, orphan stash), and appends one line per tick to
+(prompt-template edit at L0, relaunch, one `--resume`, orphan stash) and, for a BLOCKING failure with a
+proven environment/test-harness cause (duty 4), may make one `night-watch fix:` commit and end with
+`TICK FIXED fp=<fp> commit=<sha>`, the only line tier 0 relaunches on. It fails closed: the stream's init
+record is checked (model prefix, permission mode bypassPermissions) and a mismatch, no init, a missing
+BASE or settings file, or an unsupported `WATCH_TRIAGE_MODEL` (only `sonnet`/`opus`/`haiku` or a full
+`claude-*` id) logs `TICK MISCONFIGURED` and no claude result reaches `triage.log`; a run without a
+result line or a non-zero exit logs `TICK FAILED`. It appends one line per tick to
 `night-watch-state.md`. The last tick, on the queue end, writes `night-watch-summary.md` with a Lessons
 section. It never polls: the 2026-09-25 lesson was a watcher that logged "no status file" at 03:34 and
 waited for morning; the brief now tells it to diagnose and act.

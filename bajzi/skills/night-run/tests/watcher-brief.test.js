@@ -115,11 +115,24 @@ test('duty 4 commit rules: staged paths, no push/amend', () => {
 
 test('duty 4 state line, tier 0 owns relaunch/summary/review (F2e)', () => {
   const d = duty4();
-  has(d, 'append exactly `<HH:MM> FIXED <fp> <sha> <cause>` to the state file before the final TICK line.');
+  has(d, 'append exactly `<HH:MM> FIXED <fp> <sha> <cause>` to the state file and print the TICK FIXED line immediately, nothing in between.');
   has(d, 'Tier 0 relaunches and logs `REVIEW DUE: watcher fix commit <sha> (fp=<fp>)`. It opens no review-queue item (the ledger is runner/owner-only): the owner does, in the morning. The tick does neither.');
   has(d, 'End the tick with exactly `TICK FIXED fp=<fingerprint from the abort line> commit=<full 40-char sha>`.');
   has(d, 'Tier 0 relaunches only on it');
   has(d, 'Cause not environmental/test-harness, not proven, or the fix needs a forbidden path: no commit, `ESCALATE` with the evidence.');
+});
+
+test('duty 4 fits the tick cap and journals the edit (r1 F1)', () => {
+  has(flat(dutiesBlock()), 'in a BLOCKING tick at most 4 minutes (the tick is hard-killed at 10)');
+  const d = duty4();
+  has(d, "Duty 4 starts only if at least 5 of the tick's 10 minutes remain, else no edit, ESCALATE.");
+  has(d, 'append `<HH:MM> FIXING <fp> <space-separated paths>` to the state file');
+  assert.ok(d.indexOf('FIXING <fp> <space-separated paths>') < d.indexOf('Fix the cause'), 'FIXING step before the edit step');
+  has(d, '`FIXING <fp>` line without a matching `FIXED <fp>` line');
+  has(d, 'a cut-off earlier tick, so make no new fix; restore any path listed on that `FIXING` line that is still uncommitted');
+  has(d, 'if HEAD has a `night-watch fix:` commit after the abort head and no `FIXED` line, name its sha');
+  has(d, 'ESCALATE `interrupted watcher fix fp=<fp> [commit=<sha>]` for the owner to review in the morning');
+  assert.ok(d.indexOf('interrupted watcher fix') < d.indexOf('Fix the cause'), 'recovery check before the edit step');
 });
 
 test('a BLOCKING event skips duty 3 and goes straight to duty 4 (F4)', () => {
