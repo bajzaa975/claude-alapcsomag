@@ -437,8 +437,11 @@ tick_say(){ say "$*"; say "$*" >>"$TRIAGE_LOG" 2>/dev/null; }
 # mismatch the claude process is killed at once and nothing it said reaches triage.log; a stream
 # with no init record, or an init field that cannot be read, is a mismatch too. bash `read`, not
 # awk: mawk buffers a pipe until 4 KB or EOF, so it would see the init only after the damage.
+# Returns 0 after a good init, 2 after a MISCONFIGURED verdict (already logged).
 triage_scan(){ # want raw pidfile < the tick's stream-json on stdin
-  local want=$1 raw=$2 pidf=$3 line model perm res
+  local want=$1 raw=$2 pidf=$3 line model perm res tp i err=${3%.pid}.err
+  err_note(){ printf 'stderr in %s: %s' "$err" "$(head -c 300 "$err" 2>/dev/null | tr '
+' ' ')"; }
   local re_sys='"type"[[:space:]]*:[[:space:]]*"system"' re_init='"subtype"[[:space:]]*:[[:space:]]*"init"'
   local re_model='"model"[[:space:]]*:[[:space:]]*"([^"]*)"'
   local re_perm='"permissionMode"[[:space:]]*:[[:space:]]*"([^"]*)"'
@@ -450,9 +453,21 @@ triage_scan(){ # want raw pidfile < the tick's stream-json on stdin
     [[ $line =~ $re_model ]] && model=${BASH_REMATCH[1]}
     [[ $line =~ $re_perm ]] && perm=${BASH_REMATCH[1]}
     if [ "$perm" != bypassPermissions ] || [ "${model#"$want"}" = "$model" ]; then
-      kill "$(cat "$pidf" 2>/dev/null)" 2>/dev/null
-      tick_say "TICK MISCONFIGURED model=$model permissionMode=$perm, wanted model=$want* permissionMode=bypassPermissions — tick killed, output ignored ($raw)"
-      return 0
+      # TERM, then wait for the process to be really gone (timeout --kill-after sends KILL if the
+      # tick ignores TERM). "tick killed" is logged only once it is confirmed dead.
+      tp=$(tr -dc '0-9' <"$pidf" 2>/dev/null)
+      if [ -z "$tp" ]; then
+        tick_say "TICK MISCONFIGURED model=$model permissionMode=$perm, wanted model=$want* permissionMode=bypassPermissions — NO pid recorded, tick NOT killed, output ignored ($raw)"
+        return 2
+      fi
+      kill "$tp" 2>/dev/null
+      for i in $(seq 1 100); do kill -0 "$tp" 2>/dev/null || break; sleep 0.1; done
+      if kill -0 "$tp" 2>/dev/null; then
+        tick_say "TICK MISCONFIGURED model=$model permissionMode=$perm, wanted model=$want* permissionMode=bypassPermissions — tick pid $tp STILL ALIVE after TERM, NOT confirmed killed, output ignored ($raw)"
+      else
+        tick_say "TICK MISCONFIGURED model=$model permissionMode=$perm, wanted model=$want* permissionMode=bypassPermissions — tick killed, output ignored ($raw)"
+      fi
+      return 2
     fi
     cat >>"$raw"                       # the rest of the stream, until the tick ends
     # The final result line's text, JSON-decoded: \" first, then printf %b for \n \t \\ \uXXXX.
@@ -461,12 +476,14 @@ triage_scan(){ # want raw pidfile < the tick's stream-json on stdin
       res=${BASH_REMATCH[1]}; res=${res//\\\"/\"}
       printf '%b\n' "$res" >>"$TRIAGE_LOG"
     else
-      tick_say "TRIAGE tick: no result line in $raw"
+      tick_say "TICK FAILED no result line in $raw ($(err_note))"
+      return 0
     fi
     tick_say "TICK CONFIG OK model=$model permissionMode=$perm"
     return 0
   done
-  tick_say "TICK MISCONFIGURED no init record in the stream — output ignored ($raw)"
+  tick_say "TICK MISCONFIGURED no init record in the stream — output ignored ($raw; $(err_note))"
+  return 2
 }
 
 triage_check(){
@@ -489,20 +506,29 @@ $new" -v fa="$facts" '{ gsub(/\{\{EVENT\}\}/, ev); gsub(/\{\{FACTS\}\}/, fa); pr
   # Never unsandboxed: cwd = BASE and the project's settings (its deny list) passed explicitly, both
   # checked before claude starts; then triage_scan checks the init record. Fail closed throughout.
   local settings=$BASE/.claude/settings.local.json want raw
-  case "$WATCH_TRIAGE_MODEL" in claude-*) want=$WATCH_TRIAGE_MODEL;; *) want=claude-$WATCH_TRIAGE_MODEL;; esac
+  # Supported: the family aliases sonnet|opus|haiku (init id starts claude-<alias>) and full claude-* ids.
+  # Anything else (opusplan, sonnet[1m], default, provider ids) cannot be matched to the init id: refuse.
+  case "$WATCH_TRIAGE_MODEL" in
+    sonnet|opus|haiku) want=claude-$WATCH_TRIAGE_MODEL;;
+    claude-*) want=$WATCH_TRIAGE_MODEL;;
+    *) tick_say "TICK MISCONFIGURED unsupported WATCH_TRIAGE_MODEL=$WATCH_TRIAGE_MODEL (use sonnet|opus|haiku or a full claude-* id)"; return 0;;
+  esac
   mkdir -p "$TRIAGE_DIR" 2>/dev/null
   raw=$TRIAGE_DIR/$(date +%s)-$$.jsonl
   ( [ -d "$BASE" ] || { tick_say "TICK MISCONFIGURED BASE is not a directory: $BASE — claude not launched"; exit 0; }
     [ -f "$settings" ] || { tick_say "TICK MISCONFIGURED settings file missing: $settings — claude not launched"; exit 0; }
     # The middle element records ITS pid, then execs timeout under it: that is the pid
-    # triage_scan kills, and timeout passes the signal on to claude. A failed cd launches nothing,
-    # so the scan finds no init record: still MISCONFIGURED.
+    # triage_scan kills, and timeout passes the signal on to claude (--kill-after: KILL if ignored).
+    # No pid file, no claude. A failed cd launches nothing, so the scan finds no init record:
+    # still MISCONFIGURED.
     printf '%s' "$prompt" \
-      | { printf '%s\n' "$BASHPID" >"${raw%.jsonl}.pid"
-          cd "$BASE" && exec timeout 600 claude -p --model "$WATCH_TRIAGE_MODEL" --permission-mode bypassPermissions \
+      | { printf '%s\n' "$BASHPID" >"${raw%.jsonl}.pid" || { echo "cannot write ${raw%.jsonl}.pid - claude not launched" >&2; exit 1; }
+          cd "$BASE" && exec timeout --kill-after=3 600 claude -p --model "$WATCH_TRIAGE_MODEL" --permission-mode bypassPermissions \
             --settings "$settings" --output-format stream-json --verbose; } 2>"${raw%.jsonl}.err" \
       | triage_scan "$want" "$raw" "${raw%.jsonl}.pid"
-    rc=${PIPESTATUS[1]}; [ "$rc" -eq 0 ] || say "TRIAGE tick exited $rc"
+    rc=("${PIPESTATUS[@]}")
+    # a MISCONFIGURED verdict (scan rc 2) is already logged; any other non-zero exit is a failed tick
+    [ "${rc[1]}" -eq 0 ] || [ "${rc[2]}" -eq 2 ] || tick_say "TICK FAILED exit ${rc[1]} (stderr in ${raw%.jsonl}.err)"
   ) 9>&- &
 }
 

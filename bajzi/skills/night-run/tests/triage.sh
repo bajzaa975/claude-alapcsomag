@@ -55,12 +55,14 @@ EOS
 cat >"$WT/bin/claude" <<'EOS'
 #!/usr/bin/env bash
 FAKE_HOOKS=16; FAKE_MODEL=claude-sonnet-5-20261001; FAKE_PERM=bypassPermissions
-FAKE_SLEEP_TENTHS=0; FAKE_INIT_LINE=""
+FAKE_SLEEP_TENTHS=0; FAKE_INIT_LINE=""; FAKE_ERR=""; FAKE_EXIT=""; FAKE_IGNORE_TERM=""
 . "$FAKE_DIR/fake.env"
+[ -n "$FAKE_IGNORE_TERM" ] && trap '' TERM
 printf '%s\n' "$@" >"$FAKE_DIR/argv"
 pwd -P >"$FAKE_DIR/cwd"
 printf '%s\n' "$$" >"$FAKE_DIR/pid"
 cat >"$FAKE_DIR/stdin"
+[ -n "$FAKE_ERR" ] && printf '%s\n' "$FAKE_ERR" >&2
 i=0
 while [ "$i" -lt "$FAKE_HOOKS" ]; do
   printf '{"type":"system","subtype":"hook_started","hook_id":"h%s","hook_name":"SessionStart:startup"}\n' "$i"
@@ -75,9 +77,20 @@ fi
 i=0
 while [ "$i" -lt "$FAKE_SLEEP_TENTHS" ]; do sleep 0.1; i=$((i + 1)); done
 [ "$FAKE_SLEEP_TENTHS" -gt 0 ] && : >"$FAKE_DIR/after-sleep"
+[ -n "$FAKE_EXIT" ] && exit "$FAKE_EXIT"
 cat "$FAKE_RESULT"
 EOS
-chmod +x "$WT/bin/update-monitor" "$WT/bin/claude"
+# date stub: while BLOCK_DIR (the tick's triage dir) exists, `date +%s` says 1000 and plants a
+# DIRECTORY named like the tick's pid file (1000-<watcher pid>.pid), so that file cannot be written.
+cat >"$WT/bin/date" <<'EOS'
+#!/usr/bin/env bash
+if [ -n "${BLOCK_DIR:-}" ] && [ -d "$BLOCK_DIR" ] && [ "$*" = "+%s" ]; then
+  mkdir -p "$BLOCK_DIR/1000-$(cat "$WPID_FILE").pid"; echo 1000; exit 0
+fi
+exec "$REAL_DATE" "$@"
+EOS
+REAL_DATE=$(command -v date)
+chmod +x "$WT/bin/update-monitor" "$WT/bin/claude" "$WT/bin/date"
 
 mkcase(){ # name [fake.env lines...] -> sets ND (NIGHT_DIR), FD (fake dir), B (BASE)
   local name=$1; shift
@@ -100,10 +113,11 @@ EOS
 }
 
 run_case(){ # run ONE watcher tick from the scratch root, then wait for the tick's verdict line
-  ( cd "$WT" && PATH="$WT/bin:$PATH" UM_LOG="$WT/um.log" FAKE_DIR="$FD" FAKE_RESULT="$WT/result.jsonl" \
-      bash "$WATCH" --config "$ND/config.env" --once >"$ND/watch.out" 2>&1 )
+  ( cd "$WT" && printf '%s\n' "$BASHPID" >"$ND/wpid" && PATH="$WT/bin:$PATH" UM_LOG="$WT/um.log" FAKE_DIR="$FD" \
+      FAKE_RESULT="$WT/result.jsonl" REAL_DATE="$REAL_DATE" WPID_FILE="$ND/wpid" BLOCK_DIR="${BLOCK_DIR:-}" \
+      exec bash "$WATCH" --config "$ND/config.env" --once >"$ND/watch.out" 2>&1 )
   local end=$((SECONDS + 20))      # wall-clock bound: process spawns are slow on Git Bash
-  while ! grep -Eq 'TICK (CONFIG OK|MISCONFIGURED)' "$ND/triage.log" 2>/dev/null && [ "$SECONDS" -lt "$end" ]; do
+  while ! grep -Eq 'TICK (CONFIG OK|MISCONFIGURED|FAILED)' "$ND/triage.log" 2>/dev/null && [ "$SECONDS" -lt "$end" ]; do
     sleep 0.1
   done
   [ -f "$FD/pid" ] && FAKE_PIDS="$FAKE_PIDS $(cat "$FD/pid")"
@@ -196,13 +210,67 @@ run_case
 yes "h init without a model field: MISCONFIGURED" "$ND/triage.log" "TICK MISCONFIGURED"
 not_logged h
 
+# ---------------------- i. pid file cannot be written: claude must not start ---
+mkcase i FAKE_MODEL=claude-opus-5-20261001 FAKE_SLEEP_TENTHS=150
+BLOCK_DIR=$ND/triage run_case
+if [ -f "$FD/argv" ]; then bad "i fake claude ran although its pid file could not be written"; else ok "i fake claude never ran"; fi
+yes "i MISCONFIGURED logged" "$ND/triage.log" "TICK MISCONFIGURED"
+no "i never says 'tick killed'" "$ND/triage.log" "tick killed"
+yes "i the .err file says why" "$(ls "$ND"/triage/*.err 2>/dev/null | head -1)" "cannot write"
+
+# ------------------------- j. a tick that ignores TERM: dead before 'tick killed' ---
+mkcase j FAKE_MODEL=claude-opus-5-20261001 FAKE_SLEEP_TENTHS=300 FAKE_IGNORE_TERM=1
+run_case
+yes "j MISCONFIGURED logged" "$ND/triage.log" "TICK MISCONFIGURED model=claude-opus-5-20261001"
+P=$(cat "$FD/pid" 2>/dev/null)
+if grep -qF "tick killed" "$ND/triage.log" 2>/dev/null; then
+  if [ -n "$P" ] && kill -0 "$P" 2>/dev/null; then bad "j triage.log says 'tick killed' while the fake $P is alive"; else ok "j 'tick killed' only once the fake is dead"; fi
+elif grep -qF "NOT confirmed killed" "$ND/triage.log" 2>/dev/null; then bad "j tick ignoring TERM was never killed"
+else bad "j no kill verdict in triage.log"; fi
+
+# --------- k. unsupported WATCH_TRIAGE_MODEL values are refused before launch ---
+for m in opusplan 'sonnet[1m]'; do
+  mkcase k
+  printf 'WATCH_TRIAGE_MODEL="%s"\n' "$m" >>"$ND/config.env"
+  run_case
+  yes "k $m: refused with the documented message" "$ND/triage.log" "TICK MISCONFIGURED unsupported WATCH_TRIAGE_MODEL=$m (use sonnet|opus|haiku or a full claude-* id)"
+  if [ -f "$FD/argv" ]; then bad "k $m: claude was launched"; else ok "k $m: claude never started"; fi
+done
+
+# ----------------- m. stderr and exit before any init record: .err is named ---
+mkcase m FAKE_MODEL=none FAKE_ERR=FAKE-BOOM FAKE_EXIT=1
+run_case
+yes "m MISCONFIGURED no init record" "$ND/triage.log" "TICK MISCONFIGURED no init record"
+yes "m triage.log names the .err file" "$ND/triage.log" ".err"
+yes "m triage.log shows the stderr text" "$ND/triage.log" "FAKE-BOOM"
+
+# ------------- n. good init, then a non-zero exit and no result line ---------
+mkcase n FAKE_ERR=FAKE-CRASH FAKE_EXIT=3
+run_case
+END=$((SECONDS + 10)); while ! grep -q "TICK FAILED exit 3" "$ND/triage.log" 2>/dev/null && [ "$SECONDS" -lt "$END" ]; do sleep 0.1; done
+yes "n TICK FAILED no result line" "$ND/triage.log" "TICK FAILED no result line"
+yes "n TICK FAILED names the exit code" "$ND/triage.log" "TICK FAILED exit 3"
+yes "n triage.log names the .err file" "$ND/triage.log" ".err"
+no "n no plain TICK CONFIG OK" "$ND/triage.log" "TICK CONFIG OK"
+
 # ------------------------------------------------------------- teardown -----
+# Only a pid whose command line still names THIS scratch tree is ever signalled (pids get reused).
+mine(){ # pid: its command line mentions the scratch dir
+  { tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null || ps -p "$1" -o args= 2>/dev/null; } | grep -qF -- "${WT##*/}"
+}
 LEFT=""
 for p in $FAKE_PIDS; do
   END=$((SECONDS + 5)); while kill -0 "$p" 2>/dev/null && [ "$SECONDS" -lt "$END" ]; do sleep 0.1; done
-  if kill -0 "$p" 2>/dev/null; then LEFT="$LEFT $p"; kill "$p" 2>/dev/null; fi
+  if kill -0 "$p" 2>/dev/null && mine "$p"; then LEFT="$LEFT $p"; kill "$p" 2>/dev/null; fi
 done
 if [ -n "$LEFT" ]; then bad "teardown: fake claude survived:$LEFT"; else ok "teardown: every fake claude has exited"; fi
+# Sweep: nothing may still mention the scratch path (needs /proc; skipped where there is none).
+STRAY=""
+for d in /proc/[0-9]*; do
+  q=${d#/proc/}; [ "$q" = "$$" ] && continue
+  mine "$q" && { STRAY="$STRAY $q"; kill -KILL "$q" 2>/dev/null; }
+done
+if [ -n "$STRAY" ]; then bad "teardown: stray processes mentioning the scratch path:$STRAY"; else ok "teardown: no process mentions the scratch path"; fi
 rm -rf "$WT" 2>/dev/null
 
 if [ $FAILED -eq 0 ]; then echo "ALL PASS"; else echo "SOME FAILED"; fi
