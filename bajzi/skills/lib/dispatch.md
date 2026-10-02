@@ -18,7 +18,9 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
    refused the dispatch). It appends `<ISO-UTC>\tSKILL-<CLASS>\t<agent>\t<chars>\t<allow|deny>`
    to `runtime/dispatch-sizes.log`; the `SKILL-` prefix keeps it apart from the hook's own line.
    For an `allow` it writes nothing when the dispatch guard's gate is open (the hook already
-   logged that dispatch); a `deny` is always written. Run this step every time either way.
+   logged that dispatch); a `deny` is always written. Run this step every time, EXCEPT when the
+   refusal reason starts `dispatch-guard R<n>:`: the hook already logged that refusal, so do NOT
+   run `FC log` for it. Every other refusal (harness, user) is logged as `deny`.
    **Denied** (the reason starts `dispatch-guard R<n>:`) -> print the reason with its rule id and
    STOP the skill. Never retry with a trimmed or reworded brief; the owner decides.
 4. **Save the final message** verbatim where the row says (Write tool), before reading it.

@@ -47,8 +47,9 @@
 #       names a runtime/findings/*.md path or a *-review.md / *-rereview<n>.md /
 #       *-re-review<n>.md file (a slice id like code-review-r1.md is neither),
 #       unless subagent_type is exactly one of the built-in read-only agents
-#       explore, plan, claude-code-guide (READONLY_RE): they cannot edit, so a
-#       read-only audit of a findings file goes there.
+#       Explore, Plan, claude-code-guide (READONLY_RE, case-sensitive): Claude Code
+#       ships them as read-only agents (Explore/Plan still have Bash: a discipline
+#       guard, not a sandbox), so a read-only audit of a findings file goes there.
 #       FIXER: deny unless the prompt names exactly one distinct *.fixer.md
 #       path. REVIEWER is exempt: it is read-only, and its round-2 brief names
 #       the round-1 findings and the fixer report on purpose.
@@ -123,8 +124,9 @@ CALIB_RE='(^|[[:space:]])graph: n/a single-file [^[:space:]]*runtime/findings/[^
 P="[^[:space:]\"'\`()<>]"
 R2_RE="(runtime/findings/$P*\\.md|-(re-?)?review[0-9]*\\.md)([^a-z0-9_/-]|$)"
 FIXER_RE="$P+\\.fixer\\.md"
-# Built-in read-only agents, matched on the whole lowercased subagent_type.
-READONLY_RE='^(explore|plan|claude-code-guide)$'
+# Built-in read-only agents, matched case-sensitively on the raw subagent_type.
+# ponytail: a custom agent named exactly Explore/Plan/claude-code-guide would also skip R2.
+READONLY_RE='^(Explore|Plan|claude-code-guide)$'
 
 case "$sub_lc" in
     bajzi:reviewer) class="REVIEWER" ;;
@@ -182,7 +184,7 @@ if [ -d "$hookdir/../agents" ]; then
             # have Bash) -- the same discipline-guard ceiling as the writer guard. A custom
             # read-only agent (user, project or plugin definition) still meets R2; reading
             # its tools: frontmatter is the upgrade if that bites.
-            ! [[ "$sub_lc" =~ $READONLY_RE ]] && [[ "$prompt_lc" =~ $R2_RE ]] && { decision="deny:R2"
+            ! [[ "$sub" =~ $READONLY_RE ]] && [[ "$prompt_lc" =~ $R2_RE ]] && { decision="deny:R2"
                 why="findings and review files are fixed through /bajzi:fix (subagent bajzi:fixer); a read-only audit goes to Explore or Plan -- do not hand ${BASH_REMATCH[1]} to '$sub'."; } ;;
     esac
     if [ "$decision" = "allow" ] && [ "$class" != "FIXER" ] && [ "$chars" -gt 24576 ]; then

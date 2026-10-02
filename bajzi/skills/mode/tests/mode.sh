@@ -784,11 +784,13 @@ is_deny "$out" R2 && pass "13f10 mixed-slash findings path -> deny R2" || fail "
 # the built-in read-only agents (exactly explore / plan / claude-code-guide) may read a findings file;
 # R1, R3 and R4 still apply to them, and every other agent keeps R2.
 RO_P='List the open items in runtime/findings/s1-r1.md'
-for ro in Explore explore Plan claude-code-guide; do
+for ro in Explore Plan claude-code-guide; do
     out=$(dg 'audit s1' "$ro" "$RO_P" $G)
     is_allow "$out" && [ "$(logf 3)" = "$ro" ] && [ "$(logf 5)" = "allow" ] \
         && pass "13f11 read-only built-in '$ro' naming a findings path -> allow, logged" || fail "13f11 $ro" "$out $(lastlog)"
 done
+out=$(dg 'audit s1' explore "$RO_P" $G)
+is_deny "$out" R2 && pass "13f11b lowercase custom agent explore -> deny R2 (built-ins are case-sensitive)" || fail "13f11b" "$out"
 out=$(dg 'audit s1' 'general-purpose' "$RO_P" $G)
 is_deny "$out" R2 && case "$out" in *'Explore or Plan'*) true ;; *) false ;; esac \
     && pass "13f12 general-purpose naming a findings path -> deny R2, hints Explore or Plan" || fail "13f12" "$out"
