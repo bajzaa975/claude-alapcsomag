@@ -11,6 +11,7 @@ const { readInput, deny, runChecks, runHook } = require('./lib/hook-io');
 const CHECKS = [
   ['context-guard', () => true, () => require('./context-guard')],
   ['secret-guard', t => /^(?:Read|Grep|Glob|Bash|PowerShell)$/.test(t), () => require('./secret-guard')],
+  ['writer-guard', t => /^(?:Edit|Write|MultiEdit|NotebookEdit)$/.test(t), () => require('./writer-guard')],
 ];
 
 function main() {

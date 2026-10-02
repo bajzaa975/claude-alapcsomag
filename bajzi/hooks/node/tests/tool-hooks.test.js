@@ -28,9 +28,9 @@ function log(r) {
   try { return fs.readFileSync(path.join(r.home, '.claude', 'bajzi', 'hook-errors.log'), 'utf8'); } catch { return ''; }
 }
 
-// A copy of the node hook dir whose lib/<name>.js throws: on load when `atLoad` (so merely loading
-// the check module fails), else from every function it exports (the check throws mid-run).
-function brokenCopy(name, atLoad = false) {
+// A copy of the node hook dir whose <where>/<name>.js (default lib/) throws: on load when `atLoad` (so
+// merely loading the check module fails), else from every function it exports (the check throws mid-run).
+function brokenCopy(name, atLoad = false, where = 'lib') {
   const dir = tmpDir('bajzi-thb-');
   fs.mkdirSync(path.join(dir, 'lib'));
   for (const sub of ['', 'lib']) {
@@ -39,7 +39,7 @@ function brokenCopy(name, atLoad = false) {
     }
   }
   const boom = `throw new Error('broken ${name}');`;
-  fs.writeFileSync(path.join(dir, 'lib', `${name}.js`),
+  fs.writeFileSync(path.join(dir, where, `${name}.js`),
     atLoad ? `${boom}\n` : `module.exports = new Proxy({}, { get: () => () => { ${boom} } });\n`);
   return dir;
 }
@@ -119,6 +119,55 @@ test('(e) a check that throws does not hide another check\'s deny or warning', (
   const ij = brokenCopy('injection-rules');   // the scanner throws: the context warning still arrives
   const c = run(path.join(ij, 'post-tool.js'), post('Read', { file_path: 'a.md' }, INJECT), 45);
   assert.match(out(c).additionalContext, /^\[bajzi:ctx-warn-40\] [^\n]*$/);
+});
+
+// A fake bajzi repo main checkout (a real .git dir) for the writer guard; the test cwd is elsewhere.
+function bajziRepo() {
+  const m = path.join(tmpDir('bajzi-thr-'), 'bajzi-plugins-dev');
+  fs.mkdirSync(path.join(m, '.claude-plugin'), { recursive: true });
+  fs.mkdirSync(path.join(m, '.git'));
+  fs.writeFileSync(path.join(m, '.claude-plugin', 'marketplace.json'), '{"name":"bajzi-plugins"}');
+  return m;
+}
+const foreign = (tool, tool_input) => Object.assign(pre(tool, tool_input), { cwd: tmpDir('bajzi-thw-') });
+
+test('pre-tool: a foreign Edit of a bajzi repo file is denied by the writer guard, byte-identical to writer-guard.js', () => {
+  const m = bajziRepo();
+  const input = foreign('Edit', { file_path: path.join(m, 'bajzi', 'x.js'), old_string: 'a', new_string: 'b' });
+  const r = run(PRE, input);
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.stderr, '');
+  assert.strictEqual(out(r).permissionDecision, 'deny');
+  assert.ok(out(r).permissionDecisionReason.startsWith(
+    `[bajzi:bajzi-writer] bajzi plugin changes are made only by a session started in ${m} `), out(r).permissionDecisionReason);
+  assert.strictEqual(r.stdout, run(path.join(NODE_DIR, 'writer-guard.js'), input).stdout);
+  assert.strictEqual(run(PRE, Object.assign({}, input, { cwd: m })).stdout, '');   // the owner
+  assert.match(out(run(PRE, input, 55)).permissionDecisionReason,
+    /^\[bajzi:ctx-block-50\] [^\n]*\n\[bajzi:bajzi-writer\] bajzi plugin changes are made only/);
+});
+
+test('pre-tool loads the writer guard on exactly Edit|Write|MultiEdit|NotebookEdit', () => {
+  // The module throws on load: a covered tool logs it, an uncovered one never loads it.
+  const pt = path.join(brokenCopy('writer-guard', true, ''), 'pre-tool.js');
+  for (const t of ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']) {
+    assert.match(log(run(pt, pre(t, { file_path: 'a.js' }))), / writer-guard broken writer-guard\n$/, t);
+  }
+  for (const [t, ti] of [['Read', { file_path: 'a.js' }], ['Bash', { command: 'x' }], ['Agent', { prompt: 'x' }]]) {
+    assert.strictEqual(log(run(pt, pre(t, ti))), '', t);
+  }
+});
+
+test('a writer guard that throws leaves the other checks\' result unchanged', () => {
+  for (const atLoad of [false, true]) {
+    const pt = path.join(brokenCopy('writer-guard', atLoad, ''), 'pre-tool.js');
+    const input = foreign('Write', { file_path: path.join(bajziRepo(), 'bajzi', 'x.js'), content: 'x' });
+    const r = run(pt, input, 55);
+    assert.strictEqual(r.code, 0);
+    assert.strictEqual(r.stderr, '');
+    assert.match(out(r).permissionDecisionReason, /^\[bajzi:ctx-block-50\] [^\n]*$/);
+    assert.match(log(r), / writer-guard broken writer-guard\n$/);
+    assert.strictEqual(run(pt, input).stdout, '');   // alone, it fails open
+  }
 });
 
 test('RF2: both entries survive bad stdin', () => {

@@ -30,6 +30,17 @@
 - After `/clear` or compact, the `bajzi` plugin's SessionStart hook loads HANDOFF.md → continue from
   there, do NOT re-read the whole repo.
 
+## bajzi plugin changes (all projects)
+- Any change to the bajzi plugin is made ONLY by a session started in the bajzi-plugins repo's
+  main checkout (laptop: `D:\AI\projektek\ClaudeCode\bajzi-plugins-dev`). That session
+  implements, reviews, releases and installs it.
+- Every other session that wants a bajzi plugin change: do NOT edit bajzi files, and do not open a
+  branch or worktree for it. Send the request with SendMessage to that session (in ListAgents,
+  the session whose cwd is the bajzi repo): what, why, acceptance criteria, review focus.
+- No bajzi session running: write the request to
+  `<bajzi repo>/runtime/requests/<YYYY-MM-DD>-<topic>.md`, the only bajzi path other sessions may
+  write. The next session started in the bajzi repo shows it at startup.
+
 ## RTK — command output compression (ONLY if installed)
 - `rtk pytest` · `rtk ruff check` · `rtk err npm run build` · `rtk git status|log|diff` ·
   `rtk read <f>` · `rtk grep "p" .` · `rtk ls .` · `rtk find "*.py" .` · `rtk test <command>`

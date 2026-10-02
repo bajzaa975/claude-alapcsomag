@@ -63,7 +63,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 
 | I want to change… | File(s) : function | Tests | Tier | Gotcha |
 |---|---|---|---|---|
-| Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
+| Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js:20-22` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` (runs from `pre-tool.js`/`post-tool.js`) | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in the plan's Global Constraints and in `docs/superpowers/specs/2026-09-23-bajzi-env-unification-design.md` section 3.2 (`:110`) — keep all three in sync or the doc lies. |
 | What is allowed above 50% | `context-guard.js:36-153` `isHandoffPath`, `commandCheck`, `commandRule`, `mvRule`, `skillRule`, `exemptCheck` | same, tests `RF4:*`, `I1a/I1b/I1c:*`, `I-1: shell escapes...` | 1 | The `PLAIN_WORD` whitelist (`:67`) covers only `mkdir`/`mv`/`git mv` argument tokens. `isHandoffPath` itself is not anchored to the repo root — an accepted limit (§9.4). |
 | Status-line fields/order | `bajzi/hooks/node/statusline.js:51-78` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). GLM share only rendered at level ≥ 1. |
@@ -101,6 +101,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Pre-commit gate (tools, scope, ratchet, exit codes) and its install | `bajzi/gate/pre-commit.js:main`, `:lint`, `:count`, `:ratchetScope`, `:findTool`, `:config`, `HINTS`/`TOOLS`; install `bajzi/skills/project-setup/profile.js:plan`/`preflight`/`apply` (`gate`, `gate-hookspath`, `gate-mode` actions, `:gateIndexMode`), `profile.js:validate` (`gate` key); contract `docs/gate.md`; install lines `manifest.json` `gate_tools` | `node --test bajzi/gate/tests/pre-commit.test.js bajzi/skills/project-setup/tests/profile.test.js` | 1 | Fails **closed** (Invariant 14): a needed tool missing, a tool error, an unreadable count, baseline or profile is exit 2, never green. Only exit codes decide; the two counts come from machine output (`pyright --outputjson`, located `file(l,c): error TSnnnn:` lines of `tsc --pretty false`; a location-less `error TS` line, or a non-zero exit with 0 counted, is exit 2). The installed `.githooks/pre-commit` is a verbatim copy: change the source, and every repo shows `DRIFT gate` until `/bajzi:project-setup` reruns. `HINTS` and `manifest.json` `gate_tools` must agree (the test asserts it). The tests run every tool as a fake shim on a minimal PATH; on Windows that PATH needs Git's `cmd/` dir or the hook's `/usr/bin/env` is not found. |
 | Public feature overview | `README.md` | `node --test bajzi/skills/project-setup/tests/release.test.js` (asserts the night-run bullet, the Safety fail-closed exceptions and that every skill is in the Skills table) | 3 | Any user-visible feature add/removal updates the README Features section. |
 | Radar: the biweekly read-only setup review (digest, headless run, report/error files, SessionStart notice, schedule) | `bajzi/skills/radar/radar.js` (`digest`, `run`, `claudeArgs`, `realClaude`, `notice`, `seen`, `installTask`, `taskCommand`, `cronLine`, `LAUNCHER`), `bajzi/skills/radar/prompt.md` (what the session reviews, output contract), `bajzi/skills/radar/SKILL.md` (§6.14) | `node --test bajzi/skills/radar/tests/*.test.js` | 1 | `--tools` is the sandbox, not `--allowedTools`: with `--allowedTools` alone under `dontAsk` the session still has Bash and the owner's settings allow rules run it (smoke check, §6.14); `radar.test.js` pins the exact five, WebFetch allowed only for `WEB_HOSTS` (= the hosts of `prompt.md`'s URLs: a new pinned source host goes into both), and `--setting-sources ''` + `disableAllHooks` (no owner settings, plugins or hooks); `childEnv` strips the provider variables (`ANTHROPIC_*`, the cc-router scrub set) from the session and pre-steps. The digest emits counts and `LABEL`-whitelisted names only; a new digest field must not carry text. `notice` is a SessionStart hook: only `stat`s, silent and exit 0 on any error. Registering it in `hooks.json` also moves the node-command count in `release.test.js` and the `mode.sh` 13m2 list. |
+| Who may edit bajzi plugin files (writer guard: owner session, request inbox, installed copies) | `bajzi/hooks/node/writer-guard.js` `check`, `findTree`, `mainOf`, `notice` (runs from `pre-tool.js`, `CHECKS` row `writer-guard`); the rule text `shared/CLAUDE.md` "bajzi plugin changes" (§6.15) | `node --test bajzi/hooks/node/tests/writer-guard.test.js` | 1 | Covers only Edit/Write/MultiEdit/NotebookEdit; Bash/PowerShell writes are the known ceiling (§9.1). The installed-copy paths are checked before the repo walk, because the marketplace clone is itself a main checkout. The `notice` SessionStart entry lives in `hooks.json`, which the orchestrator registers in a separate commit (§6.15). |
 
 ### Advisor pilot (1.10.1)
 
@@ -217,6 +218,12 @@ the PowerShell tool.
     `.gate-baseline.json` on its own (a drop is rewritten and staged in the same commit); raising it
     is a hand edit the review sees. The skills never commit with `--no-verify`
     (`bajzi/gate/pre-commit.js:main`, §6.13).
+15. **bajzi plugin changes come only from the owner session** (owner rule 2026-10-02). The
+    session started in the bajzi-plugins repo's main checkout implements, reviews, releases and
+    installs every bajzi change. Every other session sends a request instead (SendMessage, or a
+    file in `<main checkout>/runtime/requests/`). The writer guard enforces this on the file-edit
+    tools, and denies edits to installed copies to every session (§6.15). The rule text is
+    `shared/CLAUDE.md` "bajzi plugin changes".
 
 ## 5. Architecture overview
 
@@ -273,6 +280,9 @@ SessionStart (matcher startup|clear|compact|resume)
                                provider is non-Anthropic)
   radar.js notice          -> one systemMessage when a radar report (or a newer failed run) is
                                unseen; only stats files, silent otherwise (startup only; §6.14)
+  writer-guard.js notice   -> one systemMessage when the bajzi main checkout's runtime/requests/
+                               holds request files; fs only, silent otherwise (startup only;
+                               registered by the orchestrator in a separate commit, §6.15)
 
 statusLine command (re-rendered by the UI on its own cadence)
   statusline.js: reads context_window%, git branch/dirty (5s cache), handoff task, GLM share
@@ -285,6 +295,7 @@ PreToolUse
                                                               each on its old matcher, CHECKS order:)
       every tool                        -> context-guard.js  check (reads the bridge; >=50% deny)
       Read|Grep|Glob|Bash|PowerShell    -> secret-guard.js   check (secret-read deny)
+      Edit|Write|MultiEdit|NotebookEdit -> writer-guard.js   check (bajzi-writer deny, §6.15)
       both deny -> one envelope, both reasons joined by a newline, context block first
   matcher Agent|Task                    -> dispatch-guard.sh  (review/fix dispatch discipline)
 
@@ -1475,6 +1486,103 @@ and, through its `claude plugin marketplace update` pre-step, the marketplace cl
   its failure path, `launch.js` resolution and its failure path (exit 1, `last-error.log`, the
   notice), `launch.js` finding `claude` under `PATH=/usr/bin:/bin`.
 
+### 6.15 Writer guard — technical
+
+`bajzi/hooks/node/writer-guard.js` enforces the owner rule of 2026-10-02 (Invariant 15): any
+bajzi plugin change is made only by the session started in the bajzi-plugins repo's main
+checkout, and every other session sends a request. It runs in-process in the combined
+`PreToolUse` entry `pre-tool.js` (`CHECKS` row `writer-guard`, after the secret guard; §5.3).
+Run directly, it still works as its own hook. Stdlib only (`node:fs`/`node:os`/`node:path`); it
+never calls git.
+
+**Trigger + matcher**: `PreToolUse` on `Edit`, `Write`, `MultiEdit` and `NotebookEdit`, through
+the `pre-tool.js` matcher `/^(?:Edit|Write|MultiEdit|NotebookEdit)$/`. `check` also returns null
+for any other tool.
+
+**Inputs**: stdin `tool_name`, `cwd` and `tool_input.file_path` (`notebook_path` for
+NotebookEdit). A relative target is resolved against `cwd`. `check(input, {home, platform})`:
+`home` defaults to `os.homedir()` and `platform` to `process.platform`; both are injectable for
+tests.
+
+**Classification**, in this order:
+- **(a) Installed copies.** A target under `<home>/.claude/plugins/cache/bajzi-plugins/` or
+  `<home>/.claude/plugins/marketplaces/bajzi-plugins/` is denied to every session, the owner
+  included: installed copies change only through a release and `claude plugin update` (§8.3).
+  This runs first because the marketplace clone is itself a main checkout of a bajzi tree.
+- **(b) A bajzi repo tree.** Walk up from the target's directory (at most 40 levels, stopping at
+  the root) to the first ancestor R holding a `.claude-plugin/marketplace.json` whose JSON `name`
+  is `bajzi-plugins`. A missing, unreadable or non-JSON file, or another name, is no match, and
+  the walk goes on up. main(R) then depends on `R/.git`:
+  - a directory: R is a main checkout and main(R) = R;
+  - a file `gitdir: <main>/.git/worktrees/<n>` (a relative gitdir is resolved against R): R is
+    a linked worktree and main(R) = `<main>`;
+  - anything else (no `.git`, or a submodule's `gitdir: ../.git/modules/...`): main(R) = R, and
+    R is not a main checkout.
+- **(c) Anything else** is allowed.
+
+Paths are compared by a key: `/` separators, no trailing slash, lower-cased on win32. "Under"
+means the key starts with the directory's key plus `/`, so `bajzi-plugins-other` is not under
+`bajzi-plugins`. Deny reasons print the real resolved paths, never the key.
+
+**Owner rule**: the owner is the session whose `cwd` is inside a bajzi tree R0 that is a main
+checkout (the same walk, starting at `cwd` itself). For a target in tree R:
+- allow when the session is the owner and main(R) == R0 (the owner may edit its own linked
+  worktrees);
+- else allow a target under `main(R)/runtime/requests/` (the inbox, open to every session,
+  `done/` included);
+- else deny.
+
+So a session whose `cwd` is a linked worktree is not the owner, not even of that worktree, and
+the worktree's own `runtime/requests/` is not the inbox.
+
+**Rule id and deny reasons**: rule `bajzi-writer`, so the reason is prefixed `[bajzi:bajzi-writer]`.
+- (b): "bajzi plugin changes are made only by a session started in <main(R)> (the bajzi repo
+  main checkout). Send the request with SendMessage to that session, or write it to
+  <main(R)>/runtime/requests/<YYYY-MM-DD>-<topic>.md."
+- (a): "Installed bajzi copies change only through a release and `claude plugin update`. Send
+  the request to the session started in the bajzi repo main checkout (see 'bajzi plugin changes'
+  in ~/.claude/CLAUDE.md)."
+
+**Inbox notice**: `node writer-guard.js notice`, a SessionStart hook. It reads the SessionStart
+JSON on stdin and uses field `cwd`, falling back to `process.cwd()` when stdin carries no string
+`cwd`.
+- When that directory is inside a main-checkout bajzi tree R0 and `R0/runtime/requests/` holds
+  N ≥ 1 top-level `*.md` files (subdirectories such as `done/` do not count), it prints
+  `{"systemMessage":"bajzi: N pending plugin change request(s) in runtime/requests/ - handle
+  each, then move it to runtime/requests/done/"}`.
+- Otherwise it prints nothing.
+- It uses fs only (no git or other child process), reads no transcript, and always exits 0.
+
+Registration: the orchestrator adds the SessionStart entry
+`node "${CLAUDE_PLUGIN_ROOT}/hooks/node/writer-guard.js" notice` (matcher `startup`) to
+`bajzi/hooks/hooks.json` in a separate commit. That commit also moves the `release.test.js`
+node-command count and the `mode.sh` 13m2 list, and rebuilds `bajzi-cowork`. Until then the
+notice is not wired.
+
+**Global rule text**: the `shared/CLAUDE.md` section "bajzi plugin changes (all projects)",
+which `/bajzi:setup` appends to every machine's `~/.claude/CLAUDE.md` (`manifest.json`
+`global_rules`). The deny reasons point at it.
+
+**Failure behaviour**: fails open. `check` catches every internal error and returns null, and so
+does input that is not an object or lacks a `cwd` or a target. The notice runs inside `runHook`,
+and `pre-tool.js`'s `runChecks` keeps a throwing writer guard from hiding another check's deny.
+
+**Known ceiling** (the `ponytail:` comment in `writer-guard.js`; §9.1): only the four file-edit
+tools are covered. Bash/PowerShell writes (`sed -i`, a `git commit` made by a foreign session)
+are not blocked; the global rule text covers intent.
+
+**Tests**:
+- `node --test bajzi/hooks/node/tests/writer-guard.test.js`, on fake repos in tmp dirs (a real
+  `.git` dir for a main checkout, a `.git` file for a worktree, no git binary) with a fake home.
+  - Allowed: the owner in its own tree or its own worktree.
+  - Denied: a foreign session, a worktree cwd, another checkout, a tree with no `.git`.
+  - Also covered: the inbox, installed copies, relative paths, a non-bajzi marketplace name,
+    injected win32 case-folding, fail-open inputs, the CLI and the notice.
+- `tool-hooks.test.js`:
+  - the foreign-Edit deny through `pre-tool.js`;
+  - `pre-tool.js` loads the writer guard on exactly the four tools;
+  - a throwing writer guard leaves the context block unchanged.
+
 ## 7. Shared state files
 
 Every file two or more components meet through. "Writer" is the only code that creates or changes
@@ -1514,6 +1622,7 @@ root. Line numbers are pinned to the commits in §11.
 | `<repo>/.gate-baseline.json` (path: profile `gate.baseline`) | `pre-commit.js --init` (owner step, once); `pre-commit.js:main` lowers a count and stages it | `pre-commit.js:main` (ratchet) | JSON `{"pyright": <n>, "tsc": <n>}`, only the tools in scope | committed; only ever lowered by code, raised by hand |
 | `<repo>/.githooks/pre-commit` | `profile.js:apply` (`gate` action), a copy of `bajzi/gate/pre-commit.js` | git (`core.hooksPath = .githooks`) | Node script, marker `bajzi:gate` | committed; refreshed by the next `/bajzi:project-setup` after a gate change |
 | `<cwd>/runtime/handoff/<branch-slug>.md` | `/bajzi:handoff` (`bajzi/skills/handoff/SKILL.md:13,34`) | `handoff-load.sh:30-31` (also the legacy `runtime/HANDOFF.md`); `handoffTask` (`status-parts.js:99-118`, `Task:` line in the first 4 KB) | markdown | owned by the owner/session; one file per branch |
+| `<bajzi main checkout>/runtime/requests/<YYYY-MM-DD>-<topic>.md` (the request inbox) and `runtime/requests/done/` | any session: it is the only bajzi path a non-owner session may write (§6.15); the owner session moves a handled request into `done/` | `writer-guard.js notice` (counts the top-level `*.md` files at SessionStart); the owner session | markdown: what, why, acceptance criteria, review focus | gitignored (`runtime/`), so local per machine; never deleted by code |
 
 ### 7.3 Settings and setup
 
@@ -1831,6 +1940,18 @@ written, so that run leaves no trace.
   read guard for it.
 - **Dispatch guard**: "a discipline guard, not a security boundary" (`dispatch-guard.sh` header comment);
   fails open.
+- **Writer guard** (§6.15): a discipline guard for the owner rule (Invariant 15), not a security
+  boundary.
+  - **Blocked**: Edit, Write, MultiEdit and NotebookEdit.
+    - On a bajzi repo tree: allowed only to the session started in its main checkout, except the
+      `runtime/requests/` inbox.
+    - On the installed copies (plugin cache, marketplace clone): denied to every session.
+  - **Not blocked** (the known ceiling):
+    - Bash/PowerShell writes: `sed -i`, redirection, or a `git commit` or `git worktree add` made by
+      a foreign session.
+    - A path that reaches the repo through a symlink or junction.
+    - A bajzi tree whose `marketplace.json` is unreadable.
+  - It fails open, and the global rule text in `~/.claude/CLAUDE.md` covers intent.
 - **Night-run guard set**: the only place with fail-closed security engineering (fail-closed push
   guard, git-dir ledger, ancestry + patch-id judging, exit-77 owner-only closes, tripwire, pinned
   guard code), because it is the only place an unattended, hours-long, partly GLM-controlled
@@ -1989,7 +2110,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 
 | Component | Built (where) | Installed on the laptop | Not yet built / open | Verify (command → expected today) |
 |---|---|---|---|---|
-| bajzi plugin release | `origin/main` = 1.8.0 (`4c996c2`); `agents-cadence` = 1.10.1 (unreleased); `feat/radar` = 1.11.0 (unreleased, adds radar §6.14) | **1.8.0**, scope user, enabled, from GitHub | 1.11.0 release (double bump, §8.3) | `claude plugin list` → `Version: 1.8.0`, `Status: ✔ enabled` |
+| bajzi plugin release | `origin/main` = 1.8.0 (`4c996c2`); `agents-cadence` = 1.10.1 (unreleased); `feat/radar` = 1.11.0 (unreleased, adds radar §6.14); `feat/writer-guard` = 1.12.0 (unreleased, adds the writer guard §6.15) | **1.8.0**, scope user, enabled, from GitHub | 1.12.0 release (double bump, §8.3) | `claude plugin list` → `Version: 1.8.0`, `Status: ✔ enabled` |
 | `cc-router.js` shim (§6.2) | yes, released since 1.7.0 | **yes**, v1.2.0 (+ `.bak`) | — | `sha256sum ~/.local/bin/cc-router.js bajzi/bin/cc-router.js ~/.claude/plugins/cache/bajzi-plugins/bajzi/1.8.0/bin/cc-router.js` → three identical hashes |
 | `worker`/`glm`/`ccr` launchers | `env-unify`, `bajzi/bin/launchers/` (byte-identical to the laptop's six) | **yes**, + `.cmd` twins | — | `which glm worker ccr` → `/c/Users/andra/.local/bin/…` |
 | Saver mode | — | **L0**; `glm_fast_model` = `glm-5.3-flash` | — | `worker --status` → `level           L0 (claude)`, `ZAI_API_KEY     found` |
@@ -2018,3 +2139,4 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Spec + release 1.9.0 (this document §4 Invariant 13, §6.4, §6.12, §2, §7.2, §11; T8 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): both manifests 1.9.0; `findings-cli.js:cmds.slice` refuses control-plane `files:` entries (`mode.sh` 16f6); `fixer.md` skips a `none` test command; claude-orchestrator `workspace` @ `567883a` + `380f2b7`: `.githooks/pre-commit` = the bajzi gate, profile `gate` key (`gitleaks`, `ruff`, `eslint`, `pyright`; no `tsconfig.json`, so no `tsc`), `.gate-baseline.json` = `{"pyright": 635}` | no — `claude plugin list` shows 1.8.0 until the owner releases 1.9.0 (§8.3) | the release (push + reinstall, owner step); whole-branch review | `node -p "require('./bajzi/.claude-plugin/plugin.json').version"` → `1.9.0`; `node bajzi/skills/project-setup/profile.js --check --repo D:/AI/projektek/ClaudeCode/claude-orchestrator` → `project-setup --check: clean` |
 | Context-guard accepted limits m-1/m-2 (§9.4) | — | — | await the owner's explicit acceptance | — (a decision, not a file) |
 | Radar 1.11.0 (§6.14, §7.5, §8.6) | `feat/radar` (unreleased): `bajzi/skills/radar/` (`radar.js`, `prompt.md`, `SKILL.md`, `tests/radar.test.js`); both manifests 1.11.0; `bajzi-cowork` rebuilt at 1.11.0; `hooks.json` SessionStart entry (matcher `startup`) for `radar.js notice`; `shared/routine-plugin-review.md` is a pointer | no | the 1.11.0 release (§8.3); `install-task` on each machine (§8.6) | `node --test bajzi/skills/radar/tests/*.test.js` → `# pass 31`, `# fail 0`; `node bajzi/skills/radar/radar.js digest` on the laptop (2026-10-01): 1730 files, ~8 s, 117 lines |
+| Writer guard 1.12.0 (§6.15, §4 Invariant 15, §7.2, §9.1) | `feat/writer-guard` (unreleased): `bajzi/hooks/node/writer-guard.js` (+ the `pre-tool.js` `CHECKS` row), `bajzi/hooks/node/tests/writer-guard.test.js`, the `tool-hooks.test.js` cases, `shared/CLAUDE.md` "bajzi plugin changes"; the `bajzi` entries of both manifests at 1.12.0 | no | the `hooks.json` SessionStart `notice` entry and the `bajzi-cowork` rebuild (orchestrator, separate commit); the 1.12.0 release (§8.3); `/bajzi:setup` on each machine appends the rule text to `~/.claude/CLAUDE.md` | `node --test bajzi/hooks/node/tests/writer-guard.test.js` → `# pass 17`, `# fail 0` |
