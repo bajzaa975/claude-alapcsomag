@@ -47,6 +47,8 @@ Before anything else, run `date +%s` and note it as the tick start: every time l
    proved that cause with evidence (a path, an env var, a tool version, a harness helper; never
    product code):
    - FIRST, before any edit: check all of these in order; the first that fails ends duty 4:
+     A FIXED / FIXING line is one a tick wrote itself: it starts with `<HH:MM> FIXED ` / `<HH:MM> FIXING ` (regex `^\d\d:\d\d FIX(ED|ING) `). Lines starting with `[HH:MM:SS] watch:` are tier 0's
+     echoes (they can contain "TICK FIXED") and never count.
      a. HEAD is not main and not detached (the orchestrator runs on `workspace`); no runner or sprint
         session is alive (re-list the processes). Else no edit, ESCALATE.
      b. The facts hold an `aborted: baseline RED fp=<fp> head=<sha>` line. A BLOCKING failure without
@@ -86,7 +88,7 @@ Before anything else, run `date +%s` and note it as the tick start: every time l
      `ESCALATE` with the evidence.
 5. **Rule of two**: a sprint that reached the same failure twice is excluded from any relaunch; log why.
 6. **Queue finished** (the facts say so): write {{SUMMARY_FILE}} — per sprint: status, commits, gate,
-   anomaly + action taken — a `## Watcher fixes (review due)` section listing every `FIXED` and
+   anomaly + action taken — a `## Watcher fixes (review due)` section listing every `FIXED` line (as defined in duty 4) and
    `REVIEW DUE` line after the state file's last `watch: started for` line, plus every `FIXING` line there
    without a matching `FIXED` line (an interrupted fix: name its paths and any `night-watch fix:` commit), and a `## Lessons` section: what you saw, what you did, what you could not
    do and why, what the owner should change before the next run. Then stop.

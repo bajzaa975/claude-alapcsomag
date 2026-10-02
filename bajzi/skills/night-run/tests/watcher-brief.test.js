@@ -98,7 +98,7 @@ test('duty 4 commits only inside tier 0 relaunch budget (r2 F5)', () => {
 
 test('duty 6 summary lists every watcher fix for review (r2 F6)', () => {
   const b = flat(dutiesBlock());
-  has(b, 'a `## Watcher fixes (review due)` section listing every `FIXED` and `REVIEW DUE` line after the state file\'s last `watch: started for` line');
+  has(b, 'a `## Watcher fixes (review due)` section listing every `FIXED` line (as defined in duty 4) and `REVIEW DUE` line after the state file\'s last `watch: started for` line');
 });
 
 test('duty 4 restores the tree on every exit without a commit (F1)', () => {
@@ -166,4 +166,12 @@ test('tick start time, check order and the interrupted-fix summary line (final r
   assert.ok(abort >= 0 && abort < without && without < budget && budget < over && over < cut && cut < time,
     'abort line -> its no-commit sentence -> budget -> its over-budget sentence -> cut-off check -> time check');
   assert.ok(time < d.indexOf('Fix the cause'), 'every check before the edit step');
+});
+
+test('only tick-written FIXED / FIXING lines count, never tier 0 echoes (peer contract)', () => {
+  const d = duty4();
+  has(d, 'A FIXED / FIXING line is one a tick wrote itself: it starts with `<HH:MM> FIXED ` / `<HH:MM> FIXING `');
+  has(d, '(regex `^\\d\\d:\\d\\d FIX(ED|ING) `)');
+  has(d, "Lines starting with `[HH:MM:SS] watch:` are tier 0's echoes (they can contain \"TICK FIXED\") and never count.");
+  assert.ok(d.indexOf('A FIXED / FIXING line is one a tick wrote itself') < d.indexOf('fewer than 2'), 'definition before the budget check');
 });
