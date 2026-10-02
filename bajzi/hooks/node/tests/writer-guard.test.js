@@ -79,7 +79,7 @@ test('a bajzi tree that is not a main checkout (no .git, a non-worktree .git fil
   const d = check(edit(copy, path.join(copy, 'bajzi', 'x.js')), opts);
   isDeny(d);
   assert.ok(!d.reason.includes('started in'), d.reason);   // no session can own it: do not send the user to one
-  assert.ok(d.reason.includes(copy) && d.reason.includes('runtime'), d.reason);
+  assert.ok(d.reason.includes(copy), d.reason);
   const sub = tree(path.join(tmpDir('bajzi-wgc-'), 'bajzi-sub'));
   fs.writeFileSync(path.join(sub, '.git'), 'gitdir: ../.git/modules/bajzi\n');
   isDeny(check(edit(sub, path.join(sub, 'bajzi', 'x.js')), opts));
@@ -264,4 +264,12 @@ test('notice: silent with only done/, no inbox, a worktree, a non-bajzi cwd, or 
     const r = runNotice(stdin, other);
     assert.deepStrictEqual([r.code, r.stdout, r.stderr], [0, '', ''], stdin);
   }
+});
+
+test('a tree with no main checkout: foreign deny names no dead end; its inbox write stays allowed', () => {
+  const t = tree(path.join(tmpDir('bajzi-wgu-'), 'orphan'));
+  const d = check(edit(tmpDir('bajzi-wgx-'), path.join(t, 'bajzi', 'x.js')), opts);
+  isDeny(d);
+  assert.ok(!/runtime[\/]requests/.test(d.reason) && !/Edit the real/.test(d.reason), d.reason);
+  assert.strictEqual(check(edit(tmpDir('bajzi-wgx-'), path.join(t, 'runtime', 'requests', '2026-10-02-x.md')), opts), null);
 });

@@ -86,7 +86,7 @@ function check(input, { home = os.homedir(), platform = process.platform, projec
     const inbox = path.join(main, 'runtime', 'requests');
     if (under(target, inbox, platform)) return null;
     const to = `write it to ${path.join(inbox, '<YYYY-MM-DD>-<topic>.md')}`;
-    if (!owned) return denied(`${main} is a bajzi tree with no main checkout (no .git directory, not a linked worktree), so no session can own it. Edit the real bajzi repo main checkout instead, or ${to}.`);
+    if (!owned) return denied(`${main} is a bajzi tree with no main checkout (no .git directory, not a linked worktree), so no session can own it and nothing here is for you to change. Tell the user to open a session in the real bajzi repo main checkout.`);
     return denied(`bajzi plugin changes are made only by a session started in ${main} (the bajzi repo main checkout). Send the request with SendMessage to that session, or ${to}.`);
   } catch {
     return null;
