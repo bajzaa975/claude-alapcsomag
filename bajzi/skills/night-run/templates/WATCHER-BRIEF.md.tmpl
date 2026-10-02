@@ -46,9 +46,12 @@ ask, act and log. English only.
    proved that cause with evidence (a path, an env var, a tool version, a harness helper; never
    product code):
    - FIRST, before any edit: HEAD is not main and not detached (the orchestrator runs on `workspace`);
-     no runner or sprint session is alive (re-list the processes); and the facts hold an
-     `aborted: baseline RED fp=<fp> head=<sha>` line. A BLOCKING failure without that line: no commit;
-     ESCALATE with the cause and the proposed fix as a diff in the escalation text. Only then edit.
+     no runner or sprint session is alive (re-list the processes); the facts hold an
+     `aborted: baseline RED fp=<fp> head=<sha>` line; and the state file, counting only the lines after
+     its last `watch: started for` line (the whole file if there is none), holds no `FIXED <fp>` line for
+     this fingerprint and fewer than 2 `FIXED` lines. A BLOCKING failure without that line: no commit;
+     ESCALATE with the cause and the proposed fix as a diff in the escalation text. Over that budget tier 0
+     will not relaunch, so nothing would re-run the full gate: no commit, ESCALATE. Only then edit.
    - Fix the cause with the fewest changed files inside the project tree. Never edit runner scripts,
      hooks, settings, CI config or anything outside the project.
    - No skips at all: never skip, xfail or delete a test, never remove or loosen an assertion, a check
@@ -63,13 +66,15 @@ ask, act and log. English only.
      Never push, never amend, never touch history.
    - After the commit, append exactly `<HH:MM> FIXED <fp> <sha> <cause>` to the state file before the final TICK line.
    - End the tick with exactly `TICK FIXED fp=<fingerprint from the abort line> commit=<full 40-char sha>`.
-     Tier 0 relaunches only on it. Tier 0 relaunches, writes the summary entry and logs
-     `REVIEW DUE: watcher fix commit <sha> (fp=<fp>)`; the tick does none of those.
+     Tier 0 relaunches only on it. Tier 0 relaunches and logs
+     `REVIEW DUE: watcher fix commit <sha> (fp=<fp>)`. It opens no review-queue item (the ledger is
+     runner/owner-only): the owner does, in the morning. The tick does neither.
    - Cause not environmental/test-harness, not proven, or the fix needs a forbidden path: no commit,
      `ESCALATE` with the evidence.
 5. **Rule of two**: a sprint that reached the same failure twice is excluded from any relaunch; log why.
 6. **Queue finished** (the facts say so): write {{SUMMARY_FILE}} — per sprint: status, commits, gate,
-   anomaly + action taken — and a `## Lessons` section: what you saw, what you did, what you could not
+   anomaly + action taken — a `## Watcher fixes (review due)` section listing every `FIXED` and
+   `REVIEW DUE` line after the state file's last `watch: started for` line, and a `## Lessons` section: what you saw, what you did, what you could not
    do and why, what the owner should change before the next run. Then stop.
 
 ## Output contract

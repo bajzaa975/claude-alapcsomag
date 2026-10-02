@@ -89,6 +89,18 @@ test('duty 4 checks branch, live sessions and fingerprint before any edit (F1, F
   has(d, 'A BLOCKING failure without that line: no commit; ESCALATE with the cause and the proposed fix as a diff in the escalation text.');
 });
 
+test('duty 4 commits only inside tier 0 relaunch budget (r2 F5)', () => {
+  const d = duty4();
+  has(d, 'counting only the lines after its last `watch: started for` line (the whole file if there is none), holds no `FIXED <fp>` line for this fingerprint and fewer than 2 `FIXED` lines.');
+  has(d, 'Over that budget tier 0 will not relaunch, so nothing would re-run the full gate: no commit, ESCALATE.');
+  assert.ok(d.indexOf('fewer than 2 `FIXED` lines') < d.indexOf('Fix the cause'), 'budget check before the edit step');
+});
+
+test('duty 6 summary lists every watcher fix for review (r2 F6)', () => {
+  const b = flat(dutiesBlock());
+  has(b, 'a `## Watcher fixes (review due)` section listing every `FIXED` and `REVIEW DUE` line after the state file\'s last `watch: started for` line');
+});
+
 test('duty 4 restores the tree on every exit without a commit (F1)', () => {
   const d = duty4();
   has(d, 'Every exit of duty 4 that ends without a commit restores the changed paths (`git checkout -- <paths>`, remove any new files) and verifies `git status --porcelain` is clean for them.');
@@ -104,7 +116,7 @@ test('duty 4 commit rules: staged paths, no push/amend', () => {
 test('duty 4 state line, tier 0 owns relaunch/summary/review (F2e)', () => {
   const d = duty4();
   has(d, 'append exactly `<HH:MM> FIXED <fp> <sha> <cause>` to the state file before the final TICK line.');
-  has(d, 'Tier 0 relaunches, writes the summary entry and logs `REVIEW DUE: watcher fix commit <sha> (fp=<fp>)`; the tick does none of those.');
+  has(d, 'Tier 0 relaunches and logs `REVIEW DUE: watcher fix commit <sha> (fp=<fp>)`. It opens no review-queue item (the ledger is runner/owner-only): the owner does, in the morning. The tick does neither.');
   has(d, 'End the tick with exactly `TICK FIXED fp=<fingerprint from the abort line> commit=<full 40-char sha>`.');
   has(d, 'Tier 0 relaunches only on it');
   has(d, 'Cause not environmental/test-harness, not proven, or the fix needs a forbidden path: no commit, `ESCALATE` with the evidence.');
