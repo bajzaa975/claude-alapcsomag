@@ -270,6 +270,6 @@ test('a tree with no main checkout: foreign deny names no dead end; its inbox wr
   const t = tree(path.join(tmpDir('bajzi-wgu-'), 'orphan'));
   const d = check(edit(tmpDir('bajzi-wgx-'), path.join(t, 'bajzi', 'x.js')), opts);
   isDeny(d);
-  assert.ok(!/runtime[\/]requests/.test(d.reason) && !/Edit the real/.test(d.reason), d.reason);
+  assert.ok(!/runtime[\\/]requests/.test(d.reason) && !/Edit the real/.test(d.reason), d.reason);
   assert.strictEqual(check(edit(tmpDir('bajzi-wgx-'), path.join(t, 'runtime', 'requests', '2026-10-02-x.md')), opts), null);
 });
