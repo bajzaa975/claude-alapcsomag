@@ -34,7 +34,7 @@ test('README states the secret guard limit and the new commands', () => {
 test('every node hook command in hooks.json points at an existing file', () => {
   const h = JSON.parse(read(path.join(BAJZI, 'hooks', 'hooks.json'))).hooks;
   const cmds = Object.values(h).flat().flatMap(e => e.hooks.map(k => k.command)).filter(c => c.startsWith('node '));
-  assert.strictEqual(cmds.length, 3);
+  assert.strictEqual(cmds.length, 4);
   for (const c of cmds) {
     const rel = /\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"/.exec(c)[1];
     assert.ok(fs.existsSync(path.join(BAJZI, rel)), rel);

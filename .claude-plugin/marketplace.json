@@ -15,7 +15,7 @@
     },
     {
       "name": "bajzi-cowork",
-      "version": "1.11.0",
+      "version": "1.12.0",
       "source": "./bajzi-cowork",
       "description": "claude.ai / Cowork-safe subset of bajzi (handoff, autopilot, modszertan skills only; no bin/, hooks or agents). Install this one in claude.ai / Cowork; use bajzi in Claude Code.",
       "category": "productivity"

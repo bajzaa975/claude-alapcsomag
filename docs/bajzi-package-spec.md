@@ -282,7 +282,7 @@ SessionStart (matcher startup|clear|compact|resume)
                                unseen; only stats files, silent otherwise (startup only; §6.14)
   writer-guard.js notice   -> one systemMessage when the bajzi main checkout's runtime/requests/
                                holds request files; fs only, silent otherwise (startup only;
-                               registered by the orchestrator in a separate commit, §6.15)
+                               §6.15)
 
 statusLine command (re-rendered by the UI on its own cadence)
   statusline.js: reads context_window%, git branch/dirty (5s cache), handoff task, GLM share
@@ -1553,15 +1553,16 @@ JSON on stdin and uses field `cwd`, falling back to `process.cwd()` when stdin c
 - Otherwise it prints nothing.
 - It uses fs only (no git or other child process), reads no transcript, and always exits 0.
 
-Registration: the orchestrator adds the SessionStart entry
-`node "${CLAUDE_PLUGIN_ROOT}/hooks/node/writer-guard.js" notice` (matcher `startup`) to
-`bajzi/hooks/hooks.json` in a separate commit. That commit also moves the `release.test.js`
-node-command count and the `mode.sh` 13m2 list, and rebuilds `bajzi-cowork`. Until then the
-notice is not wired.
+Registration: the SessionStart entry
+`node "${CLAUDE_PLUGIN_ROOT}/hooks/node/writer-guard.js" notice` (matcher `startup`) in
+`bajzi/hooks/hooks.json`, pinned by `release.test.js` (4 node hook commands) and `mode.sh`
+case 13m2 (10 hook entries).
 
 **Global rule text**: the `shared/CLAUDE.md` section "bajzi plugin changes (all projects)",
 which `/bajzi:setup` appends to every machine's `~/.claude/CLAUDE.md` (`manifest.json`
-`global_rules`). The deny reasons point at it.
+`global_rules`). The deny reasons point at it. The same release adds
+`"remoteControlAtStartup": true` to `manifest.json` `settings_merge` (pinned by
+`check.test.js`), so every session is reachable as a peer for the request hand-off.
 
 **Failure behaviour**: fails open. `check` catches every internal error and returns null, and so
 does input that is not an object or lacks a `cwd` or a target. The notice runs inside `runHook`,
@@ -2139,4 +2140,4 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Spec + release 1.9.0 (this document §4 Invariant 13, §6.4, §6.12, §2, §7.2, §11; T8 of the agents-and-cadence plan) | `agents-cadence` branch (unreleased): both manifests 1.9.0; `findings-cli.js:cmds.slice` refuses control-plane `files:` entries (`mode.sh` 16f6); `fixer.md` skips a `none` test command; claude-orchestrator `workspace` @ `567883a` + `380f2b7`: `.githooks/pre-commit` = the bajzi gate, profile `gate` key (`gitleaks`, `ruff`, `eslint`, `pyright`; no `tsconfig.json`, so no `tsc`), `.gate-baseline.json` = `{"pyright": 635}` | no — `claude plugin list` shows 1.8.0 until the owner releases 1.9.0 (§8.3) | the release (push + reinstall, owner step); whole-branch review | `node -p "require('./bajzi/.claude-plugin/plugin.json').version"` → `1.9.0`; `node bajzi/skills/project-setup/profile.js --check --repo D:/AI/projektek/ClaudeCode/claude-orchestrator` → `project-setup --check: clean` |
 | Context-guard accepted limits m-1/m-2 (§9.4) | — | — | await the owner's explicit acceptance | — (a decision, not a file) |
 | Radar 1.11.0 (§6.14, §7.5, §8.6) | `feat/radar` (unreleased): `bajzi/skills/radar/` (`radar.js`, `prompt.md`, `SKILL.md`, `tests/radar.test.js`); both manifests 1.11.0; `bajzi-cowork` rebuilt at 1.11.0; `hooks.json` SessionStart entry (matcher `startup`) for `radar.js notice`; `shared/routine-plugin-review.md` is a pointer | no | the 1.11.0 release (§8.3); `install-task` on each machine (§8.6) | `node --test bajzi/skills/radar/tests/*.test.js` → `# pass 31`, `# fail 0`; `node bajzi/skills/radar/radar.js digest` on the laptop (2026-10-01): 1730 files, ~8 s, 117 lines |
-| Writer guard 1.12.0 (§6.15, §4 Invariant 15, §7.2, §9.1) | `feat/writer-guard` (unreleased): `bajzi/hooks/node/writer-guard.js` (+ the `pre-tool.js` `CHECKS` row), `bajzi/hooks/node/tests/writer-guard.test.js`, the `tool-hooks.test.js` cases, `shared/CLAUDE.md` "bajzi plugin changes"; the `bajzi` entries of both manifests at 1.12.0 | no | the `hooks.json` SessionStart `notice` entry and the `bajzi-cowork` rebuild (orchestrator, separate commit); the 1.12.0 release (§8.3); `/bajzi:setup` on each machine appends the rule text to `~/.claude/CLAUDE.md` | `node --test bajzi/hooks/node/tests/writer-guard.test.js` → `# pass 17`, `# fail 0` |
+| Writer guard 1.12.0 (§6.15, §4 Invariant 15, §7.2, §9.1) | `feat/writer-guard` (unreleased): `bajzi/hooks/node/writer-guard.js` (+ the `pre-tool.js` `CHECKS` row), `bajzi/hooks/node/tests/writer-guard.test.js`, the `tool-hooks.test.js` cases, `shared/CLAUDE.md` "bajzi plugin changes"; the `bajzi` entries of both manifests at 1.12.0; follow-up commit: `hooks.json` SessionStart `writer-guard.js notice` entry (matcher `startup`), `release.test.js` node-command count 4, `mode.sh` 13m2 list (10 entries), `manifest.json` `settings_merge.remoteControlAtStartup`, `bajzi-cowork` rebuilt | no | the 1.12.0 release (§8.3); `/bajzi:setup` on each machine appends the rule text to `~/.claude/CLAUDE.md` | `node --test bajzi/hooks/node/tests/writer-guard.test.js` → `# pass 17`, `# fail 0` |
