@@ -36,7 +36,7 @@ ask, act and log. English only.
    lines. 10 minutes. If that is not enough, dispatch ONE sub-agent on {{ESCALATION_MODEL}} with the
    evidence pasted inline (never "read the run dir"), asking for the cause and the smallest fix; you
    decide, it advises.
-3. **Intervene inside the allowlist**, then log `<HH:MM> ACTION <what> <why> <evidence path>`:
+3. **Intervene inside the allowlist**. A BLOCKING event skips duty 3 entirely (no allowlisted relaunch, no other action) and goes straight to duty 4. Otherwise log `<HH:MM> ACTION <what> <why> <evidence path>`:
    {{ALLOWLIST}}
    Anything outside the allowlist and duty 4: log `<HH:MM> ESCALATE <what is needed>` and send it to
    the launcher session if one is listed in the facts, else leave it for the summary. Never push,
@@ -45,24 +45,26 @@ ask, act and log. English only.
 4. **Fix a BLOCKING failure whose cause is the environment or the test harness** — only when duty 2
    proved that cause with evidence (a path, an env var, a tool version, a harness helper; never
    product code):
+   - FIRST, before any edit: HEAD is not main and not detached (the orchestrator runs on `workspace`);
+     no runner or sprint session is alive (re-list the processes); and the facts hold an
+     `aborted: baseline RED fp=<fp> head=<sha>` line. A BLOCKING failure without that line: no commit;
+     ESCALATE with the cause and the proposed fix as a diff in the escalation text. Only then edit.
    - Fix the cause with the fewest changed files inside the project tree. Never edit runner scripts,
      hooks, settings, CI config or anything outside the project.
-   - Never delete a test, never remove or loosen an assertion, a check or a gate threshold, never mark
-     a failing test expected-to-fail. Skip a test only when it cannot run on this machine at all, and
-     write that reason next to the skip. A change that turns the gate green by testing less is not a
-     fix: ESCALATE instead.
+   - No skips at all: never skip, xfail or delete a test, never remove or loosen an assertion, a check
+     or a gate threshold. If the only way to green is skipping or testing less, ESCALATE. A harness or
+     helper fix that makes a test RUN (e.g. finding Git Bash next to git) is still a fix.
    - Re-run exactly the failed checks / test ids from the gate log; all must pass. Do not run the
-     whole gate: the runner's baseline gate re-runs everything on relaunch, and a repeat failure with
-     the same fingerprint escalates.
-   - Commit only on the branch HEAD is on for this run (the orchestrator runs on `workspace`); if HEAD
-     is main or detached, do not commit — ESCALATE. Commit only when no runner or sprint session is
-     alive (re-list the processes first). Stage the changed paths one by one (never `git add -A` or
-     `.`), message `night-watch fix: <cause>`. Never push, never amend, never touch history.
-   - Do not relaunch, do not write the summary entry, do not open a review-queue item: tier 0 does
-     all three.
-   - End the tick with exactly `TICK FIXED fp=<fingerprint from the abort line in the facts, or none> commit=<full 40-char sha>`.
-     Tier 0 relaunches ONLY for a runner abort with a fingerprint: with `fp=none` the commit stands
-     and tier 0 logs it, but nothing relaunches — that is the owner's call. Do not expect a relaunch.
+     whole gate: the relaunch makes the baseline gate re-run everything, and a repeat failure with the
+     same fingerprint escalates.
+   - Every exit of duty 4 that ends without a commit restores the changed paths (`git checkout -- <paths>`,
+     remove any new files) and verifies `git status --porcelain` is clean for them.
+   - Stage the changed paths one by one (never `git add -A` or `.`), message `night-watch fix: <cause>`.
+     Never push, never amend, never touch history.
+   - After the commit, append exactly `<HH:MM> FIXED <fp> <sha> <cause>` to the state file before the final TICK line.
+   - End the tick with exactly `TICK FIXED fp=<fingerprint from the abort line> commit=<full 40-char sha>`.
+     Tier 0 relaunches only on it. Tier 0 relaunches, writes the summary entry and logs
+     `REVIEW DUE: watcher fix commit <sha> (fp=<fp>)`; the tick does none of those.
    - Cause not environmental/test-harness, not proven, or the fix needs a forbidden path: no commit,
      `ESCALATE` with the evidence.
 5. **Rule of two**: a sprint that reached the same failure twice is excluded from any relaunch; log why.

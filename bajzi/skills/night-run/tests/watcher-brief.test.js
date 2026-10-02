@@ -60,41 +60,58 @@ test('duty 4 fixes only a proven environment / test-harness cause inside the pro
   has(d, 'Never edit runner scripts, hooks, settings, CI config or anything outside the project.');
 });
 
-test('duty 4 never makes the gate green by testing less', () => {
+test('duty 4 allows no skips at all (F3)', () => {
   const d = duty4();
-  has(d, 'Never delete a test');
   has(d, 'never remove or loosen an assertion, a check or a gate threshold');
-  has(d, 'never mark a failing test expected-to-fail');
-  has(d, 'Skip a test only when it cannot run on this machine at all, and write that reason next to the skip.');
-  has(d, 'A change that turns the gate green by testing less is not a fix: ESCALATE instead.');
+  has(d, 'never skip, xfail or delete a test');
+  has(d, 'If the only way to green is skipping or testing less, ESCALATE.');
+  has(d, 'A harness or helper fix that makes a test RUN (e.g. finding Git Bash next to git) is still a fix.');
+  assert.ok(!d.includes('Skip a test only when'), 'skip allowance removed');
 });
 
-test('duty 4 re-runs exactly the failed checks, not the whole gate', () => {
+test('duty 4 re-runs exactly the failed checks; the relaunch re-runs everything (F5)', () => {
   const d = duty4();
   has(d, 'Re-run exactly the failed checks / test ids from the gate log; all must pass.');
-  has(d, 'Do not run the whole gate');
+  has(d, 'the relaunch makes the baseline gate re-run everything');
+  assert.ok(!TEXT.includes('fp=none'), 'no fp=none form anywhere');
 });
 
-test('duty 4 commit rules: branch, no live session, staged paths, no push/amend', () => {
+test('duty 4 checks branch, live sessions and fingerprint before any edit (F1, F2a, F2b)', () => {
   const d = duty4();
-  has(d, 'if HEAD is main or detached, do not commit — ESCALATE.');
-  has(d, 'Commit only when no runner or sprint session is alive (re-list the processes first).');
+  const pre = d.indexOf('FIRST, before any edit:');
+  assert.ok(pre >= 0, 'precondition step present');
+  for (const p of ['HEAD is not main and not detached', 'no runner or sprint session is alive (re-list the processes)',
+    'an `aborted: baseline RED fp=<fp> head=<sha>` line']) {
+    const i = d.indexOf(p);
+    assert.ok(i >= pre, `missing precondition: ${p}`);
+    assert.ok(i < d.indexOf('Fix the cause'), `precondition after the edit step: ${p}`);
+  }
+  has(d, 'A BLOCKING failure without that line: no commit; ESCALATE with the cause and the proposed fix as a diff in the escalation text.');
+});
+
+test('duty 4 restores the tree on every exit without a commit (F1)', () => {
+  const d = duty4();
+  has(d, 'Every exit of duty 4 that ends without a commit restores the changed paths (`git checkout -- <paths>`, remove any new files) and verifies `git status --porcelain` is clean for them.');
+});
+
+test('duty 4 commit rules: staged paths, no push/amend', () => {
+  const d = duty4();
   has(d, 'never `git add -A` or `.`');
   has(d, 'message `night-watch fix: <cause>`');
   has(d, 'Never push, never amend, never touch history.');
 });
 
-test('duty 4 hands relaunch, summary and review-queue to tier 0', () => {
+test('duty 4 state line, tier 0 owns relaunch/summary/review (F2e)', () => {
   const d = duty4();
-  has(d, 'Do not relaunch, do not write the summary entry, do not open a review-queue item: tier 0 does all three.');
+  has(d, 'append exactly `<HH:MM> FIXED <fp> <sha> <cause>` to the state file before the final TICK line.');
+  has(d, 'Tier 0 relaunches, writes the summary entry and logs `REVIEW DUE: watcher fix commit <sha> (fp=<fp>)`; the tick does none of those.');
+  has(d, 'End the tick with exactly `TICK FIXED fp=<fingerprint from the abort line> commit=<full 40-char sha>`.');
+  has(d, 'Tier 0 relaunches only on it');
+  has(d, 'Cause not environmental/test-harness, not proven, or the fix needs a forbidden path: no commit, `ESCALATE` with the evidence.');
 });
 
-test('duty 4 ends with the exact TICK FIXED form; fp=none never relaunches', () => {
-  const d = duty4();
-  has(d, 'End the tick with exactly `TICK FIXED fp=<fingerprint from the abort line in the facts, or none> commit=<full 40-char sha>`.');
-  has(d, 'Tier 0 relaunches ONLY for a runner abort with a fingerprint: with `fp=none` the commit stands and tier 0 logs it, but nothing relaunches');
-  has(d, 'Do not expect a relaunch.');
-  has(d, 'Cause not environmental/test-harness, not proven, or the fix needs a forbidden path: no commit, `ESCALATE` with the evidence.');
+test('a BLOCKING event skips duty 3 and goes straight to duty 4 (F4)', () => {
+  has(flat(dutiesBlock()), 'A BLOCKING event skips duty 3 entirely (no allowlisted relaunch, no other action) and goes straight to duty 4.');
 });
 
 test('output contract lists FIXED and keeps its two closing sentences', () => {
