@@ -1,0 +1,9 @@
+{
+  "name": "nightrun-pane",
+  "version": "0.1.0",
+  "description": "/nightrun: pane with the newest claude-orchestrator night run's sprint states and log tail (reads only the runtime/nightrun layout; not bajzi night-run's NIGHT_DIR)",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "bajzaa975"
+  }
+}

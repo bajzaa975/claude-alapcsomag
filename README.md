@@ -85,6 +85,11 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 - **`/bajzi:project-setup`** — applies or checks (`--check`) a repo's `.claude/project-profile.json`:
   project plugins and MCPs, METHODOLOGY, linked skills, instruction files and the pre-commit gate.
 
+### Mods
+
+- **`cache-timer`** — status line entry: minutes left until the main thread's prompt cache goes cold. It assumes a 60-minute cache; the cache is 5 minutes during usage overage and the mod cannot detect that.
+- **`nightrun-pane`** — open the pane with `/nightrun`: the newest claude-orchestrator night run's sprint states and log tail. It reads only the `runtime/nightrun/<stamp>/` layout (`nightrun.log`, `*.status`, `SUMMARY.md`, `STOP`, `runtime/handoff/night-watch-state.md`), not bajzi night-run's `NIGHT_DIR`.
+
 ### Cowork variant
 
 `bajzi-cowork` ships only the `autopilot`, `handoff` and `modszertan` skills. It lacks everything that

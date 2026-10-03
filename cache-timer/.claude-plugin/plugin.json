@@ -1,0 +1,8 @@
+{
+  "name": "cache-timer",
+  "version": "0.1.0",
+  "description": "Status line: minutes left until the main thread's prompt cache goes cold (assumes a 60-minute cache; it is 5 minutes during usage overage, which the mod cannot detect)",
+  "author": {
+    "name": "bajzaa975"
+  }
+}
