@@ -291,10 +291,14 @@ test('real manifest lists the mods and the marketplace ships them at their own p
 test('mod docs state the cache-timer 60-minute assumption and the nightrun-pane layout limit', () => {
   const root = path.join(__dirname, '..', '..', '..', '..');
   const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
-  const ct = [read('cache-timer/.claude-plugin/plugin.json'), read('README.md'), read('docs/bajzi-package-spec.md')];
+  // Only the mods' own README bullets and spec §2 row: the same words appear elsewhere in both files.
+  const line = (p, re) => read(p).split('\n').filter(l => re.test(l)).join('\n');
+  const row = line('docs/bajzi-package-spec.md', /^\| Mods \(cache-timer, nightrun-pane\) \|/);
+  assert.ok(row, 'spec §2 Mods row');
+  const ct = [read('cache-timer/.claude-plugin/plugin.json'), line('README.md', /^- \*\*`cache-timer`\*\*/), row];
   for (const t of ct) assert.match(t, /60-minute/);
   for (const t of ct) assert.match(t, /overage/);
-  const np = [read('nightrun-pane/.claude-plugin/plugin.json'), read('README.md'), read('docs/bajzi-package-spec.md')];
+  const np = [read('nightrun-pane/.claude-plugin/plugin.json'), line('README.md', /^- \*\*`nightrun-pane`\*\*/), row];
   for (const t of np) assert.match(t, /runtime\/nightrun/);
   for (const t of np) assert.match(t, /claude-orchestrator/);
 });
