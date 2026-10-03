@@ -95,7 +95,7 @@ ok="" cwd="" desc="" sub="" prompt=""
 [ "$ok" = "1" ] && [ -n "$desc$sub$prompt" ] || allow
 [ -z "$cwd" ] && cwd="${CLAUDE_PROJECT_DIR:-$PWD}"
 
-saver_resolve "$cwd" 2>/dev/null || allow
+saver_resolve "$cwd" "$(saver_session_id "$input")" 2>/dev/null || allow
 [ "$SAVER_GATE_OPEN" = "yes" ] || allow
 
 lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }

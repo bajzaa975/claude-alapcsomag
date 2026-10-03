@@ -53,6 +53,8 @@
 # dispatch-guard.sh), a small JSON-aware awk scanner, not a regex over the whole
 # payload: only tool_input.model, tool_input.subagent_type and the TOP-LEVEL
 # cwd count, so a "model" key in tool_response or in the prompt text is ignored.
+# The one other field is the session_id (saver_session_id, lib-saver-level.sh: the
+# first "session_id" key in the first 4096 chars), which picks this session's level.
 # A missing lib reads as an empty payload: nothing counted, still {}.
 #
 # DEPENDENCY-FREE: bash, awk, tr, head, tail, cut, date (node only for the
@@ -77,7 +79,7 @@ model=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-' |
 
 lib="$hookdir/lib-saver-level.sh"
 # shellcheck source=lib-saver-level.sh
-if ! . "$lib" 2>/dev/null || ! saver_resolve "$cwd"; then
+if ! . "$lib" 2>/dev/null || ! saver_resolve "$cwd" "$(saver_session_id "$input")"; then
     printf '{}'
     exit 0
 fi

@@ -17,8 +17,10 @@ function run(entry, args, extraEnv = {}) {
     CC_PROJECTS_DIR: path.join(dir, 'projects'), CC_CLAUDE_BIN: process.execPath,
     CC_CLAUDE_PREFIX_ARGS: JSON.stringify([FAKE]), ZAI_API_KEY: 'test-key',
     CC_GLM_PEAK_OK: '1',   // A4 adds the peak refusal; every other test must not depend on the clock
+    BAJZI_STATUS_DIR: path.join(dir, 'sessions'),   // session level files land in the sandbox, never the real home
   });
-  for (const k of ['CC_WORKER_MODE', 'CLAUDECODE']) delete env[k];   // the test process may run inside Claude Code
+  // The test process may run inside Claude Code: its session id must never reach the router unless a test sets it.
+  for (const k of ['CC_WORKER_MODE', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'BAJZI_HOME', 'BAJZI_SESSION_LEVEL']) delete env[k];
   for (const [k, v] of Object.entries(extraEnv)) { if (v === '' || v === undefined) delete env[k]; else env[k] = v; }
   const r = spawnSync(process.execPath, [ROUTER, ...args], { env, encoding: 'utf8' });
   const line = (r.stdout || '').split('\n').find(l => l.startsWith('FAKE_CLAUDE '));
@@ -192,4 +194,119 @@ test('launched from inside Claude Code -> child gets CC_ROUTER_WORKER=1; from a 
 });
 test('a CC_ROUTER_WORKER inherited from a plain shell is not passed on', () => {
   assert.strictEqual(run('glm', ['-p', 'x'], { CC_ROUTER_WORKER: '1' }).childEnv.CC_ROUTER_WORKER, undefined);
+});
+
+// --- per-session saver level: a level set from inside a session applies to that session only ---
+const SID = 'sess-A_1';
+const lvlFile = (dir, id = SID) => path.join(dir, 'sessions', id + '.level');
+const readOr = p => { try { return fs.readFileSync(p, 'utf8'); } catch (_) { return null; } };
+test('router SAFE_ID and status dir stay in sync with hooks/node/lib/session-status.js', () => {
+  const ss = require('../../hooks/node/lib/session-status');
+  const src = fs.readFileSync(ROUTER, 'utf8');
+  assert.ok(src.includes('/' + ss.SAFE_ID.source + '/'), 'SAFE_ID drifted');
+  assert.ok(src.includes("'.claude', 'bajzi', 'sessions'"), 'status dir drifted');
+});
+test('--level inside a session writes ONLY the session level file; worker-mode untouched', () => {
+  const r = run('worker', ['--level', '3'], { CLAUDE_CODE_SESSION_ID: SID });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(readOr(lvlFile(r.dir)), 'tight\n');
+  assert.strictEqual(readOr(path.join(r.dir, 'worker-mode')), null);
+  assert.ok(r.stdout.includes('level L3 for this session (' + SID + '); other sessions unchanged. Use --level N --global for the machine default.'), r.stdout);
+  assert.deepStrictEqual(fs.readdirSync(path.join(r.dir, 'sessions')), [SID + '.level']);   // no tmp file left behind
+});
+test('--level N --global inside a session writes worker-mode, not the session file', () => {
+  const r = run('worker', ['--level', '2', '--global'], { CLAUDE_CODE_SESSION_ID: SID });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(readOr(path.join(r.dir, 'worker-mode')), 'glm\n');
+  assert.strictEqual(readOr(lvlFile(r.dir)), null);
+  assert.match(r.stdout, /level L2 \(glm\)/);
+  assert.match(r.stdout, /running sessions that set their own level keep it/);
+});
+test('--level with no session id writes worker-mode and says sessions with their own level keep it', () => {
+  const r = run('worker', ['--level', '1']);
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(readOr(path.join(r.dir, 'worker-mode')), 'light\n');
+  assert.ok(!fs.existsSync(path.join(r.dir, 'sessions')));
+  assert.match(r.stdout, /running sessions that set their own level keep it/);
+});
+test('--global may come before the number', () => {
+  const r = run('worker', ['--level', '--global', '3'], { CLAUDE_CODE_SESSION_ID: SID });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(readOr(path.join(r.dir, 'worker-mode')), 'tight\n');
+  assert.strictEqual(readOr(lvlFile(r.dir)), null);
+});
+test('--set inside a session is per session too; --set --global is the machine default', () => {
+  const r = run('worker', ['--set', 'tight'], { CLAUDE_CODE_SESSION_ID: SID });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(readOr(lvlFile(r.dir)), 'tight\n');
+  assert.strictEqual(readOr(path.join(r.dir, 'worker-mode')), null);
+  const g = run('worker', ['--set', 'glm', '--global'], { CLAUDE_CODE_SESSION_ID: SID });
+  assert.strictEqual(g.code, 0, g.stderr);
+  assert.strictEqual(readOr(path.join(g.dir, 'worker-mode')), 'glm\n');
+  assert.strictEqual(readOr(lvlFile(g.dir)), null);
+});
+test('an unsafe CLAUDE_CODE_SESSION_ID ("../x") writes worker-mode, nothing under the status dir, and falls back to the machine default', () => {
+  const r = run('worker', ['--level', '3'], { CLAUDE_CODE_SESSION_ID: '../x' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(readOr(path.join(r.dir, 'worker-mode')), 'tight\n');
+  assert.ok(!fs.existsSync(path.join(r.dir, 'x.level')));
+  assert.ok(!fs.existsSync(path.join(r.dir, 'sessions')));
+  // reading: an unsafe id never selects a file outside the status dir
+  fs.writeFileSync(path.join(r.dir, 'x.level'), 'claude\n');
+  const s = run('worker', ['--status'], { CLAUDE_CODE_SESSION_ID: '../x', CC_WORKER_MODE_FILE: path.join(r.dir, 'worker-mode'), BAJZI_STATUS_DIR: path.join(r.dir, 'sessions') });
+  assert.match(s.stdout, /^level\s+L3 \(tight\)\s+\(machine default/m);
+});
+test('a launch inside a session resolves the session level over worker-mode', () => {
+  const sb = run('worker', ['--level', '0', '--global']);   // machine default claude
+  fs.mkdirSync(path.join(sb.dir, 'sessions'));
+  fs.writeFileSync(lvlFile(sb.dir), '\ufeffTIGHT\r\n');
+  const env = { CC_WORKER_MODE_FILE: path.join(sb.dir, 'worker-mode'), BAJZI_STATUS_DIR: path.join(sb.dir, 'sessions') };
+  const a = run('worker', ['-p', 'x'], Object.assign({ CLAUDE_CODE_SESSION_ID: SID }, env));
+  assert.strictEqual(a.code, 0, a.stderr);
+  assert.strictEqual(a.childEnv.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic');
+  const b = run('worker', ['-p', 'x'], Object.assign({ CLAUDE_CODE_SESSION_ID: 'sess-B' }, env));
+  assert.strictEqual(b.code, 0, b.stderr);
+  assert.strictEqual(b.childEnv.ANTHROPIC_BASE_URL, undefined);   // session B: machine default claude
+  assert.ok(!fs.existsSync(lvlFile(sb.dir, 'sess-B')));            // a launch never writes a session file
+  const e = run('worker', ['-p', 'x'], Object.assign({ CLAUDE_CODE_SESSION_ID: SID, CC_WORKER_MODE: 'light' }, env));
+  assert.strictEqual(e.childEnv.ANTHROPIC_BASE_URL, undefined);   // env beats the session file
+});
+test('a launch from a session passes the session level to the child as BAJZI_SESSION_LEVEL, never CC_WORKER_MODE', () => {
+  const sb = run('worker', ['--level', '0', '--global']);
+  fs.mkdirSync(path.join(sb.dir, 'sessions'));
+  fs.writeFileSync(lvlFile(sb.dir), 'tight\n');
+  const env = { CC_WORKER_MODE_FILE: path.join(sb.dir, 'worker-mode'), BAJZI_STATUS_DIR: path.join(sb.dir, 'sessions') };
+  const a = run('worker', ['-p', 'x'], Object.assign({ CLAUDE_CODE_SESSION_ID: SID }, env));
+  assert.strictEqual(a.childEnv.BAJZI_SESSION_LEVEL, 'tight');
+  assert.strictEqual(a.childEnv.CC_WORKER_MODE, undefined);   // CC_WORKER_MODE would open the saver gate
+  const n = run('worker', ['-p', 'x'], Object.assign({ CLAUDE_CODE_SESSION_ID: 'sess-B', BAJZI_SESSION_LEVEL: 'tight' }, env));
+  assert.strictEqual(n.childEnv.BAJZI_SESSION_LEVEL, 'tight');   // nested launch keeps the pin
+  assert.match(run('worker', ['--status'], Object.assign({ CLAUDE_CODE_SESSION_ID: 'sess-B', BAJZI_SESSION_LEVEL: 'tight' }, env)).stdout, /^level\s+L3 \(tight\)\s+\(session \(inherited\)\)/m);
+  const b = run('worker', ['-p', 'x'], Object.assign({ CLAUDE_CODE_SESSION_ID: 'sess-B' }, env));
+  assert.strictEqual(b.childEnv.BAJZI_SESSION_LEVEL, undefined);   // machine default is not pinned
+});
+test('a failing level write exits 73 "cannot write" and leaves no temp file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-w-'));
+  fs.writeFileSync(path.join(dir, 'sessions'), 'x');   // status dir path is a regular file: mkdir fails
+  const r = run('worker', ['--level', '3'], { CLAUDE_CODE_SESSION_ID: SID, BAJZI_STATUS_DIR: path.join(dir, 'sessions') });
+  assert.strictEqual(r.code, 73);
+  assert.match(r.stderr, /cannot write/);
+  assert.deepStrictEqual(fs.readdirSync(dir), ['sessions']);
+});
+test('an empty session file falls through to worker-mode', () => {
+  const sb = run('worker', ['--level', '2', '--global']);
+  fs.mkdirSync(path.join(sb.dir, 'sessions'));
+  fs.writeFileSync(lvlFile(sb.dir), '\n');
+  const s = run('worker', ['--status'], { CLAUDE_CODE_SESSION_ID: SID, CC_WORKER_MODE_FILE: path.join(sb.dir, 'worker-mode'), BAJZI_STATUS_DIR: path.join(sb.dir, 'sessions') });
+  assert.match(s.stdout, /^level\s+L2 \(glm\)\s+\(machine default/m);
+});
+test('--status shows the level source: env / session / machine default / none', () => {
+  const sb = run('worker', ['--level', '2', '--global']);
+  const env = { CC_WORKER_MODE_FILE: path.join(sb.dir, 'worker-mode'), BAJZI_STATUS_DIR: path.join(sb.dir, 'sessions') };
+  run('worker', ['--level', '3'], Object.assign({ CLAUDE_CODE_SESSION_ID: SID }, env));
+  assert.match(run('worker', ['--status'], Object.assign({ CLAUDE_CODE_SESSION_ID: SID }, env)).stdout, /^level\s+L3 \(tight\)\s+\(session /m);
+  assert.match(run('worker', ['--status'], Object.assign({ CLAUDE_CODE_SESSION_ID: 'sess-B' }, env)).stdout, /^level\s+L2 \(glm\)\s+\(machine default/m);
+  assert.match(run('worker', ['--status'], Object.assign({ CLAUDE_CODE_SESSION_ID: SID, CC_WORKER_MODE: 'light' }, env)).stdout, /^level\s+L1 \(light\)\s+\(env /m);
+  assert.match(run('worker', ['--status']).stdout, /^level\s+L0 \(claude\)\s+\(none/m);
+  assert.match(run('worker', ['--mode'], Object.assign({ CLAUDE_CODE_SESSION_ID: SID }, env)).stdout, /^tight$/m);
 });

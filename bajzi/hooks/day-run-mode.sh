@@ -56,6 +56,8 @@
 # GATE. Anything is emitted only when day-run is on, OR CC_WORKER_MODE is set, OR
 # the provider is non-Anthropic. A bare install with none of the three prints {}.
 # The hook reads NOTHING besides the two mode files, $HOME/.claude/worker-mode,
+# this session's level file <status dir>/<session_id>.level (BAJZI_STATUS_DIR /
+# BAJZI_HOME pick the dir; the id is the payload's session_id, lib-saver-level.sh),
 # the rules files above, those three env vars and -- under the day-run table on an
 # Anthropic session -- the reviewer allow-list, $HOME/.claude/bajzi/config.json.
 #
@@ -96,7 +98,7 @@ emit() { # $1 = systemMessage (may be empty), $2 = additionalContext
 # the tests point at a fake root. Missing lib = stay silent, never fail.
 lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-saver-level.sh"
 # shellcheck source=lib-saver-level.sh
-if ! . "$lib" 2>/dev/null || ! saver_resolve "$cwd"; then
+if ! . "$lib" 2>/dev/null || ! saver_resolve "$cwd" "$(saver_session_id "$input")"; then
     printf '{}'
     exit 0
 fi

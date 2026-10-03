@@ -31,8 +31,7 @@ function hostOf(rawUrl) {
   return h;
 }
 
-function readWorkerModeFile(home) {
-  const p = path.join(home, '.claude', 'worker-mode');
+function readModeFile(p) {
   try {
     if (!fs.statSync(p).isFile()) return '';
     let line = fs.readFileSync(p);
@@ -45,11 +44,24 @@ function readWorkerModeFile(home) {
   }
 }
 
-function resolveLevel({ env = process.env, home = os.homedir() } = {}) {
+// Lazy and fail-open: a partial install without lib/session-status.js reads no session file (spec F4).
+function readSessionFile(env, home, sessionId) {
+  let ss;
+  try { ss = require('./session-status'); } catch { return ''; }
+  if (typeof sessionId !== 'string' || !ss.SAFE_ID.test(sessionId)) return '';
+  const dir = ss.statusDir(Object.assign({}, env, { BAJZI_HOME: env.BAJZI_HOME || home }));
+  return readModeFile(path.join(dir, sessionId + '.level'));
+}
+
+// CC_WORKER_MODE > <status dir>/<sessionId>.level (a SAFE_ID id only) > BAJZI_SESSION_LEVEL > <home>/.claude/worker-mode > claude.
+// The status dir is session-status.js's, with `home` standing in for os.homedir() when BAJZI_HOME is unset.
+function resolveLevel({ env = process.env, home = os.homedir(), sessionId } = {}) {
   const host = hostOf(env.ANTHROPIC_BASE_URL);
   const nonAnthropic = host !== null && !(host === 'anthropic.com' || host.endsWith('.anthropic.com'));
   let word = lowerAscii(String(env.CC_WORKER_MODE || '').replace(WS, ''));
-  if (!word) word = readWorkerModeFile(home);
+  if (!word) word = readSessionFile(env, home, sessionId);
+  if (!word) word = lowerAscii(String(env.BAJZI_SESSION_LEVEL || '').replace(WS, ''));
+  if (!word) word = readModeFile(path.join(home, '.claude', 'worker-mode'));
   if (!word) word = 'claude';
   if (nonAnthropic) word = 'tight';
   const level = Object.prototype.hasOwnProperty.call(LEVELS, word) ? LEVELS[word] : 0;

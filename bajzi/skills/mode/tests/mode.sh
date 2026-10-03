@@ -1164,6 +1164,76 @@ for s in implement review fix debt; do
         pass "16h $s SKILL.md"; else fail "16h $s SKILL.md" "missing, misnamed or not wired"; fi
 done
 
+# --- case 17: per-session saver level (spec §6.1) ---
+#
+# `worker --level N` from inside a session writes <status dir>/<session_id>.level, and the hooks
+# resolve CC_WORKER_MODE > that file > worker-mode (the machine default). Two sessions A and B,
+# machine default glm, A set its own level: only A changes (THE regression for the owner's bug).
+SESS="$FAKE_HOME/.claude/bajzi/sessions"; mkdir -p "$SESS" "$FAKE_CWD/runtime"
+rm -f "$FAKE_CWD/runtime/bajzi-mode"; printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+printf 'glm\n' > "$FAKE_HOME/.claude/worker-mode"; printf 'tight\n' > "$SESS/sA.level"
+sclean() { env -u ANTHROPIC_BASE_URL -u CC_ROUTER_WORKER -u CC_WORKER_MODE -u BAJZI_STATUS_DIR -u BAJZI_HOME -u CLAUDE_CODE_SESSION_ID -u BAJZI_SESSION_LEVEL "$@"; }
+hook_sid() { # $1 = session id, then KEY=VALUE pairs -> SessionStart hook output
+    local s="$1"; shift
+    printf '{"session_id":"%s","transcript_path":"/t.jsonl","cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$s" "$FAKE_CWD" \
+        | sclean HOME="$FAKE_HOME" CLAUDE_PLUGIN_ROOT="$FAKE_ROOT" BAJZI_SAVER_LAUNCHER=bash "$@" bash "$HOOK_SH"; }
+expect "17a session A (own level tight) -> L3" "$(hook_sid sA)" 'SAVER LEVEL L3' 'SAVER LEVEL L2'
+expect "17b session B (no own level) -> machine default L2" "$(hook_sid sB)" 'SAVER LEVEL L2' 'SAVER LEVEL L3'
+expect "17c CC_WORKER_MODE beats the session file" "$(hook_sid sA CC_WORKER_MODE=light)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+printf 'claude\n' > "$SESS/sA.level"
+expect "17d session A set claude -> day-run table, no saver block" "$(hook_sid sA)" 'ROUTING TABLE' 'SAVER LEVEL'
+expect "17e non-Anthropic forces L3 over a session file" "$(hook_sid sA "$ZAI")" 'SAVER LEVEL L3'
+: > "$SESS/sA.level"
+expect "17f empty session file -> machine default L2" "$(hook_sid sA)" 'SAVER LEVEL L2'
+printf 'tight\n' > "$FAKE_HOME/.claude/bajzi/x.level"
+expect "17g unsafe id ../x never reads outside the status dir -> L2" "$(hook_sid ../x)" 'SAVER LEVEL L2' 'SAVER LEVEL L3'
+mkdir -p "$TMP/altsess"; printf 'light\n' > "$TMP/altsess/sA.level"
+expect "17h BAJZI_STATUS_DIR moves the status dir" "$(hook_sid sA BAJZI_STATUS_DIR="$TMP/altsess")" 'SAVER LEVEL L1'
+# the session id is the TOP-LEVEL key; a session_id-looking text inside a string is not a key
+printf 'tight\n' > "$SESS/sA.level"
+out=$(printf '{"session_id":"sB","prompt":"x \\"session_id\\":\\"sA\\"","cwd":"%s"}' "$FAKE_CWD" \
+    | sclean HOME="$FAKE_HOME" CLAUDE_PLUGIN_ROOT="$FAKE_ROOT" BAJZI_SAVER_LAUNCHER=bash bash "$HOOK_SH")
+expect "17i an escaped session_id inside a string is ignored -> sB's L2" "$out" 'SAVER LEVEL L2' 'SAVER LEVEL L3'
+
+# 17j-l: the routing counter counts against THIS session's level. Machine default glm (sonnet is
+# a violation at L2), session sA set light (sonnet is fine at L1).
+printf 'light\n' > "$SESS/sA.level"; rm -f "$viol"
+cpay() { printf '{"session_id":"%s","tool_name":"Agent","tool_input":{"model":"%s"},"cwd":"%s"}' "$1" "$2" "$FAKE_CWD"; }
+cnts() { sclean HOME="$FAKE_HOME" CC_PEAK_LOG="$TMP/peak.log" CLAUDE_PROJECT_DIR="$TMP/nocwd" bash "$CNT"; }
+out=$(cpay sA sonnet | cnts); rc=$?
+[ "$out" = "{}" ] && [ "$rc" -eq 0 ] && [ ! -s "$viol" ] && pass "17j counter: session sA at L1 + sonnet -> not a violation" || fail "17j" "rc=$rc $out $(cat "$viol" 2>&1)"
+cpay sB sonnet | cnts >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "17k counter: session sB on the machine default L2 + sonnet -> logged" || fail "17k" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; cpay ../x sonnet | cnts >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "17l counter: unsafe id -> machine default" || fail "17l" "$(cat "$viol" 2>&1)"
+# 17n: only the first 4096 payload characters are searched for the id (bash's ${x#*pat} is
+# quadratic): a session_id after a 5000-char prompt is not seen -> machine default.
+rm -f "$viol"; long=$(printf 'p%.0s' $(seq 1 5000))
+printf '{"tool_name":"Agent","tool_input":{"model":"sonnet","prompt":"%s"},"session_id":"sA","cwd":"%s"}' "$long" "$FAKE_CWD" | cnts >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "17n counter: a session_id past 4096 chars is not read -> machine default" || fail "17n" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+
+# 17m: the dispatch guard takes the session id too (its rules use only the gate, so the
+# decision is unchanged): a session_id in the payload, safe or not, changes nothing.
+dpay() { printf '{"session_id":"%s","tool_name":"Agent","tool_input":{"description":"review task B3","subagent_type":"general-purpose","prompt":"Review the diff."},"cwd":"%s"}' "$1" "$FAKE_CWD"; }
+for s in sA ../x; do
+    out=$(dpay "$s" | sclean HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$TMP/nocwd" bash "$DG"); rc=$?
+    [ "$rc" -eq 0 ] && is_deny "$out" R1 && pass "17m guard with session_id '$s' -> same R1 deny" || fail "17m $s" "rc=$rc $out"
+done
+# 17o: BAJZI_SESSION_LEVEL (what the worker shim gives a child launched from a session with its own
+# level file) sets the level but NEVER opens the gate; the child has its own id and no level file.
+printf 'light\n' > "$SESS/sA.level"; printf 'glm\n' > "$FAKE_HOME/.claude/worker-mode"
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"
+out=$(hook_sid sChild BAJZI_SESSION_LEVEL=light)
+[ "$out" = "{}" ] && pass "17o day-run off + inherited level -> SessionStart {} (same as machine default)" || fail "17o" "$out"
+out=$(dpay sChild | sclean HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$TMP/nocwd" BAJZI_SESSION_LEVEL=light bash "$DG")
+is_allow "$out" && pass "17p day-run off + inherited level -> dispatch guard allows" || fail "17p" "$out"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+expect "17q day-run on: the child resolves the inherited light -> L1" "$(hook_sid sChild BAJZI_SESSION_LEVEL=light)" 'SAVER LEVEL L1' 'SAVER LEVEL L2'
+expect "17r own session file beats the inherited level" "$(hook_sid sA BAJZI_SESSION_LEVEL=tight)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+expect "17s CC_WORKER_MODE beats the inherited level" "$(hook_sid sChild BAJZI_SESSION_LEVEL=light CC_WORKER_MODE=tight)" 'SAVER LEVEL L3'
+rm -f "$FAKE_HOME/.claude/worker-mode" "$FAKE_HOME/.claude/bajzi/x.level"; rm -rf "$SESS" "$TMP/altsess"
+
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.
 if [ ! -e "$MARKER" ]; then

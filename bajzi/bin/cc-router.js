@@ -8,10 +8,11 @@
 // In GLM mode the Claude aliases are remapped, so callers never change their arguments:
 //   --model sonnet|opus -> glm_model      --model haiku -> glm_fast_model
 // State (all under ~/.claude):  worker-mode (claude|light|glm|tight)   cc-router.json (models)   cc-router.log
+//   bajzi/sessions/<session_id>.level  the level of ONE session (--level/--set from inside it)
 'use strict';
 const VERSION = '1.2.0';
 const { spawn, execFileSync } = require('child_process');
-const fs = require('fs'), os = require('os'), path = require('path');
+const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
 
 const DIR = path.join(os.homedir(), '.claude');
 const MODE_FILE = process.env.CC_WORKER_MODE_FILE || path.join(DIR, 'worker-mode');
@@ -29,11 +30,46 @@ function die(msg, code) { process.stderr.write('[' + entry + '] ' + msg + '\n');
 function readConf() { try { return Object.assign({}, DEFAULTS, JSON.parse(fs.readFileSync(CONF_FILE, 'utf8'))); } catch (_) { return Object.assign({}, DEFAULTS); } }
 function writeConf(c) { fs.mkdirSync(path.dirname(CONF_FILE), { recursive: true }); fs.writeFileSync(CONF_FILE, JSON.stringify(c, null, 2) + '\n'); }
 function models() { const c = readConf(); return { big: process.env.GLM_MODEL || c.glm_model, fast: process.env.GLM_FAST_MODEL || c.glm_fast_model }; }
-function readMode() {
+// Per-session level (spec §6.1): <status dir>/<session_id>.level, written by --level/--set from inside a
+// Claude session (CLAUDE_CODE_SESSION_ID). KEEP IN SYNC with hooks/node/lib/session-status.js (SAFE_ID,
+// statusDir): this file is installed alone into ~/.local/bin, so it cannot require that lib.
+const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const STATUS_DIR = process.env.BAJZI_STATUS_DIR || path.join(process.env.BAJZI_HOME || os.homedir(), '.claude', 'bajzi', 'sessions');
+const SID = SAFE_ID.test(process.env.CLAUDE_CODE_SESSION_ID || '') ? process.env.CLAUDE_CODE_SESSION_ID : '';   // unsafe id = no session
+const SESSION_FILE = SID ? path.join(STATUS_DIR, SID + '.level') : '';
+// The hooks' read (lib-saver-level.sh): first line, one leading BOM dropped, every ASCII whitespace removed, lowercased.
+function readWord(p) {
+  try { return fs.readFileSync(p, 'utf8').split('\n')[0].replace(/^\uFEFF/, '').replace(/[ \t\n\v\f\r]/g, '').toLowerCase(); } catch (_) { return ''; }
+}
+// CC_WORKER_MODE > the session level file > BAJZI_SESSION_LEVEL (inherited from a parent session) > worker-mode > claude. An unknown word in a file or in BAJZI_SESSION_LEVEL reads as claude.
+function resolveMode() {
   const e = (process.env.CC_WORKER_MODE || '').trim().toLowerCase();
-  if (e) { if (!MODES.includes(e)) die('CC_WORKER_MODE must be one of: ' + MODES.join(', '), 64); return e; }
-  try { const f = fs.readFileSync(MODE_FILE, 'utf8').trim().toLowerCase(); if (MODES.includes(f)) return f; } catch (_) {}
-  return 'claude';
+  if (e) { if (!MODES.includes(e)) die('CC_WORKER_MODE must be one of: ' + MODES.join(', '), 64); return { mode: e, src: 'env CC_WORKER_MODE' }; }
+  const s = SESSION_FILE ? readWord(SESSION_FILE) : '';
+  if (s) return { mode: MODES.includes(s) ? s : 'claude', src: 'session ' + SID };
+  const i = (process.env.BAJZI_SESSION_LEVEL || '').replace(/[ \t\n\v\f\r]/g, '').toLowerCase();
+  if (i) return { mode: MODES.includes(i) ? i : 'claude', src: 'session (inherited)' };
+  const f = readWord(MODE_FILE);
+  if (f) return { mode: MODES.includes(f) ? f : 'claude', src: 'machine default ' + MODE_FILE };
+  return { mode: 'claude', src: 'none' };
+}
+function readMode() { return resolveMode().mode; }
+// --level/--set: the session file when inside a session, else (or with --global) worker-mode. Atomic: tmp + rename.
+function writeLevel(name) {
+  const target = args.includes('--global') || !SESSION_FILE ? MODE_FILE : SESSION_FILE;
+  const tmp = target + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
+  let created = false;
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(tmp, name + '\n', { flag: 'wx' }); created = true;
+    fs.renameSync(tmp, target);
+  } catch (e) {
+    if (created) { try { fs.unlinkSync(tmp); } catch (_) {} }
+    die('cannot write ' + target + ': ' + e.message, 73);
+  }
+  const n = LEVEL_OF[name];
+  if (target === SESSION_FILE) console.log('worker mode = ' + name + '   level L' + n + ' for this session (' + SID + '); other sessions unchanged. Use --level N --global for the machine default.');
+  else console.log('worker mode = ' + name + '   level L' + n + ' (' + name + '), machine default (' + MODE_FILE + '); running sessions that set their own level keep it.');
 }
 function secret(name) {   // 1. process env  2. Windows: User env in the registry (covers already-open apps)  3. ~/.claude/cc-router.env
   if (process.env[name]) return process.env[name];
@@ -210,15 +246,15 @@ function cmdUsage(rest) {
 function workerAdmin() {
   const a0 = (args[0] || '').replace(/^--/, '');
   if (a0 === 'mode') { console.log(readMode()); return true; }
+  const val = args.slice(1).filter(x => x !== '--global')[0];   // --global may sit before or after the value
   if (a0 === 'set') {
-    const m = (args[1] || '').toLowerCase(); if (!MODES.includes(m)) die('usage: worker --set ' + MODES.join('|'), 64);
-    fs.mkdirSync(path.dirname(MODE_FILE), { recursive: true }); fs.writeFileSync(MODE_FILE, m + '\n'); console.log('worker mode = ' + m); return true;
+    const m = (val || '').toLowerCase(); if (!MODES.includes(m)) die('usage: worker --set ' + MODES.join('|') + ' [--global]', 64);
+    writeLevel(m); return true;
   }
   if (a0 === 'level') {
-    const n = args[1]; const name = MODES[Number(n)];
-    if (!/^[0-3]$/.test(n || '') || !name) die('usage: worker --level 0|1|2|3   (0 claude, 1 light, 2 glm, 3 tight)', 64);
-    fs.mkdirSync(path.dirname(MODE_FILE), { recursive: true }); fs.writeFileSync(MODE_FILE, name + '\n');
-    console.log('worker mode = ' + name + '   level L' + n + ' (' + name + ')'); return true;
+    const n = val; const name = MODES[Number(n)];
+    if (!/^[0-3]$/.test(n || '') || !name) die('usage: worker --level 0|1|2|3 [--global]   (0 claude, 1 light, 2 glm, 3 tight)', 64);
+    writeLevel(name); return true;
   }
   if (a0 === 'set-model' || a0 === 'set-fast-model') {
     if (!okModel(args[1])) die('usage: worker --' + a0 + ' <model-id>   e.g. worker --' + a0 + ' glm-5.4', 64);
@@ -232,20 +268,20 @@ function workerAdmin() {
     return true;
   }
   if (a0 === 'status') {
-    const m = models(), envMode = process.env.CC_WORKER_MODE;
-    const md = readMode();
-    console.log('level           L' + LEVEL_OF[md] + ' (' + md + ')' + (envMode ? '   (forced by CC_WORKER_MODE for this shell)' : ''));
+    const m = models();
+    const { mode: md, src } = resolveMode();
+    console.log('level           L' + LEVEL_OF[md] + ' (' + md + ')   (' + src + ')');
     console.log('mode            ' + md);
     console.log('glm model       ' + m.big + (process.env.GLM_MODEL ? '   (forced by GLM_MODEL)' : ''));
     console.log('glm fast model  ' + m.fast + (process.env.GLM_FAST_MODEL ? '   (forced by GLM_FAST_MODEL)' : ''));
     console.log('ZAI_API_KEY     ' + (secret('ZAI_API_KEY') ? 'found' : 'MISSING'));
     console.log('claude binary   ' + claudeExe());
     console.log('router          v' + VERSION + '   ' + __filename);
-    console.log('files           ' + MODE_FILE + ' | ' + CONF_FILE + ' | ' + LOG_FILE);
+    console.log('files           ' + MODE_FILE + ' | ' + CONF_FILE + ' | ' + LOG_FILE + (SESSION_FILE ? ' | ' + SESSION_FILE : ''));
     return true;
   }
   if (a0 === 'router-help') {
-    console.log('worker --status | --mode | --level 0|1|2|3 | --set claude|light|glm|tight | --set-model <id> | --set-fast-model <id> | --log [n] | --usage [since] [--json]\nanything else is passed to Claude Code unchanged, e.g.  worker -p "..." --model sonnet'); return true;
+    console.log('worker --status | --mode | --level 0|1|2|3 [--global] | --set claude|light|glm|tight [--global] | --set-model <id> | --set-fast-model <id> | --log [n] | --usage [since] [--json]\nanything else is passed to Claude Code unchanged, e.g.  worker -p "..." --model sonnet'); return true;
   }
   return false;
 }
@@ -258,7 +294,7 @@ let PREFIX = [];   // test seam: prefix args for the fake claude; inert when uns
 if (process.env.CC_CLAUDE_PREFIX_ARGS) { try { PREFIX = JSON.parse(process.env.CC_CLAUDE_PREFIX_ARGS); } catch (_) { PREFIX = []; } }
 if (!Array.isArray(PREFIX)) PREFIX = [];
 
-let provider;
+let provider, sessionMode = '';   // sessionMode: the level a session file chose; the child has a new session id and would not find it
 if (entry === 'ccr') {
   const sub = (args[0] || '').toLowerCase();
   if (sub === 'code') { args = args.slice(1); provider = /^deepseek/i.test(modelArg(args)) ? 'deepseek' : 'glm'; }
@@ -266,7 +302,7 @@ if (entry === 'ccr') {
     console.log('ccr shim (cc-router v' + VERSION + '): no router service is needed; "ccr code" routes per process. Nothing to ' + (sub || 'do') + '.'); process.exit(0);
   } else die('this is the cc-router shim; only "ccr code [claude args]" is supported (got: ' + (sub || 'nothing') + ')', 64);
 } else if (entry === 'glm') { provider = 'glm'; }
-else { if (workerAdmin()) process.exit(0); provider = GLM_MODES.includes(readMode()) ? 'glm' : 'claude'; }
+else { if (workerAdmin()) process.exit(0); const rm = resolveMode(); provider = GLM_MODES.includes(rm.mode) ? 'glm' : 'claude'; if (rm.src.startsWith('session')) sessionMode = rm.mode; }
 
 const insideClaude = !!process.env.CLAUDECODE;   // read BEFORE the scrub below deletes it
 function peakOpen(now) { const h = now.getUTCHours(); return h >= 6 && h < 10; }   // 14:00-18:00 UTC+8, Z.ai 3x quota
@@ -302,6 +338,7 @@ if (provider === 'glm') {
     CLAUDE_CODE_SUBAGENT_MODEL: m, API_TIMEOUT_MS: '3000000', ENABLE_TOOL_SEARCH: 'false', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
   if (!asked) env.ANTHROPIC_MODEL = m;
 }   // provider === 'claude': plain Claude Code on the subscription; env already scrubbed of ANTHROPIC_*
+if (sessionMode) env.BAJZI_SESSION_LEVEL = sessionMode;   // sets the level, never opens the saver gate
 if (insideClaude) env.CC_ROUTER_WORKER = '1';   // B2: tells a Claude-spawned `glm -p` worker from a main session
 
 logLaunch(provider, asked);
