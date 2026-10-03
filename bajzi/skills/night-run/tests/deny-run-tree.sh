@@ -6,6 +6,11 @@
 # SKILL.md ships (extracted, not copied) on the shipped template, rendered with
 # a sample BASE / NIGHT_DIR. No claude runs and nothing outside $NR_SCRATCH is
 # touched; the rendered JSON and check output go to a scratch dir it recreates.
+# Since 1.14.0 it also runs the PHASE C post-render step (extracted the same way)
+# and proves: repo-relative Edit/Read denies are mirrored into <NIGHT_DIR>/wt/*/
+# (MISSING WT MIRROR / WT PATH NOT DENIED when not), wt/S1/src/index.ts stays
+# editable, .env.example is never denied while .env/.env.local are, the
+# NIGHT-RULES section-7 docker choice (DOCKER RULE MISMATCH), and the glm/worker allows.
 #
 # Usage:  bash tests/deny-run-tree.sh
 set -u
@@ -19,15 +24,37 @@ NIGHT=$HOME/night-runs/bss
 T=$NR_SCRATCH/deny-run-tree
 rm -rf "$T"; mkdir -p "$T"
 
+# Git Bash: python is a native Windows program, so MSYS would rewrite the POSIX BASE/NIGHT
+# arguments and python's '~' would be USERPROFILE. Pin both to the POSIX $HOME form and hand
+# python native file names instead. On Linux there is no cygpath and both variables are inert.
+nat(){ if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+py(){ MSYS_NO_PATHCONV=1 USERPROFILE=$HOME python3 "$@"; }
+
 # The rules-check snippet: the heredoc body under the `python3 - <settings> ...` line.
 sed -n "/^python3 - .*settings\.local\.json.*<<'PY'/,/^PY\$/p" "$SKILL" | sed '1d;$d' >"$T/check.py"
-grep -q 'UNRENDERED RULE' "$T/check.py" && grep -q 'DENY COVERS RUN TREE' "$T/check.py"
-check $? "SKILL.md PHASE C snippet found, with both messages"
+for msg in 'UNRENDERED RULE' 'DENY COVERS RUN TREE' 'MISSING WT MIRROR' 'WT PATH NOT DENIED' 'DOCKER RULE MISMATCH'; do
+  grep -q "$msg" "$T/check.py" || { echo "check.py lacks: $msg"; false; }
+done
+check $? "SKILL.md PHASE C rules-check snippet found, with all five messages"
+# The post-render step (worktree mirrors + section-7 docker choice): the heredoc under `<<'POST'`.
+sed -n "/^python3 - .*<<'POST'\$/,/^POST\$/p" "$SKILL" | sed '1d;$d' >"$T/post.py"
+[ -s "$T/post.py" ]; check $? "SKILL.md PHASE C post-render snippet found"
 
-render(){ # <out> [extra deny rule]: substitute the config.env values, drop what PHASE C fills or deletes
-  python3 - "$TMPL" "$1" "$BASE" "$NIGHT" "${2:-}" <<'PY'
+# NIGHT-RULES fixtures: section 3 holds the rules the section-3 tests add, section 7 the docker choice.
+rules(){ # <file> <section-7 docker line, or '' for none>
+  printf '# bss night run rules\n\n## 3. Forbidden paths\n\n- `apps/admin/.env.local`, `apps/admin/src/auth*.ts`\n\n## 7. Machine neighbours\n\n- Never stop or restart: none\n%s\n\n## 8. Resource floors\n\n- none\n' "$2" >"$T/$1"
+}
+rules denied.md '- docker: `denied`'
+rules allowed.md '- docker: `allowed, container prefix bss-sandbox`'
+rules nodocker.md ''
+RULES=denied.md   # the NIGHT-RULES file the post step reads; the check reads ${CHECK_RULES:-$RULES}
+
+render(){ # <out> [extra deny rule...]: substitute the config.env values, drop what PHASE C fills or deletes,
+          # add the section-3 lines, run the SKILL.md post-render step, then drop $DROP (one rule) if set
+  local out=$1; shift
+  (cd "$T" && py - "$(nat "$TMPL")" "$out" "$BASE" "$NIGHT" "$@" <<'PY'
 import json, re, sys
-tmpl, out, base, night, extra = sys.argv[1:6]
+tmpl, out, base, night = sys.argv[1:5]
 d = json.load(open(tmpl))
 sub = {"<BASE_DIR>": base, "<NIGHT_DIR>": night, "<BASE_BRANCH>": "dev", "<BRANCH_PREFIX>": "feat/", "<project>": "bss"}
 for k in ("allow", "deny", "ask"):
@@ -40,15 +67,37 @@ for k in ("allow", "deny", "ask"):
         if not re.search(r"<[A-Za-z]", r):
             rules.append(r)
     d["permissions"][k] = rules
-if extra:
-    d["permissions"]["deny"].append(extra)
+d["permissions"]["deny"] += [x for x in sys.argv[5:] if x]
 json.dump(d, open(out, "w"))
 PY
+  ) || return
+  (cd "$T" && py - "$out" "$NIGHT" "$RULES" <post.py >"$out.post" 2>&1) || return
+  [ -z "${DROP:-}" ] || (cd "$T" && py -c "import json,sys;f=sys.argv[1];d=json.load(open(f));d['permissions']['deny'].remove(sys.argv[2]);json.dump(d,open(f,'w'))" "$out" "$DROP")
 }
 
-run_check(){ # <name> [extra deny rule] -> $T/<name>.out, rc in $RC
-  render "$T/$1.json" "${2:-}" || { RC=99; return; }
-  python3 - "$T/$1.json" "$BASE" "$NIGHT" <"$T/check.py" >"$T/$1.out" 2>&1; RC=$?
+run_check(){ # <name> [extra deny rule...] -> $T/<name>.out, rc in $RC
+  local n=$1; shift
+  render "$n.json" "$@" || { RC=99; return; }
+  (cd "$T" && py - "$n.json" "$BASE" "$NIGHT" "${CHECK_RULES:-$RULES}" <check.py >"$n.out" 2>&1); RC=$?
+}
+denies(){ # <name> <Edit|Read|Edit|Read> <path>: rc 0 if a deny of that kind in $T/<name>.json covers <path>,
+          # judged by check.py's own matcher (rx/path/up), so the probe and the check cannot drift apart
+  (cd "$T" && PK=$2 PP=$3 py - "$1.json" "$BASE" "$NIGHT" <<'PY'
+import contextlib, io, os, re
+ns = {}
+with contextlib.redirect_stdout(io.StringIO()):
+    try:
+        exec(open("check.py").read(), ns)
+    except SystemExit:
+        pass
+rule = re.compile(r"(?:%s)\((.*)\)" % os.environ["PK"])
+raise SystemExit(0 if any((m := rule.fullmatch(r)) and any(ns["rx"](ns["path"](m[1])).match(a) for a in ns["up"](os.environ["PP"]))
+                          for r in ns["perms"].get("deny", [])) else 1)
+PY
+  )
+}
+has(){ # <name> <allow|deny> <rule>: rc 0 if the rendered $T/<name>.json lists <rule> under permissions.<allow|deny>
+  (cd "$T" && py -c "import json,sys;sys.exit(0 if sys.argv[3] in json.load(open(sys.argv[1]))['permissions'][sys.argv[2]] else 1)" "$1.json" "$2" "$3")
 }
 expect_pass(){ # <name> <extra deny rule|''> <description>
   run_check "$1" "$2"
@@ -105,5 +154,71 @@ expect_pass read    'Read(~/bss-*/**)'       "a Read deny is not an edit deny an
 run_check leftover 'Edit(<one Edit line per forbidden path>)'
 [ "$RC" -eq 1 ] && grep -qxF 'UNRENDERED RULE: Edit(<one Edit line per forbidden path>)' "$T/leftover.out"
 check $? "an unrendered placeholder rule still fails"
+
+# --- (A) section-3 denies must reach the story worktrees <NIGHT_DIR>/wt/<id>/ -----------------
+WT="//${NIGHT#/}/wt/*"           # the mirror prefix as rendered: '//' + NIGHT_DIR without its leading '/'
+S3A='Edit(apps/admin/.env.local)'; S3B='Edit(apps/admin/src/auth*.ts)'
+S3C='Edit(apps/admin/src/middleware.ts)'   # wildcard-free and covered by no template rule, for the probe
+expect_pass_n(){ # <name> <description> <extra deny rule...>
+  local n=$1 d=$2; shift 2
+  run_check "$n" "$@"; [ "$RC" -eq 0 ] && [ ! -s "$T/$n.out" ]; check $? "$d"
+}
+expect_pass_n s3 "section-3 rules (wildcard-free and wildcard) with their worktree mirrors pass" "$S3A" "$S3B" "$S3C"
+has s3 deny "Edit($WT/apps/admin/.env.local)"; check $? "the wildcard-free section-3 rule is mirrored to wt/*/"
+has s3 deny "Edit($WT/apps/admin/src/auth*.ts)"; check $? "the wildcard section-3 rule is mirrored to wt/*/"
+has s3 deny "Edit($WT/.github/**)" && has s3 deny "Read($WT/**/.env)"
+check $? "the template's own repo-relative Edit/Read denies are mirrored too"
+denies s3 Edit "$NIGHT/wt/S1/apps/admin/.env.local"; check $? "wt/S1/apps/admin/.env.local is Edit-denied"
+denies s3 Edit "$NIGHT/wt/S1/apps/admin/src/auth-x.ts"; check $? "wt/S1/apps/admin/src/auth-x.ts is Edit-denied"
+! denies s3 Edit "$NIGHT/wt/S1/src/index.ts"; check $? "wt/S1/src/index.ts stays editable"
+DROP="Edit($WT/apps/admin/src/middleware.ts)" run_check s3drop "$S3A" "$S3B" "$S3C"
+[ "$RC" -eq 1 ] && grep -qxF "MISSING WT MIRROR: $S3C" "$T/s3drop.out"
+check $? "a removed mirror fails with MISSING WT MIRROR: $S3C"
+grep -qxF "WT PATH NOT DENIED: $S3C -> $NIGHT/wt/S1/apps/admin/src/middleware.ts" "$T/s3drop.out"
+check $? "a removed mirror of a wildcard-free rule fails the worktree probe (WT PATH NOT DENIED)"
+DROP="Edit($WT/apps/admin/src/auth*.ts)" run_check s3dropw "$S3A" "$S3B" "$S3C"
+[ "$RC" -eq 1 ] && grep -qxF "MISSING WT MIRROR: $S3B" "$T/s3dropw.out" && ! grep -q 'WT PATH NOT DENIED' "$T/s3dropw.out"
+check $? "a removed wildcard mirror fails with MISSING WT MIRROR only (wildcard globs are not probed)"
+DROP="Edit($WT/.github/**)" run_check s3dropt
+[ "$RC" -eq 1 ] && grep -qxF 'MISSING WT MIRROR: Edit(.github/**)' "$T/s3dropt.out"
+check $? "a removed mirror of a template rule fails with MISSING WT MIRROR: Edit(.github/**)"
+expect_pass_n dotrel2 "a './' section-3 rule is mirrored without its './'" 'Read(./secrets/key.pem)'
+has dotrel2 deny "Read($WT/secrets/key.pem)"; check $? "Read(./secrets/key.pem) -> Read($WT/secrets/key.pem)"
+expect_fail srcdeny 'Edit(src/**)' "DENY COVERS RUN TREE: Edit($WT/src/**)" \
+  "a section-3 rule whose mirror covers wt/S1/src/index.ts fails"
+
+# --- (B) .env.example stays readable and editable, .env and .env.local do not -----------------
+for p in "$BASE/.env.example" "$BASE/apps/admin/.env.example" "$NIGHT/wt/S1/.env.example" "$NIGHT/wt/S1/apps/admin/.env.example"; do
+  ! denies base 'Edit|Read' "$p"; check $? "no rendered Read/Edit deny covers ${p#"$HOME"/}"
+done
+for p in "$BASE/.env" "$BASE/apps/admin/.env.local" "$NIGHT/wt/S1/.env" "$NIGHT/wt/S1/apps/admin/.env.local"; do
+  denies base Read "$p" && denies base Edit "$p"; check $? "${p#"$HOME"/} is Read- and Edit-denied"
+done
+
+# --- (C) docker: NIGHT-RULES section 7 decides --------------------------------------------------
+BLANKET=('Bash(*docker *)' 'Bash(*docker-compose*)')
+SCOPED=('Bash(docker ps*)' 'Bash(docker logs bss-sandbox-*)' 'Bash(docker exec bss-sandbox-*)'
+        'Bash(docker restart bss-sandbox-*)' 'Bash(docker run --rm --name night-*)' 'Bash(docker rm -f night-*)'
+        'Bash(docker compose -p night-* *)' 'Bash(docker build *)' 'Bash(docker pull *)')
+RULES=allowed.md expect_pass_n dalw "docker allowed: the render passes the rules check"
+ok_=0; for r in "${SCOPED[@]}"; do has dalw allow "$r" || { echo "  missing allow: $r"; ok_=1; }; done
+check $ok_ "docker allowed: all nine scoped allows rendered with the container prefix"
+! has dalw deny "${BLANKET[0]}" && ! has dalw deny "${BLANKET[1]}"
+check $? "docker allowed: no blanket docker deny left"
+for f in denied nodocker; do
+  RULES=$f.md expect_pass_n "d$f" "docker $f: the render passes the rules check"
+  has "d$f" deny "${BLANKET[0]}" && has "d$f" deny "${BLANKET[1]}" && ! grep -q 'Bash(docker' "$T/d$f.json"
+  check $? "docker $f: both blanket docker denies kept, no docker allow"
+done
+RULES=denied.md CHECK_RULES=allowed.md run_check dmis1
+[ "$RC" -eq 1 ] && grep -qxF "DOCKER RULE MISMATCH: docker allowed in section 7, blanket deny still rendered: ${BLANKET[0]}" "$T/dmis1.out"
+check $? "section 7 allowed but the blanket deny rendered fails with DOCKER RULE MISMATCH"
+RULES=allowed.md CHECK_RULES=denied.md run_check dmis2
+[ "$RC" -eq 1 ] && grep -qxF "DOCKER RULE MISMATCH: docker denied in section 7, docker allow rendered: ${SCOPED[0]}" "$T/dmis2.out"
+check $? "section 7 denied but a docker allow rendered fails with DOCKER RULE MISMATCH"
+
+# --- (D) saver-level allows --------------------------------------------------------------------
+has base allow 'Bash(glm *)' && has base allow 'Bash(worker --usage*)' && has base allow 'Bash(worker --status*)'
+check $? "the glm / worker --usage / worker --status allows are rendered"
 
 nr_summary deny-run-tree

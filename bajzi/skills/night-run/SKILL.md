@@ -387,17 +387,65 @@ The JSON template is NOT copy-ready and its own `_comment_placeholders` says wha
 - ONE `Edit(<glob>)` deny line per forbidden path in `docs/NIGHT-RULES.md` section 3, and
   one `Read(<glob>)` deny line per secret file. This translation is section 3's ONLY
   enforcement channel — sections 1, 5 and 6 are wired into the brief, section 3 is prose
-  until you turn it into rules.
+  until you turn it into rules. An env-file entry is written `.env.[!e]*`, never `.env.*`:
+  the `*` form also denies the tracked `.env.example` (the ceiling of `[!e]`: it also
+  exempts `.env.e2e` and any other `.env.e*` name).
 - The deployed-tree lines: the real path, or delete them. In a file rule a single leading
   `/` is resolved relative to `<BASE>` and therefore matches NOTHING; write `~/...` for
   home paths and a DOUBLED `//...` for anything else.
 - `<PR number the run must never merge>` from NIGHT-RULES section 1, or delete the line.
 
+Then run the post-render step. It does two mechanical things in place, after the section-3
+lines are in: (1) NIGHT-RULES section 7's docker line — `docker: denied`, also the default
+when the line is missing, keeps the template's blanket `Bash(*docker *)` /
+`Bash(*docker-compose*)` denies; `docker: allowed, container prefix <prefix>` removes both
+and adds the scoped allows below (container logs/exec/restart by prefix, throwaway
+`night-*` containers and compose projects, build, pull). (2) Story worktrees: a
+repo-relative `Edit(<glob>)`/`Read(<glob>)` deny resolves against the session cwd (`BASE`),
+but stories work in `<NIGHT_DIR>/wt/<id>`, so every repo-relative one (its glob does not
+start with `~` or `/`; a leading `./` is dropped) gets a mirror
+`Edit(//<NIGHT_DIR without its leading slash>/wt/*/<glob>)` / `Read(...)`. A mirror is
+rooted at the worktree top: a slash-less glob that matches at any depth in `BASE` matches
+only at the worktree root, so write such section-3 entries as `**/<name>`.
+
+```bash
+python3 - /home/ubuntu/night-runs/<project>/settings.local.json <NIGHT_DIR> <BASE>/docs/NIGHT-RULES.md <<'POST'
+import json, re, sys
+f, night, md = sys.argv[1], sys.argv[2].rstrip("/"), sys.argv[3]
+s = json.load(open(f, encoding="utf-8"))
+p = s["permissions"]
+def docker_prefix(md):  # NIGHT-RULES section 7 `docker: allowed, container prefix <p>` -> p; denied / no line / no file -> None
+    try:
+        sec = re.split(r"(?m)^## 7\.", open(md, encoding="utf-8").read(), maxsplit=1)[1].split("\n## ", 1)[0]
+    except (OSError, IndexError):
+        return None
+    m = re.search(r"docker:\s*`?allowed,\s*container prefix\s+`?([A-Za-z0-9][A-Za-z0-9_.-]*)", sec)
+    return m[1] if m else None
+pre = docker_prefix(md)
+if pre:
+    p["deny"] = [r for r in p["deny"] if r not in ("Bash(*docker *)", "Bash(*docker-compose*)")]
+    p["allow"] += [r for r in ("Bash(docker ps*)", "Bash(docker logs %s-*)" % pre, "Bash(docker exec %s-*)" % pre,
+                               "Bash(docker restart %s-*)" % pre, "Bash(docker run --rm --name night-*)",
+                               "Bash(docker rm -f night-*)", "Bash(docker compose -p night-* *)",
+                               "Bash(docker build *)", "Bash(docker pull *)") if r not in p["allow"]]
+for r in list(p["deny"]):
+    m = re.fullmatch(r"(Edit|Read)\(([^~/].*)\)", r)   # repo-relative: no leading ~ or /
+    if m:
+        w = "%s(/%s/wt/*/%s)" % (m[1], night, m[2][2:] if m[2].startswith("./") else m[2])
+        if w not in p["deny"]:
+            p["deny"].append(w)
+json.dump(s, open(f, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+print("docker:", "allowed, prefix " + pre if pre else "denied", "| deny", len(p["deny"]), "| allow", len(p["allow"]))
+POST
+```
+
+Read its `docker:` line back against section 7: `denied` while the owner wrote `allowed` means
+the line is not in the `docker: allowed, container prefix <prefix>` form — fix the file, re-run.
 Then prove the render, with the `~` expanded:
 
 ```bash
 python3 -c "import json;json.load(open('/home/ubuntu/night-runs/<project>/settings.local.json'))" && echo JSON_OK
-python3 - /home/ubuntu/night-runs/<project>/settings.local.json <BASE> <NIGHT_DIR> <<'PY'
+python3 - /home/ubuntu/night-runs/<project>/settings.local.json <BASE> <NIGHT_DIR> <BASE>/docs/NIGHT-RULES.md <<'PY'
 import json, os, re, sys
 perms = json.load(open(sys.argv[1]))["permissions"]
 base, night = sys.argv[2].rstrip("/"), sys.argv[3].rstrip("/")   # config.env BASE / NIGHT_DIR, absolute
@@ -425,15 +473,44 @@ def up(p):  # the probe and every directory above it: a deny on a directory cove
         yield p
         p = p.rpartition("/")[0]
 probes = [base + "/runtime/" + f for f in ("AUTOPILOT-REPORT.md", "DECISIONS.md", "handoff/night-S1.md",
-                                           "handoff/night-latest.md")] + [night + "/wt/S1/file"]
+                                           "handoff/night-latest.md")] + [night + "/wt/S1/file", night + "/wt/S1/src/index.ts"]
 hits = [r for r in perms.get("deny", [])
         if (m := re.fullmatch(r"(?:Edit|Write)\((.*)\)", r))
         and any(rx(path(m[1])).match(a) for p in probes for a in up(p))]
 for r in hits:
     print("DENY COVERS RUN TREE:", r)
-sys.exit(1 if bad or hits else 0)
+deny, allow = perms.get("deny", []), perms.get("allow", [])
+def denied(kind, p):  # a <kind> deny covers the path p or a directory above it
+    return any((m := re.fullmatch(kind + r"\((.*)\)", r)) and any(rx(path(m[1])).match(a) for a in up(p)) for r in deny)
+wt = []   # every repo-relative Edit/Read deny needs its story-worktree mirror, and a wildcard-free one must deny there
+for r in deny:
+    m = re.fullmatch(r"(Edit|Read)\(([^~/].*)\)", r)
+    if not m:
+        continue
+    g = m[2][2:] if m[2].startswith("./") else m[2]
+    if "%s(/%s/wt/*/%s)" % (m[1], night, g) not in deny:
+        wt.append(r)
+        print("MISSING WT MIRROR:", r)
+    if not re.search(r"[*?[]", g) and not denied(m[1], night + "/wt/S1/" + g.rstrip("/")):
+        wt.append(r)
+        print("WT PATH NOT DENIED: %s -> %s/wt/S1/%s" % (r, night, g.rstrip("/")))
+def docker_prefix(md):  # NIGHT-RULES section 7 `docker: allowed, container prefix <p>` -> p; denied / no line / no file -> None
+    try:
+        sec = re.split(r"(?m)^## 7\.", open(md, encoding="utf-8").read(), maxsplit=1)[1].split("\n## ", 1)[0]
+    except (OSError, IndexError):
+        return None
+    m = re.search(r"docker:\s*`?allowed,\s*container prefix\s+`?([A-Za-z0-9][A-Za-z0-9_.-]*)", sec)
+    return m[1] if m else None
+if docker_prefix(sys.argv[4] if len(sys.argv) > 4 else ""):
+    dock = ["docker allowed in section 7, blanket deny still rendered: " + r for r in deny
+            if r in ("Bash(*docker *)", "Bash(*docker-compose*)")]
+else:
+    dock = ["docker denied in section 7, docker allow rendered: " + r for r in allow if "docker" in r]
+for d in dock:
+    print("DOCKER RULE MISMATCH:", d)
+sys.exit(1 if bad or hits or wt or dock else 0)
 PY
-echo "rules rc=$?"   # 0 = every allow/deny/ask entry is rendered AND no Edit/Write deny covers the run's own trees; anything else = the lines above
+echo "rules rc=$?"   # 0 = every rule rendered, no Edit/Write deny covers the run's own trees, every repo-relative Edit/Read deny is mirrored into wt/*, docker matches section 7; anything else = the lines above
 ```
 
 `<BASE>` and `<NIGHT_DIR>` are config.env's `BASE` and `NIGHT_DIR`, absolute (the same values
@@ -441,8 +518,16 @@ that scope the `git -C` allow rules). The second check exists because the run's 
 must be able to write in `<BASE>/runtime/` (`AUTOPILOT-REPORT.md`, `DECISIONS.md`, `handoff/night-*.md`) and in
 `<NIGHT_DIR>/wt/<id>/`: a section-3 `Edit(<glob>)` line that covers any of those (e.g. an
 innotel `Edit(~/bss-*/**)` next to `BASE=~/bss-night`) prints `DENY COVERS RUN TREE: <rule>`
-and fails the render. Narrow the glob to the protected subtree, or drop the rule. The check is
-proved by `bajzi/skills/night-run/tests/deny-run-tree.sh`, which runs THIS snippet.
+and fails the render. Narrow the glob to the protected subtree, or drop the rule. The same
+probe list holds `<NIGHT_DIR>/wt/S1/src/index.ts`, so a mirror that would freeze ordinary
+story code fails the same way. The third check fails with `MISSING WT MIRROR: <rule>` for a
+repo-relative `Edit`/`Read` deny the post-render step did not mirror, and with
+`WT PATH NOT DENIED: <rule> -> <NIGHT_DIR>/wt/S1/<glob>` when a wildcard-free one does not
+actually deny that worktree path (re-run the post-render step). The fourth takes
+`<BASE>/docs/NIGHT-RULES.md` as its last argument and fails with
+`DOCKER RULE MISMATCH: <why>` when section 7 says `allowed` but a blanket docker deny is still
+rendered, or says `denied` (or nothing) while an allow rule names docker. Both snippets are
+proved by `bajzi/skills/night-run/tests/deny-run-tree.sh`, which extracts and runs them.
 
 **The check is scoped to the RULES, never to the whole file, and that is load-bearing.** A
 whole-file `grep '<[A-Za-z]'` is UNSATISFIABLE: on a PERFECT render it still returns 6 hits,
@@ -468,7 +553,9 @@ for hours while the owner sleeps, so the gate is not optional. Show:
 3. what was deferred, and why; 4. every blocker PHASE A found;
 5. one line that the PHASE C render gate came back clean: no leftover `{{placeholder}}` in
    `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
-   `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:` and no `DENY COVERS RUN TREE:` line (`rules rc=0`).
+   `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:`, no `DENY COVERS RUN TREE:`, no `MISSING WT MIRROR:`, no
+   `WT PATH NOT DENIED:` and no `DOCKER RULE MISMATCH:` line (`rules rc=0`), plus the
+   docker choice the post-render step printed (`docker: denied` or `docker: allowed, prefix <prefix>`).
    Say it in those words. The `_comment*` keys of `settings.local.json` DO still contain
    `<angle-bracket>` text and that is correct — they are documentation, they are not rules,
    and they are outside the check on purpose. If the rules check did not come back 0, you

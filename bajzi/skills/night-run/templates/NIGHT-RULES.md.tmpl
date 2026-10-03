@@ -51,10 +51,13 @@ below into an `Edit(<glob>)` deny line (and every secret into a `Read(<glob>)`
 deny line) in the generated `settings.local.json`. So write each entry as a real
 glob, repo-relative for paths inside the repo and with a DOUBLED leading slash
 or a `~/` for anything outside it — `/x/**` alone is read as repo-relative and
-would silently match nothing.
+would silently match nothing. PHASE C also mirrors every repo-relative entry into
+the story worktrees; a mirror is rooted at the worktree top, so an entry meant to
+match at any depth is written `**/<name>`. Env files are `**/.env.[!e]*`, never
+`**/.env.*`, so the tracked `.env.example` stays editable.
 
 - `<.github/**>` — `<CI config is daylight-only work>`
-- `<path/to/secrets/**>`, `<**/.env>` — `<credentials>`
+- `<path/to/secrets/**>`, `<**/.env>`, `<**/.env.[!e]*>` — `<credentials>`
 - `<~/another-product-tree/**>` — `<not this project>`
 
 ## 4. Migration policy
@@ -93,6 +96,15 @@ never touch or restart. Cross-check `~/infra/INVENTORY.md` and `~/infra/PORTS.md
 - Never stop or restart: `<container/service names>`
 - Ports owned by others: `<port list>`
 - Deployed tree — worktree/branch/tag operations only, never development: `<path>`
+- docker: `<denied|allowed, container prefix <prefix>>`
+
+The docker line is required; write exactly `docker: denied` or
+`docker: allowed, container prefix <prefix>`. Choose `allowed` only when the
+project's sandbox runs in docker and stories must read its logs, exec into it,
+restart it or start throwaway test containers: PHASE C then replaces the blanket
+docker deny with allows scoped to containers named `<prefix>-*` plus throwaway
+`night-*` containers and compose projects, image build and pull. `denied` (and a
+missing line) keeps every docker command denied.
 
 ## 8. Resource floors
 

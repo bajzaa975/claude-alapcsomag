@@ -252,6 +252,8 @@ test('real manifest: new blocks present, GSD retired, no GSD permissions left', 
   assert.strictEqual(m.gsd.machine_exception, undefined);
   assert.strictEqual(m.gsd.laptop_retained_hooks, undefined);   // removed at the cut-over (Task 8 Step 10)
   assert.strictEqual(m.settings_merge.permissions.defaultMode, 'auto');
+  // .env.[!e]* keeps the tracked .env.example readable; .env.* would make setup revert that narrowing as drift
+  assert.deepStrictEqual(m.settings_merge.permissions.deny, ['Read(.env)', 'Read(.env.[!e]*)', 'Read(.secrets)']);
   assert.strictEqual(m.settings_merge.remoteControlAtStartup, true);
   assert.deepStrictEqual(m.user_mcps['code-review-graph'].args, ['code-review-graph', 'serve']);
   assert.deepStrictEqual(m.secret_patterns, ['*.pem', '*.key', 'id_rsa*', 'id_ed25519*', 'credentials.json']);
