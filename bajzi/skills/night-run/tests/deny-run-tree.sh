@@ -257,7 +257,7 @@ check $? "section 7 allowed but a never-stop deny missing fails with DOCKER RULE
 grep -qxF "DOCKER RULE MISMATCH: docker allowed in section 7, never-stop name not denied: docker rm -f night-x prod-db" "$T/dmis3.out" \
   && grep -qxF "DOCKER RULE MISMATCH: docker allowed in section 7, never-stop name not denied: docker restart bss-sandbox-a prod-db" "$T/dmis3.out"
 check $? "the check probes each never-stop name (docker rm -f night-x / docker restart <prefix>-a), not only rule presence"
-# Never-stop names: backticked token if present, else the first word of each item; notes in parentheses dropped.
+# Never-stop names: every backticked token, else a plain item's single word; notes in parentheses dropped.
 rules plain.md '- docker: `allowed, container prefix bss-sandbox`' 'prod-db (postgres), redis'
 RULES=plain.md expect_pass_n dplain "plain-text never-stop line 'prod-db (postgres), redis': the render passes the rules check"
 for c in 'docker rm -f night-x prod-db' 'docker restart bss-sandbox-a redis'; do
@@ -282,6 +282,19 @@ rules unfilled.md '- docker: `allowed, container prefix bss-sandbox`' "$NS"
 RULES=unfilled.md run_check dunfilled
 [ "$RC" -eq 1 ] && grep -qxF 'NEVER-STOP NAME UNPARSEABLE: `<name>` (<optional note>)' "$T/dunfilled.out"
 check $? "the unfilled template placeholder fails with NEVER-STOP NAME UNPARSEABLE"
+# Every backticked token is a name, in any separator form; a plain item must be one name (plus an optional note).
+i=0; for ns in '`prod-db` `redis`' '`prod-db` / `redis`' '`prod-db` and `redis`.'; do
+  i=$((i+1)); rules "multi$i.md" '- docker: `allowed, container prefix bss-sandbox`' "$ns"
+  RULES=multi$i.md expect_pass_n "dmulti$i" "never-stop item '$ns': the render passes the rules check"
+  bash_denied "dmulti$i" 'docker rm -f night-x prod-db' && bash_denied "dmulti$i" 'docker restart bss-sandbox-a redis'
+  check $? "never-stop item '$ns': both prod-db and redis are denied"
+done
+i=0; for ns in 'main postgres db' 'prod-db / redis' '`prod-db` redis' '`none` redis'; do
+  i=$((i+1)); rules "plainbad$i.md" '- docker: `allowed, container prefix bss-sandbox`' "\`ok-db\`, $ns"
+  RULES=plainbad$i.md run_check "dplainbad$i"
+  [ "$RC" -eq 1 ] && grep -qxF "NEVER-STOP NAME UNPARSEABLE: $ns" "$T/dplainbad$i.out"
+  check $? "never-stop item '$ns' fails with NEVER-STOP NAME UNPARSEABLE instead of keeping one word"
+done
 for f in denied nodocker; do
   RULES=$f.md expect_pass_n "d$f" "docker $f: the render passes the rules check"
   has "d$f" deny "${BLANKET[0]}" && has "d$f" deny "${BLANKET[1]}" && ! grep -q 'Bash(docker' "$T/d$f.json" \

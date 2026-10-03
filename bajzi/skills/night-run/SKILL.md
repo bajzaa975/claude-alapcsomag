@@ -407,9 +407,9 @@ default when the line is missing, keeps the template's blanket `Bash(*docker *)`
 `Bash(*docker-compose*)` denies; `docker: allowed, container prefix <prefix>` removes both,
 adds the scoped allows (container logs/exec/restart by prefix, throwaway `night-*`
 containers and compose projects, build, pull) AND adds denies: one `Bash(*docker*<name>*)`
-per name on section 7's "Never stop or restart" line (per comma-separated item: the
-backticked token when present, else its first word, a trailing `(note)` or punctuation
-dropped; a name must match `^[A-Za-z0-9][A-Za-z0-9_.-]*$`), plus `-v `, `--volume`, `--mount`,
+per name on section 7's "Never stop or restart" line (per comma-separated item, `(note)`s
+dropped: every backticked token, else the item's single word, several plain words being
+unparseable; a name must match `^[A-Za-z0-9][A-Za-z0-9_.-]*$`), plus `-v `, `--volume`, `--mount`,
 `--privileged`, `docker.sock` and `prune`. Story sessions run in auto mode and a deny always
 beats an allow; a Bash rule's `*` also matches spaces, so `docker rm -f night-*` alone would
 approve `docker rm -f night-x prod-db` — the denies are what protect the neighbours. They are
@@ -432,16 +432,21 @@ def mirror(kind, night, g):  # the story-worktree mirror; a slash-less glob matc
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 def never_stop(line):  # section 7 "Never stop or restart" line -> (names, items with no valid name)
     names, bad = [], []
-    for item in re.split(r",(?![^()]*\))", line):  # a comma inside a (note) does not split
+    for item in re.split(r",(?=(?:[^`]*`[^`]*`)*[^`]*$)(?![^()]*\))", line):  # no split inside a (note) or `span`
         item = item.strip()
         core = re.sub(r"\([^()]*\)", " ", item)     # a (note) is dropped first, backticks inside it included
-        b = re.search(r"`([^`]+)`", core)           # the backticked token when present, else the first word
-        w = re.split(r"[\s(]", (b[1] if b else core).strip(" `"), maxsplit=1)[0]
-        w = w.strip("`").rstrip(".,;:!?")
-        if not item or w.lower() == "none":
+        ticks = re.findall(r"`([^`]*)`", core)
+        rest = re.sub(r"`[^`]*`", " ", core).strip(" `.,;:!?")
+        if ticks:   # every backticked token is a name; outside them only separators may stand
+            ws = [w for t in ticks for w in re.split(r"[\s,/]+", t) if w]
+            ok = not re.sub(r"(?i)\b(?:and|or)\b|[\s/&+.,;:!?]", "", rest)
+        else:       # a plain item is exactly one name, else it is unparseable rather than guessed
+            ws = rest.split()
+            ok = len(ws) == 1
+        if not item or ok and [w.lower() for w in ws] == ["none"]:
             continue
-        if NAME.fullmatch(w):
-            names.append(w)
+        if ok and ws and all(NAME.fullmatch(w) for w in ws):
+            names += ws
         else:
             bad.append(item)
     return names, bad
@@ -486,9 +491,11 @@ POST
 
 Read its `docker:` line back against section 7: `denied` while the owner wrote `allowed` means
 the line is not in the `docker: allowed, container prefix <prefix>` form — fix the file, re-run.
-Under `allowed`, a never-stop item that yields no valid name (an unfilled `<name>`
-placeholder, `(see wiki)`) renders no deny and fails the rules check with
-`NEVER-STOP NAME UNPARSEABLE: <item>`: fill it in (or write `none`).
+Under `allowed`, every backticked token on the never-stop line is a name (`` `a` `b` ``,
+`` `a` / `b` `` both give two); a plain item without backticks must be one name plus an
+optional `(note)`. An item that yields no valid name (an unfilled `<name>` placeholder,
+`(see wiki)`) or is several plain words (`main postgres db`, `a / b`) renders no deny and
+fails the rules check with `NEVER-STOP NAME UNPARSEABLE: <item>`: fix it (or write `none`).
 Then prove the render, with the `~` expanded:
 
 ```bash
@@ -593,7 +600,8 @@ rendered, a scoped allow / never-stop / mount deny is missing, or a probe
 `docker rm -f night-x <name>` / `docker restart <prefix>-a <name>` is not denied for a parsed
 never-stop name, or says `denied` (or nothing) while an allow rule names docker, a blanket
 deny is missing or a deny the `allowed` choice added is left. Under `allowed` it also fails
-with `NEVER-STOP NAME UNPARSEABLE: <item>` for a never-stop item that yields no valid name.
+with `NEVER-STOP NAME UNPARSEABLE: <item>` for a never-stop item that yields no valid name
+or is several plain words.
 All three heredocs are proved by
 `bajzi/skills/night-run/tests/deny-run-tree.sh`, which extracts and runs them.
 

@@ -101,7 +101,7 @@ never touch or restart. Cross-check `~/infra/INVENTORY.md` and `~/infra/PORTS.md
 Write the never-stop container/service names in backticks, comma-separated, one
 name per pair of backticks, any note after the name in parentheses:
 `` `prod-db` (postgres), `redis` ``, or `none`. A name is letters, digits, `_`,
-`.` and `-`. With docker `allowed`, PHASE C denies every docker command naming
+`.` and `-`; an item without backticks must be a single name. With docker `allowed`, PHASE C denies every docker command naming
 one, and an item it cannot read as a name fails the render with
 `NEVER-STOP NAME UNPARSEABLE`.
 
