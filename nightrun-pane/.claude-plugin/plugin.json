@@ -1,0 +1,9 @@
+{
+  "name": "nightrun-pane",
+  "version": "0.1.0",
+  "description": "/nightrun: pane with the newest night run's sprint states and log tail",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "bajzaa975"
+  }
+}
