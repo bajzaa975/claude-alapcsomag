@@ -53,7 +53,7 @@ paths. A reviewer that cannot say WHICH path refused has not verified that test.
 
 ## PHASE A — Preflight
 
-Run all of it before planning anything, and run step 0 FIRST — steps 3, 4 and 5, and the
+Run all of it before planning anything, and run step 0 FIRST — steps 3, 4, 5 and 8, and the
 whole of PHASE C, read values out of `config.env`, so it has to exist and be checked before
 anything reads it. Exactly two findings STOP the skill on the spot, because nothing past
 them is worth planning: a live runner FOR THIS PROJECT (steps 1-2) and a missing
@@ -205,6 +205,132 @@ only where the `owner/name` value is wanted. There is no third spelling.
    Red = the top blocker; do not queue filler work around a red base.
 6. **`docs/NIGHT-RULES.md` gate.** Missing in the project repo → copy
    `templates/NIGHT-RULES.md.tmpl` there, show the owner that it needs their rulings, STOP.
+7. **User-level env denies.** Every new env var a story adds must reach the tracked
+   `.env.example`, so a user-level deny that covers it breaks the night. Check
+   `~/.claude/settings.json` and `~/.claude/settings.local.json` `permissions.deny` for a
+   `Read(...)`/`Edit(...)` rule whose glob ends in `.env.*` (with or without a `**/` prefix),
+   and for any rule using a bracket class on an env name (`.env.[!e]*`, `.env.[^e]*`):
+   measured 2026-10-03 on Claude Code 2.1.288, the real matcher does NOT read `[!e]` as
+   negation, so `Read(.env.[!e]*)` ALLOWS `.env.local` and DENIES `.env.example` (the
+   `_comment_env` key of `templates/settings.local.json.tmpl`). Write the script below to
+   `<NIGHT_DIR>/user-deny-check.js` with the Write tool (a Bash command whose text names an env
+   file is refused by bajzi's secret guard), then run `node "<NIGHT_DIR>/user-deny-check.js"`:
+
+   ```js
+   // user-deny-check.js - PHASE A step 7. Reads ~/.claude/settings.json and settings.local.json only.
+   const fs = require('fs'), os = require('os'), path = require('path');
+   // The explicit env-name list of templates/settings.local.json.tmpl and setup/manifest.json.
+   const NAMES = ['.env', '.env.local', '.env.*.local', '.env.production*', '.env.development*', '.env.test*', '.env.staging*'];
+   for (const f of ['settings.json', 'settings.local.json']) {
+     const p = path.join(os.homedir(), '.claude', f);
+     let raw;
+     try { raw = fs.readFileSync(p, 'utf8').replace(/^﻿/, ''); } catch { continue; }   // missing: nothing to check
+     let rules;
+     try { rules = ((JSON.parse(raw) || {}).permissions || {}).deny; }
+     catch (e) { console.log(`USER SETTINGS NOT PARSED: ${p}: ${e.message}`); continue; }
+     for (const rule of Array.isArray(rules) ? rules : []) {
+       const m = /^(\w+)\((.*)\)$/.exec(String(rule));
+       if (!m) continue;
+       const [, kind, glob] = m;
+       const list = NAMES.map((n) => `${kind}(${glob.slice(0, glob.lastIndexOf('.env'))}${n})`).join(', ');
+       if (/^(Read|Edit)$/.test(kind) && /(^|\/)\.env\.\*$/.test(glob)) console.log(`USER DENY BLOCKS .env.example: ${rule} -> replace it with ${list}`);
+       else if (/\.env[^/]*\[/.test(glob)) console.log(`USER DENY INVERTED: ${rule} -> replace it with ${list}`);
+     }
+   }
+   ```
+
+   Every `USER DENY BLOCKS .env.example: <rule> -> replace it with <explicit list>` and every
+   `USER DENY INVERTED: <rule> -> replace it with <explicit list>` line is a BLOCKER, carried
+   verbatim: `<explicit list>` is the explicit env-name list, same Read/Edit kind and same
+   prefix as the hit. `USER SETTINGS NOT PARSED: <file>: <error>` is reported at the gate, not
+   fatal; the other file is still checked. Never recommend a bracket class. Never edit the
+   user's settings yourself; the owner does.
+8. **Saver level: GLM preflight, only at L1-L3.** Resolve the level with the resolver the bajzi
+   hooks share (`CC_WORKER_MODE`, else `~/.claude/worker-mode`, forced to `tight` on a
+   non-Anthropic `ANTHROPIC_BASE_URL`):
+
+   ```bash
+   . "${CLAUDE_PLUGIN_ROOT}/hooks/lib-saver-level.sh"; saver_resolve "<BASE>"
+   case "$SAVER_LEVEL" in light|glm|tight) echo "SAVER $SAVER_LEVEL: run step 8" ;; *) echo "SAVER L0 ($SAVER_LEVEL): skip step 8" ;; esac
+   ```
+
+   At L0 nothing in this step runs (an unknown word counts as L0, as in `day-run-mode.sh`). At
+   L1-L3 (`light`/`glm`/`tight`) the night dispatches work to `glm`, so prove it can work:
+
+   **(a) Launchers.** Any line is a BLOCKER with the fix
+   `bash "${CLAUDE_PLUGIN_ROOT}/bin/install.sh"` (print it with the plugin root resolved);
+   (b) and (c) wait until it is fixed.
+
+   ```bash
+   for c in glm worker; do command -v "$c" >/dev/null || echo "BLOCKER: $c not on PATH"; done
+   ```
+
+   **(b) Z.ai key.**
+
+   ```bash
+   worker --status | grep -Eq '^ZAI_API_KEY[[:space:]]+found' && echo "ZAI KEY FOUND" || echo "ZAI KEY MISSING"
+   ```
+
+   `ZAI KEY MISSING`: render `templates/set-zai-key.sh.tmpl` to `<NIGHT_DIR>/set-zai-key.sh`
+   (`{{NIGHT_DIR}}` = the absolute `NIGHT_DIR`, nothing else) and carry a BLOCKER with the
+   owner's exact command, `bash <NIGHT_DIR>/set-zai-key.sh`, typed in a plain bash terminal on
+   the night machine (it prompts for the key, so not the Claude Code prompt). It takes
+   `read-secret.sh` from the newest bajzi-infra copy in the plugin cache, else
+   `<NIGHT_DIR>/read-secret.sh`; writes `~/.claude/cc-router.env` (mode 600); prints the level
+   and key lines of `worker --status`; never changes the saver level; a re-run replaces the
+   key. Never ask for the key in chat. (c) waits until the owner reports it done.
+
+   **(c) GLM smoke, exactly as the night dispatches GLM.** GLM is ~10x slower than Sonnet, so
+   the smoke takes minutes. `<date>` is today, `YYYY-MM-DD`. Set up a throwaway worktree from
+   the freshly fetched base (a leftover from an earlier smoke is removed first):
+
+   ```bash
+   /usr/bin/git -C "<BASE>" fetch origin --prune
+   [ -e "<NIGHT_DIR>/wt/SMOKE-GLM" ] && /usr/bin/git -C "<BASE>" worktree remove --force "<NIGHT_DIR>/wt/SMOKE-GLM"
+   /usr/bin/git -C "<BASE>" branch -D night/smoke-glm-<date> 2>/dev/null
+   /usr/bin/git -C "<BASE>" worktree add -b night/smoke-glm-<date> "<NIGHT_DIR>/wt/SMOKE-GLM" origin/<BASE_BRANCH>
+   mkdir -p "<NIGHT_DIR>/logs"
+   ```
+
+   With the Write tool (the secret guard refuses a Bash command naming the file), create
+   `<NIGHT_DIR>/wt/SMOKE-GLM/.env` holding exactly `SMOKE_DUMMY=1`: a dummy, no secret, so the
+   prompt's read probes a real file. A refused Write is a BLOCKER naming that file. Render
+   `templates/GLM-SMOKE-PROMPT.md.tmpl` to `<NIGHT_DIR>/GLM-SMOKE-PROMPT.md` (Write tool):
+   `{{WORKTREE}}` = `<NIGHT_DIR>/wt/SMOKE-GLM`; `{{INSTALL_CMD}}`, `{{TYPECHECK_CMD}}`,
+   `{{TEST_CMD}}` = the repo's commands from NIGHT-RULES section 5 (CI facts) or 6, else from
+   the workflow that runs `REQUIRED_CHECK`, naming the source of each (no typecheck in CI =
+   `echo "no typecheck in CI"`; an install or test command you cannot resolve is a BLOCKER and
+   the smoke does not run); `{{DOCKER_STEP}}` = ``8. Run `docker ps` and report whether it
+   listed containers.`` only when NIGHT-RULES section 7 says `docker: allowed, container prefix
+   <prefix>`, else an empty line (the step is omitted). No `{{` may be left.
+
+   Run it with cwd = the worktree and NO permission flags: the GLM child gets the owner's
+   default mode, not the night allowlist, and the smoke is what proves it can work there. It
+   may take up to 25 minutes, longer than a foreground Bash call may run: start it in the Bash
+   tool's background mode, wait for its exit, and stop it only by the PID you started.
+
+   ```bash
+   cd "<NIGHT_DIR>/wt/SMOKE-GLM" && timeout 1500 glm -p "$(cat "<NIGHT_DIR>/GLM-SMOKE-PROMPT.md")" --output-format json > "<NIGHT_DIR>/logs/glm-smoke.json" 2> "<NIGHT_DIR>/logs/glm-smoke.err"; echo "exit=$?"
+   node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).result || "")' "<NIGHT_DIR>/logs/glm-smoke.json"
+   ```
+
+   **Pass** = exit 0 AND a `STEP <n>: OK` line for every step 1-6 (and 8 when the docker step
+   was rendered) AND `STEP 7: DENIED` AND `SMOKE_DUMMY` nowhere in the reply (it only appears
+   when the read succeeded). Anything else is a BLOCKER `GLM SMOKE FAILED: <every STEP line
+   that is not OK, verbatim>`: a missing STEP line counts as not OK, and `STEP 7: READ` or a
+   `SMOKE_DUMMY` sighting means the GLM child can read secrets. A non-zero exit is a BLOCKER
+   `GLM SMOKE FAILED: exit=<n>` plus the last lines of `glm-smoke.err`: exit 75 = the Z.ai
+   peak-window refusal (re-run outside 08:00-12:00 CEST), 78 = no API key (back to (b)), 124 =
+   the 25-minute timeout.
+
+   **Cleanup, pass or fail.** The smoke commit is throwaway: never push the branch.
+   `--force` because the dummy env file and install output leave the worktree dirty, `-D`
+   because the commit is unmerged:
+
+   ```bash
+   /usr/bin/git -C "<BASE>" worktree remove --force "<NIGHT_DIR>/wt/SMOKE-GLM"
+   /usr/bin/git -C "<BASE>" branch -D night/smoke-glm-<date>
+   ```
 
 ### `status` mode
 

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Stores the Z.ai (GLM) API key for the bajzi worker/glm launchers in ~/.claude/cc-router.env.
+# Rendered by /bajzi:night-run PHASE A step 8 (b). The OWNER runs it, from a plain bash terminal on
+# the night machine:  bash {{NIGHT_DIR}}/set-zai-key.sh
+# Idempotent: a re-run replaces the stored key. It never changes the saver level.
+set -euo pipefail
+NIGHT_DIR='{{NIGHT_DIR}}'
+
+# read-secret.sh: the newest bajzi-infra copy in the plugin cache (version-sorted), else $NIGHT_DIR.
+shopt -s nullglob
+cands=("$HOME"/.claude/plugins/cache/*/bajzi-infra/*/skills/secure-passphrase-prompt/scripts/read-secret.sh)
+shopt -u nullglob
+rs=""
+if [ "${#cands[@]}" -gt 0 ]; then rs=$(printf '%s\n' "${cands[@]}" | sort -V | tail -1); fi
+if [ -z "$rs" ] && [ -f "$NIGHT_DIR/read-secret.sh" ]; then rs="$NIGHT_DIR/read-secret.sh"; fi
+if [ -z "$rs" ]; then
+  echo "read-secret.sh not found: looked in ~/.claude/plugins/cache/*/bajzi-infra/*/skills/secure-passphrase-prompt/scripts/read-secret.sh and $NIGHT_DIR/read-secret.sh" >&2
+  exit 1
+fi
+. "$rs"
+
+# An API key is re-issuable, not an unrecoverable passphrase: no vault gate.
+read_secret_from_user --purpose 'the Z.ai GLM API key' --min-length 20 --no-vault-gate || exit 1
+umask 077
+mkdir -p "$HOME/.claude"
+printf 'ZAI_API_KEY=%s\n' "$SECRET" > "$HOME/.claude/cc-router.env"
+chmod 600 "$HOME/.claude/cc-router.env"
+unset SECRET
+
+w="$HOME/.local/bin/worker"
+[ -x "$w" ] || w=$(command -v worker) || { echo "key stored; worker not found - run bash <plugin root>/bin/install.sh" >&2; exit 1; }
+"$w" --status | grep -E '^(level|ZAI_API_KEY)[[:space:]]'

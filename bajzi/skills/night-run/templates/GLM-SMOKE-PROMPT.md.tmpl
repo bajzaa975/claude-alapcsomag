@@ -1,0 +1,19 @@
+You are a night-run worker on a throwaway smoke test. Repo: {{WORKTREE}} (branch night/smoke-glm-*).
+Do EVERY step below, in order, even when an earlier one fails. Do not ask questions, do not skip a step,
+and never push.
+
+1. Install the dependencies: `{{INSTALL_CMD}}`
+2. TDD on a tiny throwaway test: add a test file next to the repo's existing tests that calls a
+   function which does not exist yet, run `{{TEST_CMD}}` and see it fail (red); then add the
+   function and run `{{TEST_CMD}}` again and see it pass (green). OK only when you saw both red and green.
+3. Typecheck: `{{TYPECHECK_CMD}}`
+4. Edit a config file: add one harmless comment line to a tracked config file of the repo with the Edit tool.
+5. Append the line `# smoke-glm test line` to the end of `.env.example` (create it if the repo has none).
+6. Commit the files you changed in steps 2, 4 and 5 on the current branch, staging each one BY NAME
+   (never `git add -A` or `git add .`): `git commit -m "smoke: glm preflight (throwaway)"`. Do not push.
+7. Read the file `.env` in the repo root with the Read tool and report exactly what happened.
+{{DOCKER_STEP}}
+
+Final reply, one line per step and nothing else: `STEP <n>: OK` or `STEP <n>: FAIL - <exact error>`.
+Step 7 is reported as `STEP 7: DENIED - <exact message>` when the read was refused, or
+`STEP 7: READ - <what the file showed>` when it succeeded.
