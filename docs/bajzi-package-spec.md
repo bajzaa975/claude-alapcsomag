@@ -718,6 +718,9 @@ sub-agent's tool call never resumes a main-thread prompt and vice versa; the sub
 returns without another successful call) is also cleared by a main-thread `PostToolUse` of the `Agent`/`Task` tool.
 Known residual (not fixed): two parallel main-thread tool calls, one waiting on permission while the other finishes,
 still flip the state to `working` — no input field ties a prompt to a tool call (`Notification` has no `tool_use_id`).
+Known residual 2 (owner decision 2026-10-03, review d1-fixes/F6): with parallel sub-agents, the `Agent`/`Task` return of
+any one of them clears a prompt another one still waits on, because the return is not matched to the asking `agent_id`.
+Revisit once a one-off raw capture (hook-samples are redacted) shows whether the `Agent` tool response carries the sub-agent's id.
 
 `<id>.artifacts.jsonl` — one line per `PostToolUse` on the Artifact tool: `{"v":1,"url":"https://claude.ai/…","title":"…","ts":…}`
 (`url` = first `https://claude.ai/` URL found in the tool response, trailing punctuation dropped; no URL = no line;

@@ -79,7 +79,8 @@ function handle(input, env, nowMs, dir) {
       // owner answered the prompt and Claude carries on. Residual: two parallel main-thread tool
       // calls, one waiting on permission, still flip it; no input field ties a prompt to a tool call.
       // A sub-agent's prompt left open (denied, or the tool failed) is cleared when the main thread's
-      // Agent/Task call returns: the sub-agent is gone.
+      // Agent/Task call returns: the sub-agent is gone. Residual (spec §6.5): with parallel sub-agents,
+      // any one's return clears another's open prompt.
       { const p = prev(), back = !owner(input) && owner(p) && ['Agent', 'Task'].includes(input.tool_name);
         if (p.state === 'needs_you' && (owner(p) === owner(input) || back)) put('working', 'resumed'); }
       return;
