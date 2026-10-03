@@ -85,6 +85,11 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 - **`/bajzi:project-setup`** — applies or checks (`--check`) a repo's `.claude/project-profile.json`:
   project plugins and MCPs, METHODOLOGY, linked skills, instruction files and the pre-commit gate.
 
+### Mods
+
+- **`cache-timer`** — status line entry: minutes left until the main thread's prompt cache goes cold.
+- **`nightrun-pane`** — open the pane with `/nightrun`: the newest night run's sprint states and log tail.
+
 ### Cowork variant
 
 `bajzi-cowork` ships only the `autopilot`, `handoff` and `modszertan` skills. It lacks everything that

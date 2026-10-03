@@ -19,6 +19,20 @@
       "source": "./bajzi-cowork",
       "description": "claude.ai / Cowork-safe subset of bajzi (handoff, autopilot, modszertan skills only; no bin/, hooks or agents). Install this one in claude.ai / Cowork; use bajzi in Claude Code.",
       "category": "productivity"
+    },
+    {
+      "name": "cache-timer",
+      "version": "0.1.0",
+      "source": "./cache-timer",
+      "description": "Status line: minutes left until the main thread's prompt cache goes cold",
+      "category": "productivity"
+    },
+    {
+      "name": "nightrun-pane",
+      "version": "0.1.0",
+      "source": "./nightrun-pane",
+      "description": "/nightrun: pane with the newest night run's sprint states and log tail",
+      "category": "productivity"
     }
   ]
 }

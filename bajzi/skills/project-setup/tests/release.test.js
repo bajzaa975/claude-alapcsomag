@@ -72,3 +72,8 @@ test('spec §11 plugin-release row names the current plugin version', () => {
   const row = read(path.join(ROOT, 'docs', 'bajzi-package-spec.md')).split('\n').find(l => l.startsWith('| bajzi plugin release |'));
   assert.ok(row && row.includes(v), row);
 });
+
+test('marketplace ships bajzi, bajzi-cowork and the two mods', () => {
+  const m = JSON.parse(read(path.join(ROOT, '.claude-plugin', 'marketplace.json')));
+  assert.deepStrictEqual(m.plugins.map(p => p.name), ['bajzi', 'bajzi-cowork', 'cache-timer', 'nightrun-pane']);
+});

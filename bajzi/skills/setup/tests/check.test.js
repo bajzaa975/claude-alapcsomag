@@ -274,3 +274,16 @@ test('setup SKILL.md documents --check, the status line step and user MCPs', () 
   assert.doesNotMatch(s, /LEAVE the GSD hooks/);
   assert.doesNotMatch(s, /Do not touch the GSD hooks/);
 });
+
+test('real manifest lists the mods and the marketplace ships them at their own plugin.json version', () => {
+  const m = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8'));
+  const root = path.join(__dirname, '..', '..', '..', '..');
+  const mp = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8'));
+  for (const n of ['cache-timer', 'nightrun-pane']) {
+    assert.ok(m.plugins.some(p => p.id === `${n}@bajzi-plugins`), n);
+    const v = JSON.parse(fs.readFileSync(path.join(root, n, '.claude-plugin', 'plugin.json'), 'utf8')).version;
+    const e = mp.plugins.find(p => p.name === n);
+    assert.strictEqual(e.source, `./${n}`);
+    assert.strictEqual(e.version, v);
+  }
+});
