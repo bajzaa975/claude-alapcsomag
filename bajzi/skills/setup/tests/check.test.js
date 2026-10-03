@@ -287,3 +287,14 @@ test('real manifest lists the mods and the marketplace ships them at their own p
     assert.strictEqual(e.version, v);
   }
 });
+
+test('mod docs state the cache-timer 60-minute assumption and the nightrun-pane layout limit', () => {
+  const root = path.join(__dirname, '..', '..', '..', '..');
+  const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
+  const ct = [read('cache-timer/.claude-plugin/plugin.json'), read('README.md'), read('docs/bajzi-package-spec.md')];
+  for (const t of ct) assert.match(t, /60-minute/);
+  for (const t of ct) assert.match(t, /overage/);
+  const np = [read('nightrun-pane/.claude-plugin/plugin.json'), read('README.md'), read('docs/bajzi-package-spec.md')];
+  for (const t of np) assert.match(t, /runtime\/nightrun/);
+  for (const t of np) assert.match(t, /claude-orchestrator/);
+});

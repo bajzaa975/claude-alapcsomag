@@ -24,14 +24,14 @@
       "name": "cache-timer",
       "version": "0.1.0",
       "source": "./cache-timer",
-      "description": "Status line: minutes left until the main thread's prompt cache goes cold",
+      "description": "Status line: minutes left until the main thread's prompt cache goes cold (assumes a 60-minute cache; it is 5 minutes during usage overage, which the mod cannot detect)",
       "category": "productivity"
     },
     {
       "name": "nightrun-pane",
       "version": "0.1.0",
       "source": "./nightrun-pane",
-      "description": "/nightrun: pane with the newest night run's sprint states and log tail",
+      "description": "/nightrun: pane with the newest claude-orchestrator night run's sprint states and log tail (reads only the runtime/nightrun layout; not bajzi night-run's NIGHT_DIR)",
       "category": "productivity"
     }
   ]

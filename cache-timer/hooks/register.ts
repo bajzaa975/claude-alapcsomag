@@ -23,10 +23,10 @@ async function show($: EngineInterface, last: number | undefined) {
 
 export const register: Register = on => {
   let lastMs: number | undefined
-  let stop: (() => void) | undefined
+  let stop: { cancel: () => void } | undefined
 
   on('session.start', async ($, e, next) => {
-    stop?.()
+    stop?.cancel()
     lastMs = undefined
     stop = $.clock.every(TICK_MS, () => void show($, lastMs))
     $.ui.status(undefined)

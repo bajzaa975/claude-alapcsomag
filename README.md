@@ -87,8 +87,8 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ### Mods
 
-- **`cache-timer`** — status line entry: minutes left until the main thread's prompt cache goes cold.
-- **`nightrun-pane`** — open the pane with `/nightrun`: the newest night run's sprint states and log tail.
+- **`cache-timer`** — status line entry: minutes left until the main thread's prompt cache goes cold. It assumes a 60-minute cache; the cache is 5 minutes during usage overage and the mod cannot detect that.
+- **`nightrun-pane`** — open the pane with `/nightrun`: the newest claude-orchestrator night run's sprint states and log tail. It reads only the `runtime/nightrun/<stamp>/` layout (`nightrun.log`, `*.status`, `SUMMARY.md`, `STOP`, `runtime/handoff/night-watch-state.md`), not bajzi night-run's `NIGHT_DIR`.
 
 ### Cowork variant
 

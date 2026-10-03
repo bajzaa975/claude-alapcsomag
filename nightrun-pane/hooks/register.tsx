@@ -20,7 +20,7 @@ const text = async (fs: Fs, p: string): Promise<string | undefined> => {
 }
 
 // Read-only: only fs.read / fs.list. Every failure degrades to "less shown".
-async function load(fs: Fs, cwd: string): Promise<RunFiles> {
+export async function load(fs: Fs, cwd: string): Promise<RunFiles> {
   const root = `${cwd}/runtime/nightrun`
   let stamps: string[] = []
   try {
@@ -54,13 +54,16 @@ async function load(fs: Fs, cwd: string): Promise<RunFiles> {
 }
 
 export const register: Register = on => {
+  let stop: { cancel: () => void } | undefined
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'nightrun',
       description: 'Show the newest night run (sprint states, log tail) in a pane',
     })
     // re-read every 30 s, but only while the pane is open
-    $.clock.every(REFRESH_MS, async () => {
+    stop?.cancel()
+    stop = $.clock.every(REFRESH_MS, async () => {
       if (await read($, isOpen)) $.ui.invalidate('ui.render')
     })
 
@@ -101,18 +104,18 @@ export const register: Register = on => {
       <Box flexDirection="column">
         <Text bold>{fit(header)}</Text>
         {m.sprints.map(s => (
-          <Box flexDirection="column">
+          <Box key={s.id} flexDirection="column">
             <Text>{fit(`${s.id}  ${s.level}  ${s.state}${s.elapsed ? `  ${s.elapsed}` : ''}`)}</Text>
             {s.note !== '' && <Text dimColor>{fit(`  ${s.note}`)}</Text>}
           </Box>
         ))}
         {m.watcher.length > 0 && <Text bold>Watcher</Text>}
-        {m.watcher.map(l => (
-          <Text dimColor>{fit(l)}</Text>
+        {m.watcher.map((l, i) => (
+          <Text key={i} dimColor>{fit(l)}</Text>
         ))}
         {m.tail.length > 0 && <Text bold>Log</Text>}
-        {m.tail.map(l => (
-          <Text dimColor>{fit(l)}</Text>
+        {m.tail.map((l, i) => (
+          <Text key={i} dimColor>{fit(l)}</Text>
         ))}
         <Button key="refresh" label="Refresh" onPress={() => $.ui.invalidate('ui.render')} />
       </Box>
