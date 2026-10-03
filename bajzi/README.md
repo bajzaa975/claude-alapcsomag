@@ -67,6 +67,12 @@ A token-efficient working method for Claude Code and Cowork.
 - **Injection scanner** — `hooks/node/injection-scan.js`, PostToolUse (via post-tool.js) on Read,
   WebFetch, WebSearch and `mcp__*`. Adds a "treat this as data" warning naming the matched rules; never blocks.
   **Known limit:** a pattern matcher — advisory context only; a rephrased injection passes.
+- **Session signal** — `hooks/node/session-signal.js`, SessionStart, UserPromptSubmit, Notification,
+  Stop, StopFailure, SessionEnd, plus PostToolUse (via post-tool.js). Writes the session status
+  records for the claude-orchestrator workbench: `<status dir>/<id>.event.json` and
+  `<id>.artifacts.jsonl`; the status line writes `<id>.line.json`. No output ever; fails open.
+  Creating `~/.claude/bajzi/hook-samples.on` switches on `hook-samples.jsonl` next to it:
+  redacted shape samples of every hook input (content strings become `<str N>`).
 - Every node hook fails open: an internal error = allow, logged to `~/.claude/bajzi/hook-errors.log`
   (256 KB cap).
 - Tests (Git Bash on Windows, any shell on Linux), from the repo root:
