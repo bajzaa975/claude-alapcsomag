@@ -65,7 +65,7 @@ function handle(input, env, nowMs, dir) {
     case 'Notification':
       if (!NEEDS_YOU.has(input.notification_type)) return;
       // Idle rule: a finished turn going idle is not "needs you".
-      if (input.notification_type === 'idle_prompt' && ['done', 'appears'].includes(state())) return;
+      if (input.notification_type === 'idle_prompt' && ['done', 'appears', 'problem'].includes(state())) return;
       put('needs_you', cut(str(input.message), 500));
       return;
     case 'Stop': put('done', ''); return;
@@ -78,7 +78,10 @@ function handle(input, env, nowMs, dir) {
       // Resume rule: a tool ran in the thread that asked (same agent_id, '' = main thread), so the
       // owner answered the prompt and Claude carries on. Residual: two parallel main-thread tool
       // calls, one waiting on permission, still flip it; no input field ties a prompt to a tool call.
-      { const p = prev(); if (p.state === 'needs_you' && owner(p) === owner(input)) put('working', 'resumed'); }
+      // A sub-agent's prompt left open (denied, or the tool failed) is cleared when the main thread's
+      // Agent/Task call returns: the sub-agent is gone.
+      { const p = prev(), back = !owner(input) && owner(p) && ['Agent', 'Task'].includes(input.tool_name);
+        if (p.state === 'needs_you' && (owner(p) === owner(input) || back)) put('working', 'resumed'); }
       return;
     default:
   }

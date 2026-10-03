@@ -236,3 +236,21 @@ test('samples: <home>/.claude/bajzi/hook-samples.on -> one redacted JSON line pe
   assert.deepEqual([r.code, r.stdout, r.stderr], [0, '', ''])
   assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8').split('\n')[0]), { session_id: 's1', hook_event_name: 'Stop' })
 })
+
+test('resume: a sub-agent prompt left open is cleared by the main thread\'s Agent/Task tool return, not by other main-thread tools', () => {
+  for (const name of ['Agent', 'Task']) {
+    const d = tmp(); note(d, { agent_id: 'a1' })
+    tool(d); assert.equal(ev(d).state, 'needs_you')
+    tool(d, { tool_name: name })
+    assert.deepEqual([ev(d).state, ev(d).message], ['working', 'resumed'])
+  }
+  const d = tmp(); note(d); tool(d, { tool_name: 'Agent' })
+  assert.equal(ev(d).state, 'working')
+})
+
+test('idle_prompt after StopFailure keeps problem and its error text', () => {
+  const d = tmp()
+  sig.handle({ session_id: 's1', hook_event_name: 'StopFailure', error: 'API 529' }, {}, 1, d)
+  sig.handle({ session_id: 's1', hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'waiting' }, {}, 2, d)
+  assert.deepEqual([ev(d).state, ev(d).message], ['problem', 'API 529'])
+})
