@@ -407,7 +407,9 @@ default when the line is missing, keeps the template's blanket `Bash(*docker *)`
 `Bash(*docker-compose*)` denies; `docker: allowed, container prefix <prefix>` removes both,
 adds the scoped allows (container logs/exec/restart by prefix, throwaway `night-*`
 containers and compose projects, build, pull) AND adds denies: one `Bash(*docker*<name>*)`
-per name on section 7's "Never stop or restart" line, plus `-v `, `--volume`, `--mount`,
+per name on section 7's "Never stop or restart" line (per comma-separated item: the
+backticked token when present, else its first word, a trailing `(note)` or punctuation
+dropped; a name must match `^[A-Za-z0-9][A-Za-z0-9_.-]*$`), plus `-v `, `--volume`, `--mount`,
 `--privileged`, `docker.sock` and `prune`. Story sessions run in auto mode and a deny always
 beats an allow; a Bash rule's `*` also matches spaces, so `docker rm -f night-*` alone would
 approve `docker rm -f night-x prod-db` — the denies are what protect the neighbours. They are
@@ -427,7 +429,23 @@ def repo_relative(r):  # Edit(<glob>)/Read(<glob>) not starting with ~ or / -> (
     return m and (m[1], m[2][2:] if m[2].startswith("./") else m[2])
 def mirror(kind, night, g):  # the story-worktree mirror; a slash-less glob matches at any depth, so it keeps that via **/
     return "%s(/%s/wt/*/%s%s)" % (kind, night, "" if "/" in g.rstrip("/") else "**/", g)
-def docker(md):  # NIGHT-RULES section 7 -> (prefix, allows, denies) for `docker: allowed, container prefix <p>`; else None
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+def never_stop(line):  # section 7 "Never stop or restart" line -> (names, items with no valid name)
+    names, bad = [], []
+    for item in re.split(r",(?![^()]*\))", line):  # a comma inside a (note) does not split
+        item = item.strip()
+        core = re.sub(r"\([^()]*\)", " ", item)     # a (note) is dropped first, backticks inside it included
+        b = re.search(r"`([^`]+)`", core)           # the backticked token when present, else the first word
+        w = re.split(r"[\s(]", (b[1] if b else core).strip(" `"), maxsplit=1)[0]
+        w = w.strip("`").rstrip(".,;:!?")
+        if not item or w.lower() == "none":
+            continue
+        if NAME.fullmatch(w):
+            names.append(w)
+        else:
+            bad.append(item)
+    return names, bad
+def docker(md):  # NIGHT-RULES section 7 -> (prefix, allows, denies, never-stop names, unparseable items) when allowed; else None
     try:
         sec = re.split(r"(?m)^## 7\.", open(md, encoding="utf-8").read(), maxsplit=1)[1].split("\n## ", 1)[0]
     except (OSError, IndexError):
@@ -436,15 +454,14 @@ def docker(md):  # NIGHT-RULES section 7 -> (prefix, allows, denies) for `docker
     if not m:
         return None
     p, n = m[1], re.search(r"(?m)^\s*-\s*Never stop or restart:(.*)$", sec)
-    line = n[1] if n else ""
-    names = [x.strip(" `") for x in ",".join(re.findall(r"`([^`]*)`", line) or [line]).split(",")]
+    names, bad = never_stop(n[1] if n else "")
     allow = ["Bash(docker ps*)", "Bash(docker logs %s-*)" % p, "Bash(docker exec %s-*)" % p,
              "Bash(docker restart %s-*)" % p, "Bash(docker run --rm --name night-*)", "Bash(docker rm -f night-*)",
              "Bash(docker compose -p night-* *)", "Bash(docker build *)", "Bash(docker pull *)"]
-    deny = ["Bash(*docker*%s*)" % x for x in names if x and x.lower() != "none"] + [
+    deny = ["Bash(*docker*%s*)" % x for x in names] + [
         "Bash(*docker*-v *)", "Bash(*docker*--volume*)", "Bash(*docker*--mount*)", "Bash(*docker*--privileged*)",
         "Bash(*docker*docker.sock*)", "Bash(*docker*prune*)"]
-    return p, allow, deny
+    return p, allow, deny, names, bad
 NRLIB
 python3 - /home/ubuntu/night-runs/<project>/settings.local.json <NIGHT_DIR> <BASE>/docs/NIGHT-RULES.md <<'POST'
 import json, os, sys
@@ -469,8 +486,9 @@ POST
 
 Read its `docker:` line back against section 7: `denied` while the owner wrote `allowed` means
 the line is not in the `docker: allowed, container prefix <prefix>` form — fix the file, re-run.
-An unfilled `<container/service names>` placeholder on the never-stop line renders as a deny
-rule and fails the rules check with `UNRENDERED RULE:`: fill it in (or write `none`).
+Under `allowed`, a never-stop item that yields no valid name (an unfilled `<name>`
+placeholder, `(see wiki)`) renders no deny and fails the rules check with
+`NEVER-STOP NAME UNPARSEABLE: <item>`: fill it in (or write `none`).
 Then prove the render, with the `~` expanded:
 
 ```bash
@@ -529,10 +547,22 @@ for r in deny:
             if not denied(kind, q):
                 wt.append(r)
                 print("WT PATH NOT DENIED: %s -> %s" % (r, q))
+def bash_denied(c):  # a Bash(...) deny matches command c: anchored, every '*' crosses spaces, ':*' = ' *', the rest literal
+    for r in deny:
+        if m := re.fullmatch(r"Bash\((.*)\)", r):
+            b = m[1][:-2] + " *" if m[1].endswith(":*") else m[1]
+            if re.fullmatch(".*".join(map(re.escape, b.split("*"))), c, re.S):
+                return True
+    return False
 dk = docker(sys.argv[4] if len(sys.argv) > 4 else "")
+unparsed = dk[4] if dk else []
+for u in unparsed:
+    print("NEVER-STOP NAME UNPARSEABLE:", u)
 if dk:
     dock = ["docker allowed in section 7, blanket deny still rendered: " + r for r in deny if r in BLANKET]
     dock += ["docker allowed in section 7, rule missing: " + r for r in dk[1] + dk[2] if r not in allow + deny]
+    dock += ["docker allowed in section 7, never-stop name not denied: " + c for n in dk[3]
+             for c in ("docker rm -f night-x " + n, "docker restart %s-a %s" % (dk[0], n)) if not bash_denied(c)]
 else:
     dock = ["docker denied in section 7, docker allow rendered: " + r for r in allow if "docker" in r]
     dock += ["docker denied in section 7, blanket deny missing: " + r for r in BLANKET if r not in deny]
@@ -540,9 +570,9 @@ else:
              if r.startswith("Bash(*docker") and r not in BLANKET]
 for d in dock:
     print("DOCKER RULE MISMATCH:", d)
-sys.exit(1 if bad or hits or wt or dock else 0)
+sys.exit(1 if bad or hits or wt or dock or unparsed else 0)
 PY
-echo "rules rc=$?"   # 0 = every rule rendered, no Edit/Write deny covers the run's own trees, every repo-relative Edit/Read deny is mirrored into wt/*, docker matches section 7; anything else = the lines above
+echo "rules rc=$?"   # 0 = every rule rendered, no Edit/Write deny covers the run's own trees, every repo-relative Edit/Read deny is mirrored into wt/*, docker matches section 7, every never-stop name parsed and denied; anything else = the lines above
 ```
 
 `<BASE>` and `<NIGHT_DIR>` are config.env's `BASE` and `NIGHT_DIR`, absolute (the same values
@@ -559,9 +589,12 @@ actually deny that worktree path, or for a slash-less one the nested
 `<NIGHT_DIR>/wt/S1/apps/x/<glob>` (re-run the post-render step). The fourth takes
 `<BASE>/docs/NIGHT-RULES.md` as its last argument and fails with
 `DOCKER RULE MISMATCH: <why>` when section 7 says `allowed` but a blanket docker deny is still
-rendered or a scoped allow / never-stop / mount deny is missing, or says `denied` (or
-nothing) while an allow rule names docker, a blanket deny is missing or a deny the `allowed`
-choice added is left. All three heredocs are proved by
+rendered, a scoped allow / never-stop / mount deny is missing, or a probe
+`docker rm -f night-x <name>` / `docker restart <prefix>-a <name>` is not denied for a parsed
+never-stop name, or says `denied` (or nothing) while an allow rule names docker, a blanket
+deny is missing or a deny the `allowed` choice added is left. Under `allowed` it also fails
+with `NEVER-STOP NAME UNPARSEABLE: <item>` for a never-stop item that yields no valid name.
+All three heredocs are proved by
 `bajzi/skills/night-run/tests/deny-run-tree.sh`, which extracts and runs them.
 
 **The check is scoped to the RULES, never to the whole file, and that is load-bearing.** A
@@ -589,7 +622,7 @@ for hours while the owner sleeps, so the gate is not optional. Show:
 5. one line that the PHASE C render gate came back clean: no leftover `{{placeholder}}` in
    `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
    `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:`, no `DENY COVERS RUN TREE:`, no `MISSING WT MIRROR:`, no
-   `WT PATH NOT DENIED:` and no `DOCKER RULE MISMATCH:` line (`rules rc=0`), plus the
+   `WT PATH NOT DENIED:`, no `DOCKER RULE MISMATCH:` and no `NEVER-STOP NAME UNPARSEABLE:` line (`rules rc=0`), plus the
    docker choice the post-render step printed (`docker: denied` or `docker: allowed, prefix <prefix>`).
    Say it in those words. The `_comment*` keys of `settings.local.json` DO still contain
    `<angle-bracket>` text and that is correct — they are documentation, they are not rules,

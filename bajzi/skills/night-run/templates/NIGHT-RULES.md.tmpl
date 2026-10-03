@@ -93,10 +93,17 @@ something merged green and broke anyway. Name the command and what a pass looks 
 Containers, ports, services and trees on this shared machine that this project must
 never touch or restart. Cross-check `~/infra/INVENTORY.md` and `~/infra/PORTS.md`.
 
-- Never stop or restart: `<container/service names>`
+- Never stop or restart: `<name>` (<optional note>), `<name>`
 - Ports owned by others: `<port list>`
 - Deployed tree — worktree/branch/tag operations only, never development: `<path>`
 - docker: `<denied|allowed, container prefix <prefix>>`
+
+Write the never-stop container/service names in backticks, comma-separated, one
+name per pair of backticks, any note after the name in parentheses:
+`` `prod-db` (postgres), `redis` ``, or `none`. A name is letters, digits, `_`,
+`.` and `-`. With docker `allowed`, PHASE C denies every docker command naming
+one, and an item it cannot read as a name fails the render with
+`NEVER-STOP NAME UNPARSEABLE`.
 
 The docker line is required; write exactly `docker: denied` or
 `docker: allowed, container prefix <prefix>`. Choose `allowed` only when the

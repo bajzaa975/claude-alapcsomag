@@ -10,7 +10,8 @@
 # and proves: repo-relative Edit/Read denies are mirrored into <NIGHT_DIR>/wt/*/
 # (MISSING WT MIRROR / WT PATH NOT DENIED when not), wt/S1/src/index.ts stays
 # editable, .env.example is never denied while .env/.env.local are, the
-# NIGHT-RULES section-7 docker choice (DOCKER RULE MISMATCH), and the glm/worker allows.
+# NIGHT-RULES section-7 docker choice (DOCKER RULE MISMATCH), the never-stop name parser
+# (NEVER-STOP NAME UNPARSEABLE), and the glm/worker allows.
 #
 # Usage:  bash tests/deny-run-tree.sh
 set -u
@@ -32,10 +33,11 @@ py(){ MSYS_NO_PATHCONV=1 USERPROFILE=$HOME python3 "$@"; }
 
 # The rules-check snippet: the heredoc body under the `python3 - <settings> ...` line.
 sed -n "/^python3 - .*settings\.local\.json.*<<'PY'/,/^PY\$/p" "$SKILL" | sed '1d;$d' >"$T/check.py"
-for msg in 'UNRENDERED RULE' 'DENY COVERS RUN TREE' 'MISSING WT MIRROR' 'WT PATH NOT DENIED' 'DOCKER RULE MISMATCH'; do
+for msg in 'UNRENDERED RULE' 'DENY COVERS RUN TREE' 'MISSING WT MIRROR' 'WT PATH NOT DENIED' 'DOCKER RULE MISMATCH' \
+           'NEVER-STOP NAME UNPARSEABLE'; do
   grep -q "$msg" "$T/check.py" || { echo "check.py lacks: $msg"; false; }
 done
-check $? "SKILL.md PHASE C rules-check snippet found, with all five messages"
+check $? "SKILL.md PHASE C rules-check snippet found, with all six messages"
 # The post-render step (worktree mirrors + section-7 docker choice): the heredoc under `<<'POST'`.
 sed -n "/^python3 - .*<<'POST'\$/,/^POST\$/p" "$SKILL" | sed '1d;$d' >"$T/post.py"
 [ -s "$T/post.py" ]; check $? "SKILL.md PHASE C post-render snippet found"
@@ -252,6 +254,34 @@ done
 RULES=allowed.md DROP="${NEVER[0]}" run_check dmis3
 [ "$RC" -eq 1 ] && grep -qxF "DOCKER RULE MISMATCH: docker allowed in section 7, rule missing: ${NEVER[0]}" "$T/dmis3.out"
 check $? "section 7 allowed but a never-stop deny missing fails with DOCKER RULE MISMATCH"
+grep -qxF "DOCKER RULE MISMATCH: docker allowed in section 7, never-stop name not denied: docker rm -f night-x prod-db" "$T/dmis3.out" \
+  && grep -qxF "DOCKER RULE MISMATCH: docker allowed in section 7, never-stop name not denied: docker restart bss-sandbox-a prod-db" "$T/dmis3.out"
+check $? "the check probes each never-stop name (docker rm -f night-x / docker restart <prefix>-a), not only rule presence"
+# Never-stop names: backticked token if present, else the first word of each item; notes in parentheses dropped.
+rules plain.md '- docker: `allowed, container prefix bss-sandbox`' 'prod-db (postgres), redis'
+RULES=plain.md expect_pass_n dplain "plain-text never-stop line 'prod-db (postgres), redis': the render passes the rules check"
+for c in 'docker rm -f night-x prod-db' 'docker restart bss-sandbox-a redis'; do
+  bash_denied dplain "$c"; check $? "plain-text never-stop line: '$c' is denied"
+done
+! has dplain deny 'Bash(*docker*prod-db (postgres)*)'; check $? "plain-text never-stop line: the note is not part of the name"
+rules span.md '- docker: `allowed, container prefix bss-sandbox`' '`prod-db, redis` (one backtick span)'
+RULES=span.md expect_pass_n dspan "a single backtick span '\`prod-db, redis\`' passes the rules check"
+bash_denied dspan 'docker rm -f night-x prod-db' && bash_denied dspan 'docker restart bss-sandbox-a redis'
+check $? "a single backtick span still denies both names"
+rules ticknote.md '- docker: `allowed, container prefix bss-sandbox`' 'prod-db (`postgres`, main), redis.'
+RULES=ticknote.md expect_pass_n dticknote "a backtick inside a (note) does not replace the name: the render passes"
+bash_denied dticknote 'docker rm -f night-x prod-db' && bash_denied dticknote 'docker restart bss-sandbox-a redis' \
+  && ! has dticknote deny 'Bash(*docker*postgres*)' && ! has dticknote deny 'Bash(*docker*main*)'
+check $? "'prod-db (\`postgres\`, main), redis.': prod-db and redis denied, nothing from the note"
+rules wiki.md '- docker: `allowed, container prefix bss-sandbox`' '`prod-db`, (see wiki)'
+RULES=wiki.md run_check dwiki
+[ "$RC" -eq 1 ] && grep -qxF 'NEVER-STOP NAME UNPARSEABLE: (see wiki)' "$T/dwiki.out"
+check $? "an item with no valid name fails with NEVER-STOP NAME UNPARSEABLE: (see wiki)"
+NS=$(sed -n 's/^- Never stop or restart: //p' "$NR_SKILL_DIR/templates/NIGHT-RULES.md.tmpl")   # the shipped placeholder
+rules unfilled.md '- docker: `allowed, container prefix bss-sandbox`' "$NS"
+RULES=unfilled.md run_check dunfilled
+[ "$RC" -eq 1 ] && grep -qxF 'NEVER-STOP NAME UNPARSEABLE: `<name>` (<optional note>)' "$T/dunfilled.out"
+check $? "the unfilled template placeholder fails with NEVER-STOP NAME UNPARSEABLE"
 for f in denied nodocker; do
   RULES=$f.md expect_pass_n "d$f" "docker $f: the render passes the rules check"
   has "d$f" deny "${BLANKET[0]}" && has "d$f" deny "${BLANKET[1]}" && ! grep -q 'Bash(docker' "$T/d$f.json" \
@@ -283,6 +313,11 @@ for w in 'root-equivalent' 'any later arguments' 'volume mount' 'every Edit and 
   grep -qiF "$w" <<<"$S7" || { echo "  NIGHT-RULES section 7 lacks: $w"; ok_=1; }
 done
 check $ok_ "NIGHT-RULES section 7 warns that docker is root-equivalent and exec/run take any arguments incl. mounts"
+ok_=0
+for w in 'in backticks' 'comma-separated' 'note after the name in parentheses' 'NEVER-STOP NAME UNPARSEABLE'; do
+  grep -qiF "$w" <<<"$S7" || { echo "  NIGHT-RULES section 7 lacks: $w"; ok_=1; }
+done
+check $ok_ "NIGHT-RULES section 7 tells the owner the never-stop name format"
 
 # --- (D) saver-level allows --------------------------------------------------------------------
 has base allow 'Bash(glm *)' && has base allow 'Bash(worker --usage*)' && has base allow 'Bash(worker --status*)'
