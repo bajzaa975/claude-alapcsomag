@@ -196,3 +196,58 @@ test('Invariant 1: both entries exit 0 silently with every check module missing'
     assert.match(log(r), /Cannot find module/, script);
   }
 });
+
+// --- the session-signal check (status records, spec §6.5): every tool, fail-open, never any output ---
+const sigEvent = d => JSON.parse(fs.readFileSync(path.join(d, 's1.event.json'), 'utf8'));
+function seedNeedsYou() {
+  const d = tmpDir('bajzi-ss-');
+  fs.writeFileSync(path.join(d, 's1.event.json'), JSON.stringify({ v: 1, session_id: 's1', event: 'Notification', state: 'needs_you', ts: 1 }));
+  return d;
+}
+
+test('post-tool: the session-signal check runs on every tool and gets the hook input (resume rule, Artifact append)', () => {
+  for (const tool of ['Read', 'Bash', 'Write', 'Agent', 'Task', 'Skill', 'WebFetch', 'mcp__srv__get', 'Artifact', 'SomeFutureTool']) {
+    const d = seedNeedsYou();
+    const input = Object.assign(post(tool, {}, 'see https://claude.ai/code/artifact/a1'), { cwd: 'D:/w ' + tool });
+    const r = runScript(POST, JSON.stringify(input), { BAJZI_STATUS_DIR: d });
+    assert.strictEqual(r.code, 0, tool);
+    assert.strictEqual(r.stdout, '', tool);
+    assert.strictEqual(r.stderr, '', tool);
+    const e = sigEvent(d);
+    assert.deepStrictEqual([e.event, e.state, e.message, e.cwd], ['PostToolUse', 'working', 'resumed', 'D:/w ' + tool], tool);
+    assert.strictEqual(fs.existsSync(path.join(d, 's1.artifacts.jsonl')), tool === 'Artifact', tool);
+  }
+});
+
+test('post-tool: a throwing session-signal check leaves the other checks\' output byte-identical and exits 0', () => {
+  const input = post('Read', { file_path: 'a.md' }, INJECT);
+  // A fresh tmpdir (bridge at 45%) per run: the context guard warns once per tmpdir state.
+  const ctx45 = () => { const t = tmpDir('bajzi-th-'); writeBridge('s1', 45, Date.now(), t); return t; };
+  const want = runScript(POST, JSON.stringify(input), { TMPDIR: ctx45() });
+  assert.match(out(want).additionalContext, /^\[bajzi:ctx-warn-40\] [^\n]*\n\n\[bajzi:injection-scan\] /);
+  for (const body of [
+    "module.exports = { check() { throw new Error('broken session-signal'); } };\n",   // throws mid-run
+    "throw new Error('broken session-signal');\n",                                   // throws on load
+  ]) {
+    const dir = brokenCopy('unused');   // a full copy: lib/unused.js is loaded by nothing
+    fs.writeFileSync(path.join(dir, 'session-signal.js'), body);
+    const r = runScript(path.join(dir, 'post-tool.js'), JSON.stringify(input), { TMPDIR: ctx45() });
+    assert.strictEqual(r.code, 0);
+    assert.strictEqual(r.stderr, '');
+    assert.strictEqual(r.stdout, want.stdout);
+    assert.match(log(r), / session-signal broken session-signal\n$/);
+  }
+  const unwritable = path.join(tmpDir('bajzi-th-'), 'file');
+  fs.writeFileSync(unwritable, 'x');
+  assert.strictEqual(runScript(POST, JSON.stringify(input), { TMPDIR: ctx45(), BAJZI_STATUS_DIR: unwritable }).stdout, want.stdout);
+});
+
+test('post-tool: hook-samples.on makes the PostToolUse path append the raw input too', () => {
+  const home = tmpDir('bajzi-home-');
+  fs.mkdirSync(path.join(home, '.claude', 'bajzi'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'bajzi', 'hook-samples.on'), '');
+  const r = runScript(POST, JSON.stringify(post('Bash', { command: 'ls' }, 'out')), { HOME: home, BAJZI_HOME: home, BAJZI_STATUS_DIR: tmpDir('bajzi-ss-') });
+  assert.strictEqual(r.stdout, '');
+  const s = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'bajzi', 'hook-samples.jsonl'), 'utf8'));
+  assert.deepStrictEqual([s.hook_event_name, s.tool_name, s.tool_response], ['PostToolUse', 'Bash', 'out']);
+});

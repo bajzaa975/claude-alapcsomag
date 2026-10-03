@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { NODE_DIR, tmpDir, runScript, p95 } = require('./helpers');
 const parts = require('../lib/status-parts');
-const { render, usedPct } = require('../statusline');
+const { render, usedPct, writeLine } = require('../statusline');
 
 const SCRIPT = path.join(NODE_DIR, 'statusline.js');
 const NIGHT = Date.UTC(2026, 8, 23, 0, 0);          // 6 h before the peak window: no peak part
@@ -232,6 +232,92 @@ test('the status line writes the bridge for a safe session id only', () => {
   const bad = runScript(SCRIPT, JSON.stringify({ session_id: '../evil', context_window: { remaining_percentage: 45 }, workspace: { current_dir: cwd } }), {}, { cwd });
   assert.deepStrictEqual(fs.readdirSync(bad.tmp).filter(n => n.startsWith('bajzi-ctx-')), []);
   assert.ok(!fs.existsSync(path.join(path.dirname(bad.tmp), 'bajzi-ctx-..', 'evil.json')));
+});
+
+// --- the line file <status dir>/<session_id>.line.json (the status record contract, spec §6.5) ---
+const LINE = 'Opus 5.5 \u00b7 L0 \u00b7 feat/x* \u00b7 status line port \u00b7 \u2593\u2593\u2593\u2593\u2591\u2591\u2591\u2591\u2591\u2591 42% \u00b7 Q1';
+const lineRe = line => new RegExp('^' + line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( \u00b7 peak [^\u00b7\n]+)?\n$');
+const fullInput = cwd => ({
+  session_id: 's1', session_name: 'night', cwd, model: { display_name: 'Opus 5.5' },
+  workspace: { current_dir: cwd, project_dir: cwd, git_worktree: 'wt-1' },
+  context_window: { remaining_percentage: 58, used_percentage: 42.5 }, cost: { total_cost_usd: 1.23 },
+  rate_limits: { five_hour: { used_percentage: 42 } },
+});
+const lineFile = (d, id = 's1') => JSON.parse(fs.readFileSync(path.join(d, `${id}.line.json`), 'utf8'));
+
+test('line file: the contract fields from a full fixture; the rendered line is byte-identical to the pinned one', () => {
+  const cwd = fixtureRepo();
+  const d = tmpDir('bajzi-ln-');
+  const t0 = Math.floor(Date.now() / 1000);
+  const r = runScript(SCRIPT, JSON.stringify(fullInput(cwd)), { BAJZI_STATUS_DIR: d, NO_COLOR: '1' }, { cwd });
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.stderr, '');
+  assert.match(r.stdout, lineRe(LINE));
+  const f = lineFile(d);
+  assert.ok(f.ts >= t0 && f.ts <= Math.floor(Date.now() / 1000), String(f.ts));
+  assert.deepStrictEqual(f, { v: 1, session_id: 's1', session_name: 'night', cwd, project_dir: cwd, git_worktree: 'wt-1',
+    branch: 'feat/x', model: 'Opus 5.5', ctx_pct: 42.5, cost_usd: 1.23, five_hour_pct: 42, bajzi_level: 'L0', ts: f.ts });
+  assert.deepStrictEqual(fs.readdirSync(d), ['s1.line.json']);
+});
+
+test('line file: missing data = the key is omitted; GLM share and level come from the rendered facts', () => {
+  const cwd = tmpDir('bajzi-nr-');                                   // not a repo: no branch
+  const home = tmpDir('bajzi-h-');
+  fs.mkdirSync(path.join(home, '.claude', 'bajzi'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'bajzi', 'glm-share.json'), JSON.stringify({ ts: Date.now(), pct: 64 }));
+  const d = tmpDir('bajzi-ln-');
+  const r = runScript(SCRIPT, JSON.stringify({ session_id: 's2', workspace: { current_dir: cwd }, context_window: { remaining_percentage: 90 } }),
+    { HOME: home, BAJZI_STATUS_DIR: d, CC_WORKER_MODE: 'glm', NO_COLOR: '1' }, { cwd });
+  assert.match(r.stdout, /^L2 \u00b7 \u2593\u2591{9} 10% \u00b7 GLM 64%( \u00b7 peak [^\u00b7\n]+)?\n$/);
+  const f = lineFile(d, 's2');
+  assert.deepStrictEqual(f, { v: 1, session_id: 's2', cwd, glm_share: 64, bajzi_level: 'L2', ts: f.ts });
+});
+
+test('line file: an unwritable status dir, an unsafe id or a missing lib/session-status.js still renders the same line', () => {
+  const cwd = fixtureRepo();
+  const stdin = JSON.stringify(fullInput(cwd));
+  const file = path.join(tmpDir('bajzi-ln-'), 'file');
+  fs.writeFileSync(file, 'x');
+  for (const dir of [file, path.join(file, 'sub')]) {
+    const r = runScript(SCRIPT, stdin, { BAJZI_STATUS_DIR: dir, NO_COLOR: '1' }, { cwd });
+    assert.deepStrictEqual([r.code, r.stderr], [0, ''], dir);
+    assert.match(r.stdout, lineRe(LINE), dir);
+  }
+  const d = tmpDir('bajzi-ln-');
+  const bad = runScript(SCRIPT, JSON.stringify(Object.assign(fullInput(cwd), { session_id: '../evil' })), { BAJZI_STATUS_DIR: d, NO_COLOR: '1' }, { cwd });
+  assert.match(bad.stdout, lineRe(LINE));
+  assert.deepStrictEqual(fs.readdirSync(d), []);
+  const copy = tmpDir('bajzi-slc-');                                 // a partial install without the new lib
+  fs.mkdirSync(path.join(copy, 'lib'));
+  fs.copyFileSync(SCRIPT, path.join(copy, 'statusline.js'));
+  for (const f of fs.readdirSync(path.join(NODE_DIR, 'lib'))) {
+    if (f.endsWith('.js') && f !== 'session-status.js') fs.copyFileSync(path.join(NODE_DIR, 'lib', f), path.join(copy, 'lib', f));
+  }
+  const p = runScript(path.join(copy, 'statusline.js'), stdin, { BAJZI_STATUS_DIR: d, NO_COLOR: '1' }, { cwd });
+  assert.deepStrictEqual([p.code, p.stderr], [0, '']);
+  assert.match(p.stdout, lineRe(LINE));
+  assert.match(fs.readFileSync(path.join(p.home, '.claude', 'bajzi', 'hook-errors.log'), 'utf8'), / statusline Cannot find module/);
+});
+
+test('line file: rewritten only when the content changed or 30 s passed since its own ts', () => {
+  const d = tmpDir('bajzi-ln-');
+  const env = { BAJZI_STATUS_DIR: d };
+  const p = path.join(d, 's1.line.json');
+  const inp = cost => ({ session_id: 's1', workspace: { current_dir: 'D:/a' }, cost: { total_cost_usd: cost } });
+  const facts = { level: 1, branch: 'main', glm: 50 };
+  assert.strictEqual(writeLine(inp(1), facts, 1000000, env), true);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(p, 'utf8')),
+    { v: 1, session_id: 's1', cwd: 'D:/a', branch: 'main', cost_usd: 1, glm_share: 50, bajzi_level: 'L1', ts: 1000 });
+  const step = (cost, nowMs, f = facts) => { writeLine(inp(cost), f, nowMs, env); return JSON.parse(fs.readFileSync(p, 'utf8')); };
+  assert.strictEqual(step(1, 1029999).ts, 1000);                     // same content, 29.999 s: skipped
+  assert.deepStrictEqual([step(2, 1010000).ts, step(2, 1010000).cost_usd], [1010, 2]);   // content changed: written
+  assert.strictEqual(step(2, 1039999).ts, 1010);
+  assert.strictEqual(step(2, 1040000).ts, 1040);                     // 30 s since its own ts: written
+  assert.strictEqual(step(2, 1041000, { level: 1, branch: 'other', glm: 50 }).branch, 'other');
+  assert.strictEqual(step(2, 5000).ts, 5);                           // the clock went back: written
+  assert.strictEqual(writeLine({ session_id: '../x' }, facts, 1, env), false);
+  assert.strictEqual(writeLine({}, facts, 1, env), false);
+  assert.deepStrictEqual(fs.readdirSync(d), ['s1.line.json']);
 });
 
 test('p95 of 20 warm runs < 150 ms', PERF, () => {

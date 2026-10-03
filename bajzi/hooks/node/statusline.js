@@ -1,9 +1,12 @@
 'use strict';
 // Claude Code statusLine command. Installed by /bajzi:setup to ~/.claude/bajzi/statusline.js
 // (+ lib/). Line: model · Lx · branch* · task · ▓▓░░ NN% · GLM NN% · Qn · peak ...
-// Missing data = that field is omitted; never an error text. Side effect: writes the ctx
-// bridge <tmpdir>/bajzi-ctx-<session_id>.json that hooks/node/context-guard.js reads.
+// Missing data = that field is omitted; never an error text. Side effects: writes the ctx
+// bridge <tmpdir>/bajzi-ctx-<session_id>.json that hooks/node/context-guard.js reads, and AFTER the
+// line is out, <status dir>/<session_id>.line.json for the workbench (spec §6.5, writeLine).
+const fs = require('node:fs');
 const os = require('node:os');
+const path = require('node:path');
 const { readInput, runHook, writeAll } = require('./lib/hook-io');
 // Libs other than hook-io load inside runHook (F4): a partial install still fails open.
 let resolveLevel, writeBridge, peakStatus, parts;
@@ -16,6 +19,7 @@ function loadLibs() {
 
 const SEP = ' \u00b7 ';
 const C = { green: '\x1b[32m', yellow: '\x1b[33m', red: '\x1b[31m', reset: '\x1b[0m' };
+const LINE_EVERY_S = 30;
 
 function usedPct(input) {
   const cw = input && typeof input.context_window === 'object' && input.context_window ? input.context_window : null;
@@ -70,15 +74,48 @@ function render(input, opts = {}) {
   if (task) out.push(task);
   const used = usedPct(inp);
   if (used !== null) out.push(bar(used, color));
+  let g = null;
   if (level >= 1) {
-    const g = parts.glmShare({ nowMs, home, env });
+    g = parts.glmShare({ nowMs, home, env });
     if (g !== null) out.push(`GLM ${g}%`);
   }
   const q = parts.openQueueCount(cwd);
   if (q > 0) out.push('Q' + q);
   const pk = peakPart(nowMs);
   if (pk) out.push(pk);
+  if (opts.facts) Object.assign(opts.facts, { level, branch: git ? git.branch : undefined, glm: g === null ? undefined : g });
   return out.join(SEP);
+}
+
+const obj = v => (v && typeof v === 'object' ? v : {});
+const strOr = v => (typeof v === 'string' && v ? v : undefined);
+const numOr = v => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+
+// <status dir>/<session_id>.line.json (the status record contract, spec §6.5). Missing data = the
+// key is omitted. Written only when the content changed or LINE_EVERY_S passed since the file's own
+// ts (or the clock went back). `facts` = what render() computed: {level, branch, glm}.
+function writeLine(input, facts, nowMs, env = process.env) {
+  const ss = require('./lib/session-status');
+  const inp = obj(input);
+  if (typeof inp.session_id !== 'string' || !ss.SAFE_ID.test(inp.session_id)) return false;
+  const ws = obj(inp.workspace);
+  const model = obj(inp.model).display_name;
+  const rec = {
+    v: 1, session_id: inp.session_id, session_name: strOr(inp.session_name), cwd: cwdOf(inp),
+    project_dir: strOr(ws.project_dir), git_worktree: strOr(ws.git_worktree), branch: facts.branch,
+    model: typeof model === 'string' ? strOr(model.trim()) : undefined,
+    ctx_pct: numOr(obj(inp.context_window).used_percentage), cost_usd: numOr(obj(inp.cost).total_cost_usd),
+    five_hour_pct: numOr(obj(obj(inp.rate_limits).five_hour).used_percentage),
+    glm_share: facts.glm, bajzi_level: 'L' + facts.level,
+  };
+  const dir = ss.statusDir(env);
+  const name = `${inp.session_id}.line.json`;
+  const ts = Math.floor(nowMs / 1000);
+  let prev = null;
+  try { prev = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); } catch { prev = null; }
+  if (prev && typeof prev.ts === 'number' && ts >= prev.ts && ts - prev.ts < LINE_EVERY_S
+    && JSON.stringify(Object.assign({}, rec, { ts: prev.ts })) === JSON.stringify(prev)) return false;
+  return ss.writeJson(dir, name, Object.assign({}, rec, { ts }));
 }
 
 function main() {
@@ -87,10 +124,13 @@ function main() {
     const input = readInput() || {};
     const used = usedPct(input);
     if (used !== null) writeBridge(input.session_id, used, Date.now());
-    writeAll(render(input) + '\n');
+    const facts = {};
+    writeAll(render(input, { facts }) + '\n');
+    // After the line is out: a missing lib or a failed write never costs the status line.
+    writeLine(input, facts, Date.now());
   });
 }
 
 if (require.main === module) main(); else loadLibs();
 
-module.exports = { render, usedPct };
+module.exports = { render, usedPct, writeLine };

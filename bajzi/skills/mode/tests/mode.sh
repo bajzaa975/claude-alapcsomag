@@ -873,8 +873,8 @@ case "$pre" in
 esac
 # 13m2: the merged hooks.json wires every hook of both branches exactly once per event.
 wired=$(node -e 'const h=require(process.argv[1]).hooks;const o=[];for(const[e,a]of Object.entries(h))for(const m of a)for(const c of m.hooks)o.push(e+":"+c.command.replace(/.*\/hooks\//,"").replace(/"$/,""));console.log(o.sort().join(" "))' "$BAJZI_DIR/hooks/hooks.json" 2>&1)
-want="PostToolUse:node/post-tool.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/pre-tool.js PreToolUse:noise-filter.sh SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"' SessionStart:node "${CLAUDE_PLUGIN_ROOT}/skills/radar/radar.js" notice SessionStart:node/writer-guard.js" notice'
-[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 10 hook entries wired exactly once (node checks via pre-tool.js/post-tool.js)" || fail "13m2" "got: $wired"
+want="Notification:node/session-signal.js PostToolUse:node/post-tool.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/pre-tool.js PreToolUse:noise-filter.sh SessionEnd:node/session-signal.js SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"' SessionStart:node "${CLAUDE_PLUGIN_ROOT}/skills/radar/radar.js" notice'" SessionStart:node/session-signal.js"' SessionStart:node/writer-guard.js" notice'" Stop:node/session-signal.js StopFailure:node/session-signal.js UserPromptSubmit:node/session-signal.js"
+[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 16 hook entries wired exactly once (node checks via pre-tool.js/post-tool.js)" || fail "13m2" "got: $wired"
 # 13n: non-ASCII prompt -- characters, not bytes, under both locales; \u escape = 1 char.
 for loc in C C.UTF-8; do
     rm -f "$dlog"

@@ -63,10 +63,11 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 
 | I want to change… | File(s) : function | Tests | Tier | Gotcha |
 |---|---|---|---|---|
-| Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
+| Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`, session-signal on every tool, never any output, §6.5); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js:20-22` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` (runs from `pre-tool.js`/`post-tool.js`) | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in the plan's Global Constraints and in `docs/superpowers/specs/2026-09-23-bajzi-env-unification-design.md` section 3.2 (`:110`) — keep all three in sync or the doc lies. |
 | What is allowed above 50% | `context-guard.js:36-153` `isHandoffPath`, `commandCheck`, `commandRule`, `mvRule`, `skillRule`, `exemptCheck` | same, tests `RF4:*`, `I1a/I1b/I1c:*`, `I-1: shell escapes...` | 1 | The `PLAIN_WORD` whitelist (`:67`) covers only `mkdir`/`mv`/`git mv` argument tokens. `isHandoffPath` itself is not anchored to the repo root — an accepted limit (§9.4). |
-| Status-line fields/order | `bajzi/hooks/node/statusline.js:51-78` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). GLM share only rendered at level ≥ 1. |
+| Status-line fields/order | `bajzi/hooks/node/statusline.js:59-88` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). GLM share only rendered at level ≥ 1. |
+| Session status records for the workbench (`<id>.event.json`, `<id>.line.json`, `<id>.artifacts.jsonl`, raw hook samples; the contract is in §6.5) | `bajzi/hooks/node/session-signal.js` `handle` (the state table, idle rule, resume rule, Artifact append), `sample` (`hook-samples.on`), `check` (the `post-tool.js` `CHECKS` row, every tool); `bajzi/hooks/node/lib/session-status.js` `statusDir`/`writeJson`/`appendLine`/`prune`; `bajzi/hooks/node/statusline.js` `writeLine` (+ `render()`'s `opts.facts`); wired in `bajzi/hooks/hooks.json` (SessionStart, UserPromptSubmit, Notification, Stop, StopFailure, SessionEnd) | `node --test bajzi/hooks/node/tests/session-signal.test.js bajzi/hooks/node/tests/session-status.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/hooks/node/tests/tool-hooks.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (13m2) | 1 | Runs in every session: write-only, never stdout/stderr, exit 0 on anything, every entry `timeout: 5`. The contract is shared with claude-orchestrator (SPRINT-170 reads it): renaming a field or adding a state changes both sides, and `"v"` moves on an incompatible change. Ids outside `SAFE_ID` write nothing; `prune` deletes only the three record kinds (+ stale tmp files), never a foreign file, so a wrong `BAJZI_STATUS_DIR` deletes nothing else. The status line writes its file only after stdout is out (a missing lib or failed write never blanks the line). Not the `bajzi-ctx-<id>.json` bridge: that one is untouched. |
 | Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js:38` `matchProtected`, `:169` `commandReadsProtected`; `manifest.json:294` `secret_patterns` (runs from `pre-tool.js`) | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | Globs, brace lists, PowerShell comma arrays and `rtk` wrappers must all stay covered (§6.7). The pipe-into-reader rule must fire only when a downstream pipeline stage (any, not just the next) reads paths from stdin (§6.7). |
 | Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js:4-20` `REGEX_RULES`, `:54` `scan`, `:27` `RULE_IDS` (17 ids), `:34` `sanitize`; `bajzi/hooks/node/injection-scan.js:31` `decide` (runs from `post-tool.js`) | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Warn-only by design — `addContext` only, never `deny()`; never wire it to block. Every rule regex avoids the `\s*X?\s*` quadratic shape (§6.8); excerpts/source run through `sanitize()`. |
 | Saver-level routing table (task class → model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh` (rules read, `head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh:saver_resolve` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh` rules read) must stay above the file's real line count (currently 45; case 7 caps the file at 45 lines and 4352 bytes) or the tail silently drops with no error. The table says REVIEWER, never a model id: the hook appends the REVIEWER MODELS line (next row). |
@@ -285,11 +286,22 @@ SessionStart (matcher startup|clear|compact|resume)
   writer-guard.js notice   -> one systemMessage when the bajzi main checkout's runtime/requests/
                                holds request files; fs only, silent otherwise (startup only;
                                §6.15)
+  session-signal.js        -> <status dir>/<id>.event.json state appears; prunes record files
+                               older than 7 days (every source; §6.5 status records)
+
+UserPromptSubmit           -> session-signal.js  (state working, first 120 chars of the prompt)
+Notification (matcher permission_prompt|idle_prompt|elicitation_dialog|agent_needs_input)
+                           -> session-signal.js  (state needs_you; idle rule, §6.5)
+Stop                       -> session-signal.js  (state done)
+StopFailure                -> session-signal.js  (state problem, the API error text)
+SessionEnd                 -> session-signal.js  (state closed, the end reason)
+  (all six: write-only side effects, no stdout, timeout 5, fail open)
 
 statusLine command (re-rendered by the UI on its own cadence)
   statusline.js: reads context_window%, git branch/dirty (5s cache), handoff task, GLM share
   (5min cache), review-queue count, peak window
   -> writes the BRIDGE file <tmpdir>/bajzi-ctx-<session_id>.json  {used_pct, ts}
+  -> after the line is out, writes <status dir>/<id>.line.json (changed or 30 s; §6.5)
 
 PreToolUse
   matcher Bash                          -> noise-filter.sh   (unrelated: output compression)
@@ -306,6 +318,8 @@ PostToolUse
   matcher .*                            -> post-tool.js       (ONE node process; in-process checks:)
       every tool                        -> context-guard.js   check (>=40% warn, debounced 1-in-5)
       Read|WebFetch|WebSearch|mcp__*    -> injection-scan.js  check (warn only)
+      every tool                        -> session-signal.js  check (never output: Artifact ->
+                                           <id>.artifacts.jsonl; resume rule needs_you -> working)
       both warn -> one additionalContext, joined by a blank line, context warning first
 
 Sub-agent dispatch, e.g. Bash: glm -p "<task>"
@@ -610,10 +624,12 @@ frontmatter is the upgrade if that bites.
 **Trigger**: the Claude Code `statusLine` command, re-rendered on the UI's own cadence, not a
 `hooks.json` event. **Inputs** (stdin JSON): `session_id`, `model.display_name`,
 `workspace.current_dir` (falls back to `cwd`, then `process.cwd()`), `context_window
-.remaining_percentage`.
+.remaining_percentage`; for the line file also `session_name`, `workspace.project_dir`,
+`workspace.git_worktree`, `context_window.used_percentage`, `cost.total_cost_usd`,
+`rate_limits.five_hour.used_percentage`.
 
 **Line**: `model · Lx · branch* · task · ▓▓░░ NN% · GLM NN% · Qn · peak ...`
-(`statusline.js:13` `SEP = ' · '`). Fields, in order (`render()`, `:51-78`):
+(`statusline.js:20` `SEP = ' · '`). Fields, in order (`render()`, `:59-88`):
 1. `model.display_name`, trimmed; omitted if blank.
 2. `L<level>` from `resolveLevel()` (`saver-level.js:48`) — always present.
 3. git branch + `*` if dirty (`status-parts.js:80` `gitInfo`, 5 s cache per cwd, §7.2) —
@@ -638,14 +654,81 @@ frontmatter is the upgrade if that bites.
 {used_pct, ts}` atomically (`bridge.js:27` `writeBridge`, §7.2). This is the **only** producer
 of that file — the context guard (§6.6) is a pure consumer.
 
+**Side effect — the line file**: after the rendered line is on stdout, `writeLine()` (`:97-118`)
+writes `<status dir>/<session_id>.line.json` (the status record contract below) from the stdin
+fields plus what `render()` computed (`opts.facts`: level, branch, GLM share — no second git or
+GLM lookup). It is rewritten only when its content changed or 30 s (`LINE_EVERY_S`) passed since
+the file's own `ts` (or the clock went back); missing data = the key is omitted. The display is
+unchanged: the line is byte-identical, and an unwritable status dir, an unsafe id or a missing
+`lib/session-status.js` (a partial install) still renders it (the lib loads lazily, after the
+line is out).
+
 **Failure behaviour**: `runHook('statusline', ...)` — any exception is swallowed, logged to
 `hook-errors.log`, and the process still exits 0.
+
+#### Status records — the contract (shared with claude-orchestrator, SPRINT-170)
+
+Writers: `bajzi/hooks/node/session-signal.js` (event + artifacts; hooks.json entries in §5.3,
+the PostToolUse part as a `post-tool.js` `CHECKS` row), `statusline.js` `writeLine` (line), all
+through `bajzi/hooks/node/lib/session-status.js`. Reader: the claude-orchestrator workbench.
+
+Status dir: `BAJZI_STATUS_DIR`, default `~/.claude/bajzi/sessions/` (`statusDir()`; `BAJZI_HOME`
+replaces the home dir, as everywhere in bajzi), created on first write; the workbench reads its
+machine setting `status_dir`, same default. File names use the session id only if it matches
+`^[A-Za-z0-9_-]{1,128}$` (`SAFE_ID`), otherwise nothing is written. Whole-file writes are
+tmp-file (`wx`, random name) + rename; the `.jsonl` files are plain appends of one line. Every
+record carries `"v": 1`; `ts` is Unix seconds. The SessionStart hook prunes record files (the
+three kinds below + stale tmp files, nothing else) whose mtime is older than 7 days.
+
+`<id>.line.json` — written by the status line when the content changed or 30 s passed since its last write:
+```json
+{"v":1,"session_id":"…","session_name":"…","cwd":"…","project_dir":"…","git_worktree":"…","branch":"…",
+ "model":"Opus 5.5","ctx_pct":37.5,"cost_usd":1.23,"five_hour_pct":42,"glm_share":64,"bajzi_level":"L2","ts":1759340000}
+```
+`<id>.event.json` — written whole by the session-signal hook (never read-merge-written, except the idle rule below):
+```json
+{"v":1,"session_id":"…","event":"Notification","state":"needs_you","message":"Claude needs your permission to use Bash",
+ "notification_type":"permission_prompt","cwd":"…","transcript_path":"…","ppid":12345,"pane_id":"p-3",
+ "entrypoint":"cli","ts":1759340000}
+```
+`ppid` = `process.ppid` of the hook process, `entrypoint` = `CLAUDE_CODE_ENTRYPOINT` (or `""`),
+`pane_id` = `ORCH_PANE_ID`, present only when set; `notification_type` only on `Notification`.
+
+| Hook (matcher) | `state` | `message` |
+|---|---|---|
+| `SessionStart` | `appears` | `started` |
+| `UserPromptSubmit` | `working` | first 120 chars of the prompt |
+| `Notification` (`permission_prompt\|idle_prompt\|elicitation_dialog\|agent_needs_input`) | `needs_you` | the notification text (≤ 500 chars) |
+| `Stop` | `done` | `""` |
+| `StopFailure` | `problem` | the error text (≤ 500 chars): `last_assistant_message`, else `error_details`, else `error` |
+| `SessionEnd` | `closed` | the end reason |
+
+Idle rule: an `idle_prompt` notification while the current event file says `done` or `appears` writes nothing (a
+finished turn going idle is not "needs you"; Done stays silent).
+Resume rule: any `PostToolUse` while the event file says `needs_you` rewrites it to `working` (event `PostToolUse`,
+message `resumed`): the owner approved a permission prompt or answered a question and Claude carries on. Without it
+the card stays orange while Claude works, chimes at 30 s and sends a Telegram digest for a working session.
+
+`<id>.artifacts.jsonl` — one line per `PostToolUse` on the Artifact tool: `{"v":1,"url":"https://claude.ai/…","title":"…","ts":…}`
+(`url` = first `https://claude.ai/` URL found in the tool response, trailing punctuation dropped; no URL = no line;
+`title` = the tool input's `title` or file basename).
+
+Raw hook samples (diagnostics, owner-switched): while `~/.claude/bajzi/hook-samples.on` exists, the
+session-signal hook and the `post-tool.js` path append every hook input as one JSON line to
+`~/.claude/bajzi/hook-samples.jsonl`, every string cut at 2048 characters (`sample()`). No cap and
+no redaction: switch it on for a sampling window only, then delete both files.
+
+Fail-open (Tier 1, it runs in every session): `session-signal.js` exits 0 and prints nothing on
+any input (no JSON, garbage fields, an unsafe id, an unwritable dir, `lib/session-status.js`
+missing); in `post-tool.js` its throw is logged and never changes the other checks' output.
 
 **Timing budget**: p95 < 150 ms warm on Windows (measured p95 warm ≈ 56-63 ms, cache-miss with a
 git spawn ≈ 120 ms). The budget test is opt-in: it runs only with `BAJZI_PERF=1`, otherwise node:test reports it skipped ("latency budget: set BAJZI_PERF=1").
 
 **Tests**: `node --test bajzi/hooks/node/tests/statusline.test.js` (exact-line fixture assertions,
-ANSI-stripped; a dedicated p95 timing test, opt-in via `BAJZI_PERF=1`).
+ANSI-stripped; the `line file:` tests; a dedicated p95 timing test, opt-in via `BAJZI_PERF=1`);
+the status records: `session-signal.test.js`, `session-status.test.js`, and the `post-tool:` /
+session-signal tests in `tool-hooks.test.js`.
 
 **Opt-in latency budgets**: every wall-clock budget test in `bajzi/hooks/node/tests/` (status line p95 < 150 ms; context-guard and secret-guard p95 < 100 ms, the secret-guard one also through the wired `pre-tool.js` on a Bash call that runs both checks; the `injection-scan.test.js` `500 KB of text scans in under 100 ms` timing test (the always-run 500 KB `I1` cap test is separate, see the linear-time guarantee) and the tight 100 ms `I1` bounds) runs only with `BAJZI_PERF=1`; otherwise node:test reports it skipped with "latency budget: set BAJZI_PERF=1". Assertions are unchanged when set. Night-run test note: `bajzi/skills/night-run/tests/watch.sh` scenarios that probe runner liveness (1-5, 8, 10-11, 13-17) need `flock`; without it they print `SKIP (no flock)` and do not count as failures.
 
@@ -1623,12 +1706,16 @@ root. Line numbers are pinned to the commits in §11.
 
 | Path | Writer | Readers | Format | Lifecycle |
 |---|---|---|---|---|
-| `<tmpdir>/bajzi-ctx-<session_id>.json` (the bridge) | `statusline.js:84` → `writeBridge` (`bridge.js:27-41`: `wx` temp file, then rename) | `readBridge` (`bridge.js:43-52`), called by `context-guard.js:232` | `{"used_pct": 42, "ts": <ms>}` | stale after 60 s, rejected if > 5 s in the future (`bridge.js:13,50`); never deleted; `session_id` must match `^[A-Za-z0-9_-]{1,128}$` (`bridge.js:12`) |
+| `<tmpdir>/bajzi-ctx-<session_id>.json` (the bridge) | `statusline.js:126` → `writeBridge` (`bridge.js:27-41`: `wx` temp file, then rename) | `readBridge` (`bridge.js:43-52`), called by `context-guard.js:232` | `{"used_pct": 42, "ts": <ms>}` | stale after 60 s, rejected if > 5 s in the future (`bridge.js:13,50`); never deleted; `session_id` must match `^[A-Za-z0-9_-]{1,128}$` (`bridge.js:12`) |
 | `<tmpdir>/bajzi-ctx-<session_id>-warned.json` | `context-guard.js:205-228` `shouldWarn` (temp + rename `:219-223`) | same function | `{"calls": 3}` | reset to 0 on every warning; never deleted |
 | `<tmpdir>/bajzi-git-<sha1(cwd)[0..16]>.json` | `gitInfo` (`status-parts.js:80-97`) | same | `{"ts": <ms>, "info": null \| {"branch", "dirty"}}`, schema-checked (`validGitInfo`, `:53-58`) | TTL 5000 ms (`:10`) |
-| `~/.claude/bajzi/glm-share.json` | `refreshGlm` (`status-parts.js:183-201`), a detached child running `worker --usage 24h --json` (override `BAJZI_WORKER_CMD`) | `glmShare` (`:173-181`), only at level ≥ 1 (`statusline.js:71-74`) | `{"ts": <ms>, "pct": 64}` | TTL 5 min (`:11`); a failed refresh keeps the old `pct` |
+| `~/.claude/bajzi/glm-share.json` | `refreshGlm` (`status-parts.js:183-201`), a detached child running `worker --usage 24h --json` (override `BAJZI_WORKER_CMD`) | `glmShare` (`:173-181`), only at level ≥ 1 (`statusline.js:77-81`) | `{"ts": <ms>, "pct": 64}` | TTL 5 min (`:11`); a failed refresh keeps the old `pct` |
 | `~/.claude/bajzi/glm-share.json.lock` | `takeLock` (`status-parts.js:156-171`, `wx`) | same | the lock's own ms timestamp | expires after 60 s (`:12`); deleted by a successful refresh (`:201`) |
 | `~/.claude/bajzi/hook-errors.log` | `logError` (`hook-io.js:77-100`) via `runHook` (`:124-140`), from every node hook | the owner | `<ISO> <hook> <message ≤300 chars, one line>` | cap 262144 bytes (`:10`): on overflow keeps the last 128 KiB from a line start (`:86-91`) |
+| `~/.claude/bajzi/sessions/<session_id>.event.json` (`BAJZI_STATUS_DIR` overrides the dir) | `session-signal.js` `handle` (`writeJson`: `wx` temp file, then rename) | the claude-orchestrator workbench; `handle` itself for the idle and resume rules | the status record contract (§6.5) | written whole per event; pruned at SessionStart when the mtime is > 7 days old |
+| `~/.claude/bajzi/sessions/<session_id>.line.json` | `statusline.js` `writeLine` (`writeJson`) | the workbench; `writeLine` (its own `ts` = the throttle state) | §6.5 | rewritten when the content changed or 30 s passed; pruned as above |
+| `~/.claude/bajzi/sessions/<session_id>.artifacts.jsonl` | `session-signal.js` `artifact` (`appendLine`), Artifact `PostToolUse` via `post-tool.js` | the workbench | one `{"v":1,"url","title","ts"}` line per artifact | append only; pruned as above |
+| `~/.claude/bajzi/hook-samples.on`, `hook-samples.jsonl` | the owner creates `.on`; `session-signal.js` `sample` appends | the owner | one raw hook input per line, strings cut at 2048 chars | on while `.on` exists; no cap, no redaction; the owner deletes both |
 | `~/.claude/bajzi/statusline.js` + `lib/*.js` | `install-statusline.js:51-53` (`/bajzi:setup` PHASE D step 9) | Claude Code, through `settings.json` `statusLine`; `check.js:105-107` | copy of the plugin files | refreshed on every setup run; survives plugin updates on purpose (§5.1) |
 | `<cwd>/runtime/routing-violations.log` | `routing-counter.sh` (the two `routing-violations.log` appends: saver rung, reviewer model; gate open) | the owner | `<YYYY-MM-DDTHH:MM:SSZ> level=<n> model=<m>` or `... level=<n> reviewer-model=<served> cause=<off-list|no-allowlist>` (space-separated) | no cap |
 | `<cwd>/runtime/dispatch-sizes.log` | `dispatch-guard.sh` (the R4 block, §6.4); `findings-cli.js:cmds.log` (class `SKILL-<CLASS>`, §6.12; an `allow` only when the hook's gate is closed or unresolvable, a `deny` always); `pre-commit.js:main` (class `GATE`, one line per commit-time verdict, not `--init`) | the owner; plan T9 counts dispatches and gate blocks from it | TSV `<ISO-UTC> <class> <subagent_type> <prompt chars> <decision>` (`dispatch-guard.sh` header, R4); the hook writes `allow\|deny:R1\|R2\|R3`, a `SKILL-` line a bare `allow\|deny`; a gate line is `<ISO-UTC> GATE pre-commit <exit 0\|1\|2> <pass\|block>` | no cap; a failed write never changes the decision or the gate verdict |
@@ -2130,7 +2217,7 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 
 | Component | Built (where) | Installed on the laptop | Not yet built / open | Verify (command → expected today) |
 |---|---|---|---|---|
-| bajzi plugin release | `origin/main` = 1.8.0 (`4c996c2`); `agents-cadence` = 1.10.1 (unreleased); `feat/radar` = 1.11.0 (unreleased, adds radar §6.14); `feat/writer-guard` = 1.12.0 (unreleased, adds the writer guard §6.15); `feat/night-watcher` = 1.13.0 (unreleased, stacked on writer-guard: watcher brief duty 4 + sandboxed bash triage tick); `feat/dispatch-r2-dedupe` = 1.13.1 (unreleased: R2 exempts the built-in read-only agents, one log line per dispatch) | **1.8.0**, scope user, enabled, from GitHub | 1.12.0, 1.13.0 and 1.13.1 releases (§8.3) | `claude plugin list` → `Version: 1.8.0`, `Status: ✔ enabled` |
+| bajzi plugin release | `origin/main` = 1.8.0 (`4c996c2`); `agents-cadence` = 1.10.1 (unreleased); `feat/radar` = 1.11.0 (unreleased, adds radar §6.14); `feat/writer-guard` = 1.12.0 (unreleased, adds the writer guard §6.15); `feat/night-watcher` = 1.13.0 (unreleased, stacked on writer-guard: watcher brief duty 4 + sandboxed bash triage tick); `feat/dispatch-r2-dedupe` = 1.13.1 (unreleased: R2 exempts the built-in read-only agents, one log line per dispatch) ; `feat/session-status` (unreleased, D1: the session status records §6.5; rebased onto 1.13.1, version set at release) | **1.8.0**, scope user, enabled, from GitHub | 1.12.0, 1.13.0 and 1.13.1 releases (§8.3); the session-status release | `claude plugin list` → `Version: 1.8.0`, `Status: ✔ enabled` |
 | `cc-router.js` shim (§6.2) | yes, released since 1.7.0 | **yes**, v1.2.0 (+ `.bak`) | — | `sha256sum ~/.local/bin/cc-router.js bajzi/bin/cc-router.js ~/.claude/plugins/cache/bajzi-plugins/bajzi/1.8.0/bin/cc-router.js` → three identical hashes |
 | `worker`/`glm`/`ccr` launchers | `env-unify`, `bajzi/bin/launchers/` (byte-identical to the laptop's six) | **yes**, + `.cmd` twins | — | `which glm worker ccr` → `/c/Users/andra/.local/bin/…` |
 | Saver mode | — | **L0**; `glm_fast_model` = `glm-5.3-flash` | — | `worker --status` → `level           L0 (claude)`, `ZAI_API_KEY     found` |
@@ -2162,3 +2249,4 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Writer guard 1.12.0 (§6.15, §4 Invariant 15, §7.2, §9.1) | `feat/writer-guard` (unreleased): `bajzi/hooks/node/writer-guard.js` (+ the `pre-tool.js` `CHECKS` row), `bajzi/hooks/node/tests/writer-guard.test.js`, the `tool-hooks.test.js` cases, `shared/CLAUDE.md` "bajzi plugin changes"; the `bajzi` entries of both manifests at 1.12.0; follow-up commit: `hooks.json` SessionStart `writer-guard.js notice` entry (matcher `startup`), `release.test.js` node-command count 4, `mode.sh` 13m2 list (10 entries), `manifest.json` `settings_merge.remoteControlAtStartup`, `bajzi-cowork` rebuilt; review follow-up: owner = `CLAUDE_PROJECT_DIR` (start directory) else `cwd`, the test helper `runScript` scrubs `CLAUDE_PROJECT_DIR`, root `README.md` Safety names the writer guard (pinned in `release.test.js`) | no | the 1.12.0 release (§8.3); `/bajzi:setup` on each machine appends the rule text to `~/.claude/CLAUDE.md` | `node --test bajzi/hooks/node/tests/writer-guard.test.js` → `# pass 20`, `# fail 0` |
 | Night watcher 1.13.0 (§2 rows "Night-run triage watcher (tier 1)" and "Night-run baseline-gate abort") | `feat/night-watcher`: `bajzi/skills/night-run/templates/WATCHER-BRIEF.md.tmpl` (BLOCKING class, duty 4 blocking-failure fix with its guardrails, `TICK FIXED` in the output contract), `bajzi/skills/night-run/tests/watcher-brief.test.js`, `bajzi/skills/night-run/night-watch.sh` (tick: cwd = BASE, explicit `--settings`, stream-json init-record check, `TICK MISCONFIGURED` fail closed), `bajzi/skills/night-run/tests/triage.sh`, `bajzi/skills/night-run/tests/README.md`, `bajzi/skills/night-run/templates/config.env.tmpl`, `docs/bajzi-package-spec.md` | no | the 1.13.0 release commit is done (bajzi-plugins session, 611a201, all three manifests at 1.13.0); install only after that session confirms its tick-argv fix on a real tick, because `nightwatch.ps1` renders the brief from the installed plugin cache (`runtime/requests/2026-10-02-night-watcher-hardening.md`) | `node --test bajzi/skills/night-run/tests/watcher-brief.test.js` → `# pass 19`, `# fail 0`; `bash bajzi/skills/night-run/tests/triage.sh` → 56 `PASS`, `ALL PASS` (Git Bash on the laptop; not yet run on Linux) |
 | Dispatch R2 + log dedupe 1.13.1 (§6.4, §7.2, §2 rows "Dispatch-guard rules" and "Review/fix loop skills") | `feat/dispatch-r2-dedupe`: `bajzi/hooks/dispatch-guard.sh` (`READONLY_RE`: R2 skips the case-sensitive built-in names `Explore`/`Plan`/`claude-code-guide`; R2 deny text names Explore or Plan), `bajzi/lib/findings-cli.js` `cmds.log` (an `allow` with the guard gate open writes no `SKILL-` line; `deny` always), `bajzi/skills/lib/dispatch.md` step 3, `mode.sh` 13f11-13f17 and 16g-16g5 (16g pins a closed gate), all three manifests at 1.13.1 | no | the 1.13.1 release (§8.3) | `TMPDIR=D:/tmp bash bajzi/skills/mode/tests/mode.sh </dev/null` → `PASS 271/271` |
+| Session status records (unreleased) (§6.5 contract, §5.3, §7.2; D1 of the claude-orchestrator workbench step-1 plan) | `feat/session-status` (unreleased): `bajzi/hooks/node/session-signal.js`, `lib/session-status.js`, `statusline.js` `writeLine`, the `post-tool.js` `CHECKS` row, six `hooks.json` entries; `remoteControlAtStartup` comes from the writer guard (no second copy); version set at release | no | the Opus review (Tier 1); its release (§8.3), then `/bajzi:setup` on each machine (the status line copy in `~/.claude/bajzi/` writes the line file only after it is refreshed) | `node --test bajzi/hooks/node/tests/session-signal.test.js bajzi/hooks/node/tests/session-status.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/hooks/node/tests/tool-hooks.test.js` → `# fail 0` |
