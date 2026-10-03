@@ -106,7 +106,11 @@ Kept here: the 8 from 1.12 plus `gsd-quick-batch`.
 ### 5. It deletes your own permissions.deny
 1.14 removes the `Read(.env)`, `Read(.env.*)`, `Read(.secrets)` deny block that 1.12 wrote and
 replaces it with a `PreToolUse` hook (`gsd-secret-read-guard.js`). Those rules are also OURS —
-they are in `settings_merge` in the setup manifest. Restore them after every GSD update.
+they are in `settings_merge` in the setup manifest. Restore them after every GSD update, in the
+manifest's current form: `Read(.env)`, `Read(.env.local)`, `Read(.env.*.local)`,
+`Read(.env.production*)`, `Read(.env.development*)`, `Read(.env.test*)`, `Read(.env.staging*)`,
+`Read(.secrets)`. Not `Read(.env.*)`: it also blocks the tracked `.env.example`, and
+`/bajzi:setup --check` reports it as `leftover-deny`.
 
 ### 6. Hook timeouts went 5s -> 120s
 Seven GSD hooks now carry a 120-second timeout (prompt-guard, workflow-guard,
