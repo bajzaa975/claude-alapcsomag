@@ -242,12 +242,12 @@ test('post-tool: a throwing session-signal check leaves the other checks\' outpu
   assert.strictEqual(runScript(POST, JSON.stringify(input), { TMPDIR: ctx45(), BAJZI_STATUS_DIR: unwritable }).stdout, want.stdout);
 });
 
-test('post-tool: hook-samples.on makes the PostToolUse path append the raw input too', () => {
+test('post-tool: hook-samples.on makes the PostToolUse path append the redacted input too', () => {
   const home = tmpDir('bajzi-home-');
   fs.mkdirSync(path.join(home, '.claude', 'bajzi'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'bajzi', 'hook-samples.on'), '');
   const r = runScript(POST, JSON.stringify(post('Bash', { command: 'ls' }, 'out')), { HOME: home, BAJZI_HOME: home, BAJZI_STATUS_DIR: tmpDir('bajzi-ss-') });
   assert.strictEqual(r.stdout, '');
   const s = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'bajzi', 'hook-samples.jsonl'), 'utf8'));
-  assert.deepStrictEqual([s.hook_event_name, s.tool_name, s.tool_response], ['PostToolUse', 'Bash', 'out']);
+  assert.deepStrictEqual([s.hook_event_name, s.tool_name, s.tool_response], ['PostToolUse', 'Bash', '<str 3>']);
 });

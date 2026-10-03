@@ -16,6 +16,9 @@ const SAMPLE_MAX = 2048;
 const CLAUDE_URL = /https:\/\/claude\.ai\/[^\s"'<>\\)\]}]*/;
 
 const str = v => (typeof v === 'string' ? v : '');
+// Who a hook input (or a stored record) belongs to: a sub-agent's non-empty agent_id, '' = the main
+// thread. agent_type is no marker: the main thread of an --agent session carries it too.
+const owner = o => (typeof o.agent_id === 'string' ? o.agent_id : '');
 // The first n characters, counted in code points: a cut never splits a surrogate pair.
 const cut = (s, n) => (s.length <= n ? s : Array.from(s.slice(0, 2 * n)).slice(0, n).join(''));
 
@@ -24,9 +27,11 @@ function readJson(dir, name) {
 }
 
 function record(input, env, nowMs, state, message) {
+  const note = input.hook_event_name === 'Notification';
   return {
     v: 1, session_id: input.session_id, event: str(input.hook_event_name), state, message,
-    notification_type: input.hook_event_name === 'Notification' ? str(input.notification_type) : undefined,
+    notification_type: note ? str(input.notification_type) : undefined,
+    agent_id: note && owner(input) ? owner(input) : undefined,
     cwd: str(input.cwd), transcript_path: str(input.transcript_path), ppid: process.ppid,
     pane_id: env.ORCH_PANE_ID || undefined, entrypoint: env.CLAUDE_CODE_ENTRYPOINT || '',
     ts: Math.floor(nowMs / 1000),
@@ -51,7 +56,8 @@ function handle(input, env, nowMs, dir) {
   if (typeof id !== 'string' || !ss.SAFE_ID.test(id)) return;
   const e = env && typeof env === 'object' ? env : {};
   const file = `${id}.event.json`;
-  const state = () => { const j = readJson(dir, file); return j && typeof j === 'object' ? j.state : undefined; };
+  const prev = () => { const j = readJson(dir, file); return j && typeof j === 'object' ? j : {}; };
+  const state = () => prev().state;
   const put = (st, msg) => { ss.writeJson(dir, file, record(input, e, nowMs, st, msg)); };
   switch (input.hook_event_name) {
     case 'SessionStart': ss.prune(dir, WEEK_MS, nowMs); put('appears', 'started'); return;
@@ -69,27 +75,39 @@ function handle(input, env, nowMs, dir) {
     case 'SessionEnd': put('closed', str(input.reason)); return;
     case 'PostToolUse':
       if (input.tool_name === 'Artifact') artifact(ss, input, nowMs, dir, id);
-      // Resume rule: a tool ran, so the owner answered the prompt and Claude carries on.
-      if (state() === 'needs_you') put('working', 'resumed');
+      // Resume rule: a tool ran in the thread that asked (same agent_id, '' = main thread), so the
+      // owner answered the prompt and Claude carries on. Residual: two parallel main-thread tool
+      // calls, one waiting on permission, still flip it; no input field ties a prompt to a tool call.
+      { const p = prev(); if (p.state === 'needs_you' && owner(p) === owner(input)) put('working', 'resumed'); }
       return;
     default:
   }
 }
 
-function trunc(v) {
-  if (typeof v === 'string') return cut(v, SAMPLE_MAX);
-  if (Array.isArray(v)) return v.map(trunc);
-  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, trunc(x)]));
+const SAMPLE_KEEP = new Set(['session_id', 'transcript_path', 'cwd', 'hook_event_name', 'agent_id', 'agent_type',
+  'agent_transcript_path', 'tool_name', 'tool_use_id', 'notification_type', 'source', 'reason', 'permission_mode',
+  'model', 'stop_hook_active', 'matcher', 'trigger']);
+
+// Shape, never content: a string becomes "<str N>" (N = UTF-16 length) unless it is the value of a
+// top-level SAMPLE_KEEP key (kept, cut at SAMPLE_MAX); numbers, booleans, null and keys stay.
+function redact(v, top) {
+  if (typeof v === 'string') return `<str ${v.length}>`;
+  if (Array.isArray(v)) return v.map(x => redact(x));
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(Object.entries(v).map(([k, x]) =>
+      [k, top && SAMPLE_KEEP.has(k) && typeof x === 'string' ? cut(x, SAMPLE_MAX) : redact(x)]));
+  }
   return v;
 }
 
 // Diagnostics, owner-switched: while <home>/.claude/bajzi/hook-samples.on exists, every hook input
-// is appended raw (strings cut at SAMPLE_MAX) to hook-samples.jsonl next to it. BAJZI_HOME = home.
+// is appended redacted (redact(): payload shape plus the SAMPLE_KEEP ids, never prompt, tool or
+// message content) to hook-samples.jsonl next to it. BAJZI_HOME = home.
 function sample(input, env) {
   try {
     const dir = path.join((env && env.BAJZI_HOME) || os.homedir(), '.claude', 'bajzi');
     if (input && typeof input === 'object' && fs.existsSync(path.join(dir, 'hook-samples.on'))) {
-      require('./lib/session-status').appendLine(dir, 'hook-samples.jsonl', trunc(input));
+      require('./lib/session-status').appendLine(dir, 'hook-samples.jsonl', redact(input, true));
     }
   } catch { /* diagnostics never break the hook */ }
 }

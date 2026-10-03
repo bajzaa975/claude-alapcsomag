@@ -692,7 +692,8 @@ three kinds below + stale tmp files, nothing else) whose mtime is older than 7 d
  "entrypoint":"cli","ts":1759340000}
 ```
 `ppid` = `process.ppid` of the hook process, `entrypoint` = `CLAUDE_CODE_ENTRYPOINT` (or `""`),
-`pane_id` = `ORCH_PANE_ID`, present only when set; `notification_type` only on `Notification`.
+`pane_id` = `ORCH_PANE_ID`, present only when set; `notification_type` only on `Notification`; `agent_id` only on a
+`Notification` fired inside a sub-agent (see the resume rule).
 
 | Hook (matcher) | `state` | `message` |
 |---|---|---|
@@ -705,9 +706,17 @@ three kinds below + stale tmp files, nothing else) whose mtime is older than 7 d
 
 Idle rule: an `idle_prompt` notification while the current event file says `done` or `appears` writes nothing (a
 finished turn going idle is not "needs you"; Done stays silent).
-Resume rule: any `PostToolUse` while the event file says `needs_you` rewrites it to `working` (event `PostToolUse`,
-message `resumed`): the owner approved a permission prompt or answered a question and Claude carries on. Without it
-the card stays orange while Claude works, chimes at 30 s and sends a Telegram digest for a working session.
+Resume rule: a `PostToolUse` while the event file says `needs_you` rewrites it to `working` (event `PostToolUse`,
+message `resumed`) only when it comes from the thread that asked: the owner approved a permission prompt or answered
+a question and Claude carries on. Without it the card stays orange while Claude works, chimes at 30 s and sends a
+Telegram digest for a working session. Thread match: every hook input fired inside a sub-agent carries the parent's
+`session_id`/`transcript_path` plus a non-empty string `agent_id`; the main thread has no `agent_id` (`agent_type` is
+no marker: the main thread of an `--agent` session carries it too). The `Notification` row stores `agent_id` in the
+record when the input has a non-empty string one (omitted otherwise = main thread); the rewrite happens only when the
+`PostToolUse`'s `agent_id` (non-empty string, else main thread) equals the stored one (missing = main thread). So a
+sub-agent's tool call never resumes a main-thread prompt and vice versa; the sub-agent's own next tool call does.
+Known residual (not fixed): two parallel main-thread tool calls, one waiting on permission while the other finishes,
+still flip the state to `working` — no input field ties a prompt to a tool call (`Notification` has no `tool_use_id`).
 
 `<id>.artifacts.jsonl` — one line per `PostToolUse` on the Artifact tool: `{"v":1,"url":"https://claude.ai/…","title":"…","ts":…}`
 (`url` = first `https://claude.ai/` URL found in the tool response, trailing punctuation dropped; no URL = no line;
@@ -715,8 +724,14 @@ the card stays orange while Claude works, chimes at 30 s and sends a Telegram di
 
 Raw hook samples (diagnostics, owner-switched): while `~/.claude/bajzi/hook-samples.on` exists, the
 session-signal hook and the `post-tool.js` path append every hook input as one JSON line to
-`~/.claude/bajzi/hook-samples.jsonl`, every string cut at 2048 characters (`sample()`). No cap and
-no redaction: switch it on for a sampling window only, then delete both files.
+`~/.claude/bajzi/hook-samples.jsonl`, redacted (`sample()` → `redact()`): samples show payload SHAPE,
+never content. A top-level key on the allowlist keeps its string value (cut at 2048 characters): `session_id`,
+`transcript_path`, `cwd`, `hook_event_name`, `agent_id`, `agent_type`, `agent_transcript_path`, `tool_name`,
+`tool_use_id`, `notification_type`, `source`, `reason`, `permission_mode`, `model`, `stop_hook_active`, `matcher`,
+`trigger`. Every other string, at any depth (`tool_input`, `tool_response`, `prompt`, `message`,
+`last_assistant_message`, `error`, `error_details`, `custom_instructions`, …), becomes `"<str N>"`, N = its length in
+UTF-16 units; numbers, booleans, null and the key structure stay. No cap: switch it on for a sampling window only,
+then delete both files.
 
 Fail-open (Tier 1, it runs in every session): `session-signal.js` exits 0 and prints nothing on
 any input (no JSON, garbage fields, an unsafe id, an unwritable dir, `lib/session-status.js`
@@ -2249,4 +2264,4 @@ command before trusting its cells. The VM and the mini-PC are not verifiable fro
 | Writer guard 1.12.0 (§6.15, §4 Invariant 15, §7.2, §9.1) | `feat/writer-guard` (unreleased): `bajzi/hooks/node/writer-guard.js` (+ the `pre-tool.js` `CHECKS` row), `bajzi/hooks/node/tests/writer-guard.test.js`, the `tool-hooks.test.js` cases, `shared/CLAUDE.md` "bajzi plugin changes"; the `bajzi` entries of both manifests at 1.12.0; follow-up commit: `hooks.json` SessionStart `writer-guard.js notice` entry (matcher `startup`), `release.test.js` node-command count 4, `mode.sh` 13m2 list (10 entries), `manifest.json` `settings_merge.remoteControlAtStartup`, `bajzi-cowork` rebuilt; review follow-up: owner = `CLAUDE_PROJECT_DIR` (start directory) else `cwd`, the test helper `runScript` scrubs `CLAUDE_PROJECT_DIR`, root `README.md` Safety names the writer guard (pinned in `release.test.js`) | no | the 1.12.0 release (§8.3); `/bajzi:setup` on each machine appends the rule text to `~/.claude/CLAUDE.md` | `node --test bajzi/hooks/node/tests/writer-guard.test.js` → `# pass 20`, `# fail 0` |
 | Night watcher 1.13.0 (§2 rows "Night-run triage watcher (tier 1)" and "Night-run baseline-gate abort") | `feat/night-watcher`: `bajzi/skills/night-run/templates/WATCHER-BRIEF.md.tmpl` (BLOCKING class, duty 4 blocking-failure fix with its guardrails, `TICK FIXED` in the output contract), `bajzi/skills/night-run/tests/watcher-brief.test.js`, `bajzi/skills/night-run/night-watch.sh` (tick: cwd = BASE, explicit `--settings`, stream-json init-record check, `TICK MISCONFIGURED` fail closed), `bajzi/skills/night-run/tests/triage.sh`, `bajzi/skills/night-run/tests/README.md`, `bajzi/skills/night-run/templates/config.env.tmpl`, `docs/bajzi-package-spec.md` | no | the 1.13.0 release commit is done (bajzi-plugins session, 611a201, all three manifests at 1.13.0); install only after that session confirms its tick-argv fix on a real tick, because `nightwatch.ps1` renders the brief from the installed plugin cache (`runtime/requests/2026-10-02-night-watcher-hardening.md`) | `node --test bajzi/skills/night-run/tests/watcher-brief.test.js` → `# pass 19`, `# fail 0`; `bash bajzi/skills/night-run/tests/triage.sh` → 56 `PASS`, `ALL PASS` (Git Bash on the laptop; not yet run on Linux) |
 | Dispatch R2 + log dedupe 1.13.1 (§6.4, §7.2, §2 rows "Dispatch-guard rules" and "Review/fix loop skills") | `feat/dispatch-r2-dedupe`: `bajzi/hooks/dispatch-guard.sh` (`READONLY_RE`: R2 skips the case-sensitive built-in names `Explore`/`Plan`/`claude-code-guide`; R2 deny text names Explore or Plan), `bajzi/lib/findings-cli.js` `cmds.log` (an `allow` with the guard gate open writes no `SKILL-` line; `deny` always), `bajzi/skills/lib/dispatch.md` step 3, `mode.sh` 13f11-13f17 and 16g-16g5 (16g pins a closed gate), all three manifests at 1.13.1 | no | the 1.13.1 release (§8.3) | `TMPDIR=D:/tmp bash bajzi/skills/mode/tests/mode.sh </dev/null` → `PASS 271/271` |
-| Session status records (unreleased) (§6.5 contract, §5.3, §7.2; D1 of the claude-orchestrator workbench step-1 plan) | `feat/session-status` (unreleased): `bajzi/hooks/node/session-signal.js`, `lib/session-status.js`, `statusline.js` `writeLine`, the `post-tool.js` `CHECKS` row, six `hooks.json` entries; `remoteControlAtStartup` comes from the writer guard (no second copy); version set at release | no | the Opus review (Tier 1); its release (§8.3), then `/bajzi:setup` on each machine (the status line copy in `~/.claude/bajzi/` writes the line file only after it is refreshed) | `node --test bajzi/hooks/node/tests/session-signal.test.js bajzi/hooks/node/tests/session-status.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/hooks/node/tests/tool-hooks.test.js` → `# fail 0` |
+| Session status records (unreleased) (§6.5 contract, §5.3, §7.2; D1 of the claude-orchestrator workbench step-1 plan) | `feat/session-status` (unreleased): `bajzi/hooks/node/session-signal.js`, `lib/session-status.js`, `statusline.js` `writeLine`, the `post-tool.js` `CHECKS` row, six `hooks.json` entries; `remoteControlAtStartup` comes from the writer guard (no second copy); version set at release; review-lens fixes (`d1-fixes`): the resume rule matches `agent_id` (a `Notification` record stores it), `hook-samples.jsonl` redacted to shape (`redact()` allowlist), `bajzi/README.md` **Session signal** bullet | no | the Opus review (Tier 1); its release (§8.3), then `/bajzi:setup` on each machine (the status line copy in `~/.claude/bajzi/` writes the line file only after it is refreshed) | `node --test bajzi/hooks/node/tests/session-signal.test.js bajzi/hooks/node/tests/session-status.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/hooks/node/tests/tool-hooks.test.js` → `# fail 0` |

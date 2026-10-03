@@ -177,17 +177,62 @@ test('hooks.json wires session-signal.js on the six events, timeout 5, Notificat
   for (const [e, m] of wired) if (e !== 'Notification') assert.equal(m.matcher, undefined, e)
 })
 
-test('raw samples: <home>/.claude/bajzi/hook-samples.on -> one JSON line per call, every string cut at 2048; off -> nothing', () => {
+// --- resume rule owner match: agent_id (sub-agent) vs no agent_id (main thread); agent_type is never a marker ---
+
+const note = (d, extra = {}, t = 1) => sig.handle({ session_id: 's1', hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Bash?', ...extra }, {}, t, d)
+const tool = (d, extra = {}, t = 2) => sig.handle({ session_id: 's1', hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: {}, tool_response: {}, ...extra }, {}, t, d)
+
+test('resume: a sub-agent tool call never resumes a main-thread prompt; a main-thread one does', () => {
+  const d = tmp(); note(d)
+  assert.equal('agent_id' in ev(d), false)
+  tool(d, { agent_id: 'a1' })
+  assert.deepEqual([ev(d).state, ev(d).message], ['needs_you', 'Bash?'])
+  tool(d)
+  assert.deepEqual([ev(d).state, ev(d).message, 'agent_id' in ev(d)], ['working', 'resumed', false])
+})
+
+test('resume: a sub-agent prompt stores agent_id; only that sub-agent\'s tool call resumes it', () => {
+  const d = tmp(); note(d, { agent_id: 'a1' })
+  assert.deepEqual([ev(d).state, ev(d).agent_id], ['needs_you', 'a1'])
+  tool(d); assert.equal(ev(d).state, 'needs_you')
+  tool(d, { agent_id: 'a2' }); assert.equal(ev(d).state, 'needs_you')
+  tool(d, { agent_id: 'a1' })
+  assert.deepEqual([ev(d).state, ev(d).message, 'agent_id' in ev(d)], ['working', 'resumed', false])
+})
+
+test('resume: agent_type alone (no agent_id) and an empty / non-string agent_id count as the main thread', () => {
+  const d = tmp(); note(d, { agent_type: 'reviewer', agent_id: '' })
+  assert.equal('agent_id' in ev(d), false)
+  tool(d, { agent_type: 'reviewer' }); assert.equal(ev(d).state, 'working')
+  const d2 = tmp(); note(d2, { agent_id: 'a1' })
+  tool(d2, { agent_type: 'a1' }); assert.equal(ev(d2).state, 'needs_you')
+  tool(d2, { agent_id: 7 }); assert.equal(ev(d2).state, 'needs_you')
+  const d3 = tmp(); note(d3, { agent_id: ['a1'] })
+  assert.equal('agent_id' in ev(d3), false)
+  tool(d3, { agent_id: '' }); assert.equal(ev(d3).state, 'working')
+})
+
+test('samples: <home>/.claude/bajzi/hook-samples.on -> one redacted JSON line per call (shape, never content); off -> nothing', () => {
   const home = tmp(); const b = path.join(home, '.claude', 'bajzi'); const out = path.join(b, 'hook-samples.jsonl')
-  const input = { session_id: 's1', hook_event_name: 'PostToolUse', tool_response: { text: '\u00e9'.repeat(3000), list: ['y'.repeat(2049), 7, null] }, n: 1 }
+  const input = { session_id: 's1', hook_event_name: 'PostToolUse', tool_name: 'Bash', transcript_path: '\u00e9'.repeat(3000),
+    tool_input: { command: 'export API_KEY=sk-SECRET-123', timeout: 5000, run_in_background: false },
+    tool_response: { stdout: 'token ghp_SECRETTOKEN', interrupted: false, list: ['x\u{1F600}', 7, null, { k: 'hunter3' }] },
+    prompt: 'my password is hunter2', model: { id: 'claude-x' }, n: 1 }
   sig.sample(input, { BAJZI_HOME: home })
   assert.equal(fs.existsSync(out), false)
   fs.mkdirSync(b, { recursive: true }); fs.writeFileSync(path.join(b, 'hook-samples.on'), '')
   sig.sample(input, { BAJZI_HOME: home })
-  const lines = fs.readFileSync(out, 'utf8').split('\n')
+  const raw = fs.readFileSync(out, 'utf8'); const lines = raw.split('\n')
   assert.equal(lines.length, 2); assert.equal(lines[1], '')
-  assert.deepEqual(JSON.parse(lines[0]), { session_id: 's1', hook_event_name: 'PostToolUse', tool_response: { text: '\u00e9'.repeat(2048), list: ['y'.repeat(2048), 7, null] }, n: 1 })
+  for (const s of ['sk-SECRET-123', 'ghp_SECRETTOKEN', 'hunter2', 'hunter3', 'API_KEY', 'claude-x']) assert.equal(raw.includes(s), false, s)
+  assert.deepEqual(JSON.parse(lines[0]), { session_id: 's1', hook_event_name: 'PostToolUse', tool_name: 'Bash', transcript_path: '\u00e9'.repeat(2048),
+    tool_input: { command: '<str 28>', timeout: 5000, run_in_background: false },
+    tool_response: { stdout: '<str 21>', interrupted: false, list: ['<str 3>', 7, null, { k: '<str 7>' }] },
+    prompt: '<str 22>', model: { id: '<str 8>' }, n: 1 })
+  sig.sample(['top', 1], { BAJZI_HOME: home })
+  assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8').split('\n')[1]), ['<str 3>', 1])
+  fs.writeFileSync(out, '')
   const r = runScript(SCRIPT, JSON.stringify({ session_id: 's1', hook_event_name: 'Stop' }), { HOME: home, BAJZI_HOME: home, BAJZI_STATUS_DIR: tmp() })
   assert.deepEqual([r.code, r.stdout, r.stderr], [0, '', ''])
-  assert.equal(JSON.parse(fs.readFileSync(out, 'utf8').split('\n')[1]).hook_event_name, 'Stop')
+  assert.deepEqual(JSON.parse(fs.readFileSync(out, 'utf8').split('\n')[0]), { session_id: 's1', hook_event_name: 'Stop' })
 })
