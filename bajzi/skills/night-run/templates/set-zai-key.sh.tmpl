@@ -11,7 +11,9 @@ shopt -s nullglob
 cands=("$HOME"/.claude/plugins/cache/*/bajzi-infra/*/skills/secure-passphrase-prompt/scripts/read-secret.sh)
 shopt -u nullglob
 rs=""
-if [ "${#cands[@]}" -gt 0 ]; then rs=$(printf '%s\n' "${cands[@]}" | sort -V | tail -1); fi
+if [ "${#cands[@]}" -gt 0 ]; then   # sort on the version directory only, never on the marketplace name
+  rs=$(for c in "${cands[@]}"; do v=${c%/skills/secure-passphrase-prompt/scripts/read-secret.sh}; printf '%s\t%s\n' "${v##*/}" "$c"; done | sort -V | tail -1 | cut -f2-)
+fi
 if [ -z "$rs" ] && [ -f "$NIGHT_DIR/read-secret.sh" ]; then rs="$NIGHT_DIR/read-secret.sh"; fi
 if [ -z "$rs" ]; then
   echo "read-secret.sh not found: looked in ~/.claude/plugins/cache/*/bajzi-infra/*/skills/secure-passphrase-prompt/scripts/read-secret.sh and $NIGHT_DIR/read-secret.sh" >&2
@@ -23,8 +25,13 @@ fi
 read_secret_from_user --purpose 'the Z.ai GLM API key' --min-length 20 --no-vault-gate || exit 1
 umask 077
 mkdir -p "$HOME/.claude"
-printf 'ZAI_API_KEY=%s\n' "$SECRET" > "$HOME/.claude/cc-router.env"
-chmod 600 "$HOME/.claude/cc-router.env"
+# Atomic: every other line (e.g. DEEPSEEK_API_KEY) is kept, only the Z.ai key line is replaced.
+envf="$HOME/.claude/cc-router.env"
+tmpf=$(mktemp "$envf.XXXXXX")
+chmod 600 "$tmpf"
+{ if [ -f "$envf" ]; then grep -Ev '^[[:space:]]*(export[[:space:]]+)?ZAI_API_KEY[[:space:]]*=' "$envf" || :; fi
+  printf 'ZAI_API_KEY=%s\n' "$SECRET"; } > "$tmpf"
+mv -f "$tmpf" "$envf"
 unset SECRET
 
 w="$HOME/.local/bin/worker"

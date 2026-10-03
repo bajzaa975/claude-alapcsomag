@@ -208,7 +208,8 @@ only where the `owner/name` value is wanted. There is no third spelling.
 7. **User-level env denies.** Every new env var a story adds must reach the tracked
    `.env.example`, so a user-level deny that covers it breaks the night. Check
    `~/.claude/settings.json` and `~/.claude/settings.local.json` `permissions.deny` for a
-   `Read(...)`/`Edit(...)` rule whose glob ends in `.env.*` (with or without a `**/` prefix),
+   `Read(...)`/`Edit(...)` rule whose glob also matches `.env.example`: it ends in `.env*`,
+   `.env.*` or `.env.**` (with or without a `**/` prefix),
    and for any rule using a bracket class on an env name (`.env.[!e]*`, `.env.[^e]*`):
    measured 2026-10-03 on Claude Code 2.1.288, the real matcher does NOT read `[!e]` as
    negation, so `Read(.env.[!e]*)` ALLOWS `.env.local` and DENIES `.env.example` (the
@@ -233,7 +234,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
        if (!m) continue;
        const [, kind, glob] = m;
        const list = NAMES.map((n) => `${kind}(${glob.slice(0, glob.lastIndexOf('.env'))}${n})`).join(', ');
-       if (/^(Read|Edit)$/.test(kind) && /(^|\/)\.env\.\*$/.test(glob)) console.log(`USER DENY BLOCKS .env.example: ${rule} -> replace it with ${list}`);
+       if (/^(Read|Edit)$/.test(kind) && /(^|\/)\.env\.?\*+$/.test(glob)) console.log(`USER DENY BLOCKS .env.example: ${rule} -> replace it with ${list}`);
        else if (/\.env[^/]*\[/.test(glob)) console.log(`USER DENY INVERTED: ${rule} -> replace it with ${list}`);
      }
    }
@@ -276,17 +277,21 @@ only where the `owner/name` value is wanted. There is no third spelling.
    owner's exact command, `bash <NIGHT_DIR>/set-zai-key.sh`, typed in a plain bash terminal on
    the night machine (it prompts for the key, so not the Claude Code prompt). It takes
    `read-secret.sh` from the newest bajzi-infra copy in the plugin cache, else
-   `<NIGHT_DIR>/read-secret.sh`; writes `~/.claude/cc-router.env` (mode 600); prints the level
+   `<NIGHT_DIR>/read-secret.sh`; atomically replaces only the `ZAI_API_KEY` line of
+   `~/.claude/cc-router.env` (mode 600), keeping every other line; prints the level
    and key lines of `worker --status`; never changes the saver level; a re-run replaces the
    key. Never ask for the key in chat. (c) waits until the owner reports it done.
 
    **(c) GLM smoke, exactly as the night dispatches GLM.** GLM is ~10x slower than Sonnet, so
    the smoke takes minutes. `<date>` is today, `YYYY-MM-DD`. Set up a throwaway worktree from
-   the freshly fetched base (a leftover from an earlier smoke is removed first):
+   the freshly fetched base (a leftover from an earlier smoke is removed first, registered or
+   not, with or without its directory):
 
    ```bash
    /usr/bin/git -C "<BASE>" fetch origin --prune
-   [ -e "<NIGHT_DIR>/wt/SMOKE-GLM" ] && /usr/bin/git -C "<BASE>" worktree remove --force "<NIGHT_DIR>/wt/SMOKE-GLM"
+   /usr/bin/git -C "<BASE>" worktree remove --force "<NIGHT_DIR>/wt/SMOKE-GLM" 2>/dev/null
+   rm -rf "<NIGHT_DIR>/wt/SMOKE-GLM"
+   /usr/bin/git -C "<BASE>" worktree prune
    /usr/bin/git -C "<BASE>" branch -D night/smoke-glm-<date> 2>/dev/null
    /usr/bin/git -C "<BASE>" worktree add -b night/smoke-glm-<date> "<NIGHT_DIR>/wt/SMOKE-GLM" origin/<BASE_BRANCH>
    mkdir -p "<NIGHT_DIR>/logs"
@@ -320,7 +325,8 @@ only where the `owner/name` value is wanted. There is no third spelling.
    that is not OK, verbatim>`: a missing STEP line counts as not OK, and `STEP 7: READ` or a
    `SMOKE_DUMMY` sighting means the GLM child can read secrets. A non-zero exit is a BLOCKER
    `GLM SMOKE FAILED: exit=<n>` plus the last lines of `glm-smoke.err`: exit 75 = the Z.ai
-   peak-window refusal (re-run outside 08:00-12:00 CEST), 78 = no API key (back to (b)), 124 =
+   peak-window refusal (re-run outside 06:00-10:00 UTC = 14:00-18:00 UTC+8; `glm-smoke.err`
+   prints the local window), 78 = no API key (back to (b)), 124 =
    the 25-minute timeout.
 
    **Cleanup, pass or fail.** The smoke commit is throwaway: never push the branch.

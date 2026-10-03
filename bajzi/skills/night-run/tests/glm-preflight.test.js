@@ -292,3 +292,141 @@ test('set-zai-key: the newest plugin-cache read-secret.sh wins over NIGHT_DIR; a
   const tags = read(path.join(nd, 'secret-args.txt')).trim().split(/\r?\n/).map((l) => l.split(' ')[0]);
   assert.deepStrictEqual(tags, ['v1.10.0', 'v1.10.0']);
 });
+
+test('set-zai-key keeps other KEY=VALUE lines and replaces only ZAI_API_KEY', () => {
+  const home = tmp('zhome'); const nd = tmp('znd');
+  stubSecret(nd, 'night', nd, 'fresh-key-eeeeeeeeeeeeeeeeeeee');
+  stubWorker(home, nd);
+  const dir = path.join(home, '.claude');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'cc-router.env'), 'DEEPSEEK_API_KEY=ds-keep\nexport ZAI_API_KEY="old"\nZAI_API_KEY=older\n');
+  const r = runZai(home, nd);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.strictEqual(read(path.join(dir, 'cc-router.env')), 'DEEPSEEK_API_KEY=ds-keep\nZAI_API_KEY=fresh-key-eeeeeeeeeeeeeeeeeeee\n');
+  assert.deepStrictEqual(fs.readdirSync(dir).filter((f) => f.startsWith('cc-router.env')), ['cc-router.env'], 'no temp file left');
+});
+
+test('set-zai-key picks the highest version across marketplaces', () => {
+  const home = tmp('zhome'); const nd = tmp('znd');
+  const cache = (mk, v) => path.join(home, '.claude', 'plugins', 'cache', mk, 'bajzi-infra', v,
+    'skills', 'secure-passphrase-prompt', 'scripts');
+  stubSecret(cache('mk-z', '1.0.0'), 'mk-z-1.0.0', nd, 'z-key-ffffffffffffffffffffffff');
+  stubSecret(cache('mk-a', '2.0.0'), 'mk-a-2.0.0', nd, 'a-key-gggggggggggggggggggggggg');
+  stubWorker(home, nd);
+  assert.strictEqual(runZai(home, nd).status, 0);
+  assert.strictEqual(read(path.join(nd, 'secret-args.txt')).split(' ')[0], 'mk-a-2.0.0');
+});
+
+test('step 7 script: .env*, **/.env* and **/.env.** denies are BLOCKS', () => {
+  const out = runUserDeny({ 'settings.json': deny(['Read(.env*)', 'Read(**/.env*)', 'Edit(**/.env.**)']) });
+  assert.deepStrictEqual(out, [
+    `USER DENY BLOCKS .env.example: Read(.env*) -> replace it with ${listFor('Read', '')}`,
+    `USER DENY BLOCKS .env.example: Read(**/.env*) -> replace it with ${listFor('Read', '**/')}`,
+    `USER DENY BLOCKS .env.example: Edit(**/.env.**) -> replace it with ${listFor('Edit', '**/')}`,
+  ]);
+});
+
+// ---------- step 8: the bash blocks, EXECUTED (stubs and scratch repos only; never glm, worker or claude) ----------
+
+const PLUGIN_ROOT = path.join(SKILL_DIR, '..', '..');
+const ROUTER = path.join(PLUGIN_ROOT, 'bin', 'cc-router.js');
+const step8Block = (pred) => {
+  const b = [...step(8).matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]).filter(pred);
+  assert.strictEqual(b.length, 1, `exactly one matching step 8 bash block: ${pred}`);
+  return b[0];
+};
+const cleanEnv = (extra) => {
+  const env = Object.assign({}, process.env);
+  for (const k of ['ANTHROPIC_BASE_URL', 'CC_WORKER_MODE', 'ZAI_API_KEY', 'CLAUDECODE']) delete env[k];
+  return Object.assign(env, extra);
+};
+const bash = (script, env) => spawnSync('bash', ['-c', script], { encoding: 'utf8', env });
+const stubBin = (names, body) => {
+  const d = tmp('bin');
+  for (const n of names) { fs.writeFileSync(path.join(d, n), `#!/bin/sh\n${body}\n`); fs.chmodSync(path.join(d, n), 0o755); }
+  return d;
+};
+// A PATH entry bash can split on `:` (Git Bash: /c/..., never C:/...).
+const binPath = (d) => `"$(cd '${posix(d)}' && pwd)"`;
+// The REAL `worker --status` (cc-router.js) under a decoy HOME. PATH = node's dir only, so on Windows `reg`
+// cannot resolve and a key in the owner's registry never leaks in: the key comes from the decoy env file only.
+const realStatus = (key) => {
+  const home = tmp('shome');
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  if (key) fs.writeFileSync(path.join(home, '.claude', 'cc-router.env'), `ZAI_API_KEY=${key}\n`);
+  const env = cleanEnv({ HOME: home, USERPROFILE: home, CC_ROUTER_ENTRY: 'worker', CC_CLAUDE_BIN: process.execPath,
+    CC_WORKER_MODE_FILE: path.join(home, 'wm'), CC_ROUTER_CONFIG: path.join(home, 'c.json'), CC_ROUTER_LOG: path.join(home, 'l.log') });
+  for (const k of Object.keys(env)) if (k.toUpperCase() === 'PATH') delete env[k];
+  env.PATH = path.dirname(process.execPath);
+  const r = spawnSync(process.execPath, [ROUTER, '--status'], { env, encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, key ? /^ZAI_API_KEY\s+found$/m : /^ZAI_API_KEY\s+MISSING$/m);
+  return r.stdout;
+};
+
+test('step 8 snippets: the gate prints run/skip per level; the key grep matches real worker --status found/MISSING output', () => {
+  const gate = step8Block((b) => b.includes('saver_resolve'));
+  for (const [lvl, want] of [['claude', 'SAVER L0 (claude): skip step 8'], ['light', 'SAVER light: run step 8'],
+    ['glm', 'SAVER glm: run step 8'], ['tight', 'SAVER tight: run step 8'], ['bogus', 'SAVER L0 (bogus): skip step 8']]) {
+    const home = tmp('ghome');
+    fs.mkdirSync(path.join(home, '.claude'));
+    fs.writeFileSync(path.join(home, '.claude', 'worker-mode'), `${lvl}\n`);
+    const r = bash(gate.split('<BASE>').join(posix(tmp('gbase'))),
+      cleanEnv({ HOME: posix(home), USERPROFILE: home, CLAUDE_PLUGIN_ROOT: posix(PLUGIN_ROOT) }));
+    assert.strictEqual(r.stdout.trim(), want, `${lvl}: ${r.stderr}`);
+  }
+
+  const launch = step8Block((b) => b.includes('command -v'));
+  const onlyWorker = stubBin(['worker'], 'exit 0');
+  assert.strictEqual(bash(`PATH=${binPath(onlyWorker)}\n${launch}`, cleanEnv({})).stdout.trim(), 'BLOCKER: glm not on PATH');
+  const both = stubBin(['glm', 'worker'], 'exit 0');
+  assert.strictEqual(bash(`PATH=${binPath(both)}\n${launch}`, cleanEnv({})).stdout, '');
+
+  const key = step8Block((b) => b.includes('worker --status'));
+  for (const [k, want] of [['dummy-key-hhhhhhhhhhhhhhhhhhhh', 'ZAI KEY FOUND'], ['', 'ZAI KEY MISSING']]) {
+    const out = path.join(tmp('st'), 'status.txt');
+    fs.writeFileSync(out, realStatus(k));
+    const w = stubBin(['worker'], `cat '${posix(out)}'`);
+    assert.strictEqual(bash(`PATH=${binPath(w)}:"$PATH"\n${key}`, cleanEnv({})).stdout.trim(), want);
+  }
+});
+
+// A scratch origin + base clone. /usr/bin/git is replaced by `git` (Git Bash has no /usr/bin/git).
+test('step 8 (c) setup clears a registered-but-deleted or unregistered SMOKE-GLM leftover; cleanup removes the worktree', () => {
+  const setup = step8Block((b) => b.includes('worktree add'));
+  const cleanup = step8Block((b) => b.includes('worktree remove') && !b.includes('worktree add'));
+  const gcfg = path.join(tmp('gcfg'), 'gitconfig');
+  fs.writeFileSync(gcfg, '');
+  const env = cleanEnv({ GIT_CONFIG_GLOBAL: gcfg, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t',
+    GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
+  const git = (cwd, ...a) => {
+    const r = spawnSync('git', ['-C', cwd, ...a], { encoding: 'utf8', env });
+    assert.strictEqual(r.status, 0, `git ${a.join(' ')}: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  const BR = 'night/smoke-glm-2026-10-03';
+  for (const state of ['none', 'registered-deleted', 'unregistered']) {
+    const root = tmp('wt');
+    git(root, 'init', '-q', '--bare', '-b', 'main', 'origin.git');
+    git(root, 'init', '-q', '-b', 'main', 'base');
+    const base = path.join(root, 'base'), nd = path.join(root, 'night'), wt = path.join(nd, 'wt', 'SMOKE-GLM');
+    git(base, 'commit', '-q', '--allow-empty', '-m', 'init');
+    git(base, 'remote', 'add', 'origin', posix(path.join(root, 'origin.git')));
+    git(base, 'push', '-q', 'origin', 'main');
+    fs.mkdirSync(path.join(nd, 'wt'), { recursive: true });
+    if (state === 'registered-deleted') {
+      git(base, 'worktree', 'add', '-q', '-b', BR, posix(wt), 'origin/main');
+      fs.rmSync(wt, { recursive: true, force: true });
+    }
+    if (state === 'unregistered') { fs.mkdirSync(wt); fs.writeFileSync(path.join(wt, 'junk'), 'x'); }
+    const render = (s) => s.split('/usr/bin/git').join('git').split('<BASE>').join(posix(base))
+      .split('<NIGHT_DIR>').join(posix(nd)).split('<date>').join('2026-10-03').split('<BASE_BRANCH>').join('main');
+    const r = bash(render(setup), env);
+    assert.ok(fs.existsSync(path.join(wt, '.git')), `${state}: worktree created\n${r.stdout}${r.stderr}`);
+    assert.strictEqual(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD'), BR, state);
+    assert.ok(fs.existsSync(path.join(nd, 'logs')), `${state}: logs dir`);
+    const c = bash(render(cleanup), env);
+    assert.ok(!fs.existsSync(wt), `${state}: cleanup removed the worktree\n${c.stderr}`);
+    assert.strictEqual(git(base, 'branch', '--list', BR), '', `${state}: cleanup deleted the branch`);
+  }
+});
