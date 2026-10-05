@@ -758,7 +758,7 @@ shows both).
 {used_pct, ts}` atomically (`bridge.js:27` `writeBridge`, §7.2). This is the **only** producer
 of that file — the context guard (§6.6) is a pure consumer.
 
-**Side effect — the line file**: after the rendered line is on stdout, `writeLine()` (`:103-125`)
+**Side effect — the line file**: after the rendered line is on stdout, `writeLine()` (`:102-125`)
 writes `<status dir>/<session_id>.line.json` (the status record contract below) from the stdin
 fields plus what `render()` computed (`opts.facts`: level, branch, GLM share — no second git or
 GLM lookup). It is rewritten only when its content changed or 30 s (`LINE_EVERY_S`) passed since
