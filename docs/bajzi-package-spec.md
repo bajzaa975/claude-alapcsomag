@@ -634,8 +634,11 @@ ISO stamp) in `triage.log`; prose that names the word, like `TICK OK nothing to 
 echoing the brief's `<HH:MM> ESCALATE` log lines (those go to the watcher state file) is none; after an
 in-memory line offset (at supervisor start `esc_start`: the lines stamped before `supervise.last-opus`
 when its 2nd line, the `run_date` `tick()` writes, is run.meta's, else before the later of
-`started_epoch` and `supervise.last-opus` — a line's stamp is its own ISO prefix, else the last one above
-it, tick_say stamps each tick's `TICK CONFIG OK`; unstamped lines are old — so a supervisor restarted
+run.meta's `night_epoch` (else `started_epoch`) and `supervise.last-opus` — a line's stamp is its own ISO
+prefix, else the first one below it (tick-lib.sh appends the result text, THEN tick_say stamps that tick's
+`TICK CONFIG OK`); lines with no stamp at or below them are old. run.sh writes `night_epoch` = the
+previous run.meta's `night_epoch` (else its `started_epoch`) when that run.meta has the same `run_date`,
+else now (a reboot + launch.sh keeps the night's first start) — so a supervisor restarted
 mid-night, also by a reboot + launch.sh that rewrote `started_epoch`, still trips on tonight's unseen
 ESCALATE, moved to the current count only when an Opus tick launches and its init record passes `init_ok` (a tick killed for a wrong model or permission mode does not move it), 0 when the file
 has fewer lines; NIGHT_DIR is permanent, earlier nights' lines never trip); `deadline:<min>m-left:<k>` —

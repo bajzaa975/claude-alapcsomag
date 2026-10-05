@@ -58,7 +58,7 @@
 #   run.args      the runner's own argv, one word per line, argv[0] first (the
 #                 absolute path of this script): the watcher re-execs the run
 #                 with `mapfile -t a <run.args; setsid "${a[@]}"`.
-#   run.meta      key=value: pgid, started_epoch, deadline_epoch, run_date,
+#   run.meta      key=value: pgid, started_epoch, night_epoch, deadline_epoch, run_date,
 #                 base, night_dir, skill_dir, config, mode. mode is always
 #                 `queue`, because ONLY a queue run publishes run.args and
 #                 run.meta at all: --report and --smoke take the lock but
@@ -1214,7 +1214,7 @@ finish(){
 # input, and they are written AFTER the lock, so a file on disk always belongs
 # to a run that really owns the night.
 publish_run_inputs(){
-  local a
+  local a ne now
   # These two are NIGHT-SCOPED and owned by the run that takes the night.
   # Yesterday's `finished` tells tonight's watcher the run has already ended
   # (so it never restarts a run that dies), and yesterday's watch.restarts is
@@ -1234,9 +1234,18 @@ publish_run_inputs(){
   # empty state-<tomorrow>.txt and run the whole queue again — merged stories
   # included. The re-exec therefore always carries this night's own date.
   [ -n "$RUN_DATE_ARG" ] || printf -- '--date\n%s\n' "$RUN_DATE" >>"$RUN_ARGS"
+  # night_epoch = the night's FIRST start: carried from the previous run.meta when it has the same
+  # run_date (a watcher restart or a reboot + launch.sh rewrites started_epoch), else this start.
+  ne=""
+  if [ "$(sed -n 's/^run_date=//p' "$RUN_META" 2>/dev/null | tail -1)" = "$RUN_DATE" ]; then
+    ne=$(sed -n 's/^night_epoch=//p' "$RUN_META" 2>/dev/null | tail -1 | tr -dc '0-9')
+    [ -n "$ne" ] || ne=$(sed -n 's/^started_epoch=//p' "$RUN_META" 2>/dev/null | tail -1 | tr -dc '0-9')
+  fi
+  now=$(date +%s)
   {
     printf 'pgid=%s\n' "$MY_PGID"
-    printf 'started_epoch=%s\n' "$(date +%s)"
+    printf 'started_epoch=%s\n' "$now"
+    printf 'night_epoch=%s\n' "${ne:-$now}"
     printf 'deadline_epoch=%s\n' "$DEADLINE_EPOCH"
     printf 'run_date=%s\n' "$RUN_DATE"
     printf 'base=%s\n' "$BASE"

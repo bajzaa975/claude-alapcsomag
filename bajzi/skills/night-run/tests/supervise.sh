@@ -423,6 +423,21 @@ END=$((SECONDS + 10)); while [ ! -f "$SD/stdin" ] && [ "$SECONDS" -lt "$END" ]; 
 pair "l SUPERVISE=1 spawns supervise.sh --config <config>" "$SD/argv" --config "$SD/cfg.env"
 yes "l spawned without fd 9 (the run lock)" "$SD/fd9" "closed"
 if [ -f "$SD/stdin" ] && ! has "$SD/stdin" LEAK; then ok "l spawned with stdin /dev/null"; else bad "l stdin was not /dev/null"; fi
+# run.sh publish_run_inputs keeps the night's first start (night_epoch) across a restart of the same run_date.
+FN2=$(sed -n '/^publish_run_inputs(){/,/^}/p' "$SKILL/run.sh")
+pub_case(){ # RUN_DATE -> runs the extracted function against $SD/night/run.meta
+  ( NIGHT_DIR=$SD/night FINISHED=$SD/night/finished RUN_ARGS=$SD/night/run.args RUN_META=$SD/night/run.meta RUN_DATE=$1 RUN_DATE_ARG=$1
+    MY_PGID=1 DEADLINE_EPOCH=1 BASE=$SD SKILL_DIR=$SD/skill MY_CONFIG=$SD/cfg.env RUN_MODE=queue
+    log(){ :; }; beat(){ :; }
+    eval "$FN2"; publish_run_inputs )
+}
+printf 'started_epoch=1000\nrun_date=2026-10-05\n' >"$SD/night/run.meta"; pub_case 2026-10-05
+yes "l2 same run_date: night_epoch = the previous started_epoch" "$SD/night/run.meta" "night_epoch=1000"
+sed -i 's/^started_epoch=.*/started_epoch=2000/' "$SD/night/run.meta"; pub_case 2026-10-05
+yes "l2 same run_date again: night_epoch carried forward" "$SD/night/run.meta" "night_epoch=1000"
+pub_case 2026-10-06
+no "l2 another run_date: night_epoch is this start" "$SD/night/run.meta" "night_epoch=1000"
+yes "l2 another run_date: night_epoch present" "$SD/night/run.meta" "night_epoch="
 yes "l 'supervisor started' logged" "$SD/log" "supervisor started (pid"
 
 # ------- n. BASE's installed settings lack this night's state deny: refused, claude never starts ---
@@ -654,19 +669,21 @@ gcheck SUPERVISE_ESCALATE_FROM=0; trip "s14 ESCALATE, offset 0" "TRIP escalate"
 gcheck SUPERVISE_ESCALATE_FROM=1; trip "s14 ESCALATE on line 2, offset 1" "TRIP escalate"
 gcheck SUPERVISE_ESCALATE_FROM=2; healthy "s14 ESCALATE on line 2, offset 2 (before the offset)"
 gcheck SUPERVISE_ESCALATE_FROM=9; trip "s14 offset 9 > 3 lines: reset to 0" "TRIP escalate"
-# Only the verdict forms count (`TICK ESCALATE ...`, `<HH:MM> ESCALATE ...`), never prose that names the word.
+# Only the verdict form counts (`TICK ESCALATE ...`, optionally ISO-stamped), never prose that names the
+# word, nor a summary echoing `<HH:MM> ESCALATE ...` log lines.
 gcase s14b; printf 'TICK OK nothing to ESCALATE\nTICK SUMMARY 2 escalations; no need to ESCALATE again\n' >"$ND/triage.log"
 gcheck SUPERVISE_ESCALATE_FROM=0; healthy "s14b a result line that only mentions ESCALATE"
 printf 'TICK SUMMARY the night in short\nEscalations:\n01:30 ESCALATE need a key\n- 02:00 ESCALATE disk low\n' >>"$ND/triage.log"
 gcheck SUPERVISE_ESCALATE_FROM=0; healthy "s14b a summary listing the night's escalation log lines"
 printf 'TICK ESCALATE need a key\n' >>"$ND/triage.log"; gcheck SUPERVISE_ESCALATE_FROM=0; trip "s14b 'TICK ESCALATE <sentence>'" "TRIP escalate"
-# A fresh supervisor's offset: lines stamped (ISO prefix, or the last stamp above them) before
+# A fresh supervisor's offset: lines stamped (ISO prefix, or the first stamp below them) before
 # started_epoch or before this run's supervise.last-opus are old; tonight's unseen ones count.
-gcase s14c; printf '%s TICK CONFIG OK model=x\nTICK ESCALATE from an earlier night\n%s TICK CONFIG OK model=x\nTICK ESCALATE seen by the last Opus tick\n' \
+# Real write order (tick-lib.sh): the result text first, then that tick's stamped `TICK CONFIG OK`.
+gcase s14c; printf 'TICK ESCALATE from an earlier night\n%s TICK CONFIG OK model=x\nTICK ESCALATE seen by the last Opus tick\n%s TICK CONFIG OK model=x\n' \
   "$(iso $((NOW - 20000)))" "$(iso $((NOW - 3600)))" >"$ND/triage.log"
 echo $((NOW - 1800)) >"$ND/supervise.last-opus"
 gcheck; healthy "s14c no live supervisor: ESCALATEs older than started_epoch / the last Opus tick are old"
-printf '%s TICK CONFIG OK model=x\nTICK ESCALATE after the last Opus tick\n' "$(iso $((NOW - 600)))" >>"$ND/triage.log"
+printf 'TICK ESCALATE after the last Opus tick\n%s TICK CONFIG OK model=x\n' "$(iso $((NOW - 600)))" >>"$ND/triage.log"
 gcheck; trip "s14c no live supervisor: an ESCALATE stamped after the last Opus tick counts" "TRIP escalate"
 
 # 6. deadline near with stories left
@@ -787,7 +804,7 @@ if [ -e "$ND/supervise.gate" ]; then bad "t8 supervise.gate left after exit"; el
 
 # A supervisor restarted mid-night (reboot, launch.sh again): tonight's ESCALATE stamped after
 # started_epoch and after the last Opus tick was never seen by Opus, so the first gate trips on it.
-gcase t9; printf '%s TICK CONFIG OK model=x\nTICK ESCALATE from an earlier night\n%s TICK CONFIG OK model=x\nTICK ESCALATE tonight, before the restart\n' \
+gcase t9; printf 'TICK ESCALATE from an earlier night\n%s TICK CONFIG OK model=x\nTICK ESCALATE tonight, before the restart\n%s TICK CONFIG OK model=x\n' \
   "$(iso $((NOW - 20000)))" "$(iso $((NOW - 600)))" >"$ND/triage.log"
 echo $((NOW - 1800)) >"$ND/supervise.last-opus"
 start_sup "$WT/flockheld"
@@ -796,7 +813,7 @@ else bad "t9 no escalate trip after a restart: $(tr '\n' '|' <"$ND/supervisor.lo
 finish_case t9
 # The same after a reboot + launch.sh: run.sh rewrote started_epoch (now) before it spawned the supervisor.
 gcase t9b; printf 'pgid=2\nstarted_epoch=%s\ndeadline_epoch=%s\nrun_date=2026-10-05\nmode=queue\n' "$((NOW - 60))" "$((NOW + 86400))" >"$ND/run.meta"
-printf '%s TICK CONFIG OK model=x\nTICK ESCALATE seen by the last Opus tick\n%s TICK CONFIG OK model=x\nTICK ESCALATE tonight, before the reboot\n' \
+printf 'TICK ESCALATE seen by the last Opus tick\n%s TICK CONFIG OK model=x\nTICK ESCALATE tonight, before the reboot\n%s TICK CONFIG OK model=x\n' \
   "$(iso $((NOW - 3600)))" "$(iso $((NOW - 600)))" >"$ND/triage.log"
 printf '%s
 2026-10-04
@@ -810,6 +827,18 @@ start_sup "$WT/flockheld"
 if wait_for "$ND/supervisor.log" "GATE trip escalate" 20; then ok "t9b relaunched run (started_epoch just rewritten): the ESCALATE after the last Opus tick trips"
 else bad "t9b no escalate trip after a relaunch: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
 finish_case t9b
+# A reboot + launch.sh with no Opus tick yet tonight: run.sh rewrote started_epoch (now) but carried
+# night_epoch (the night's first start, same run_date) forward, so an ESCALATE from before the reboot
+# (its stamp below it, the real write order) is tonight's and unseen.
+gcase t9c; printf 'pgid=2\nstarted_epoch=%s\nnight_epoch=%s\ndeadline_epoch=%s\nrun_date=2026-10-05\nmode=queue\n' "$((NOW - 60))" "$((NOW - 3000))" "$((NOW + 86400))" >"$ND/run.meta"
+printf 'TICK ESCALATE from an earlier night\n%s TICK CONFIG OK model=x\nTICK ESCALATE tonight, before the reboot\n%s TICK CONFIG OK model=x\n' \
+  "$(iso $((NOW - 20000)))" "$(iso $((NOW - 600)))" >"$ND/triage.log"
+printf '%s\n2026-10-04\n' $((NOW - 20000)) >"$ND/supervise.last-opus"
+gcheck; trip "t9c --check: no Opus tick tonight, night_epoch is the floor" "TRIP escalate"
+start_sup "$WT/flockheld"
+if wait_for "$ND/supervisor.log" "GATE trip escalate" 20; then ok "t9c reboot with no Opus tick tonight: the ESCALATE after night_epoch trips"
+else bad "t9c no escalate trip after a reboot: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+finish_case t9c
 
 # --------------------------------- m. the prompt template renders fully ---
 T=$SKILL/templates/SUPERVISE-PROMPT.md.tmpl

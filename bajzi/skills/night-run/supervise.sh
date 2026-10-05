@@ -57,8 +57,9 @@
 #        escalate            a triage verdict line `TICK ESCALATE ...` (optionally ISO-stamped) in triage.log
 #                            after the offset; prose naming the word, or a summary echoing `<HH:MM> ESCALATE`
 #                            log lines, is not one. Offset at start: the lines stamped (own ISO prefix, else
-#                            the last one above; unstamped = old) before supervise.last-opus when its run_date
-#                            is run.meta's, else before the later of started_epoch and supervise.last-opus;
+#                            the first one below; none below = old) before supervise.last-opus when its run_date
+#                            is run.meta's, else before the later of night_epoch (else started_epoch) and
+#                            supervise.last-opus;
 #                            moved on when an Opus tick starts on the right model; 0 again when the file shrinks
 #        deadline:<min>m-left:<k>   deadline_epoch within SUPERVISE_DEADLINE_MIN, k queue ids not done
 #        watch:<STATUS>      watch.status present and not OK / QUOTA-WAIT
@@ -379,23 +380,27 @@ ESC_RE='^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z )?TICK ESCALATE
 # A fresh supervisor's escalate offset: the lines before the first one stamped at or after T, where T =
 # supervise.last-opus when its 2nd line is run.meta's run_date (tonight's last Opus tick saw the lines
 # before it, even when a reboot + launch.sh rewrote started_epoch before run.sh spawned this supervisor),
-# else the later of started_epoch and supervise.last-opus. A line's stamp is its own ISO prefix, else the
-# last one above it (tick_say stamps each tick's `TICK CONFIG OK` before its result text); unstamped lines
-# are old. Neither epoch = every line old.
+# else the later of run.meta's night_epoch (the night's first start, kept by run.sh across restarts of
+# the same run_date; else started_epoch) and supervise.last-opus. A line's stamp is its own ISO prefix,
+# else the first one below it (tick-lib.sh appends the result text, THEN tick_say stamps that tick's
+# `TICK CONFIG OK`); lines with no stamp at or below them are old. Neither epoch = every line old.
 esc_start(){
   local t st rd
   [ -f "$TRIAGE_LOG" ] || { printf 0; return; }
   t=$(head -1 "$LAST_OPUS" 2>/dev/null | tr -dc '0-9')
   rd=$(sed -n 's/^run_date=//p' "$META" 2>/dev/null | tail -1 | tr -dc '0-9-')
   if [ -z "$t" ] || [ -z "$rd" ] || [ "$(sed -n 2p "$LAST_OPUS" 2>/dev/null | tr -dc '0-9-')" != "$rd" ]; then
-    st=$(started_epoch)
+    st=$(sed -n 's/^night_epoch=//p' "$META" 2>/dev/null | tail -1 | tr -dc '0-9')
+    [ -n "$st" ] || st=$(started_epoch)
     [ -n "$st" ] && { [ -z "$t" ] || [ "$st" -gt "$t" ]; } && t=$st
   fi
   [ -n "$t" ] || { lines "$TRIAGE_LOG"; return; }
   t=$(date -u -d "@$t" +%FT%TZ 2>/dev/null) || { lines "$TRIAGE_LOG"; return; }
   awk -v t="$t" '
-    /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z / {s=$1}
-    s != "" && s >= t {print NR - 1; f = 1; exit}
+    /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z / {
+      if ($1 >= t) {print p + 0; f = 1; exit}
+      p = NR
+    }
     END {if (!f) print NR}' "$TRIAGE_LOG" 2>/dev/null
 }
 # Prints the space-separated trip reasons; empty = healthy. ESC_OFF = the escalate line offset.
