@@ -521,10 +521,20 @@ backdate(){ # minutes-ago -> state target, runner.log and the whole story worktr
   touch -d "@$t" "$(readlink -f "$ND/state.txt")" "$ND/logs/runner.log"
   find "$ND/wt/S1" -exec touch -d "@$t" {} +
 }
-pr(){ # number head conclusion completed-minutes-ago [status] -> gh.json with that one PR
-  printf '[{"number":%s,"headRefName":"%s","statusCheckRollup":[{"__typename":"CheckRun","name":"build","workflowName":"CI","status":"%s","conclusion":"%s","completedAt":"%s"},{"__typename":"CheckRun","name":"lint","workflowName":"Other","status":"COMPLETED","conclusion":"FAILURE","completedAt":"%s"}]}]\n' \
-    "$1" "$2" "${5:-COMPLETED}" "$3" "$(iso $((NOW - $4 * 60)))" "$(iso $((NOW - 600 * 60)))" >"$FD/gh.json"
+pr(){ # number head conclusion completed-minutes-ago [status] -> gh.json with that one PR (created 3 h ago)
+  printf '[{"number":%s,"headRefName":"%s","createdAt":"%s","statusCheckRollup":[{"__typename":"CheckRun","name":"build","workflowName":"CI","status":"%s","conclusion":"%s","completedAt":"%s"},{"__typename":"CheckRun","name":"lint","workflowName":"Other","status":"COMPLETED","conclusion":"FAILURE","completedAt":"%s"}]}]\n' \
+    "$1" "$2" "$(iso $((NOW - 180 * 60)))" "${5:-COMPLETED}" "$3" "$(iso $((NOW - $4 * 60)))" "$(iso $((NOW - 600 * 60)))" >"$FD/gh.json"
 }
+ago(){ iso $((NOW - $1 * 60)); }   # minutes-ago -> ISO time
+run_(){ # name workflow conclusion started-min-ago completed-min-ago [typename] -> one CheckRun JSON object
+  printf '{"__typename":"%s","name":"%s"%s,"status":"COMPLETED","conclusion":"%s","startedAt":"%s","completedAt":"%s"}' \
+    "${6:-CheckRun}" "$1" "${2:+,\"workflowName\":\"$2\"}" "$3" "$(ago "$4")" "$(ago "$5")"
+}
+prj(){ # number head created-min-ago rollup-objects... -> appends one PR to gh.json (prj_reset first)
+  local n=$1 h=$2 c=$3 r; shift 3; r=$(IFS=,; printf '%s' "$*")
+  printf '{"number":%s,"headRefName":"%s","createdAt":"%s","statusCheckRollup":[%s]}\n' "$n" "$h" "$(ago "$c")" "$r" >>"$FD/gh.parts"
+}
+prj_done(){ { printf '['; paste -sd, "$FD/gh.parts"; printf ']\n'; } >"$FD/gh.json"; rm -f "$FD/gh.parts"; }
 gcheck(){ # [VAR=value...] -> OUT, RC of one `supervise.sh --check`
   OUT=$(cd "$WT" && env PATH="$GPATH:$WT/bin:$PATH" FAKE_DIR="$FD" BAJZI_HOME="$BH" "$@" bash "$SUP" --check --config "$ND/config.env" 2>&1); RC=$?
 }
@@ -545,7 +555,8 @@ if [ -f "$FD/argv" ]; then bad "s1 --check launched claude"; else ok "s1 --check
 pair "s1 ONE gh pr list -R <REPO>" "$FD/gh.argv" -R o/r
 pair "s1 gh pr list --base <BASE_BRANCH>" "$FD/gh.argv" --base dev
 pair "s1 gh pr list --state open" "$FD/gh.argv" --state open
-pair "s1 gh pr list --json number,headRefName,statusCheckRollup" "$FD/gh.argv" --json number,headRefName,statusCheckRollup
+pair "s1 gh pr list --json number,headRefName,createdAt,statusCheckRollup" "$FD/gh.argv" --json number,headRefName,createdAt,statusCheckRollup
+pair "s1 gh pr list --limit 500 (the default 30 could hide a stuck night PR)" "$FD/gh.argv" --limit 500
 printf '%s\n' "$$" >"$ND/supervise.pid"
 gcheck
 healthy "s1 --check runs next to a live supervisor (takes no pidfile)"
@@ -589,12 +600,40 @@ gcase s10; pr 9 supervise-fix-hook SUCCESS 120; gcheck; trip "s10 the supervisor
 gcase s11; pr 7 feat/nr-S1-first-story SUCCESS 10; gcheck; healthy "s11 check completed 10 min ago (< STALL_MIN)"
 gcase s11b; pr 7 feat/nr-S1-first-story "" 120 IN_PROGRESS; gcheck; healthy "s11b check still running"
 gcase s12; pr 7 feat/other-thing SUCCESS 120; gcheck; healthy "s12 not a night PR"
+# PRs left open by earlier nights: an id in neither tonight's queue nor state, a supervise-* PR created
+# before this run (started_epoch 5 h ago) — neither trips; a supervise-* PR without createdAt still does.
+gcase s10b; prj 70 feat/nr-S7-old 4320 "$(run_ build CI SUCCESS 4330 4320)"
+prj 71 supervise-old-fix 4320 "$(run_ build CI SUCCESS 4330 4320)"; prj_done
+gcheck; healthy "s10b earlier nights' feat/nr-S7-old (S7 not tonight's) and supervise-* (created 3 days ago) PRs"
+printf '[{"number":72,"headRefName":"supervise-x","statusCheckRollup":[%s]}]\n' "$(run_ build CI SUCCESS 130 120)" >"$FD/gh.json"
+gcheck; trip "s10b a supervise-* PR with no createdAt counts (fails toward Opus)" "TRIP pr-green:#72"
+# Conclusions: SKIPPED/NEUTRAL jobs pass, CANCELLED is red.
+gcase s7b; prj 7 feat/nr-S1-first-story 180 "$(run_ build CI SUCCESS 130 120)" "$(run_ deploy CI SKIPPED 130 120)" "$(run_ docs CI NEUTRAL 130 120)"; prj_done
+gcheck; trip "s7b SUCCESS + SKIPPED + NEUTRAL jobs of the required workflow, 2 h ago = green" "TRIP pr-green:#7"
+gcase s8c; prj 8 feat/nr-S1-first-story 180 "$(run_ build CI SUCCESS 130 120)" "$(run_ test CI CANCELLED 130 120)"; prj_done
+gcheck; trip "s8c a CANCELLED job is red" "TRIP pr-red:#8"
+# The parser's branches: newest entry per job, StatusContext skipped, name when workflowName is missing.
+gcase s8d; prj 8 feat/nr-S1-first-story 180 "$(run_ build CI SUCCESS 140 120)" "$(run_ build CI FAILURE 200 190)"; prj_done
+gcheck; trip "s8d a FAILURE re-run to a newer SUCCESS (newer listed first) = green" "TRIP pr-green:#8"
+prj 8 feat/nr-S1-first-story 180 "$(run_ build CI FAILURE 200 190)" "$(run_ build CI SUCCESS 140 120)"; prj_done
+gcheck; trip "s8d a FAILURE re-run to a newer SUCCESS (newer listed last) = green" "TRIP pr-green:#8"
+prj 8 feat/nr-S1-first-story 180 "$(run_ build CI SUCCESS 200 190)" "$(run_ build CI FAILURE 140 120)"; prj_done
+gcheck; trip "s8d a SUCCESS followed by a newer FAILURE = red" "TRIP pr-red:#8"
+gcase s8e; prj 8 feat/nr-S1-first-story 180 "$(run_ build CI SUCCESS 130 120)" "$(run_ CI '' FAILURE 130 120 StatusContext)"; prj_done
+gcheck; trip "s8e a StatusContext named like the required check is ignored" "TRIP pr-green:#8"
+prj 8 feat/nr-S1-first-story 180 "$(run_ CI '' FAILURE 130 120 StatusContext)"; prj_done
+gcheck; healthy "s8e a PR with only a StatusContext has no required runs"
+gcase s8f; prj 8 feat/nr-S1-first-story 180 "$(run_ CI '' SUCCESS 130 120)"; prj_done
+gcheck; trip "s8f a CheckRun with no workflowName matches on its job name" "TRIP pr-green:#8"
+gcase s8g; prj 8 feat/nr-S1-first-story 180 "$(run_ build CI STARTUP_FAILURE 130 120)"; prj_done
+gcheck; trip "s8g STARTUP_FAILURE is red" "TRIP pr-red:#8"
 gcase s13; echo 1 >"$FD/gh.rc"; gcheck; trip "s13 gh exits non-zero" "TRIP gh-error"
 gcase s13b; echo 'not json' >"$FD/gh.json"; gcheck; trip "s13b gh output unparsable" "TRIP gh-error"
 
 # 5. escalate after the offset
 gcase s14; printf '01:00 OK fine\n01:30 ESCALATE need a key\n02:00 OK fine\n' >"$ND/triage.log"
-gcheck; trip "s14 ESCALATE, offset 0" "TRIP escalate"
+gcheck; healthy "s14 no live supervisor: offset = the current line count (a fresh supervisor's view)"
+gcheck SUPERVISE_ESCALATE_FROM=0; trip "s14 ESCALATE, offset 0" "TRIP escalate"
 gcheck SUPERVISE_ESCALATE_FROM=1; trip "s14 ESCALATE on line 2, offset 1" "TRIP escalate"
 gcheck SUPERVISE_ESCALATE_FROM=2; healthy "s14 ESCALATE on line 2, offset 2 (before the offset)"
 gcheck SUPERVISE_ESCALATE_FROM=9; trip "s14 offset 9 > 3 lines: reset to 0" "TRIP escalate"
@@ -665,6 +704,53 @@ if awk '/GATE trip escalate/{t=1} t && /OK healthy/{f=1} END{exit !f}' "$ND/supe
 else bad "t4 never healthy after the escalate tick: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
 if [ "$(grep -c 'GATE trip escalate' "$ND/supervisor.log")" -eq 1 ]; then ok "t4 the escalate tripped once"; else bad "t4 escalate tripped $(grep -c 'GATE trip escalate' "$ND/supervisor.log") times"; fi
 finish_case t4
+
+# A tick killed for a wrong init model is no Opus tick: no last-opus, the offset stays, the ESCALATE trips again.
+gcase t6; printf 'FAKE_MODEL=claude-sonnet-5-20261001\n' >"$FD/fake.env"
+start_sup "$WT/flockheld"
+wait_for "$ND/supervisor.log" "supervisor started" 20 || bad "t6 supervisor never started"
+printf '02:00 ESCALATE tonight\n' >>"$ND/triage.log"
+if wait_for "$ND/supervisor.log" "SUPERVISE MISCONFIGURED model=claude-sonnet-5-20261001" 30; then ok "t6 the tripped tick was killed: MISCONFIGURED"
+else bad "t6 no MISCONFIGURED: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+END=$((SECONDS + 30))
+while [ "$(grep -c 'GATE trip escalate' "$ND/supervisor.log" 2>/dev/null)" -lt 2 ] && [ "$SECONDS" -lt "$END" ]; do sleep 0.1; done
+if [ "$(grep -c 'GATE trip escalate' "$ND/supervisor.log" 2>/dev/null)" -ge 2 ]; then ok "t6 the ESCALATE trips again after the killed tick"
+else bad "t6 escalate tripped $(grep -c 'GATE trip escalate' "$ND/supervisor.log" 2>/dev/null) time(s): $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+if [ -e "$ND/supervise.last-opus" ]; then bad "t6 supervise.last-opus written for a killed tick"; else ok "t6 no supervise.last-opus for a killed tick"; fi
+finish_case t6
+
+# The loop's own offset reset: triage.log shrinks, then grows past the old offset with an ESCALATE in it.
+gcase t7; printf '01:00 OK fine\n' >"$ND/triage.log"; for _ in 1 2 3 4; do printf '01:00 OK fine\n' >>"$ND/triage.log"; done
+start_sup "$WT/flockheld"
+wait_for "$ND/supervisor.log" "OK healthy" 20 || bad "t7 never healthy at start"
+: >"$ND/triage.log"
+N=$(grep -c 'OK healthy' "$ND/supervisor.log"); END=$((SECONDS + 20))
+while [ "$(grep -c 'OK healthy' "$ND/supervisor.log")" -lt $((N + 2)) ] && [ "$SECONDS" -lt "$END" ]; do sleep 0.1; done
+{ printf '03:00 ESCALATE after the rotation\n'; for _ in 1 2 3 4 5 6; do printf '03:00 OK fine\n'; done; } >>"$ND/triage.log"
+if wait_for "$ND/supervisor.log" "GATE trip escalate" 20 && wait_for "$ND/logs/supervisor-ticks.log" "tick exit=0" 20; then ok "t7 an ESCALATE written after the log shrank trips"
+else bad "t7 no escalate trip after the shrink: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+END=$((SECONDS + 20))
+until awk '/GATE trip escalate/{t=1} t && /OK healthy/{f=1} END{exit !f}' "$ND/supervisor.log" 2>/dev/null || [ "$SECONDS" -ge "$END" ]; do sleep 0.1; done
+if [ "$(grep -c 'GATE trip escalate' "$ND/supervisor.log")" -eq 1 ]; then ok "t7 the escalate tripped exactly once"; else bad "t7 escalate tripped $(grep -c 'GATE trip escalate' "$ND/supervisor.log") times"; fi
+finish_case t7
+
+# --check next to a live supervisor judges with ITS escalate offset and start (supervise.gate).
+gcase t8; printf '01:30 ESCALATE from an earlier night\n' >"$ND/triage.log"
+start_sup "$WT/flockheld"
+if wait_for "$ND/supervisor.log" "OK healthy" 20; then ok "t8 the loop: an earlier night's ESCALATE does not trip"
+else bad "t8 no OK healthy: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+gcheck; healthy "t8 --check next to it agrees (the loop's offset, not 0)"
+gcheck SUPERVISE_ESCALATE_FROM=0; trip "t8 the test hook still overrides the offset" "TRIP escalate"
+# A supervisor started 3 h ago (its published start backdated) with no Opus tick since: forced.
+sed -i "s/^sup_start=.*/sup_start=$((NOW - 180 * 60))/" "$ND/supervise.gate"
+gcheck; trip "t8 --check uses the live supervisor's start for the forced clock" "TRIP forced:18[01]m"
+# A relaunch rewrote started_epoch after tonight's last Opus tick: that tick still counts.
+echo $((NOW - 30 * 60)) >"$ND/supervise.last-opus"
+gcheck; healthy "t8 last Opus tick 30 min ago"
+printf 'pgid=2\nstarted_epoch=%s\ndeadline_epoch=%s\nrun_date=2026-10-05\nmode=queue\n' "$((NOW - 60))" "$((NOW + 86400))" >"$ND/run.meta"
+gcheck; healthy "t8 last-opus older than a just-rewritten started_epoch but newer than the supervisor's start: no forced trip"
+finish_case t8
+if [ -e "$ND/supervise.gate" ]; then bad "t8 supervise.gate left after exit"; else ok "t8 supervise.gate removed on exit"; fi
 
 # --------------------------------- m. the prompt template renders fully ---
 T=$SKILL/templates/SUPERVISE-PROMPT.md.tmpl

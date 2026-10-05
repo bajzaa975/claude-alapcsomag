@@ -1142,7 +1142,7 @@ already holding 2 lines for `run.meta`'s `run_date`: on a multi-day run the dead
 every further tick would only spend Opus); otherwise a zero-token shell GATE runs first (`gate_check`: files,
 a `flock` probe and ONE `gh pr list`, never an LLM). It trips on a dead or unknowable runner, no progress
 (state file, `runner.log`, the current story's worktree) for `SUPERVISE_STALL_MIN` (45) minutes outside a
-quota wait, an open night or `supervise-*` PR whose `REQUIRED_CHECK` went green or red more than
+quota wait, an open night or `supervise-*` PR of this run whose `REQUIRED_CHECK` went green or red more than
 `SUPERVISE_STALL_MIN` ago (`gh-error` when gh fails), a new `ESCALATE` in `triage.log`, the deadline within
 `SUPERVISE_DEADLINE_MIN` (60) minutes with stories left, a `watch.status` other than `OK`/`QUOTA-WAIT`, or
 `SUPERVISE_FORCE_EVERY_MIN` (120) minutes since the last Opus tick (`supervise.last-opus`; `0` turns the gate

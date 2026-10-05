@@ -615,11 +615,14 @@ TARGET of `state.txt` (`readlink -f`), `logs/runner.log` and, recursively (`find
 never all of `wt/` (the supervisor's own `supervise-*` worktrees live there), the heartbeat,
 `logs/<id>.log` (written only at the story's end) or the supervisor's files; skipped while `quota-until`
 holds a future epoch; `pr-green:#<n>` / `pr-red:#<n>` — ONE `timeout 60 gh pr list -R REPO --base
-BASE_BRANCH --state open --json number,headRefName,statusCheckRollup`; a night PR is head
-`feat/<BRANCH_PREFIX>-<id>-*` whose id (the longest queue/state id the head carries, so S1 never claims
-S10's PR) has no `is_done` row, or head `supervise-*`; its `REQUIRED_CHECK` CheckRuns (workflowName, else
-name; newest per job) completed more than `SUPERVISE_STALL_MIN` ago: all SUCCESS = green, any
-FAILURE/TIMED_OUT/STARTUP_FAILURE = red; parked (`is_done`) stories never trip; gh missing, non-zero,
+BASE_BRANCH --state open --limit 500 --json number,headRefName,createdAt,statusCheckRollup` (gh's default
+cap is 30); a night PR is head `feat/<BRANCH_PREFIX>-<id>-*` whose id (the longest queue/state id the head
+carries, so S1 never claims S10's PR) is in tonight's queue or state file and has no `is_done` row (an id
+in neither is an earlier night's PR), or head `supervise-*` created at or after the earlier of
+`started_epoch` and the supervisor's start (no `createdAt` = counted); its `REQUIRED_CHECK` CheckRuns
+(workflowName, else name; StatusContexts skipped; newest per job by startedAt, else completedAt) completed
+more than `SUPERVISE_STALL_MIN` ago: all SUCCESS/SKIPPED/NEUTRAL = green, any
+FAILURE/TIMED_OUT/STARTUP_FAILURE/CANCELLED = red; parked (`is_done`) stories never trip; gh missing, non-zero,
 timed out or unparsable = `gh-error` (visible in the log, so a broken gh auth that cancels the savings
 shows); `escalate` — a word `ESCALATE` in `triage.log` after an in-memory line offset (the file's line
 count at supervisor start, moved to the current count only when an Opus tick launches, 0 when the file
@@ -627,16 +630,21 @@ has fewer lines; NIGHT_DIR is permanent, earlier nights' lines never trip); `dea
 run.meta `deadline_epoch` within `SUPERVISE_DEADLINE_MIN` (and not past) with k queue ids not `is_done`;
 `watch:<STATUS>` — `watch.status` present and not `OK`/`QUOTA-WAIT`; `forced:<min>m` — now minus the
 last Opus tick >= `SUPERVISE_FORCE_EVERY_MIN`, the last tick being `supervise.last-opus` when it is >=
-`started_epoch`, else the supervisor's start. `tick()` writes `supervise.last-opus` (and moves the
-escalate offset), with the time and line count taken at launch, only when claude actually started (an
-init record in the tick's raw stream), never when the tick is refused before launch (`SUPERVISE
-MISCONFIGURED ... claude not launched`, or `tick_launch` unable to write its pid file). Config keys
+the earlier of `started_epoch` and the supervisor's start (a relaunch rewrites `started_epoch` while the
+supervisor keeps running), else the supervisor's start. `tick()` writes `supervise.last-opus` (and moves the
+escalate offset), with the time and line count taken at launch, only when claude actually started on the
+right model and permission mode (`init_ok`: the raw stream's first init record passes `tick_scan`'s
+check), never when the tick is refused before launch (`SUPERVISE MISCONFIGURED ... claude not launched`,
+or `tick_launch` unable to write its pid file) or killed for a wrong init record. The loop publishes its
+start and escalate offset in `supervise.gate` (at start and whenever the offset moves; removed on exit). Config keys
 (whole minutes, defaults when absent; supervise.sh and run.sh refuse a bad value, exit 2):
 `SUPERVISE_STALL_MIN` 45 (>= 1), `SUPERVISE_FORCE_EVERY_MIN` 120 (>= 0; `0` = gate off, `forced:gate-off`
 on every check, no gh call: today's every-tick behaviour, the rollback switch), `SUPERVISE_DEADLINE_MIN`
 60 (>= 1). `supervise.sh --check --config <path>` runs the gate once, before `claim_pidfile`: `TRIP
-<reasons>` (exit 0) or `HEALTHY` (exit 1); no pidfile, no `supervisor.log`, no last-opus, no claude; its
-escalate offset is 0 unless `SUPERVISE_ESCALATE_FROM=<line count>` (a test hook).
+<reasons>` (exit 0) or `HEALTHY` (exit 1); no pidfile, no `supervisor.log`, no last-opus, no claude; when
+`supervise.pid` names a live supervisor for this run it uses that one's start and offset from
+`supervise.gate`, else a fresh supervisor's (now, `triage.log`'s line count), so it says what the loop
+would; `SUPERVISE_ESCALATE_FROM=<line count>` overrides the offset (a test hook).
 
 ### 6.3 Day-run SessionStart injection + routing-violation counter — technical
 

@@ -11,8 +11,10 @@
 #   supervise.sh --config <path/to/config.env>      (or NIGHT_CONFIG=<path>)
 #   supervise.sh --check --config <path>            run the gate ONCE: prints `TRIP <reasons>` (exit 0)
 #                                                   or `HEALTHY` (exit 1); no pidfile, writes nothing,
-#                                                   never launches claude. Its escalate offset is 0, or
-#                                                   SUPERVISE_ESCALATE_FROM=<line count> (a test hook)
+#                                                   never launches claude. Next to a live supervisor it
+#                                                   uses that one's start and escalate offset (supervise.gate),
+#                                                   else a fresh one's (now, triage.log's line count);
+#                                                   SUPERVISE_ESCALATE_FROM=<line count> overrides (a test hook)
 # run.sh spawns it detached next to night-watch.sh when SUPERVISE=1 (the default), stdout and
 # stderr appended to $NIGHT_DIR/logs/supervise.out.
 #
@@ -41,16 +43,19 @@
 #                            and the CURRENT story's worktree wt/<id> (last `START <id>` in runner.log with
 #                            no later `END <id>`); never all of wt/, heartbeat, logs/<id>.log or the
 #                            supervisor's own files; skipped while quota-until holds a future epoch
-#        pr-green:#<n> / pr-red:#<n>    ONE `gh pr list` per check: an open night PR (head
-#                            feat/<BRANCH_PREFIX>-<id>-* whose id has no is_done row, or supervise-*) whose
-#                            REQUIRED_CHECK run completed SUCCESS / FAILURE|TIMED_OUT|STARTUP_FAILURE more
-#                            than SUPERVISE_STALL_MIN ago; gh-error = gh missing, failed, timed out, unparsable
+#        pr-green:#<n> / pr-red:#<n>    ONE `gh pr list --limit 500` per check: an open night PR (head
+#                            feat/<BRANCH_PREFIX>-<id>-* whose id is in tonight's queue or state file with no
+#                            is_done row, or supervise-* created at or after the earlier of started_epoch and
+#                            this supervisor's start) whose REQUIRED_CHECK jobs all completed SUCCESS|SKIPPED|
+#                            NEUTRAL / any FAILURE|TIMED_OUT|STARTUP_FAILURE|CANCELLED more than
+#                            SUPERVISE_STALL_MIN ago; gh-error = gh missing, failed, timed out, unparsable
 #        escalate            an ESCALATE line in triage.log after the offset (its line count at start,
-#                            moved on when an Opus tick launches; 0 again when the file shrinks)
+#                            moved on when an Opus tick starts on the right model; 0 again when the file shrinks)
 #        deadline:<min>m-left:<k>   deadline_epoch within SUPERVISE_DEADLINE_MIN, k queue ids not done
 #        watch:<STATUS>      watch.status present and not OK / QUOTA-WAIT
-#        forced:<min>m       the last Opus tick (supervise.last-opus if >= started_epoch, else this
-#                            supervisor's start) is SUPERVISE_FORCE_EVERY_MIN old; forced:gate-off at 0
+#        forced:<min>m       the last Opus tick (supervise.last-opus if >= the earlier of started_epoch and
+#                            this supervisor's start, else this supervisor's start) is SUPERVISE_FORCE_EVERY_MIN
+#                            old; forced:gate-off at 0
 #   4. the tick: ONE `claude -p` with $NIGHT_DIR/SUPERVISE-PROMPT.md on stdin, cwd BASE,
 #      model = entry [0] of the reviewer allow-list read NOW (reviewer-models.js --first),
 #      --permission-mode bypassPermissions, --setting-sources user,project, --settings
@@ -66,7 +71,9 @@
 #                                `<ISO> OK|FIXED|PROBLEM <story> <sentence>`
 #   logs/supervisor-ticks.log    each tick's decoded result text + `<ISO> tick exit=<rc>`
 #   supervise/<epoch>-<pid>.*    raw stream (.jsonl), stderr (.err), tick pid (.pid)
-#   supervise.last-opus          epoch of the last tick that actually launched claude (the gate's clock)
+#   supervise.last-opus          epoch of the last tick whose claude started on the right model and
+#                                permission mode (the gate's clock)
+#   supervise.gate               this supervisor's start and escalate offset, for --check; removed on exit
 #   supervise.pid                single instance: a live supervise.sh for this run => exit 0
 #   SUPERVISE-STOP               the owner's off switch for the supervisor alone; a file older
 #                                than this run is an earlier night's and is ignored
@@ -132,6 +139,7 @@ SUP_LOG=$NIGHT_DIR/supervisor.log
 TICKS_LOG=$NIGHT_DIR/logs/supervisor-ticks.log
 TICK_DIR=$NIGHT_DIR/supervise
 PIDFILE=$NIGHT_DIR/supervise.pid
+GATE_STATE=$NIGHT_DIR/supervise.gate
 
 say(){ printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 note(){ say "$*"; say "$*" >>"$SUP_LOG" 2>/dev/null; }
@@ -160,7 +168,7 @@ cleanup(){
   local mine
   if [ -f "$PIDFILE" ]; then
     mine=$(head -1 "$PIDFILE" 2>/dev/null | tr -dc '0-9')
-    [ "$mine" = "$$" ] && rm -f "$PIDFILE"
+    [ "$mine" = "$$" ] && rm -f "$PIDFILE" "$GATE_STATE"
   fi
 }
 # shellcheck disable=SC2317
@@ -263,10 +271,16 @@ queue_ids(){ # run.sh's queue parse: the first `|` field, trimmed; blank and # l
   done <"$NIGHT_DIR/queue.txt"
 }
 current_story(){ awk '$2=="START"{c=$3} $2=="END" && $3==c {c=""} END{print c}' "$RUNNER_LOG" 2>/dev/null; }
-last_opus(){ # supervise.last-opus when it belongs to this run, else this supervisor's start
-  local l st
-  l=$(head -1 "$LAST_OPUS" 2>/dev/null | tr -dc '0-9'); st=$(started_epoch)
-  if [ -n "$l" ] && { [ -z "$st" ] || [ "$l" -ge "$st" ]; }; then printf '%s' "$l"; else printf '%s' "$SUP_START"; fi
+run_floor(){ # the earlier of started_epoch and this supervisor's start (a relaunch rewrites started_epoch
+  # while this supervisor keeps running); empty when started_epoch is unreadable
+  local st; st=$(started_epoch)
+  [ -n "$st" ] || return 0
+  if [ "$st" -lt "$SUP_START" ]; then printf '%s' "$st"; else printf '%s' "$SUP_START"; fi
+}
+last_opus(){ # supervise.last-opus when it belongs to this run (>= run_floor), else this supervisor's start
+  local l fl
+  l=$(head -1 "$LAST_OPUS" 2>/dev/null | tr -dc '0-9'); fl=$(run_floor)
+  if [ -n "$l" ] && { [ -z "$fl" ] || [ "$l" -ge "$fl" ]; }; then printf '%s' "$l"; else printf '%s' "$SUP_START"; fi
 }
 pr_story(){ # head -> the LONGEST queue/state id it carries as feat/<prefix>-<id>- (S1 never claims S10's PR)
   local best="" id
@@ -276,7 +290,7 @@ pr_story(){ # head -> the LONGEST queue/state id it carries as feat/<prefix>-<id
   done < <(queue_ids; awk '{print $1}' "$(state_file)" 2>/dev/null)
   printf '%s' "$best"
 }
-# gh JSON on stdin -> one `<number> <head> green|red` line per PR whose REQUIRED_CHECK runs (CheckRuns,
+# gh JSON on stdin -> one `<number> <head> green|red <createdAt epoch|?>` line per PR whose REQUIRED_CHECK runs (CheckRuns,
 # matched on workflowName, else name; the newest entry per job) finished before GATE_CUTOFF.
 # shellcheck disable=SC2016  # JavaScript, not shell
 PR_JS='let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
@@ -292,21 +306,25 @@ PR_JS='let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
     }
     const js=Object.values(jobs);if(!js.length)continue;
     const done=e=>e.status==="COMPLETED"&&t(e.completedAt)<cut;
-    if(js.some(e=>done(e)&&["FAILURE","TIMED_OUT","STARTUP_FAILURE"].includes(e.conclusion)))console.log(p.number,p.headRefName,"red");
-    else if(js.every(e=>done(e)&&e.conclusion==="SUCCESS"))console.log(p.number,p.headRefName,"green");
+    const c=t(p.createdAt)||"?";
+    if(js.some(e=>done(e)&&["FAILURE","TIMED_OUT","STARTUP_FAILURE","CANCELLED"].includes(e.conclusion)))console.log(p.number,p.headRefName,"red",c);
+    else if(js.every(e=>done(e)&&["SUCCESS","SKIPPED","NEUTRAL"].includes(e.conclusion)))console.log(p.number,p.headRefName,"green",c);
   }});'
 pr_trips(){ # cutoff -> pr-green:#n / pr-red:#n tokens, or gh-error
-  local js out="" n head v id
+  local js out="" n head v c id fl
   command -v gh >/dev/null 2>&1 || { printf 'gh-error'; return; }
-  if ! js=$(timeout 60 gh pr list -R "$REPO" --base "$BASE_BRANCH" --state open --json number,headRefName,statusCheckRollup 2>/dev/null) ||
+  if ! js=$(timeout 60 gh pr list -R "$REPO" --base "$BASE_BRANCH" --state open --limit 500 --json number,headRefName,createdAt,statusCheckRollup 2>/dev/null) ||
      ! js=$(printf '%s' "$js" | GATE_CHECK="$REQUIRED_CHECK" GATE_CUTOFF="$1" node -e "$PR_JS" 2>/dev/null); then
     printf 'gh-error'; return
   fi
-  while read -r n head v; do
+  fl=$(run_floor)
+  while read -r n head v c; do
     [ -n "$n" ] || continue
     case "$head" in
-      supervise-*) :;;
-      "feat/$BRANCH_PREFIX-"*) id=$(pr_story "$head"); [ -n "$id" ] && is_done "$id" && continue;;
+      # an earlier night's supervise-* PR (created before this run) is not tonight's; undatable counts
+      supervise-*) case "$c" in ''|*[!0-9]*) :;; *) [ -n "$fl" ] && [ "$c" -lt "$fl" ] && continue;; esac;;
+      # an id in neither tonight's queue nor its state file is an earlier night's PR
+      "feat/$BRANCH_PREFIX-"*) id=$(pr_story "$head"); { [ -z "$id" ] || is_done "$id"; } && continue;;
       *) continue;;
     esac
     out="$out pr-$v:#$n"
@@ -357,6 +375,23 @@ gate_check(){
   printf '%s\n' "${out# }"
 }
 
+# 0 when the raw stream's FIRST init record passes tick_scan's check (bypassPermissions, model starting
+# with want): tick_scan writes that line to the stream before it kills a misconfigured tick.
+init_ok(){ # raw want
+  local line model="" perm=""
+  local re_sys='"type"[[:space:]]*:[[:space:]]*"system"' re_init='"subtype"[[:space:]]*:[[:space:]]*"init"'
+  local re_model='"model"[[:space:]]*:[[:space:]]*"([^"]*)"' re_perm='"permissionMode"[[:space:]]*:[[:space:]]*"([^"]*)"'
+  [ -n "$2" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ $line =~ $re_sys && $line =~ $re_init ]] || continue
+    [[ $line =~ $re_model ]] && model=${BASH_REMATCH[1]}
+    [[ $line =~ $re_perm ]] && perm=${BASH_REMATCH[1]}
+    [ "$perm" = bypassPermissions ] && [ -n "$model" ] && [ "${model#"$2"}" != "$model" ]
+    return
+  done <"$1"
+  return 1
+}
+
 tick(){
   local model raw why settings=$NIGHT_DIR/supervise.settings.json
   if [ ! -f "$PROMPT" ] || grep -qF '{{' "$PROMPT" 2>/dev/null; then
@@ -386,9 +421,9 @@ tick(){
     tick_say "SUPERVISE MISCONFIGURED $(printf '%s' "$why" | tr '\n' ' ') — claude not launched"
     return 0
   fi
-  # The gate's clock and escalate offset move only when claude actually started (an init record in
-  # the raw stream; tick_launch can still refuse), with the values taken at launch: an ESCALATE
-  # written during the tick stays visible to the next gate.
+  # The gate's clock and escalate offset move only when claude actually started on the right model
+  # and permission mode (init_ok; tick_launch can still refuse, tick_scan can kill it), with the
+  # values taken at launch: an ESCALATE written during the tick stays visible to the next gate.
   local at esc
   at=$(date +%s); esc=$(lines "$TRIAGE_LOG")
   mkdir -p "$TICK_DIR" "${TICKS_LOG%/*}" 2>/dev/null
@@ -404,16 +439,30 @@ tick(){
   wait "$TICK_BG"
   TICK_RC=$?
   TICK_BG=""; TICK_PIDF=""
-  if grep -q '"subtype":"init"' "$raw" 2>/dev/null; then
+  if init_ok "$raw" "$TICK_WANT"; then
     printf '%s\n' "$at" >"$LAST_OPUS" 2>/dev/null
-    ESC_OFF=$esc
+    ESC_OFF=$esc; publish_gate
   fi
   say "tick exit=$TICK_RC" >>"$TICKS_LOG"
 }
 
+# The loop publishes its start and escalate offset, so --check judges like the live supervisor.
+publish_gate(){
+  printf 'sup_start=%s\nesc_off=%s\n' "$SUP_START" "$ESC_OFF" >"$GATE_STATE.tmp" 2>/dev/null &&
+    mv -f "$GATE_STATE.tmp" "$GATE_STATE" 2>/dev/null
+}
+
 if [ "$CHECK" -eq 1 ]; then   # one gate run: no pidfile, no log, no last-opus, no claude
-  ESC_OFF=${SUPERVISE_ESCALATE_FROM:-0}
-  case "$ESC_OFF" in ''|*[!0-9]*) ESC_OFF=0;; esac
+  # A live supervisor's published start and offset; without one, what a fresh supervisor would see
+  # (offset = the current line count, start = now).
+  ESC_OFF=""
+  p=$(head -1 "$PIDFILE" 2>/dev/null | tr -dc '0-9')
+  if [ -n "$p" ] && is_our_instance "$p"; then
+    v=$(sed -n 's/^sup_start=//p' "$GATE_STATE" 2>/dev/null | tail -1 | tr -dc '0-9'); [ -n "$v" ] && SUP_START=$v
+    ESC_OFF=$(sed -n 's/^esc_off=//p' "$GATE_STATE" 2>/dev/null | tail -1 | tr -dc '0-9')
+  fi
+  [ -n "$ESC_OFF" ] || ESC_OFF=$(lines "$TRIAGE_LOG")
+  case "${SUPERVISE_ESCALATE_FROM:-}" in ''|*[!0-9]*) :;; *) ESC_OFF=$SUPERVISE_ESCALATE_FROM;; esac
   trips=$(gate_check)
   if [ -n "$trips" ]; then echo "TRIP $trips"; exit 0; fi
   echo HEALTHY; exit 1
@@ -421,6 +470,7 @@ fi
 
 claim_pidfile "$PIDFILE"
 ESC_OFF=$(lines "$TRIAGE_LOG")   # NIGHT_DIR is permanent: lines already there are earlier nights'
+publish_gate
 note "supervisor started (pid $$, interval ${SUPERVISE_INTERVAL}s, tick timeout ${SUPERVISE_TICK_TIMEOUT}s)"
 while :; do
   sleep "$SUPERVISE_INTERVAL" 9>&- &
@@ -429,7 +479,7 @@ while :; do
   SLEEP_PID=""
   should_exit && break
   # gate_check runs in a subshell: a shrunk triage.log restarts the offset here, in the loop
-  [ "$(lines "$TRIAGE_LOG")" -lt "$ESC_OFF" ] && ESC_OFF=0
+  [ "$(lines "$TRIAGE_LOG")" -lt "$ESC_OFF" ] && { ESC_OFF=0; publish_gate; }
   trips=$(gate_check)
   if [ -n "$trips" ]; then
     note "GATE trip $trips"
