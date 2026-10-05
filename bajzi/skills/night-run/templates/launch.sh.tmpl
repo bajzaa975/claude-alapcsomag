@@ -3,13 +3,15 @@
 # overwriting the previous one. The owner runs it from a plain bash terminal (never from the
 # Claude Code prompt): `bash {{NIGHT_DIR}}/launch.sh`.
 #
-# Placeholders (all five are substituted at render time, none may survive):
+# Placeholders (all six are substituted at render time, none may survive):
 #   {{PROJECT}}    config.env PROJECT
 #   {{BASE}}       config.env BASE, the absolute checkout the run works from
 #   {{NIGHT_DIR}}  config.env NIGHT_DIR, absolute
 #   {{RUN_SH}}     absolute path of run.sh in the plugin copy that ran the skill:
 #                  ${CLAUDE_PLUGIN_ROOT}/skills/night-run/run.sh, resolved at every render
 #   {{DEADLINE}}   the hard stop: HH:MM or "YYYY-MM-DD HH:MM"
+#   {{RUN_DATE}}   the night being planned, YYYY-MM-DD: pinned with --date so a relaunch after
+#                  local midnight continues the same night's state file
 #
 # Starts the {{PROJECT}} night run. Kill switch any time: touch {{NIGHT_DIR}}/STOP
 set -u
@@ -31,7 +33,7 @@ cp "$ND/settings.local.json" "$DEST" || { echo "cannot install $ND/settings.loca
 ls -l "$BASE/.claude/"
 # Step 2: start the runner, detached (setsid: the launching session's process group dying must not kill it).
 export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000
-setsid nohup bash "{{RUN_SH}}" --config "$ND/config.env" --deadline "{{DEADLINE}}" >> "$ND/logs/console.log" 2>&1 </dev/null &
+setsid nohup bash "{{RUN_SH}}" --config "$ND/config.env" --deadline "{{DEADLINE}}" --date "{{RUN_DATE}}" >> "$ND/logs/console.log" 2>&1 </dev/null &
 echo "launched, waiting 10 s for the first log lines..."
 sleep 10
 tail -4 "$ND/logs/runner.log" 2>/dev/null || { echo "no runner.log yet - console.log says:"; tail -5 "$ND/logs/console.log"; }

@@ -33,7 +33,7 @@ test('launch.sh.tmpl: flock refusal, backup abort, detached start with the two p
   has(LAUNCH, 'BACKUP FAILED — nothing was overwritten');
   has(LAUNCH, 'cp "$ND/settings.local.json" "$DEST"');
   has(LAUNCH, 'export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000');
-  has(LAUNCH, 'setsid nohup bash "{{RUN_SH}}" --config "$ND/config.env" --deadline "{{DEADLINE}}"');
+  has(LAUNCH, 'setsid nohup bash "{{RUN_SH}}" --config "$ND/config.env" --deadline "{{DEADLINE}}" --date "{{RUN_DATE}}"');
   has(LAUNCH, '>> "$ND/logs/console.log" 2>&1 </dev/null &');
   has(LAUNCH, 'tail -4 "$ND/logs/runner.log"');
 });
@@ -53,14 +53,14 @@ test('launch.sh.tmpl: no hard-coded plugin cache version path, no other absolute
 });
 
 const render = (over = {}) => {
-  const v = { PROJECT: 'proj', BASE: '/tmp/b', NIGHT_DIR: '/tmp/n', RUN_SH: '/plug/skills/night-run/run.sh', DEADLINE: '04:30', ...over };
+  const v = { PROJECT: 'proj', BASE: '/tmp/b', NIGHT_DIR: '/tmp/n', RUN_SH: '/plug/skills/night-run/run.sh', DEADLINE: '04:30', RUN_DATE: '2026-10-04', ...over };
   return Object.entries(v).reduce((s, [k, x]) => s.split(`{{${k}}}`).join(x), LAUNCH);
 };
 
 test('launch.sh.tmpl rendered with dummy values: no placeholder left and `bash -n` is clean', (t) => {
   const out = render();
   assert.deepStrictEqual(out.match(/{{[A-Za-z_0-9]+}}/g), null);
-  has(out, 'setsid nohup bash "/plug/skills/night-run/run.sh" --config "$ND/config.env" --deadline "04:30"');
+  has(out, 'setsid nohup bash "/plug/skills/night-run/run.sh" --config "$ND/config.env" --deadline "04:30" --date "2026-10-04"');
   const r = spawnSync('bash', ['-n'], { input: out, encoding: 'utf8' });   // stdin, so Git Bash and WSL bash both read it
   if (r.error) return t.skip(`no bash: ${r.error.code}`);
   assert.strictEqual(r.status, 0, `bash -n: ${r.stderr}`);
@@ -158,12 +158,19 @@ test('PHASE A deletes earlier night/base-* branches in the step that creates the
   assert.ok(a.indexOf('checkout --no-track -b "night/base-$STAMP"') < a.indexOf('branch -D "$b"'));
 });
 
+test("launch.sh pins the run's own --date: SKILL.md PHASE C renders {{RUN_DATE}} into it", () => {
+  const c = flat(phase('## PHASE C', '## PHASE D'));
+  has(c, "('DEADLINE', deadline), ('RUN_DATE', run_date)");
+  has(c, 'tmpl, out, run_sh, project, base, night, deadline, run_date = sys.argv[1:9]');
+  has(c, '"<DEADLINE>" "<RUN_DATE>"');
+});
+
 test('WATCHER-BRIEF LAUNCH_LINE is the runner-only command, not launch.sh', () => {
   const s = flat(SKILL);
   has(s, '`{{LAUNCH_LINE}}` = the runner-only command (`');
   assert.ok(!s.includes('`{{LAUNCH_LINE}}` = the PHASE E launch'), 'launch.sh as LAUNCH_LINE');
   const line = s.split('`{{LAUNCH_LINE}}` = the runner-only command (`')[1].split('`')[0];
-  for (const p of ['CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000', 'setsid nohup bash', '--config', '--deadline',
+  for (const p of ['CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000', 'setsid nohup bash', '--config', '--deadline', '--date "<RUN_DATE>"',
     '</dev/null', '>> "<NIGHT_DIR>/logs/console.log" 2>&1']) has(line, p);
   assert.ok(line.endsWith(' &'), 'detaches with trailing &');
   assert.ok(!line.includes('launch.sh'), 'launch.sh in the line');

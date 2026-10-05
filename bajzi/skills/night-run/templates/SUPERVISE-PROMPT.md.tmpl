@@ -53,7 +53,7 @@ Do nothing that changes state, and log it for the next tick instead, when EITHER
   itself (`sed -i` on the link replaces it with a copy). The deleted row is re-picked only when run.sh
   walks the queue again: a later pass of the same run (it makes one only when the previous pass deferred
   a story) or the next run.sh start on the same night date (a tier-0 restart re-execs run.args, which
-  pins `--date`; a launch.sh relaunch carries no `--date`, hence the date guard below). A live runner
+  pins `--date`; so does launch.sh, with the date it was rendered for). A live runner
   that has already walked past the story will not re-pick it in this pass.
 - **Relaunch** with `bash {{NIGHT_DIR}}/launch.sh` ONLY when ALL hold:
   1. the flock probe says NO-RUNNER;
@@ -65,9 +65,11 @@ Do nothing that changes state, and log it for the next tick instead, when EITHER
      run.sh deletes watch.restarts, so the count alone can read 0 after the budget is spent);
   4. `date +%s` is below `deadline_epoch` in `{{NIGHT_DIR}}/run.meta` minus 600: launch.sh passes a bare
      `--deadline HH:MM`, which run.sh rolls forward to TOMORROW once it has passed;
-  5. `date +%F` equals `run_date` in `{{NIGHT_DIR}}/run.meta`: launch.sh passes no `--date`, so after
-     local midnight run.sh would open an EMPTY state file for the new date and re-run the whole queue,
-     merged stories included. On another date log PROBLEM and leave the relaunch to the owner;
+  5. the `--date` value in `{{NIGHT_DIR}}/launch.sh` equals `run_date` in `{{NIGHT_DIR}}/run.meta`
+     (`sed -n 's/.* --date "\([0-9-]*\)".*/\1/p' {{NIGHT_DIR}}/launch.sh`): launch.sh pins the night, so
+     a relaunch after local midnight continues the same night. A launch.sh without `--date`, or with
+     another date, would open another night's state file and re-run the queue, merged stories
+     included: then log PROBLEM and leave the relaunch to the owner;
   6. the relaunch budget is not spent: `{{NIGHT_DIR}}/supervise.relaunches` holds one line
      `<run_date> <ISO time>` per supervisor relaunch;
      count only the lines that start with tonight's `run_date` (the file outlives the night) and relaunch only when fewer than 2. Append the line

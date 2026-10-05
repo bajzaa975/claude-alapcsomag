@@ -93,10 +93,12 @@ allow(){ # dir id... -> writes <dir>/.claude/bajzi/config.json with reviewer_mod
 mkcase(){ # name interval timeout [fake.env lines...] -> ND, FD, BH
   local name=$1 iv=$2 to=$3; shift 3
   ND=$WT/$name; FD=$ND/fake; BH=$ND/home
-  mkdir -p "$ND/logs" "$FD"
+  mkdir -p "$ND/logs" "$FD" "$ND/base/.claude"
+  printf '{}\n' >"$ND/base/.claude/settings.local.json"
   cat >"$ND/config.env" <<EOS
 PROJECT="suptest-$name"
 NIGHT_DIR="$ND"
+BASE="$ND/base"
 SUPERVISE_INTERVAL="$iv"
 SUPERVISE_TICK_TIMEOUT="$to"
 EOS
@@ -142,6 +144,7 @@ A=$FD/argv
 if grep -qxF -- -p "$A" 2>/dev/null; then ok "a argv has -p"; else bad "a argv has no -p"; fi
 pair "a argv --model claude-opus-5-5 (allow-list [0], read at tick time)" "$A" --model claude-opus-5-5
 pair "a argv --permission-mode bypassPermissions" "$A" --permission-mode bypassPermissions
+pair "a argv --settings <BASE>/.claude/settings.local.json (the project deny list)" "$A" --settings "$ND/base/.claude/settings.local.json"
 pair "a argv --output-format stream-json" "$A" --output-format stream-json
 if grep -qxF -- --verbose "$A" 2>/dev/null; then ok "a argv has --verbose"; else bad "a argv has no --verbose"; fi
 GOT=$(cat "$FD/cwd" 2>/dev/null); WANT=$(cd "$ND" && pwd -P)
@@ -156,6 +159,13 @@ yes "a 'SUPERVISE CONFIG OK' in supervisor.log" "$ND/supervisor.log" "SUPERVISE 
 no "a no MISCONFIGURED" "$ND/supervisor.log" "MISCONFIGURED"
 RAW=$(ls "$ND"/supervise/*.jsonl 2>/dev/null | head -1)
 if [ -n "$RAW" ] && grep -q '"subtype":"init"' "$RAW"; then ok "a raw stream saved under supervise/"; else bad "a no raw stream under $ND/supervise/"; fi
+# The allow-list is re-read on EVERY tick, not cached from the first one.
+allow "$BH" claude-sonnet-5 claude-opus-5-5
+printf 'FAKE_MODEL=claude-sonnet-5-20261001\n' >"$FD/fake.env"
+END=$((SECONDS + 30))
+while [ "$(grep -c 'tick exit=' "$ND/logs/supervisor-ticks.log" 2>/dev/null)" -lt 2 ] && [ "$SECONDS" -lt "$END" ]; do sleep 0.1; done
+pair "a tick 2 argv --model claude-sonnet-5 (allow-list changed between ticks)" "$A" --model claude-sonnet-5
+yes "a tick 2 'SUPERVISE CONFIG OK model=claude-sonnet-5-20261001'" "$ND/supervisor.log" "SUPERVISE CONFIG OK model=claude-sonnet-5-20261001 permissionMode=bypassPermissions"
 finish_case a
 if [ -e "$ND/supervise.pid" ]; then bad "a supervise.pid left behind"; else ok "a supervise.pid removed on exit"; fi
 
@@ -362,6 +372,46 @@ yes "l spawned without fd 9 (the run lock)" "$SD/fd9" "closed"
 if [ -f "$SD/stdin" ] && ! has "$SD/stdin" LEAK; then ok "l spawned with stdin /dev/null"; else bad "l stdin was not /dev/null"; fi
 yes "l 'supervisor started' logged" "$SD/log" "supervisor started (pid"
 
+# ------------------- n. settings file missing: refused, claude never starts ---
+mkcase n 2 1
+rm -f "$ND/base/.claude/settings.local.json"
+start_sup
+if wait_for "$ND/supervisor.log" "SUPERVISE MISCONFIGURED settings file missing: $ND/base/.claude/settings.local.json — claude not launched" 20; then
+  ok "n 'SUPERVISE MISCONFIGURED settings file missing: <BASE>/.claude/settings.local.json — claude not launched'"
+else bad "n no refusal: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+if [ -f "$FD/argv" ]; then bad "n claude ran without the settings file"; else ok "n claude never started"; fi
+finish_case n
+
+# ------------------- o. past deadline_epoch+1800 and no finished: exits ---
+mkcase o 2 1
+printf 'pgid=1\nstarted_epoch=%s\ndeadline_epoch=%s\nmode=queue\n' "$(($(date +%s) - 9000))" "$(($(date +%s) - 4000))" >"$ND/run.meta"
+start_sup
+if wait_for "$ND/supervisor.log" "supervisor exits: past deadline_epoch+1800 with no finished marker" 20 && wait_gone "$SPID" 10; then
+  ok "o 'supervisor exits: past deadline_epoch+1800 with no finished marker' logged and the process exited"
+else bad "o no exit past the deadline: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+if [ -f "$FD/argv" ]; then bad "o a tick ran past the deadline"; else ok "o no tick ran"; fi
+
+# ------------- p. SUPERVISE-STOP older than started_epoch is an earlier night's ---
+mkcase p 2 1
+touch -d "@$(($(date +%s) - 1000))" "$ND/SUPERVISE-STOP"
+start_sup
+if wait_for "$ND/logs/supervisor-ticks.log" "tick exit=0" 20; then ok "p stale SUPERVISE-STOP (older than started_epoch) ignored: a tick ran"
+else bad "p stale SUPERVISE-STOP stopped the supervisor: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+no "p no 'supervisor stopped (SUPERVISE-STOP)' for the stale file" "$ND/supervisor.log" "supervisor stopped (SUPERVISE-STOP)"
+rm -f "$ND/SUPERVISE-STOP"
+finish_case p
+
+# ---------- q. TERM during a running tick: the supervisor and its tick exit at once ---
+mkcase q 10 9 FAKE_SLEEP_TENTHS=300
+start_sup
+if wait_for "$FD/pid" "" 30 && [ -s "$FD/pid" ]; then
+  P=$(cat "$FD/pid"); sleep 0.5
+  kill "$SPID" 2>/dev/null
+  if wait_gone "$SPID" 3; then ok "q TERM mid-tick: supervisor exited within 3 s"; else bad "q supervisor $SPID still alive 3 s after TERM mid-tick"; fi
+  if wait_gone "$P" 3; then ok "q TERM mid-tick: the fake claude it launched exited within 3 s"; else bad "q fake claude $P still alive 3 s after TERM"; kill "$P" 2>/dev/null; fi
+  if [ -e "$ND/supervise.pid" ]; then bad "q supervise.pid left after TERM"; else ok "q supervise.pid removed after TERM"; fi
+else bad "q the tick never started"; fi
+
 # --------------------------------- m. the prompt template renders fully ---
 T=$SKILL/templates/SUPERVISE-PROMPT.md.tmpl
 if [ -f "$T" ]; then
@@ -375,10 +425,16 @@ if [ -f "$T" ]; then
     yes "m SKILL.md PHASE C names {{$p}} for SUPERVISE-PROMPT.md" "$SKILL/SKILL.md" "{{$p}}"
   done
   for w in Andras Forest /home/ubuntu innotel claude-opus- 'claude -p'; do no "m template has no '$w'" "$T" "$w"; done
-  # Relaunch guards that tier 0 has and launch.sh lacks (no --date pin, a bare --deadline rolls forward).
+  # Relaunch guards that tier 0 has and launch.sh lacks (a bare --deadline rolls forward).
   yes "m relaunch also when tier 0 says DEAD (run.sh deletes watch.restarts)" "$T" "watch.status\` reads \`DEAD\`"
   yes "m relaunch refused within 600 s of deadline_epoch" "$T" "deadline_epoch\` in \`{{NIGHT_DIR}}/run.meta\` minus 600"
-  yes "m relaunch only on the run's own run_date" "$T" "\`date +%F\` equals \`run_date\`"
+  # launch.sh pins --date "<RUN_DATE>": a post-midnight relaunch continues the same night, so the
+  # guard compares launch.sh's --date with run_date, never today's date.
+  yes "m relaunch only when launch.sh's --date is the run's own run_date" "$T" "the \`--date\` value in \`{{NIGHT_DIR}}/launch.sh\` equals \`run_date\`"
+  yes "m a post-midnight relaunch is allowed" "$T" "a relaunch after local midnight continues the same night"
+  no "m no today's-date guard left (it blocked every post-midnight relaunch)" "$T" "\`date +%F\` equals \`run_date\`"
+  no "m no 'launch.sh passes no --date' left" "$T" "passes no \`--date\`"
+  no "m no 'relaunch carries no --date' left" "$T" "carries no \`--date\`"
   yes "m relaunch budget counted per run_date" "$T" "count only the lines that start with tonight's \`run_date\`"
   yes "m SKILL.md renders it to <NIGHT_DIR>/SUPERVISE-PROMPT.md" "$SKILL/SKILL.md" "<NIGHT_DIR>/SUPERVISE-PROMPT.md"
 else bad "m $T not found"; fi

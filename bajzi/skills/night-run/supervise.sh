@@ -19,11 +19,15 @@
 #
 # EACH ITERATION, after the sleep
 #   1. re-read started_epoch from $NIGHT_DIR/run.meta (a relaunch republishes it)
-#   2. exit (one line in supervisor.log) when $NIGHT_DIR/SUPERVISE-STOP or $NIGHT_DIR/STOP
-#      exists, or $NIGHT_DIR/finished holds an epoch >= started_epoch
+#   2. exit (one line in supervisor.log) when $NIGHT_DIR/SUPERVISE-STOP (not older than the
+#      earlier of started_epoch and this supervisor's start: NIGHT_DIR is permanent) or
+#      $NIGHT_DIR/STOP exists, $NIGHT_DIR/finished holds an epoch >= started_epoch, or it is past
+#      run.meta deadline_epoch + 1800 with no such finished (night-watch.sh's EXPIRED)
 #   3. else ONE tick: `claude -p` with $NIGHT_DIR/SUPERVISE-PROMPT.md on stdin, cwd NIGHT_DIR,
 #      model = entry [0] of the reviewer allow-list read NOW (reviewer-models.js --first),
-#      --permission-mode bypassPermissions, provider env (ANTHROPIC_*, CC_ROUTER_*, ...) scrubbed so
+#      --permission-mode bypassPermissions, --settings $BASE/.claude/settings.local.json (the
+#      project deny list; missing = SUPERVISE MISCONFIGURED, claude not launched, as in
+#      triage_check), provider env (ANTHROPIC_*, CC_ROUTER_*, ...) scrubbed so
 #      it can never run on GLM, stream-json checked by tick-lib.sh: an init record with another
 #      model or permission mode kills the tick (SUPERVISE MISCONFIGURED in supervisor.log).
 #
@@ -33,10 +37,11 @@
 #   logs/supervisor-ticks.log    each tick's decoded result text + `<ISO> tick exit=<rc>`
 #   supervise/<epoch>-<pid>.*    raw stream (.jsonl), stderr (.err), tick pid (.pid)
 #   supervise.pid                single instance: a live supervise.sh for this run => exit 0
-#   SUPERVISE-STOP               the owner's off switch for the supervisor alone
+#   SUPERVISE-STOP               the owner's off switch for the supervisor alone; a file older
+#                                than this run is an earlier night's and is ignored
 #
 # It never holds run.sh's lock (fd 9 is closed at start) and never signals a process it did not
-# start: the only kills are the tick it launched (tick-lib.sh) and its own sleep.
+# start: the only kills are the tick it launched (tick-lib.sh, and on TERM/INT) and its own sleep.
 
 set -u
 exec 9>&-
@@ -60,6 +65,7 @@ CONFIG_ABS=$(readlink -f "$CONFIG" 2>/dev/null) || CONFIG_ABS=""
 [ -n "$CONFIG_ABS" ] || CONFIG_ABS=$CONFIG
 
 NIGHT_DIR=${NIGHT_DIR:-}
+BASE=${BASE:-}
 SUPERVISE_INTERVAL=${SUPERVISE_INTERVAL:-1800}
 SUPERVISE_TICK_TIMEOUT=${SUPERVISE_TICK_TIMEOUT:-1500}
 [ -n "$NIGHT_DIR" ] || { echo "$PROG: $CONFIG has no NIGHT_DIR" >&2; exit 2; }
@@ -100,7 +106,10 @@ for v in $(compgen -e); do
 done
 
 claim_pidfile "$PIDFILE"
+SUP_START=$(date +%s)
 SLEEP_PID=""
+TICK_BG=""      # the backgrounded tick subshell, while a tick runs
+TICK_PIDF=""    # its .pid file: the pid tick_launch execs timeout (-> claude) under
 # shellcheck disable=SC2317  # both run from traps
 cleanup(){
   local mine
@@ -110,16 +119,46 @@ cleanup(){
   fi
 }
 # shellcheck disable=SC2317
-on_signal(){ say "$PROG: signalled — stopping."; [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null; cleanup; exit 0; }
+on_signal(){
+  local tp i
+  say "$PROG: signalled — stopping."
+  [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
+  if [ -n "$TICK_BG" ]; then
+    # TERM (never INT: async children start with SIGINT ignored) to the pid that exec'd timeout,
+    # which passes it on to claude; then the subshell that waits for it.
+    tp=$(tr -dc '0-9' <"$TICK_PIDF" 2>/dev/null)
+    if [ -n "$tp" ]; then
+      kill "$tp" 2>/dev/null
+      for i in $(seq 1 50); do kill -0 "$tp" 2>/dev/null || break; sleep 0.1; done
+    fi
+    kill "$TICK_BG" 2>/dev/null
+  fi
+  cleanup; exit 0
+}
 trap on_signal INT TERM
 trap cleanup EXIT
 
 started_epoch(){ sed -n 's/^started_epoch=//p' "$META" 2>/dev/null | tail -1 | tr -dc '0-9'; }
 
+# SUPERVISE-STOP is dated like night-watch.sh dates STOP: NIGHT_DIR is permanent, so a file older
+# than the EARLIER of started_epoch and this supervisor's own start is an earlier night's (the
+# earlier: a relaunch rewrites started_epoch while this supervisor keeps running). An undatable
+# run or file is honoured: fail closed.
+sup_stop_live(){
+  local f=$NIGHT_DIR/SUPERVISE-STOP st floor=$SUP_START m
+  [ -e "$f" ] || return 1
+  st=$(started_epoch)
+  [ -n "$st" ] || return 0
+  [ "$st" -lt "$floor" ] && floor=$st
+  m=$(stat -c %Y "$f" 2>/dev/null | tr -dc '0-9')
+  [ -n "$m" ] || return 0
+  [ "$m" -ge "$floor" ]
+}
+
 # 0 = stop now (already logged), 1 = keep going
 should_exit(){
-  local st fin
-  if [ -e "$NIGHT_DIR/SUPERVISE-STOP" ]; then note "supervisor stopped (SUPERVISE-STOP)"; return 0; fi
+  local st fin dl
+  if sup_stop_live; then note "supervisor stopped (SUPERVISE-STOP)"; return 0; fi
   if [ -e "$NIGHT_DIR/STOP" ]; then note "supervisor stopped (STOP present)"; return 0; fi
   st=$(started_epoch)
   fin=$(head -1 "$FINISHED" 2>/dev/null | tr -dc '0-9')
@@ -127,11 +166,17 @@ should_exit(){
     note "supervisor exits: runner finished (finished=$fin >= started_epoch=$st)"
     return 0
   fi
+  # night-watch.sh's EXPIRED: a runner that died without writing finished must not leave us ticking.
+  dl=$(sed -n 's/^deadline_epoch=//p' "$META" 2>/dev/null | tail -1 | tr -dc '0-9')
+  if [ -n "$dl" ] && [ "$(date +%s)" -gt $((dl + 1800)) ]; then
+    note "supervisor exits: past deadline_epoch+1800 with no finished marker (deadline_epoch=$dl)"
+    return 0
+  fi
   return 1
 }
 
 tick(){
-  local model raw
+  local model raw settings=$BASE/.claude/settings.local.json
   if [ ! -f "$PROMPT" ] || grep -qF '{{' "$PROMPT" 2>/dev/null; then
     tick_say "SUPERVISE MISCONFIGURED $PROMPT is missing or unrendered — claude not launched (PHASE C renders it)"
     return 0
@@ -142,11 +187,22 @@ tick(){
     return 0
   fi
   tick_want 'reviewer_models[0]' "$model" || return 0
+  # Never unsandboxed, as triage_check: the project's settings (its deny list) passed explicitly.
+  [ -d "$BASE" ] || { tick_say "SUPERVISE MISCONFIGURED BASE is not a directory: $BASE — claude not launched"; return 0; }
+  [ -f "$settings" ] || { tick_say "SUPERVISE MISCONFIGURED settings file missing: $settings — claude not launched"; return 0; }
   mkdir -p "$TICK_DIR" "${TICKS_LOG%/*}" 2>/dev/null
   raw=$TICK_DIR/$(date +%s)-$$.jsonl
-  TICK_RC=""
-  tick_launch "$NIGHT_DIR" "$SUPERVISE_TICK_TIMEOUT" "$TICK_WANT" "$raw" "$(cat "$PROMPT")" \
-    --model "$model" --permission-mode bypassPermissions 9>&-
+  # Backgrounded and waited for, like the sleep: a foreground tick would hold a trapped TERM/INT
+  # until it ended (up to SUPERVISE_TICK_TIMEOUT); on_signal kills it instead.
+  TICK_PIDF=${raw%.jsonl}.pid
+  ( TICK_RC=""
+    tick_launch "$NIGHT_DIR" "$SUPERVISE_TICK_TIMEOUT" "$TICK_WANT" "$raw" "$(cat "$PROMPT")" \
+      --model "$model" --permission-mode bypassPermissions --settings "$settings"
+    exit "${TICK_RC:-1}" ) 9>&- &
+  TICK_BG=$!
+  wait "$TICK_BG"
+  TICK_RC=$?
+  TICK_BG=""; TICK_PIDF=""
   say "tick exit=$TICK_RC" >>"$TICKS_LOG"
 }
 

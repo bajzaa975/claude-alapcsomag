@@ -455,7 +455,9 @@ Then write into `~/night-runs/<project>/`:
   night's `run.sh` (the innotel-bss one pointed at an old `bajzi/1.13.0` plugin-cache path).
   Substitute with literal `str.replace`, like `BRIEF.md`: `{{PROJECT}}`, `{{BASE}}`,
   `{{NIGHT_DIR}}` from `config.env` (absolute); `{{DEADLINE}}` = the PHASE E `--deadline`
-  value; `{{RUN_SH}}` = the absolute path of the `run.sh` in the plugin copy that is running
+  value; `{{RUN_DATE}}` = `date +%F` of the night being planned (pinned as `--date`, so a
+  relaunch after local midnight continues the same night instead of re-running the queue);
+  `{{RUN_SH}}` = the absolute path of the `run.sh` in the plugin copy that is running
   THIS skill, resolved AT EVERY RENDER, never typed from memory, never copied from an earlier
   launch.sh and never the path of another plugin version:
 
@@ -464,11 +466,11 @@ Then write into `~/night-runs/<project>/`:
   case "$RUN_SH" in /*) :;; *) echo "BLOCKER: RUN_SH is not absolute: '$RUN_SH'";; esac
   [ -f "$RUN_SH" ] || echo "BLOCKER: run.sh not found: $RUN_SH"
   python3 - "${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/templates/launch.sh.tmpl" "<NIGHT_DIR>/launch.sh" \
-    "$RUN_SH" "<PROJECT>" "<BASE>" "<NIGHT_DIR>" "<DEADLINE>" <<'PY'
+    "$RUN_SH" "<PROJECT>" "<BASE>" "<NIGHT_DIR>" "<DEADLINE>" "<RUN_DATE>" <<'PY'
   import sys
-  tmpl, out, run_sh, project, base, night, deadline = sys.argv[1:8]
+  tmpl, out, run_sh, project, base, night, deadline, run_date = sys.argv[1:9]
   src = open(tmpl).read()
-  for k, v in (('RUN_SH', run_sh), ('PROJECT', project), ('BASE', base), ('NIGHT_DIR', night), ('DEADLINE', deadline)):
+  for k, v in (('RUN_SH', run_sh), ('PROJECT', project), ('BASE', base), ('NIGHT_DIR', night), ('DEADLINE', deadline), ('RUN_DATE', run_date)):
       src = src.replace('{{%s}}' % k, v)   # str.replace: both sides literal
   open(out, 'w', newline='\n').write(src)
   PY
@@ -508,7 +510,7 @@ Then write into `~/night-runs/<project>/`:
   `{{PROJECT}}` (config), `{{RUNNER}}` = `run.sh`, `{{RUN_DIR}}` = the night dir, `{{RUN_LOG}}` =
   `<night dir>/logs/runner.log`, `{{TERMINAL_LINE_REGEX}}` = `^\S+ (merged|open|parked|blocked|DEFERRED-\S+) `,
   `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the runner-only
-  command (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000 setsid nohup bash "<RUN_SH>" --config "<NIGHT_DIR>/config.env" --deadline "<DEADLINE>" </dev/null >> "<NIGHT_DIR>/logs/console.log" 2>&1 &`, the same RUN_SH
+  command (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000 setsid nohup bash "<RUN_SH>" --config "<NIGHT_DIR>/config.env" --deadline "<DEADLINE>" --date "<RUN_DATE>" </dev/null >> "<NIGHT_DIR>/logs/console.log" 2>&1 &`, the same RUN_SH
   as launch.sh; never `launch.sh`, which is the owner's bedtime command and re-installs settings), `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
   `<night dir>/night-watch-summary.md`, `{{ESCALATION_MODEL}}` = entry [0] of the reviewer allow-list,
   `{{ALLOWLIST}}` = the four lines below verbatim. Leave `{{EVENT}}` and `{{FACTS}}` in place: the
@@ -1035,10 +1037,10 @@ stuck in its first 20 minutes would be noticed only when its budget ends. With `
 default; `0` disables) `run.sh` spawns `supervise.sh` next to the watchdog (same detached spawn:
 setsid, no run-lock fd, stdin `/dev/null`, output in `logs/supervise.out`). It SLEEPS FIRST for
 `SUPERVISE_INTERVAL` (1800 s), then per iteration re-reads `started_epoch` from `run.meta` and exits —
-one line in `~/night-runs/<project>/supervisor.log` — on `SUPERVISE-STOP`, on `STOP`, or when `finished`
-holds an epoch >= `started_epoch`; otherwise it runs ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
+one line in `~/night-runs/<project>/supervisor.log` — on `SUPERVISE-STOP`, on `STOP`, when `finished`
+holds an epoch >= `started_epoch`, or past `deadline_epoch` + 1800 s with no such `finished`; otherwise it runs ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
 model = entry [0] of the reviewer allow-list read at that tick, `--permission-mode bypassPermissions`,
-cwd = the night dir, `SUPERVISE_TICK_TIMEOUT` (1500 s, must be < the interval) hard cap, provider env
+`--settings <BASE>/.claude/settings.local.json` (missing = refused, as for triage), cwd = the night dir, `SUPERVISE_TICK_TIMEOUT` (1500 s, must be < the interval) hard cap, provider env
 (`ANTHROPIC_*`, router selectors) scrubbed so it can never run on GLM, and the same fail-closed
 stream-json init check as triage (`SUPERVISE MISCONFIGURED` in `supervisor.log`, tick killed, no result).
 Each tick's result text and `<ISO> tick exit=<rc>` go to `logs/supervisor-ticks.log`; the tick itself
@@ -1048,8 +1050,9 @@ Ownership: the supervisor owns allowlist edits (both `settings.local.json` copie
 fixes via a PR merged only on a green `REQUIRED_CHECK` pull_request run; the triage tick never edits
 settings. It relaunches (`launch.sh`, at most 2 per run) only when tier 0 cannot, and changes nothing
 while a triage tick is alive or holds an open `FIXING`. **Stop the supervisor alone:**
-`touch ~/night-runs/<project>/SUPERVISE-STOP` (checked after each sleep). The file is not dated: it
-also stops the NEXT night's supervisor, so `rm` it before that launch.
+`touch ~/night-runs/<project>/SUPERVISE-STOP` (checked after each sleep). The file is dated: one older
+than the run's `started_epoch` (and the supervisor's own start) is an earlier night's and is ignored,
+so to keep the supervisor off for a whole night set `SUPERVISE=0` before the launch.
 
 ## PHASE F — Morning follow-through (`report` mode)
 
