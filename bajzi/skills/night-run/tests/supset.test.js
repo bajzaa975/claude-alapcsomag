@@ -13,10 +13,10 @@ const HOME = '/home/tester';             // '~/' expands to this (forward slashe
 const NIGHT = HOME + '/night-runs/bss';
 const OTHER = 'Edit(~/night-runs/other/state*.txt)';
 
-function run(deny, extra = {}) {
+function run(deny, extra = {}, outRel = 'supervise.settings.json') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'supset-'));
   const src = path.join(dir, 'night.json');
-  const out = path.join(dir, 'supervise.settings.json');
+  const out = path.join(dir, outRel);
   const night = { permissions: { allow: ['Bash(git status)'], deny }, ...extra };
   fs.writeFileSync(src, JSON.stringify(night, null, 2));
   const r = spawnSync(process.execPath, [SUPSET, src, NIGHT + '/', out],
@@ -78,4 +78,13 @@ test('unreadable source or no permissions.deny: one-line reason, non-zero, nothi
   r = spawnSync(process.execPath, [SUPSET, path.join(dir, 'n.json'), NIGHT, out], { encoding: 'utf8' });
   assert.notStrictEqual(r.status, 0);
   assert.ok(!fs.existsSync(out));
+});
+
+test('unwritable output path: one "cannot write" line, non-zero, no output or temp file left', () => {
+  const { r, dir, files } = run(['Edit(~/night-runs/bss/state*.txt)', OTHER], {}, 'nodir/out.json');
+  assert.notStrictEqual(r.status, 0);
+  assert.match(r.stderr, /^supset: cannot write /);
+  assert.strictEqual(r.stderr.trim().split('\n').length, 1);
+  assert.deepStrictEqual(files(), ['night.json']);
+  assert.ok(!fs.existsSync(path.join(dir, 'nodir')));
 });
