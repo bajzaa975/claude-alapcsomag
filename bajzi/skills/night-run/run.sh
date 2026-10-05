@@ -242,7 +242,10 @@ case "$DISK_FLOOR_GB"     in *[!0-9]*) echo "run.sh: DISK_FLOOR_GB must be a who
 : "${SUPERVISE:=1}"                   # 1 = spawn supervise.sh (30-minute fresh-session supervisor); 0 = off
 : "${SUPERVISE_INTERVAL:=1800}"       # seconds between supervisor ticks (it sleeps first)
 : "${SUPERVISE_TICK_TIMEOUT:=1500}"   # hard cap of one supervisor tick; must be < SUPERVISE_INTERVAL
-for v in WATCH_INTERVAL WATCH_MAX_RESTARTS QUOTA_MARGIN_SEC QUOTA_MAX_WAITS QUOTA_FALLBACK_WAIT_SEC QUOTA_MAX_WAIT_SEC SUPERVISE_INTERVAL SUPERVISE_TICK_TIMEOUT; do
+: "${SUPERVISE_STALL_MIN:=45}"        # supervisor gate: minutes without progress = a trip (>= 1)
+: "${SUPERVISE_FORCE_EVERY_MIN:=120}" # supervisor gate: an Opus tick at least this often; 0 = gate off
+: "${SUPERVISE_DEADLINE_MIN:=60}"     # supervisor gate: minutes before the deadline with stories left (>= 1)
+for v in WATCH_INTERVAL WATCH_MAX_RESTARTS QUOTA_MARGIN_SEC QUOTA_MAX_WAITS QUOTA_FALLBACK_WAIT_SEC QUOTA_MAX_WAIT_SEC SUPERVISE_INTERVAL SUPERVISE_TICK_TIMEOUT SUPERVISE_STALL_MIN SUPERVISE_FORCE_EVERY_MIN SUPERVISE_DEADLINE_MIN; do
   eval "val=\${$v}"
   case "$val" in ""|*[!0-9]*) echo "run.sh: $v must be a whole number, got '$val'" >&2; exit 2;; esac
 done
@@ -250,6 +253,10 @@ case "$SUPERVISE" in 0|1) :;; *) echo "run.sh: SUPERVISE must be 0 or 1, got '$S
 [ "$SUPERVISE_TICK_TIMEOUT" -ge 1 ] || { echo "run.sh: SUPERVISE_TICK_TIMEOUT must be at least 1 second, got '$SUPERVISE_TICK_TIMEOUT'" >&2; exit 2; }
 [ "$SUPERVISE_TICK_TIMEOUT" -lt "$SUPERVISE_INTERVAL" ] || {
   echo "run.sh: SUPERVISE_TICK_TIMEOUT ($SUPERVISE_TICK_TIMEOUT) must be less than SUPERVISE_INTERVAL ($SUPERVISE_INTERVAL)" >&2; exit 2; }
+for v in SUPERVISE_STALL_MIN SUPERVISE_DEADLINE_MIN; do
+  eval "val=\${$v}"
+  [ "$val" -ge 1 ] || { echo "run.sh: $v must be at least 1 minute, got '$val'" >&2; exit 2; }
+done
 # Optional, has a default: the bounded CI wait handed to every story session.
 # It has a floor because 0 parks every story on its first CI poll.
 CI_WAIT_MINUTES=${CI_WAIT_MINUTES:-45}

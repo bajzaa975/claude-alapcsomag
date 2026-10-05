@@ -41,8 +41,9 @@ Do nothing that changes state, and log it for the next tick instead, when EITHER
   add the narrowest rule that allows it to BOTH `{{NIGHT_DIR}}/settings.local.json` and
   `{{BASE}}/.claude/settings.local.json` (the same rule in both; valid JSON afterwards, check with
   `python3 -m json.tool <file>`). Never loosen a deny rule.
-- **Code or test-harness defects**: a branch off a fresh `origin/{{BASE_BRANCH}}`
-  (`git -C {{BASE}} fetch origin`, then a NEW worktree under `{{NIGHT_DIR}}/wt/` named `supervise-<short>`),
+- **Code or test-harness defects**: a branch named `supervise-<short>` off a fresh `origin/{{BASE_BRANCH}}`
+  (`git -C {{BASE}} fetch origin`, then a NEW worktree under `{{NIGHT_DIR}}/wt/` with the same name
+  `supervise-<short>`; the zero-token gate before each tick recognises your PR by that branch name),
   the fix, a PR into {{BASE_BRANCH}}, and a squash-merge ONLY after the pull_request-event run of
   `{{REQUIRED_CHECK}}` on that PR is green. Never a direct push to {{BASE_BRANCH}}.
 - **Re-queue a story whose cause you fixed.** What run.sh does: it skips a queue id when the run's
