@@ -285,6 +285,16 @@ test('a launch from a session passes the session level to the child as BAJZI_SES
   const b = run('worker', ['-p', 'x'], Object.assign({ CLAUDE_CODE_SESSION_ID: 'sess-B' }, env));
   assert.strictEqual(b.childEnv.BAJZI_SESSION_LEVEL, undefined);   // machine default is not pinned
 });
+test('an unknown inherited BAJZI_SESSION_LEVEL reads as claude and a nested launch pins claude', () => {
+  const sb = run('worker', ['--level', '2', '--global']);   // machine default glm: the inherited word must still win
+  const env = { CLAUDE_CODE_SESSION_ID: 'sess-B', BAJZI_SESSION_LEVEL: 'turbo', CC_WORKER_MODE_FILE: path.join(sb.dir, 'worker-mode'), BAJZI_STATUS_DIR: path.join(sb.dir, 'sessions') };
+  assert.match(run('worker', ['--status'], env).stdout, /^level\s+L0 \(claude\)\s+\(session \(inherited\)\)/m);
+  const n = run('worker', ['-p', 'x'], env);
+  assert.strictEqual(n.code, 0, n.stderr);
+  assert.strictEqual(n.childEnv.BAJZI_SESSION_LEVEL, 'claude');
+  assert.strictEqual(n.childEnv.CC_WORKER_MODE, undefined);
+  assert.strictEqual(n.childEnv.ANTHROPIC_BASE_URL, undefined);
+});
 test('a failing level write exits 73 "cannot write" and leaves no temp file', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-w-'));
   fs.writeFileSync(path.join(dir, 'sessions'), 'x');   // status dir path is a regular file: mkdir fails

@@ -22,16 +22,16 @@
 #   SAVER_GATE_OPEN     yes|no -- day-run on, OR CC_WORKER_MODE set, OR a
 #                       non-Anthropic provider. The worker-mode FILE alone never
 #                       opens it: a bare install must stay silent.
-#   SAVER_LEVEL         CC_WORKER_MODE, else THIS session's level file
-#                       <status dir>/<session_id>.level when the id is SAFE_ID-valid
-#                       and the file's first line reads non-empty, else the first line
-#                       of $HOME/.claude/worker-mode (the machine default), else
-#                       "claude". Both files are read by saver_read_word (leading
-#                       UTF-8 BOM dropped, whitespace incl. CR stripped, lowercased);
-#                       forced to "tight" on a non-Anthropic provider. NOT
-#                       validated (BAJZI_SESSION_LEVEL sits between the session file and
-#                       worker-mode, and never opens the gate): an unknown word is passed through for the
-#                       caller to reject.
+#   SAVER_LEVEL         order: CC_WORKER_MODE > own session file > BAJZI_SESSION_LEVEL
+#                       > ~/.claude/worker-mode > "claude". That is: CC_WORKER_MODE, else
+#                       THIS session's level file <status dir>/<session_id>.level when
+#                       the id is SAFE_ID-valid and the file's first line reads non-empty,
+#                       else BAJZI_SESSION_LEVEL (the level a parent session passed to a
+#                       launch; it never opens the gate), else the first line of
+#                       $HOME/.claude/worker-mode (the machine default), else "claude".
+#                       Both files are read by saver_read_word (leading UTF-8 BOM dropped,
+#                       whitespace incl. CR stripped, lowercased); forced to "tight" on a
+#                       non-Anthropic provider. NOT validated: the caller rejects unknowns.
 #
 # <status dir> = $BAJZI_STATUS_DIR, else ${BAJZI_HOME:-$HOME}/.claude/bajzi/sessions, and
 # SAFE_ID = ^[A-Za-z0-9_-]{1,128}$ -- both exactly as hooks/node/lib/session-status.js. An

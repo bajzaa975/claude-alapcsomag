@@ -73,9 +73,9 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Saver level resolution (which level a session runs at; per-session vs machine default, 1.14.1) | `bajzi/hooks/lib-saver-level.sh` `saver_resolve <cwd> [<session_id>]` (+ `saver_safe_id`, `saver_read_word`, `saver_session_id`), called by `day-run-mode.sh`, `dispatch-guard.sh`, `routing-counter.sh` with the payload's `session_id`; its node port `bajzi/hooks/node/lib/saver-level.js` `resolveLevel({env, home, sessionId})` (`statusline.js` `render`); the writer and the shim's own resolution `bajzi/bin/cc-router.js` `resolveMode`/`writeLevel`; `bajzi/skills/mode/SKILL.md` (the skill's read) | `bash bajzi/hooks/tests/saver-level-parity.sh`; `node --test bajzi/hooks/node/tests/saver-level.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/bin/tests/*.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (case 17) | 1 | Four resolvers (bash, node, cc-router, the skill's prose) must agree on the order `CC_WORKER_MODE` > `<status dir>/<session_id>.level` > `BAJZI_SESSION_LEVEL` > `~/.claude/worker-mode` > `claude` (non-Anthropic forces `tight`) and on the read (first line, BOM, whitespace, lowercase); the parity script runs bash and node on the same session fixtures. `cc-router.js` is installed alone, so it inlines `SAFE_ID` and the status dir (a test compares them with `session-status.js`). Day-run on/off (`bajzi-mode`) stays machine-wide. |
 | Saver-level routing table (task class → model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh` (rules read, `head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh:saver_resolve` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh` rules read) must stay above the file's real line count (currently 45; case 7 caps the file at 45 lines and 4352 bytes) or the tail silently drops with no error. The table says REVIEWER, never a model id: the hook appends the REVIEWER MODELS line (next row). |
 | Reviewer allow-list (who may review; the launch default) | `~/.claude/bajzi/config.json` `reviewer_models` (the owner, or `/bajzi:setup` from `manifest.json` `bajzi_config`); validators `bajzi/hooks/node/lib/reviewer-models.js:load` and claude-orchestrator `scripts/review_queue.py:_reviewer_models`; readers `bajzi/hooks/day-run-mode.sh` (REVIEWER MODELS line), `bajzi/hooks/routing-counter.sh` (reviewer served-model check via `reviewer-models.js:offListServed`), `bajzi/skills/setup/check.js:checkAll`, `bajzi/skills/night-run/SKILL.md` (`MODEL`, `{{REVIEWER_MODEL}}`), `nightrun-lib.ps1:Get-DrainLaunch`, `review_queue.py:_drain_verdict`; tripwire `nightrun-lib.ps1:Get-ReviewerConfigHash` | `node --test bajzi/hooks/node/tests/reviewer-models.test.js bajzi/skills/setup/tests/check.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (cases 12t, 15); `python -m pytest -q tests/test_review_queue_drain.py`; Pester `tests/ps/nightrun-drain.Tests.ps1`, `nightrun-guards.Tests.ps1` | 1 | Two validators (node, python) must agree on the id regex and the whole-list-invalid rule. Never add a default id to code: the manifest is the only default. A reviewer swap is a config edit; a manifest edit also changes the default every `/bajzi:setup` writes. |
-| GLM model mapping (`--model sonnet\|opus` → `glm_model`) | `bajzi/bin/cc-router.js:88` `effective()`, `:323-330` glm env block | `node --test bajzi/bin/tests/*.test.js` | 1 | `-ClaudeBin glm` maps `CLAUDE_CODE_SUBAGENT_MODEL` too — the whole session incl. sub-agents runs on GLM (§6.2, §9.1). |
-| Z.ai peak window | `cc-router.js:306` `peakOpen()`, refusal `:307-317` (exit 75); mirrored independently in claude-orchestrator `nightrun-lib.ps1:205` `Test-GlmPeakSoon`, `:214` `Get-GlmStartDecision`; display-only copy `bajzi/hooks/node/lib/peak.js` | `node --test bajzi/bin/tests/*.test.js`; `Invoke-Pester tests/ps/nightrun-lib.Tests.ps1` | 1 | Three implementations (shim, runner, status-line display). Changing the window means editing all three, or the shim and the runner disagree about when GLM is refused. |
-| `worker`/`glm`/`ccr` admin commands | `cc-router.js:244-285` `workerAdmin()` | `node --test bajzi/bin/tests/*.test.js` | 2 | The launcher **scripts** (`worker`, `glm`, `ccr` + `.cmd` twins in `~/.local/bin`) that set `CC_ROUTER_ENTRY` live in `bajzi/bin/launchers/` and are installed by `install.sh` (§8.1 step 4); edit the repo copy, never `~/.local/bin` by hand. |
+| GLM model mapping (`--model sonnet\|opus` → `glm_model`) | `bajzi/bin/cc-router.js:90` `effective()`, `:325-332` glm env block | `node --test bajzi/bin/tests/*.test.js` | 1 | `-ClaudeBin glm` maps `CLAUDE_CODE_SUBAGENT_MODEL` too — the whole session incl. sub-agents runs on GLM (§6.2, §9.1). |
+| Z.ai peak window | `cc-router.js:308` `peakOpen()`, refusal `:309-319` (exit 75); mirrored independently in claude-orchestrator `nightrun-lib.ps1:205` `Test-GlmPeakSoon`, `:214` `Get-GlmStartDecision`; display-only copy `bajzi/hooks/node/lib/peak.js` | `node --test bajzi/bin/tests/*.test.js`; `Invoke-Pester tests/ps/nightrun-lib.Tests.ps1` | 1 | Three implementations (shim, runner, status-line display). Changing the window means editing all three, or the shim and the runner disagree about when GLM is refused. |
+| `worker`/`glm`/`ccr` admin commands | `cc-router.js:246-287` `workerAdmin()` | `node --test bajzi/bin/tests/*.test.js` | 2 | The launcher **scripts** (`worker`, `glm`, `ccr` + `.cmd` twins in `~/.local/bin`) that set `CC_ROUTER_ENTRY` live in `bajzi/bin/launchers/` and are installed by `install.sh` (§8.1 step 4); edit the repo copy, never `~/.local/bin` by hand. |
 | Dispatch-guard rules (R1/R2/R3/R4; the plan's R1'/R2') | `bajzi/hooks/dispatch-guard.sh`: the `case "$sub_lc"` classification (subagent_type first, prompt-text fallback), the `case "$class"` rule block (R1 with the opt-out's `calib_extra`, R2 with `R2_RE`, `fixer_paths` and the `READONLY_RE` exemption for the built-in read-only agents; all on the backslash-normalised `prompt_lc`), the R3 test after it (the `-gt 24576` literal, also in the R3 deny text and `bajzi/lib/findings-cli.js` `BRIEF_MAX`), the agents-dir fail-open (`-d "$hookdir/../agents"`); wired in `bajzi/hooks/hooks.json` PreToolUse `Agent\|Task` | `bash bajzi/skills/mode/tests/mode.sh` (case 13; the skills' briefs 16i-16i6b) | 1 | Fails open by design ("a discipline guard, not a security boundary", header comment); never describe a rule as a security boundary. The agent names `bajzi:reviewer`/`bajzi:fixer`/`bajzi:implementer*` are matched literally: renaming an agent or the plugin changes the script, the skills' `dispatch.md` table and case 13 together. A new brief shape from `findings-cli.js brief` must still pass R1/R2 (case 16i is the check). Changing the R3 cap means the script, its deny text, `BRIEF_MAX` and the 13j cases together. |
 | Night-run launcher parameters | claude-orchestrator `scripts/nightrun.ps1:16-35` (param block), `scripts/nightrun-releaseB.ps1:54-72`, `scripts/nightrun-lib.ps1:41` `Assert-LaunchArgs`, `:4` `ConvertFrom-LevelSpec` | `pwsh -NoProfile -c "Invoke-Pester tests/ps -Output Minimal"` | 1 | `-MaxHours` is a hard **kill** wall (§6.11.8). `-Levels` and `-ClaudeBin` are mutually exclusive. `nightrun.ps1`'s own `-PermissionMode` default is `auto`; pass `bypassPermissions` explicitly. |
 | Usage-limit / transient detection, degrade | `nightrun-lib.ps1:122` `Get-LimitKind`, `:179` `Get-SessionOutcome`, `:197` `Test-DegradePossible`; `nightrun.ps1:236` `Step-Degrade` | Pester `tests/ps/nightrun-lib.Tests.ps1` | 1 | Only the CLI's own records are evidence (rate_limit_event status, result `api_error_status`, result string prose). A model that *quotes* "usage limit reached" must never degrade the night (§6.11.3). |
@@ -434,7 +434,7 @@ never DONE, until a real Opus session drains the queue (§6.11.5).
 **Peak window**: Z.ai charges 3x during its daily peak, 14:00-18:00 UTC+8 = 06:00-10:00 UTC =
 **08:00-12:00 CEST** (summer) / **07:00-11:00 CET** (winter) — the local boundary moves with the
 March and October clock changes. `cc-router.js` refuses any GLM-bound launch inside that window
-with **exit 75** (`peakOpen`, `:272`; refusal block `:273-283`), overridable for one call with
+with **exit 75** (`peakOpen`, `:308`; refusal block `:309-319`), overridable for one call with
 `CC_GLM_PEAK_OK=1`. The night runner independently pre-checks the same window before starting or
 resuming a GLM sprint and kills a running GLM session if the window opens under it (§6.11.6) —
 two belts, per Invariant 8.
@@ -443,16 +443,16 @@ two belts, per Invariant 8.
 GLM**) is actually being hit — a plain switch with no measurement is not saver mode. It scans
 Claude Code's own local transcripts (zero LLM calls), buckets by model prefix (`claude*` →
 anthropic, `glm*`/`deepseek*` → glm), and weights `input*1 + cache_create*1.25 + cache_read*0.1 +
-output*5` (`cc-router.js:140`, `usageWeighted`) before reporting a share percentage. 51% is a
+output*5` (`cc-router.js:142`, `usageWeighted`) before reporting a share percentage. 51% is a
 failure of the mode, not a result (project CLAUDE.md).
 
 ### 6.2 The `glm` / `worker` / `ccr` shims — technical
 
-`bajzi/bin/cc-router.js` (347 lines, `VERSION = '1.2.0'`),
+`bajzi/bin/cc-router.js` (349 lines, `VERSION = '1.2.0'`),
 installed at `~/.local/bin/cc-router.js` by `bash bajzi/bin/install.sh` (runs `node --test
 bajzi/bin/tests/cc-router.test.js` first and refuses to install on a red suite). There is
 **no daemon and no port** — `ccr start/stop/restart/status/ui/serve/web/version` are no-ops that
-print an explanation and exit 0 (`cc-router.js:299-300`). Thin launcher scripts next to it
+print an explanation and exit 0 (`cc-router.js:301-302`). Thin launcher scripts next to it
 (`worker`, `glm`, `ccr` as bash scripts, plus `worker.cmd`/`glm.cmd`/`ccr.cmd` on Windows;
 tracked in `bajzi/bin/launchers/`, installed by the same `install.sh`, §8.1 step 4) set `CC_ROUTER_ENTRY` and
 exec this file.
@@ -472,22 +472,22 @@ exec this file.
   [claude args]` is accepted (anything else exits 64); `--model deepseek-*` goes to DeepSeek
   (untested path), everything else to GLM.
 
-**Model mapping** (`effective()`, `:54`): in GLM mode, `--model sonnet` and `--model opus` both
+**Model mapping** (`effective()`, `:90`): in GLM mode, `--model sonnet` and `--model opus` both
 resolve to `glm_model` (default `glm-5.3`), `--model haiku` resolves to `glm_fast_model` (code
 default `glm-4.7`; `worker --set-fast-model glm-5.3-flash` stores the flash model in
 `~/.claude/cc-router.json`, and `worker --status` shows the effective value). Any other `--model` id is passed through unchanged — which is why the night
 runner drops a pinned `claude-*` id before launching `glm` (`nightrun-lib.ps1:189`
 `Get-ModelArgs`). When GLM is chosen the shim sets, on the spawned `claude` process's env
-(`:289-296`): `ANTHROPIC_BASE_URL` (`https://api.z.ai/api/anthropic`), `ANTHROPIC_AUTH_TOKEN`
+(`:325-332`): `ANTHROPIC_BASE_URL` (`https://api.z.ai/api/anthropic`), `ANTHROPIC_AUTH_TOKEN`
 (from `ZAI_API_KEY`), `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`,
 `ANTHROPIC_DEFAULT_HAIKU_MODEL`, and critically **`CLAUDE_CODE_SUBAGENT_MODEL`** — which is why
 `-ClaudeBin glm` (or `worker` at L2/L3) puts **every sub-agent** on GLM too (Invariant 7). Before
 that, every inherited `ANTHROPIC_*`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDECODE`,
-`CC_ROUTER_ENTRY` and `CC_ROUTER_WORKER` variable is scrubbed (`:285-286`); `CC_ROUTER_WORKER=1`
+`CC_ROUTER_ENTRY` and `CC_ROUTER_WORKER` variable is scrubbed (`:321-322`); `CC_ROUTER_WORKER=1`
 is then set only if the shim itself was launched from inside Claude Code (`CLAUDECODE` set,
-`:305`).
+`:342`).
 
-**Secret resolution** (`secret()`, `:38`): process env → Windows `HKCU\Environment` (covers
+**Secret resolution** (`secret()`, `:74`): process env → Windows `HKCU\Environment` (covers
 already-open apps) → `~/.claude/cc-router.env` (KEY=VALUE lines, meant to be `chmod 600`). No key
 → exit 78.
 
@@ -528,7 +528,7 @@ in exactly one place.
 of `<cwd>/runtime/bajzi-mode` or `~/.claude/bajzi-mode` reads `day-run`), **or** `CC_WORKER_MODE`
 is set in the environment, **or** the session's `ANTHROPIC_BASE_URL` host is not `anthropic.com`
 or a subdomain of it. The mode-file alone never opens the gate for saver routing — a bare plugin
-install must never reroute a stranger's session (`day-run-mode.sh:56-57`).
+install must never reroute a stranger's session (`day-run-mode.sh:57-58`).
 
 **Provider check**: a backslash ends the parsed host exactly like a slash would (matching Node's
 own URL parser, which is what Claude Code connects with) — so
@@ -540,7 +540,7 @@ own URL parser, which is what Claude Code connects with) — so
 "additionalContext": "<day-run rules>\n\n<saver block>"}}`, or bare `{}` when the gate is closed.
 
 **Failure behaviour**: fails open — a missing `lib-saver-level.sh`, an unreadable mode file, or
-any other surprise prints `{}` and exits 0 (`day-run-mode.sh:97-100`).
+any other surprise prints `{}` and exits 0 (`day-run-mode.sh:98-101`).
 
 **Fail-closed exception** (Invariant 1): a non-Anthropic session whose `SAVER-L3.md` text is
 missing or empty gets a **warning only**, never the plain day-run table on its own — because that
@@ -1301,7 +1301,7 @@ describes it says so (`releaseB:102`: "at L0"; the `nr:380` banner is tracked in
   before a fix session (`nr:503-505`). A glm session still running when the window **opens** is
   killed by the watch loop (margin 0, `nr:173-174`, reason `nr:161`) and ends INCOMPLETE
   (`nr:487`, or "usage limit, then peak window" `nr:471-474`).
-- **Shim** (`cc-router.js:272-283`): refuses a GLM-bound launch while `peakOpen()` (UTC hour 6-9)
+- **Shim** (`cc-router.js:308-319`): refuses a GLM-bound launch while `peakOpen()` (UTC hour 6-9)
   with **exit 75**, logging one line to `~/.claude/glm-peak-refusals.log` (§7). `CC_GLM_PEAK_OK=1`
   overrides it for one call; the runner strips that variable from every child (`lib:72`), so it
   cannot leak into a night session.
@@ -1750,12 +1750,12 @@ root. Line numbers are pinned to the commits in §11.
 
 | Path | Writer | Readers | Format | Lifecycle |
 |---|---|---|---|---|
-| `~/.claude/worker-mode` (override `CC_WORKER_MODE_FILE`) — the machine default level | `worker --set <word>` / `worker --level <n>` with `--global` or from a plain shell (`cc-router.js` `writeLevel`, temp + rename) | `cc-router.js` `resolveMode` → `readWord` (first line, BOM dropped, whitespace removed, lowercase; unknown → `claude`); `lib-saver-level.sh` `saver_read_word`; `saver-level.js` `readModeFile` | one word + LF: `claude\|light\|glm\|tight` | permanent until the next global `--set`/`--level`; `CC_WORKER_MODE` and a session level file (§7.2) override it |
+| `~/.claude/worker-mode` (override `CC_WORKER_MODE_FILE`) — the machine default level | `worker --set <word>` / `worker --level <n>` with `--global` or from a plain shell (`cc-router.js` `writeLevel`, temp + rename) | `cc-router.js` `resolveMode` → `readWord` (first line, BOM dropped, whitespace removed, lowercase; unknown → `claude`); `lib-saver-level.sh` `saver_read_word`; `saver-level.js` `readModeFile` | one word + LF: `claude\|light\|glm\|tight` | permanent until the next global `--set`/`--level`; `CC_WORKER_MODE`, a session level file (§7.2) and `BAJZI_SESSION_LEVEL` (§6.1) override it |
 | `~/.claude/bajzi-mode`, `<cwd>/runtime/bajzi-mode` | `/bajzi:mode` (`bajzi/skills/mode/SKILL.md:48-49`, temp file + `mv -f`); `/bajzi:setup` PHASE D step 8 creates `day-run` only if missing (`bajzi/skills/setup/SKILL.md:107-111`) | `lib-saver-level.sh:55-64` (project file wins; first line must be `day-run`); `check.js:127` (`bajzi-mode-missing`) | one word | permanent |
-| `~/.claude/cc-router.json` (override `CC_ROUTER_CONFIG`) | `worker --set-model` / `--set-fast-model` (`cc-router.js:223-226` → `writeConf` `:30`) | `readConf` (`cc-router.js:29`), merged over defaults `{glm_model: "glm-5.3", glm_fast_model: "glm-4.7"}` (`:24`); env `GLM_MODEL`/`GLM_FAST_MODEL` win (`:31`) | pretty JSON, those two keys | permanent |
-| `~/.claude/cc-router.env` | the owner, by hand (never written by code) | `secret()` (`cc-router.js:38-51`), third after process env and `HKCU\Environment` | `KEY=VALUE` lines, optional `export`/quotes | keep `chmod 600`; the secret guard (§6.7) does not cover it |
-| `~/.claude/cc-router.log` (override `CC_ROUTER_LOG`) | `logLaunch` (`cc-router.js:60-68`) | `worker --log [n]` (`:230-233`); the owner (project `CLAUDE.md` uses its `cwd=` to find which checkout a session ran in) | one line per launch: `<ISO> entry=<e> provider=<p> asked=<model\|-> model=<effective> headless\|interactive cwd=<cwd>` | over 2 MiB renamed to `.log.1` (`:63`), which the next rotation overwrites |
-| `~/.claude/glm-peak-refusals.log` (override `CC_PEAK_LOG`) | `cc-router.js:277-278`, only on a peak refusal (exit 75) | `routing-counter.sh` peak block (`tail -n1`; a refusal < 600 s old excuses a Claude fallback) | `<ISO> entry=<name>` | no rotation, no cap (one line per refusal) |
+| `~/.claude/cc-router.json` (override `CC_ROUTER_CONFIG`) | `worker --set-model` / `--set-fast-model` (`cc-router.js:259-263` → `writeConf` `:31`) | `readConf` (`cc-router.js:30`), merged over defaults `{glm_model: "glm-5.3", glm_fast_model: "glm-4.7"}` (`:25`); env `GLM_MODEL`/`GLM_FAST_MODEL` win (`:32`) | pretty JSON, those two keys | permanent |
+| `~/.claude/cc-router.env` | the owner, by hand (never written by code) | `secret()` (`cc-router.js:74-88`), third after process env and `HKCU\Environment` | `KEY=VALUE` lines, optional `export`/quotes | keep `chmod 600`; the secret guard (§6.7) does not cover it |
+| `~/.claude/cc-router.log` (override `CC_ROUTER_LOG`) | `logLaunch` (`cc-router.js:96-104`) | `worker --log [n]` (`:265-269`); the owner (project `CLAUDE.md` uses its `cwd=` to find which checkout a session ran in) | one line per launch: `<ISO> entry=<e> provider=<p> asked=<model\|-> model=<effective> headless\|interactive cwd=<cwd>` | over 2 MiB renamed to `.log.1` (`:99`), which the next rotation overwrites |
+| `~/.claude/glm-peak-refusals.log` (override `CC_PEAK_LOG`) | `cc-router.js:313-314`, only on a peak refusal (exit 75) | `routing-counter.sh` peak block (`tail -n1`; a refusal < 600 s old excuses a Claude fallback) | `<ISO> entry=<name>` | no rotation, no cap (one line per refusal) |
 
 ### 7.2 Hooks and status line
 
@@ -1866,7 +1866,7 @@ in Git Bash).
      ```
    - Verify (any shell): `worker --status`. Success: column-aligned lines, among them
      `level           L0 (claude)`, `ZAI_API_KEY     found` and `router          v1.2.0   <path>`
-     (`workerAdmin`, `cc-router.js:241`). Likeliest failure: `ZAI_API_KEY     MISSING` — the key
+     (`workerAdmin`, `cc-router.js:270-282`). Likeliest failure: `ZAI_API_KEY     MISSING` — the key
      was set in a terminal that was already open; open a new one, or use the `cc-router.env`
      file. `worker: command not found` means `~/.local/bin` is not on `PATH`.
 5. Saver mode (optional): `worker --set glm` (L2) or `worker --level 0..3`; confirm with

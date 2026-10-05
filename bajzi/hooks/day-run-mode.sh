@@ -42,9 +42,10 @@
 #   FAIL CLOSED: on a non-Anthropic session whose worker/L3 file is missing or
 #   empty, the hook emits a warning-only systemMessage and NEVER the day-run
 #   table, which would tell a GLM session its reviews are Opus.
-#   3. level = CC_WORKER_MODE (night runner), else first line of
-#      $HOME/.claude/worker-mode (`worker` wrapper, a leading UTF-8 BOM is
-#      dropped); same normalization as the mode read: claude -> none,
+#   3. level = CC_WORKER_MODE (night runner), else this session's level file,
+#      else BAJZI_SESSION_LEVEL (inherited from a parent session), else first
+#      line of $HOME/.claude/worker-mode (`worker` wrapper, a leading UTF-8 BOM
+#      is dropped), else claude; same normalization as the mode read: claude -> none,
 #      light -> SAVER-L1.md, glm -> SAVER-RULES.md (L2),
 #      tight -> SAVER-L3.md (a Claude session at tight must queue, not review).
 #   4. any other level -> no saver block, and the systemMessage says
@@ -58,7 +59,7 @@
 # The hook reads NOTHING besides the two mode files, $HOME/.claude/worker-mode,
 # this session's level file <status dir>/<session_id>.level (BAJZI_STATUS_DIR /
 # BAJZI_HOME pick the dir; the id is the payload's session_id, lib-saver-level.sh),
-# the rules files above, those three env vars and -- under the day-run table on an
+# the rules files above, those three env vars, BAJZI_SESSION_LEVEL and -- under the day-run table on an
 # Anthropic session -- the reviewer allow-list, $HOME/.claude/bajzi/config.json.
 #
 # SHARED RESOLVER: the gate, the provider check, the mode-file read and the level

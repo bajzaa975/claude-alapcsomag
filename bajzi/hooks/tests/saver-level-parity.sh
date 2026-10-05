@@ -105,7 +105,7 @@ env-overrides-session|-|light|glm\n|A.level|tight\n|A|light
 zai-forces-tight|https://api.z.ai/api/anthropic|-|glm\n|A.level|claude\n|A|tight
 inherited-alone|-|-|glm\n|-|-|B|light| Light
 inherited-own-file-wins|-|-|glm\n|A.level|tight\n|A|tight|light
-inherited-env-wins|-|tight|glm\n|A.level|-|A|tight|light
+inherited-env-wins|-|tight|glm\n|-|-|A|tight|light
 inherited-unknown-word|-|-|glm\n|-|-|B|turbo|turbo
 ROWS
 unset ANTHROPIC_BASE_URL CC_WORKER_MODE BAJZI_SESSION_LEVEL
