@@ -1,6 +1,6 @@
 {
   "name": "bajzi-cowork",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "description": "claude.ai / Cowork-safe subset of bajzi: /bajzi-cowork:handoff session handover, /bajzi-cowork:autopilot unattended mode, /bajzi-cowork:modszertan methodology selector. Skills only - no bin/, hooks or agents. Built from bajzi/ by tools/build-cowork.js; do not edit by hand.",
   "author": {
     "name": "Bajza Andras"
