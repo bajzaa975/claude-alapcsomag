@@ -198,11 +198,65 @@ only where the `owner/name` value is wanted. There is no third spelling.
    ```
 
    A non-zero right-hand count (the base branch is behind its remote) is a gate blocker.
+
+   **Fresh BASE — nothing is rendered from a stale tree.** `BASE` is a long-lived checkout
+   that still holds whatever an earlier night left on it, and `docs/NIGHT-RULES.md`, the
+   section-3 and section-7 rulings and every other value read from BASE's files come from
+   THAT tree. So, in THIS phase (an earlier fetch, from another session or an earlier phase,
+   does not count), fetch the base branch again and move BASE onto a NEW branch cut from it:
+
+   ```bash
+   /usr/bin/git -C "<BASE>" fetch origin <BASE_BRANCH>
+   /usr/bin/git -C "<BASE>" status --porcelain --untracked-files=no
+   ```
+
+   Any line from `status` means BASE's tracked tree is dirty: BLOCKER `BASE tracked tree is
+   dirty: <the lines>`, carried to the gate. Do NOT move BASE, do NOT stash, reset or clean
+   it, and plan nothing that reads BASE's files. A clean tree continues (steps 1-2 already
+   proved no runner of this project is alive, so nothing is working in it):
+
+   ```bash
+   STAMP=$(date +%Y-%m-%d-%H%M)
+   /usr/bin/git -C "<BASE>" checkout --no-track -b "night/base-$STAMP" "origin/<BASE_BRANCH>"
+   /usr/bin/git -C "<BASE>" rev-parse "origin/<BASE_BRANCH>" > "<NIGHT_DIR>/render-base.sha"
+   cat "<NIGHT_DIR>/render-base.sha"
+   ```
+
+   A failing `checkout` is a BLOCKER too (same rule: plan nothing from BASE). The SHA in
+   `render-base.sha` is the `origin/<BASE_BRANCH>` the render uses; PHASE D prints it. This
+   branch is the ONLY thing this skill ever switches BASE to; `<BASE_BRANCH>` itself is never
+   checked out, committed to or pushed. Steps 6-8 and the whole of PHASE C read BASE's files
+   only after this point. (The BASE rules above are unchanged: `BASE` comes from `config.env`
+   and is never a deployed tree or a `REPO` coordinate.)
 4. **Disk.** `df -BG --output=avail "<BASE>" | tail -1` must be at or above `DISK_FLOOR_GB`
    from `config.env` — the build cache has filled this VM's root twice.
 5. **Is the base branch red?** The latest `REQUIRED_CHECK` run on the base branch:
    `gh run list -R <REPO> --branch <BASE_BRANCH> --limit 3 --json name,conclusion,event`.
    Red = the top blocker; do not queue filler work around a red base.
+
+   **Is `REQUIRED_CHECK` the name the night matches?** The night compares `REQUIRED_CHECK`
+   with the NAME OF THE WORKFLOW RUN as `gh run list` shows it (the workflow file's `name:`,
+   e.g. `CI`), read from a `pull_request`-event run (`run.sh` puts the value into the per-story
+   prompt and BRIEF section 5.1 reads runs with `gh run list ... --json ...`; neither ever
+   looks at branch protection). The branch-protection check or job name (e.g. `ci`) is a
+   different string and does NOT match. Look at what `gh` prints for this repo:
+
+   ```bash
+   gh run list -R "<REPO>" --event pull_request --limit 10 --json workflowName,name --jq '.[].workflowName' | sort -u
+   ```
+
+   The configured value must appear in that output as a whole line:
+
+   ```bash
+   gh run list -R "<REPO>" --event pull_request --limit 10 --json workflowName,name --jq '.[].workflowName' | /usr/bin/grep -qxF -- "$REQUIRED_CHECK" \
+     || echo "BLOCKER: REQUIRED_CHECK '$REQUIRED_CHECK' is not a workflow run name; gh shows: $(gh run list -R "<REPO>" --event pull_request --limit 10 --json workflowName --jq '.[].workflowName' | sort -u | tr '\n' ',')"
+   ```
+
+   A line of output is a gate BLOCKER carrying the value(s) found; never "fix" the config
+   value yourself from a guess. (`gh run list -R <REPO> --limit 3 --json workflowName,name`
+   is the plain form of the command, as documented in `config.env.tmpl` and NIGHT-RULES
+   section 5.) A repo with no `pull_request` run yet cannot prove the name: carry that as a
+   BLOCKER too, naming the value you could not verify.
 6. **`docs/NIGHT-RULES.md` gate.** Missing in the project repo → copy
    `templates/NIGHT-RULES.md.tmpl` there, show the owner that it needs their rulings, STOP.
 7. **User-level env denies.** Every new env var a story adds must reach the tracked
@@ -376,16 +430,60 @@ story slot a real backlog item needed. Do not scan for them.
 PHASE A step 0 already created the run directory and `config.env`; re-assert the directory
 here (`mkdir -p` is idempotent) so this phase still works when step 0's output is out of
 sight. NOTHING ELSE creates it. `config.env` says `NIGHT_DIR` "must
-already exist", and PHASE E's launch line opens `logs/console.log` in the OWNER'S shell,
-before run.sh's own `mkdir -p` can run, so a missing `logs/` kills the night before it
-starts and leaves no console.log to diagnose it from:
+already exist", and `launch.sh` (PHASE E) opens `logs/console.log` for the runner's output
+in the OWNER'S shell, so `logs/` should be there before it runs (`launch.sh` also runs
+`mkdir -p`, belt and braces):
 
 ```bash
 mkdir -p ~/night-runs/<project>/logs
 ```
 
+Everything below that reads a file of BASE (`docs/NIGHT-RULES.md` for `{{NIGHT_RULES}}`, the
+section-3 and section-7 rulings, the rules check) reads the `night/base-<stamp>` branch PHASE A
+step 3 created from a fresh `origin/<BASE_BRANCH>`, never the tree BASE happened to hold. If
+that step did not run or was a BLOCKER, render nothing from BASE.
+
 Then write into `~/night-runs/<project>/`:
 
+- `launch.sh`, rendered from `templates/launch.sh.tmpl` into `<NIGHT_DIR>/launch.sh` on EVERY
+  plan, overwriting an old one: a launch.sh left over from an earlier night points at that
+  night's `run.sh` (the innotel-bss one pointed at an old `bajzi/1.13.0` plugin-cache path).
+  Substitute with literal `str.replace`, like `BRIEF.md`: `{{PROJECT}}`, `{{BASE}}`,
+  `{{NIGHT_DIR}}` from `config.env` (absolute); `{{DEADLINE}}` = the PHASE E `--deadline`
+  value; `{{RUN_SH}}` = the absolute path of the `run.sh` in the plugin copy that is running
+  THIS skill, resolved AT EVERY RENDER, never typed from memory, never copied from an earlier
+  launch.sh and never the path of another plugin version:
+
+  ```bash
+  RUN_SH="${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/run.sh"
+  case "$RUN_SH" in /*) :;; *) echo "BLOCKER: RUN_SH is not absolute: '$RUN_SH'";; esac
+  [ -f "$RUN_SH" ] || echo "BLOCKER: run.sh not found: $RUN_SH"
+  python3 - "${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/templates/launch.sh.tmpl" "<NIGHT_DIR>/launch.sh" \
+    "$RUN_SH" "<PROJECT>" "<BASE>" "<NIGHT_DIR>" "<DEADLINE>" <<'PY'
+  import sys
+  tmpl, out, run_sh, project, base, night, deadline = sys.argv[1:8]
+  src = open(tmpl).read()
+  for k, v in (('RUN_SH', run_sh), ('PROJECT', project), ('BASE', base), ('NIGHT_DIR', night), ('DEADLINE', deadline)):
+      src = src.replace('{{%s}}' % k, v)   # str.replace: both sides literal
+  open(out, 'w', newline='\n').write(src)
+  PY
+  ```
+
+  Check it, and refuse a launch.sh that fails any line (every line is a PHASE D gate item,
+  and the same check runs again at the gate):
+
+  ```bash
+  L="<NIGHT_DIR>/launch.sh"; RUN_SH="${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/run.sh"
+  got=$(sed -n 's/^setsid nohup bash "\(.*\)" --config .*/\1/p' "$L")
+  [ -n "$got" ] || echo "LAUNCH.SH NOT RENDERED: no runner line in $L"
+  [ -f "$got" ] || echo "LAUNCH.SH RUN_SH MISSING: $got"
+  [ "$got" = "$RUN_SH" ] || echo "LAUNCH.SH RUN_SH STALE: $got is not the current plugin's $RUN_SH"
+  /usr/bin/grep -o '{{[A-Za-z_0-9]\+}}' "$L" | sort -u
+  bash -n "$L" || echo "LAUNCH.SH SYNTAX ERROR"
+  ```
+
+  A launch.sh whose RUN_SH does not exist, or differs from the current plugin root, is
+  re-rendered, never edited by hand and never handed to the owner.
 - `queue.txt`, one line per story in exactly the format the runner parses (`#` starts a
   comment): `<id>|<slug>|<needs>|<note>`.
   `<slug>`: lowercase, hyphenated, <= 5 words (it becomes `feat/<BRANCH_PREFIX>-<id>-<slug>`).
@@ -405,7 +503,7 @@ Then write into `~/night-runs/<project>/`:
   `{{PROJECT}}` (config), `{{RUNNER}}` = `run.sh`, `{{RUN_DIR}}` = the night dir, `{{RUN_LOG}}` =
   `<night dir>/logs/runner.log`, `{{TERMINAL_LINE_REGEX}}` = `^\S+ (merged|open|parked|blocked|DEFERRED-\S+) `,
   `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the PHASE E launch
-  line, `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
+  line (`bash <NIGHT_DIR>/launch.sh`), `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
   `<night dir>/night-watch-summary.md`, `{{ESCALATION_MODEL}}` = entry [0] of the reviewer allow-list,
   `{{ALLOWLIST}}` = the four lines below verbatim. Leave `{{EVENT}}` and `{{FACTS}}` in place: the
   watchdog fills them per tick.
@@ -749,6 +847,24 @@ or learns to wave the hits through; and the next thing waved through is a REAL l
 with section 3 then unenforced for the whole night. The JSON-scoped check above returns
 nothing on that same perfect render and NAMES every leftover on a bad one.
 
+**Re-render rule — a plan never outlives the base it was rendered from.** If a NIGHT-RULES
+change, or any PR the plan depends on (a `needs` PR, a rules or CI fix), is MERGED while you
+are planning, the render is stale. Before the PHASE D gate: fetch again, fast-forward BASE's
+`night/base-<stamp>` branch (confirm `git -C "<BASE>" branch --show-current` starts with
+`night/base-`, else BLOCKER) and rewrite `<NIGHT_DIR>/render-base.sha`:
+
+```bash
+/usr/bin/git -C "<BASE>" fetch origin <BASE_BRANCH>
+/usr/bin/git -C "<BASE>" merge --ff-only "origin/<BASE_BRANCH>"
+/usr/bin/git -C "<BASE>" rev-parse "origin/<BASE_BRANCH>" > "<NIGHT_DIR>/render-base.sha"
+```
+
+A failing `--ff-only` is a BLOCKER (never reset or rebase BASE). Then RE-RENDER everything that
+read BASE or the plugin: `BRIEF.md` (all three steps, `{{NIGHT_RULES}}` first), the
+post-render step and rules check of `settings.local.json`, and `launch.sh` (with the check
+above). Re-read the queue against the changed rules too. A re-render that is skipped sends
+the owner to bed with the old rules.
+
 ## PHASE D — Approval gate
 
 ONE screen, and it is the ONLY question this skill asks. The run merges to the base branch
@@ -768,44 +884,54 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    `<angle-bracket>` text and that is correct — they are documentation, they are not rules,
    and they are outside the check on purpose. If the rules check did not come back 0, you
    are not at this gate yet.
+6. one line that `launch.sh` was rendered in this plan and its check printed nothing (the
+   PHASE C `launch.sh` check, run again now): `RUN_SH` exists and equals the current plugin
+   root's `skills/night-run/run.sh`; quote the path;
+7. one line `Rendered from origin/<BASE_BRANCH> @ <SHA>` with the SHA from
+   `<NIGHT_DIR>/render-base.sha`, and the BASE branch `night/base-<stamp>` it sits on. Run a
+   fresh `/usr/bin/git -C "<BASE>" ls-remote origin "refs/heads/<BASE_BRANCH>"` right before
+   showing the screen: when it prints a SHA other than the rendered one, the gate REFUSES
+   (`STALE RENDER: rendered <SHA>, origin now <SHA2>`): go back to the re-render rule, do not
+   show an approval question.
 The owner approves or edits once. Then go to PHASE E.
 
 ## PHASE E — Launch (the owner's step)
 
 You never launch the runner: a Claude session is denied by the auto-mode classifier
 (Interfere With Workloads). Emit the block below with EVERY `<...>` already filled in from
-`config.env` and from the absolute path of `run.sh` next to this file — never ask the owner
-for a value you can resolve, say where you took it from instead.
+`config.env` — never ask the owner for a value you can resolve, say where you took it from
+instead. The commands that install the allowlist and start the runner are NOT typed here: they
+are in `<NIGHT_DIR>/launch.sh`, which PHASE C rendered in this plan from
+`templates/launch.sh.tmpl` (its `run.sh` is the one of the plugin copy running this skill).
 
-> **Where:** this VM, a plain **bash** terminal — not the Claude prompt, not `!`.
-> **Working directory:** `<BASE>` (the `BASE` field of `config.env`)
+> **Where:** this VM, a plain **bash** terminal outside Claude Code — not the Claude prompt, not `!`.
+> **Working directory:** any (`launch.sh` does `cd <BASE>` itself; `<BASE>` is the `BASE` field of `config.env`)
 
-**Step 1 — install the allowlist, without destroying anything.** `<BASE>` is a real,
-persistent worktree and may already have project settings: a plain `cp` replaces them
-silently, and the "just delete the file to revert" promise is then a lie. Back up first.
+**Step 1 — launch.** One command:
 
 ```bash
-cd <BASE>
-mkdir -p <BASE>/.claude ~/night-runs/<project>/logs
-DEST=<BASE>/.claude/settings.local.json
-if [ -e "$DEST" ] && ! cp -a "$DEST" "$DEST.pre-night-$(date +%F-%H%M%S)"; then
-  echo "BACKUP FAILED — stopping, nothing was overwritten"
-else
-  cp ~/night-runs/<project>/settings.local.json "$DEST"
-fi
-ls -l <BASE>/.claude/
+bash <NIGHT_DIR>/launch.sh
 ```
+
+What `launch.sh` does, in order: refuses to start when a runner already holds
+`<NIGHT_DIR>/run.flock` (printing the `run.lock` content); backs up an existing
+`<BASE>/.claude/settings.local.json` to `settings.local.json.pre-night-<stamp>` and, when that
+copy fails, prints `BACKUP FAILED — nothing was overwritten` and stops; installs
+`<NIGHT_DIR>/settings.local.json`; exports `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000`;
+starts `run.sh` with `setsid nohup`, stdin from `/dev/null`, output to `logs/console.log`;
+shows the first `runner.log` lines. A plain `cp` of the settings would replace the owner's
+project settings silently, which is why the backup comes first.
 
 > **Success:** `ls` lists `settings.local.json`, plus a `settings.local.json.pre-night-<stamp>`
 > if you had one before — that backup is what you move back in the morning, instead of just
 > deleting the file. If you see `BACKUP FAILED`, STOP: nothing was overwritten and nothing
-> should be launched.
+> was launched. `A runner is ALREADY running` also means nothing was launched: read the
+> `run.lock` pgid it printed, and do not start another.
 
-**Step 2 — start the runner.**
+**Step 2 — check that exactly one runner started.**
 
 ```bash
 cd <BASE>
-setsid nohup bash <absolute path of run.sh> --config ~/night-runs/<project>/config.env --deadline "<HH:MM>" >> ~/night-runs/<project>/logs/console.log 2>&1 &
 CFG=~/night-runs/<project>/config.env
 pids=$(pgrep -f 'run\.sh'); rc=$?   # 0=hits 1=none >1=the SCAN itself failed
 [ "$rc" -le 1 ] || echo "RUNNER SCAN FAILED (pgrep rc=$rc) — this is NOT 'nothing started'"
@@ -819,31 +945,31 @@ for p in $pids; do
 done | sort -u
 ```
 
-`setsid` is required, not cosmetic: `nohup` blocks SIGHUP but not the harness killing the
-launching session's process group, so a `nohup`-only runner dies with the session. The check
-is the argv test from PHASE A, scoped to this project — a plain `pgrep -af` pattern would
-count the checking shell itself and print four or five numbers for one runner.
+`setsid` (inside `launch.sh`) is required, not cosmetic: `nohup` blocks SIGHUP but not the harness
+killing the launching session's process group, so a `nohup`-only runner dies with the session.
+The check is the argv test from PHASE A, scoped to this project — a plain `pgrep -af` pattern
+would count the checking shell itself and print four or five numbers for one runner.
 
-Fill `<HH:MM>` yourself before you show the block: it is the launch time plus the `hours:`
-budget you actually queued, and never later than 07:30. Say the arithmetic out loud in the
-block ("queued 5.5 h, launching ~23:00 → `--deadline 04:30`"). `--deadline` is the HARD stop;
-if `hours:` would run past it, queue less and say so at the PHASE D gate — a 02:00 launch
-with `hours:8` puts eight hours of work into a 5.5-hour window and the rest is simply parked.
+Fill `{{DEADLINE}}` yourself when you render `launch.sh` (PHASE C): it is the launch time plus
+the `hours:` budget you actually queued, as `HH:MM`, and never later than 07:30. Say the
+arithmetic out loud at the gate ("queued 5.5 h, launching ~23:00 → `--deadline 04:30`").
+`--deadline` is the HARD stop; if `hours:` would run past it, queue less and say so at the
+PHASE D gate — a 02:00 launch with `hours:8` puts eight hours of work into a 5.5-hour window
+and the rest is simply parked.
 
 > **Success:** the last command prints exactly ONE pgid, and it is a NEW number, not one you
 > saw in PHASE A. If it prints `RUNNER SCAN FAILED`, the check broke, NOT the launch: do NOT
-> re-run the launch line — that is how a second runner ends up in one worktree. Read
+> run `launch.sh` again — that is how a second runner ends up in one worktree (its flock check
+> would refuse, but do not rely on it). Read
 > `tail ~/night-runs/<project>/logs/runner.log` instead, and fix `pgrep` first.
 > On a clean ONE-pgid result, `tail ~/night-runs/<project>/logs/runner.log` then shows
 > `RUN start` followed by `START <first id>`.
-> **Likeliest failure:** the launch line prints
-> `bash: .../logs/console.log: No such file or directory` and nothing starts. The `logs/`
-> directory is missing, the redirect fails in YOUR shell before run.sh ever runs, and there
-> is NO console.log to read — do not go looking for one. Fix:
-> `mkdir -p ~/night-runs/<project>/logs`, then re-run the launch line.
+> **Likeliest failure:** `launch.sh` prints `run.sh not found: <path>`. The plugin copy it was
+> rendered from is gone (an update replaced it): run `/bajzi:night-run` again so PHASE C renders
+> `launch.sh` anew; never edit the path by hand.
 > **Second likeliest:** the pgid check prints nothing and `console.log` ends with
 > `run.sh: config file not found`. Fix: check the path with
-> `ls -l ~/night-runs/<project>/config.env`, then re-run the launch line with the real one.
+> `ls -l ~/night-runs/<project>/config.env`, then re-render `launch.sh` and run it again.
 > **`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`: export a LARGE value (e.g. `3600000`, one hour) for the
 > runner, never 0.** It is how long headless claude waits for a pending background task after the
 > session yields; the default is 600 s and 0 means no wait at all, so a session that yields while a
@@ -985,6 +1111,6 @@ watcher ignores it for exactly that reason).
 
 Table: what was queued (id · size · why) · what was deferred and why · PHASE A blockers ·
 the paths of the generated files (`config.env`, `queue.txt`, `BRIEF.md`,
-`settings.local.json`) · whether `<BASE>/.claude/settings.local.json` already exists, so the
+`settings.local.json`, `launch.sh`) · whether `<BASE>/.claude/settings.local.json` already exists, so the
 owner knows PHASE E will back it up rather than eat it. State plainly that nothing was
 launched and that the run starts only when the owner runs PHASE E.

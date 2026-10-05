@@ -72,7 +72,11 @@ numbering authority that hands out migration numbers, and what is daylight-only.
 
 Facts about this repo's CI that a session cannot infer and will otherwise get wrong.
 
-- Required check NAME: `<the check that must be green>`
+- Required check NAME: `<the check that must be green>` — the workflow RUN name as
+  `gh run list` shows it (the workflow file's `name:`, e.g. `CI`), NOT the branch-protection
+  check or job name (e.g. `ci`); the night matches the former. Show it with
+  `gh run list -R <owner>/<repo> --limit 3 --json workflowName,name`. It must equal
+  `REQUIRED_CHECK` in `config.env`.
 - Only this run event satisfies it: `<pull_request>` — a `push`, `schedule` or
   `workflow_dispatch` run does NOT count, however green it looks.
 - Tooling quirks: `<e.g. "gh pr checks" fails with the configured token — read CI

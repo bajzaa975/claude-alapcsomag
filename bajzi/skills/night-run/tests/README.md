@@ -12,10 +12,14 @@ bash tests/watch.sh            # ~35 s   (night-watch.sh only: no run.sh, no cla
 bash tests/deny-run-tree.sh     # ~1 s    (SKILL.md PHASE C rules check on the rendered settings template: no claude, no git)
 bash tests/triage.sh           # ~45 s on Git Bash (night-watch.sh tier-1 tick vs a fake claude: argv, cwd, init-record check)
 node --test tests/glm-preflight.test.js   # ~2 s (PHASE A steps 7-8 + their templates; no glm, worker or claude)
+node --test tests/stale-inputs.test.js     # ~1 s (launch.sh.tmpl render + `bash -n`, PHASE A fresh BASE + REQUIRED_CHECK, PHASE C re-render, PHASE D SHA gate; no git, gh or claude)
 ```
 
-`glm-preflight.test.js` is node:test, stdlib only, and also runs in the main node gate through the
-`bajzi/skills/*/tests/*.test.js` glob.
+`glm-preflight.test.js` and `stale-inputs.test.js` are node:test, stdlib only, and also run in the main node gate through the
+`bajzi/skills/*/tests/*.test.js` glob. `stale-inputs.test.js` pins the "never render from stale inputs" rules by phrase
+(the fetch step precedes the NIGHT_RULES render, `launch.sh.tmpl` holds the flock refusal, the backup abort and
+`setsid nohup ... </dev/null` with no hard-coded plugin-cache path, the rendered template passes `bash -n`, the
+gate prints the rendered `origin/<BASE_BRANCH>` SHA, `REQUIRED_CHECK` is documented as the workflow run name).
 
 `triage.sh` needs no `flock`, `setsid` or `pgrep`, so it runs under Git Bash on Windows as well
 as on Linux.
