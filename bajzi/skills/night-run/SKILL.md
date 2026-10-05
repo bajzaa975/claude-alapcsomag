@@ -1141,13 +1141,13 @@ runner is dead for good (`run.flock` unheld, `watch.status` `DEAD` or absent, an
 already holding 2 lines for `run.meta`'s `run_date`: on a multi-day run the deadline is days away and
 every further tick would only spend Opus); otherwise a zero-token shell GATE runs first (`gate_check`: files,
 a `flock` probe and ONE `gh pr list`, never an LLM). It trips on a dead or unknowable runner, no progress
-(state file, `runner.log`, the current story's worktree) for `SUPERVISE_STALL_MIN` (45) minutes outside a
-quota wait, an open night or `supervise-*` PR of this run whose `REQUIRED_CHECK` went green or red more than
-`SUPERVISE_STALL_MIN` ago (`gh-error` when gh fails), a new `ESCALATE` in `triage.log`, the deadline within
+(state file, `runner.log`, the current story's worktree and its own git dir) for `SUPERVISE_STALL_MIN` (45)
+minutes outside a quota wait (plus `CI_WAIT_MINUTES` while the story's `REQUIRED_CHECK` still runs), an open night or `supervise-*` PR of this run whose `REQUIRED_CHECK` went green or red more than
+`SUPERVISE_STALL_MIN` ago (`gh-error` when gh fails), a new `TICK ESCALATE` verdict line in `triage.log`, the deadline within
 `SUPERVISE_DEADLINE_MIN` (60) minutes with stories left, a `watch.status` other than `OK`/`QUOTA-WAIT`, or
 `SUPERVISE_FORCE_EVERY_MIN` (120) minutes since the last Opus tick (`supervise.last-opus`; `0` turns the gate
-off: every tick runs Opus). No trip = `OK healthy (gate: no trip, last Opus tick <N> min ago)` in
-`supervisor.log` and no tick; a trip = `GATE trip <reasons>`, then ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
+off: every tick runs Opus). No trip = `OK healthy (gate: no trip, last Opus tick <N> min ago)` (`no Opus tick
+yet, supervisor up <N> min` before the first) in `supervisor.log` and no tick; a trip = `GATE trip <reasons>`, then ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
 model = entry [0] of the reviewer allow-list read at that tick, `--permission-mode bypassPermissions`,
 `--setting-sources user,project --settings <NIGHT_DIR>/supervise.settings.json` (BASE's installed night
 settings minus this night's state-file deny, so its re-queue duty can delete a state row; `supset.js`

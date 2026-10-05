@@ -585,6 +585,23 @@ gcheck; healthy "s5 stalled skipped while quota-until is in the future"
 date -d '-1 minute' +%s >"$ND/quota-until"; gcheck; trip "s5 quota-until past: stalled again" "TRIP stalled:6[01]m"
 gcase s6 'SUPERVISE_STALL_MIN="5"'; backdate 30; gcheck; trip "s6 STALL_MIN=5, 30 min quiet" "TRIP stalled:3[01]m"
 gcase s6b 'SUPERVISE_STALL_MIN="120"'; backdate 30; gcheck; healthy "s6b STALL_MIN=120 on the same fixture"
+# A story in its CI wait writes none of those: its own git dir (wt/<id>/.git's gitdir, else
+# BASE/.git/worktrees/<id>) is progress, and a still-running required check on its open PR widens the
+# quiet time to SUPERVISE_STALL_MIN + CI_WAIT_MINUTES.
+gitdir_old(){ find "$ND/base/.git" -exec touch -d "@$((NOW - 3600))" {} +; }
+gcase s20; mkdir -p "$ND/base/.git/worktrees/S1"; : >"$ND/base/.git/worktrees/S1/HEAD"
+printf 'gitdir: %s\n' "$ND/base/.git/worktrees/S1" >"$ND/wt/S1/.git"; backdate 60; gitdir_old
+gcheck; trip "s20 story worktree, its git dir, runner.log and state all 60 min old" "TRIP stalled:6[01]m"
+: >"$ND/base/.git/worktrees/S1/FETCH_HEAD"; gcheck; healthy "s20 fresh git metadata in the story's own git dir (wt/S1/.git gitdir) is progress"
+rm -f "$ND/wt/S1/.git"; backdate 60; gcheck; healthy "s20 no wt/S1/.git: BASE/.git/worktrees/S1 probed"
+gcase s20b; pr 7 feat/nr-S1-first-story "" 120 IN_PROGRESS; backdate 60
+gcheck; healthy "s20b 60 min quiet while S1's required check still runs (CI wait)"
+backdate 100; gcheck; trip "s20b 100 min quiet > STALL_MIN + CI_WAIT_MINUTES even with CI running" "TRIP stalled:10[01]m"
+gcase s20c; pr 7 feat/nr-S2-second "" 120 IN_PROGRESS; backdate 60
+gcheck; trip "s20c a running check on another story's PR is not S1's progress" "TRIP stalled:6[01]m"
+gcase s20d; mkdir -p "$ND/base/.git/worktrees/S1"; printf 'gitdir: %s\n' "$ND/base/.git/worktrees/S1" >"$ND/wt/S1/.git"
+backdate 60; gitdir_old; : >"$ND/base/.git/worktrees/S1/FETCH_HEAD"; pr 7 feat/nr-S1-first-story "" 120 IN_PROGRESS
+gcheck; healthy "s20d inside the CI wait: fresh git metadata and S1's required check still running"
 
 # 3/4. stuck PRs
 gcase s7; pr 7 feat/nr-S1-first-story SUCCESS 120; gcheck; trip "s7 night PR green for 2 h" "TRIP pr-green:#7"
@@ -631,12 +648,26 @@ gcase s13; echo 1 >"$FD/gh.rc"; gcheck; trip "s13 gh exits non-zero" "TRIP gh-er
 gcase s13b; echo 'not json' >"$FD/gh.json"; gcheck; trip "s13b gh output unparsable" "TRIP gh-error"
 
 # 5. escalate after the offset
-gcase s14; printf '01:00 OK fine\n01:30 ESCALATE need a key\n02:00 OK fine\n' >"$ND/triage.log"
+gcase s14; printf '01:00 OK fine\nTICK ESCALATE need a key\n02:00 OK fine\n' >"$ND/triage.log"
 gcheck; healthy "s14 no live supervisor: offset = the current line count (a fresh supervisor's view)"
 gcheck SUPERVISE_ESCALATE_FROM=0; trip "s14 ESCALATE, offset 0" "TRIP escalate"
 gcheck SUPERVISE_ESCALATE_FROM=1; trip "s14 ESCALATE on line 2, offset 1" "TRIP escalate"
 gcheck SUPERVISE_ESCALATE_FROM=2; healthy "s14 ESCALATE on line 2, offset 2 (before the offset)"
 gcheck SUPERVISE_ESCALATE_FROM=9; trip "s14 offset 9 > 3 lines: reset to 0" "TRIP escalate"
+# Only the verdict forms count (`TICK ESCALATE ...`, `<HH:MM> ESCALATE ...`), never prose that names the word.
+gcase s14b; printf 'TICK OK nothing to ESCALATE\nTICK SUMMARY 2 escalations; no need to ESCALATE again\n' >"$ND/triage.log"
+gcheck SUPERVISE_ESCALATE_FROM=0; healthy "s14b a result line that only mentions ESCALATE"
+printf 'TICK SUMMARY the night in short\nEscalations:\n01:30 ESCALATE need a key\n- 02:00 ESCALATE disk low\n' >>"$ND/triage.log"
+gcheck SUPERVISE_ESCALATE_FROM=0; healthy "s14b a summary listing the night's escalation log lines"
+printf 'TICK ESCALATE need a key\n' >>"$ND/triage.log"; gcheck SUPERVISE_ESCALATE_FROM=0; trip "s14b 'TICK ESCALATE <sentence>'" "TRIP escalate"
+# A fresh supervisor's offset: lines stamped (ISO prefix, or the last stamp above them) before
+# started_epoch or before this run's supervise.last-opus are old; tonight's unseen ones count.
+gcase s14c; printf '%s TICK CONFIG OK model=x\nTICK ESCALATE from an earlier night\n%s TICK CONFIG OK model=x\nTICK ESCALATE seen by the last Opus tick\n' \
+  "$(iso $((NOW - 20000)))" "$(iso $((NOW - 3600)))" >"$ND/triage.log"
+echo $((NOW - 1800)) >"$ND/supervise.last-opus"
+gcheck; healthy "s14c no live supervisor: ESCALATEs older than started_epoch / the last Opus tick are old"
+printf '%s TICK CONFIG OK model=x\nTICK ESCALATE after the last Opus tick\n' "$(iso $((NOW - 600)))" >>"$ND/triage.log"
+gcheck; trip "s14c no live supervisor: an ESCALATE stamped after the last Opus tick counts" "TRIP escalate"
 
 # 6. deadline near with stories left
 gcase s15; printf 'pgid=1\nstarted_epoch=%s\ndeadline_epoch=%s\nrun_date=2026-10-05\n' "$((NOW - 18000))" "$((NOW + 1800))" >"$ND/run.meta"
@@ -662,7 +693,7 @@ yes "s --help documents supervise.last-opus" "$WT/help.out" "supervise.last-opus
 # ------------------------------- t. the gate in the loop ---
 gcase t1
 start_sup "$WT/flockheld"
-if wait_for "$ND/supervisor.log" "OK healthy (gate: no trip, last Opus tick 0 min ago)" 20; then ok "t1 healthy: 'OK healthy (gate: no trip, last Opus tick 0 min ago)'"
+if wait_for "$ND/supervisor.log" "OK healthy (gate: no trip, no Opus tick yet, supervisor up 0 min)" 20; then ok "t1 healthy, no Opus tick yet: 'OK healthy (gate: no trip, no Opus tick yet, supervisor up 0 min)'"
 else bad "t1 no OK healthy: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
 if [ -f "$FD/argv" ]; then bad "t1 claude ran on a healthy gate"; else ok "t1 claude never ran"; fi
 if [ -e "$ND/supervise.last-opus" ]; then bad "t1 supervise.last-opus written without a tick"; else ok "t1 no supervise.last-opus"; fi
@@ -673,7 +704,8 @@ start_sup "$WT/flockheld"
 if wait_for "$ND/supervisor.log" "GATE trip watch:STALLED" 20 && wait_for "$ND/logs/supervisor-ticks.log" "tick exit=0" 20; then
   ok "t2 'GATE trip watch:STALLED', then the tick ran"
 else bad "t2 no trip + tick: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
-L=$(tr -dc '0-9' <"$ND/supervise.last-opus" 2>/dev/null)
+L=$(head -1 "$ND/supervise.last-opus" 2>/dev/null | tr -dc '0-9')
+if [ "$(sed -n 2p "$ND/supervise.last-opus" 2>/dev/null)" = 2026-10-05 ]; then ok "t2 supervise.last-opus line 2 = run.meta's run_date"; else bad "t2 supervise.last-opus has no run_date line"; fi
 if [ -n "$L" ] && [ "$L" -ge "$NOW" ]; then ok "t2 supervise.last-opus written ($L)"; else bad "t2 supervise.last-opus '$L'"; fi
 finish_case t2
 
@@ -691,17 +723,18 @@ if [ -f "$FD/argv" ]; then bad "t5 claude ran although its pid file could not be
 if [ -e "$ND/supervise.last-opus" ]; then bad "t5 supervise.last-opus written although claude never started"; else ok "t5 no supervise.last-opus when tick_launch refuses"; fi
 finish_case t5
 
-gcase t4; printf '01:30 ESCALATE from an earlier night\n' >"$ND/triage.log"
+gcase t4; printf 'TICK ESCALATE from an earlier night\n' >"$ND/triage.log"
 start_sup "$WT/flockheld"
 if wait_for "$ND/supervisor.log" "OK healthy" 20; then ok "t4 an ESCALATE older than the supervisor's start does not trip"
 else bad "t4 no OK healthy: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
-printf '02:00 ESCALATE tonight\n' >>"$ND/triage.log"
+printf 'TICK ESCALATE tonight\n' >>"$ND/triage.log"
 if wait_for "$ND/supervisor.log" "GATE trip escalate" 20 && wait_for "$ND/logs/supervisor-ticks.log" "tick exit=0" 20; then ok "t4 a new ESCALATE trips and the tick runs"
 else bad "t4 no escalate trip: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
 END=$((SECONDS + 20))
 until awk '/GATE trip escalate/{t=1} t && /OK healthy/{f=1} END{exit !f}' "$ND/supervisor.log" 2>/dev/null || [ "$SECONDS" -ge "$END" ]; do sleep 0.1; done
 if awk '/GATE trip escalate/{t=1} t && /OK healthy/{f=1} END{exit !f}' "$ND/supervisor.log" 2>/dev/null; then ok "t4 the offset advanced with the tick: healthy again after it"
 else bad "t4 never healthy after the escalate tick: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+yes "t4 after an Opus tick the healthy line names it" "$ND/supervisor.log" "OK healthy (gate: no trip, last Opus tick 0 min ago)"
 if [ "$(grep -c 'GATE trip escalate' "$ND/supervisor.log")" -eq 1 ]; then ok "t4 the escalate tripped once"; else bad "t4 escalate tripped $(grep -c 'GATE trip escalate' "$ND/supervisor.log") times"; fi
 finish_case t4
 
@@ -709,7 +742,7 @@ finish_case t4
 gcase t6; printf 'FAKE_MODEL=claude-sonnet-5-20261001\n' >"$FD/fake.env"
 start_sup "$WT/flockheld"
 wait_for "$ND/supervisor.log" "supervisor started" 20 || bad "t6 supervisor never started"
-printf '02:00 ESCALATE tonight\n' >>"$ND/triage.log"
+printf 'TICK ESCALATE tonight\n' >>"$ND/triage.log"
 if wait_for "$ND/supervisor.log" "SUPERVISE MISCONFIGURED model=claude-sonnet-5-20261001" 30; then ok "t6 the tripped tick was killed: MISCONFIGURED"
 else bad "t6 no MISCONFIGURED: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
 END=$((SECONDS + 30))
@@ -726,7 +759,7 @@ wait_for "$ND/supervisor.log" "OK healthy" 20 || bad "t7 never healthy at start"
 : >"$ND/triage.log"
 N=$(grep -c 'OK healthy' "$ND/supervisor.log"); END=$((SECONDS + 20))
 while [ "$(grep -c 'OK healthy' "$ND/supervisor.log")" -lt $((N + 2)) ] && [ "$SECONDS" -lt "$END" ]; do sleep 0.1; done
-{ printf '03:00 ESCALATE after the rotation\n'; for _ in 1 2 3 4 5 6; do printf '03:00 OK fine\n'; done; } >>"$ND/triage.log"
+{ printf 'TICK ESCALATE after the rotation\n'; for _ in 1 2 3 4 5 6; do printf '03:00 OK fine\n'; done; } >>"$ND/triage.log"
 if wait_for "$ND/supervisor.log" "GATE trip escalate" 20 && wait_for "$ND/logs/supervisor-ticks.log" "tick exit=0" 20; then ok "t7 an ESCALATE written after the log shrank trips"
 else bad "t7 no escalate trip after the shrink: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
 END=$((SECONDS + 20))
@@ -735,7 +768,7 @@ if [ "$(grep -c 'GATE trip escalate' "$ND/supervisor.log")" -eq 1 ]; then ok "t7
 finish_case t7
 
 # --check next to a live supervisor judges with ITS escalate offset and start (supervise.gate).
-gcase t8; printf '01:30 ESCALATE from an earlier night\n' >"$ND/triage.log"
+gcase t8; printf 'TICK ESCALATE from an earlier night\n' >"$ND/triage.log"
 start_sup "$WT/flockheld"
 if wait_for "$ND/supervisor.log" "OK healthy" 20; then ok "t8 the loop: an earlier night's ESCALATE does not trip"
 else bad "t8 no OK healthy: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
@@ -751,6 +784,32 @@ printf 'pgid=2\nstarted_epoch=%s\ndeadline_epoch=%s\nrun_date=2026-10-05\nmode=q
 gcheck; healthy "t8 last-opus older than a just-rewritten started_epoch but newer than the supervisor's start: no forced trip"
 finish_case t8
 if [ -e "$ND/supervise.gate" ]; then bad "t8 supervise.gate left after exit"; else ok "t8 supervise.gate removed on exit"; fi
+
+# A supervisor restarted mid-night (reboot, launch.sh again): tonight's ESCALATE stamped after
+# started_epoch and after the last Opus tick was never seen by Opus, so the first gate trips on it.
+gcase t9; printf '%s TICK CONFIG OK model=x\nTICK ESCALATE from an earlier night\n%s TICK CONFIG OK model=x\nTICK ESCALATE tonight, before the restart\n' \
+  "$(iso $((NOW - 20000)))" "$(iso $((NOW - 600)))" >"$ND/triage.log"
+echo $((NOW - 1800)) >"$ND/supervise.last-opus"
+start_sup "$WT/flockheld"
+if wait_for "$ND/supervisor.log" "GATE trip escalate" 20; then ok "t9 restarted supervisor: tonight's unseen ESCALATE trips on the first gate"
+else bad "t9 no escalate trip after a restart: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+finish_case t9
+# The same after a reboot + launch.sh: run.sh rewrote started_epoch (now) before it spawned the supervisor.
+gcase t9b; printf 'pgid=2\nstarted_epoch=%s\ndeadline_epoch=%s\nrun_date=2026-10-05\nmode=queue\n' "$((NOW - 60))" "$((NOW + 86400))" >"$ND/run.meta"
+printf '%s TICK CONFIG OK model=x\nTICK ESCALATE seen by the last Opus tick\n%s TICK CONFIG OK model=x\nTICK ESCALATE tonight, before the reboot\n' \
+  "$(iso $((NOW - 3600)))" "$(iso $((NOW - 600)))" >"$ND/triage.log"
+printf '%s
+2026-10-04
+' $((NOW - 1800)) >"$ND/supervise.last-opus"
+gcheck; healthy "t9b last-opus of an earlier run_date: lines before the rewritten started_epoch are old"
+printf '%s
+2026-10-05
+' $((NOW - 1800)) >"$ND/supervise.last-opus"
+gcheck; trip "t9b --check: last-opus of tonight's run_date is the floor" "TRIP escalate"
+start_sup "$WT/flockheld"
+if wait_for "$ND/supervisor.log" "GATE trip escalate" 20; then ok "t9b relaunched run (started_epoch just rewritten): the ESCALATE after the last Opus tick trips"
+else bad "t9b no escalate trip after a relaunch: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+finish_case t9b
 
 # --------------------------------- m. the prompt template renders fully ---
 T=$SKILL/templates/SUPERVISE-PROMPT.md.tmpl
