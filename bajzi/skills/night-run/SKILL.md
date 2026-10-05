@@ -998,7 +998,10 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    run can exhaust the weekly Claude quota; the runner waits out a session-limit reset, but a
    weekly-limit hit ends the run and leaves its rows `DEFERRED-quota-weekly` (PHASE F); and
    the 30-minute supervisor keeps running one Opus tick per interval until the run finishes, is
-   stopped, passes its deadline + 30 min, or its runner is dead for good (`watch.status` reads `DEAD` and both supervisor relaunches of the `run_date` are used).
+   stopped, passes its deadline + 30 min, or its runner is dead for good (`watch.status` reads `DEAD` and both supervisor relaunches of the `run_date` are used)
+   — at most: its ticks are gated, so a healthy night skips them, but one is forced at least every
+   `SUPERVISE_FORCE_EVERY_MIN` minutes (120; with `SUPERVISE_STALL_MIN` 45 and `SUPERVISE_DEADLINE_MIN` 60
+   the gate's other keys, all in `config.env`).
    State that risk as a risk, never as a guessed number. A multi-day run relaunches across
    midnights on the same state file: `launch.sh`, the watcher's `{{LAUNCH_LINE}}` and
    `run.args` all pin `--date <RUN_DATE>` (the first night's date), and the supervisor's
@@ -1136,7 +1139,15 @@ one line in `~/night-runs/<project>/supervisor.log` — on `SUPERVISE-STOP`, on 
 holds an epoch >= `started_epoch`, past `deadline_epoch` + 1800 s with no such `finished`, or when the
 runner is dead for good (`run.flock` unheld, `watch.status` `DEAD` or absent, and `supervise.relaunches`
 already holding 2 lines for `run.meta`'s `run_date`: on a multi-day run the deadline is days away and
-every further tick would only spend Opus); otherwise it runs ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
+every further tick would only spend Opus); otherwise a zero-token shell GATE runs first (`gate_check`: files,
+a `flock` probe and ONE `gh pr list`, never an LLM). It trips on a dead or unknowable runner, no progress
+(state file, `runner.log`, the current story's worktree and its own git dir) for `SUPERVISE_STALL_MIN` (45)
+minutes outside a quota wait (plus `CI_WAIT_MINUTES` while the story's `REQUIRED_CHECK` still runs), an open night or `supervise-*` PR of this run whose `REQUIRED_CHECK` went green or red more than
+`SUPERVISE_STALL_MIN` ago (`gh-error` when gh fails), a new `TICK ESCALATE` verdict line in `triage.log`, the deadline within
+`SUPERVISE_DEADLINE_MIN` (60) minutes with stories left, a `watch.status` other than `OK`/`QUOTA-WAIT`, or
+`SUPERVISE_FORCE_EVERY_MIN` (120) minutes since the last Opus tick (`supervise.last-opus`; `0` turns the gate
+off: every tick runs Opus). No trip = `OK healthy (gate: no trip, last Opus tick <N> min ago)` (`no Opus tick
+yet, supervisor up <N> min` before the first) in `supervisor.log` and no tick; a trip = `GATE trip <reasons>`, then ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
 model = entry [0] of the reviewer allow-list read at that tick, `--permission-mode bypassPermissions`,
 `--setting-sources user,project --settings <NIGHT_DIR>/supervise.settings.json` (BASE's installed night
 settings minus this night's state-file deny, so its re-queue duty can delete a state row; `supset.js`
@@ -1153,7 +1164,9 @@ settings. It relaunches (the runner-only `{{LAUNCH_LINE}}` WATCHER-BRIEF.md also
 while a triage tick is alive or holds an open `FIXING`. **Stop the supervisor alone:**
 `touch ~/night-runs/<project>/SUPERVISE-STOP` (checked after each sleep). The file is dated: one older
 than the run's `started_epoch` (and the supervisor's own start) is an earlier night's and is ignored,
-so to keep the supervisor off for a whole night set `SUPERVISE=0` before the launch.
+so to keep the supervisor off for a whole night set `SUPERVISE=0` before the launch. **What would the gate
+say now:** `bash "${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/supervise.sh" --check --config ~/night-runs/<project>/config.env` prints
+`TRIP <reasons>` or `HEALTHY` and changes nothing.
 
 ## PHASE F — Morning follow-through (`report` mode)
 

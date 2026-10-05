@@ -58,7 +58,7 @@
 #   run.args      the runner's own argv, one word per line, argv[0] first (the
 #                 absolute path of this script): the watcher re-execs the run
 #                 with `mapfile -t a <run.args; setsid "${a[@]}"`.
-#   run.meta      key=value: pgid, started_epoch, deadline_epoch, run_date,
+#   run.meta      key=value: pgid, started_epoch, night_epoch, deadline_epoch, run_date,
 #                 base, night_dir, skill_dir, config, mode. mode is always
 #                 `queue`, because ONLY a queue run publishes run.args and
 #                 run.meta at all: --report and --smoke take the lock but
@@ -242,7 +242,10 @@ case "$DISK_FLOOR_GB"     in *[!0-9]*) echo "run.sh: DISK_FLOOR_GB must be a who
 : "${SUPERVISE:=1}"                   # 1 = spawn supervise.sh (30-minute fresh-session supervisor); 0 = off
 : "${SUPERVISE_INTERVAL:=1800}"       # seconds between supervisor ticks (it sleeps first)
 : "${SUPERVISE_TICK_TIMEOUT:=1500}"   # hard cap of one supervisor tick; must be < SUPERVISE_INTERVAL
-for v in WATCH_INTERVAL WATCH_MAX_RESTARTS QUOTA_MARGIN_SEC QUOTA_MAX_WAITS QUOTA_FALLBACK_WAIT_SEC QUOTA_MAX_WAIT_SEC SUPERVISE_INTERVAL SUPERVISE_TICK_TIMEOUT; do
+: "${SUPERVISE_STALL_MIN:=45}"        # supervisor gate: minutes without progress = a trip (>= 1)
+: "${SUPERVISE_FORCE_EVERY_MIN:=120}" # supervisor gate: an Opus tick at least this often; 0 = gate off
+: "${SUPERVISE_DEADLINE_MIN:=60}"     # supervisor gate: minutes before the deadline with stories left (>= 1)
+for v in WATCH_INTERVAL WATCH_MAX_RESTARTS QUOTA_MARGIN_SEC QUOTA_MAX_WAITS QUOTA_FALLBACK_WAIT_SEC QUOTA_MAX_WAIT_SEC SUPERVISE_INTERVAL SUPERVISE_TICK_TIMEOUT SUPERVISE_STALL_MIN SUPERVISE_FORCE_EVERY_MIN SUPERVISE_DEADLINE_MIN; do
   eval "val=\${$v}"
   case "$val" in ""|*[!0-9]*) echo "run.sh: $v must be a whole number, got '$val'" >&2; exit 2;; esac
 done
@@ -250,6 +253,10 @@ case "$SUPERVISE" in 0|1) :;; *) echo "run.sh: SUPERVISE must be 0 or 1, got '$S
 [ "$SUPERVISE_TICK_TIMEOUT" -ge 1 ] || { echo "run.sh: SUPERVISE_TICK_TIMEOUT must be at least 1 second, got '$SUPERVISE_TICK_TIMEOUT'" >&2; exit 2; }
 [ "$SUPERVISE_TICK_TIMEOUT" -lt "$SUPERVISE_INTERVAL" ] || {
   echo "run.sh: SUPERVISE_TICK_TIMEOUT ($SUPERVISE_TICK_TIMEOUT) must be less than SUPERVISE_INTERVAL ($SUPERVISE_INTERVAL)" >&2; exit 2; }
+for v in SUPERVISE_STALL_MIN SUPERVISE_DEADLINE_MIN; do
+  eval "val=\${$v}"
+  [ "$val" -ge 1 ] || { echo "run.sh: $v must be at least 1 minute, got '$val'" >&2; exit 2; }
+done
 # Optional, has a default: the bounded CI wait handed to every story session.
 # It has a floor because 0 parks every story on its first CI poll.
 CI_WAIT_MINUTES=${CI_WAIT_MINUTES:-45}
@@ -1207,7 +1214,7 @@ finish(){
 # input, and they are written AFTER the lock, so a file on disk always belongs
 # to a run that really owns the night.
 publish_run_inputs(){
-  local a
+  local a ne now
   # These two are NIGHT-SCOPED and owned by the run that takes the night.
   # Yesterday's `finished` tells tonight's watcher the run has already ended
   # (so it never restarts a run that dies), and yesterday's watch.restarts is
@@ -1227,9 +1234,18 @@ publish_run_inputs(){
   # empty state-<tomorrow>.txt and run the whole queue again — merged stories
   # included. The re-exec therefore always carries this night's own date.
   [ -n "$RUN_DATE_ARG" ] || printf -- '--date\n%s\n' "$RUN_DATE" >>"$RUN_ARGS"
+  # night_epoch = the night's FIRST start: carried from the previous run.meta when it has the same
+  # run_date (a watcher restart or a reboot + launch.sh rewrites started_epoch), else this start.
+  ne=""
+  if [ "$(sed -n 's/^run_date=//p' "$RUN_META" 2>/dev/null | tail -1)" = "$RUN_DATE" ]; then
+    ne=$(sed -n 's/^night_epoch=//p' "$RUN_META" 2>/dev/null | tail -1 | tr -dc '0-9')
+    [ -n "$ne" ] || ne=$(sed -n 's/^started_epoch=//p' "$RUN_META" 2>/dev/null | tail -1 | tr -dc '0-9')
+  fi
+  now=$(date +%s)
   {
     printf 'pgid=%s\n' "$MY_PGID"
-    printf 'started_epoch=%s\n' "$(date +%s)"
+    printf 'started_epoch=%s\n' "$now"
+    printf 'night_epoch=%s\n' "${ne:-$now}"
     printf 'deadline_epoch=%s\n' "$DEADLINE_EPOCH"
     printf 'run_date=%s\n' "$RUN_DATE"
     printf 'base=%s\n' "$BASE"

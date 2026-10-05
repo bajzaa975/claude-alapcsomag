@@ -2,6 +2,16 @@
 
 Newest first. Details per change: `docs/bajzi-package-spec.md` §11.
 
+## 1.15.1
+Health-gated night-run supervisor (owner, 2026-10-05): the 30-minute Opus supervisor keeps all its powers, but each tick
+now runs only when a zero-token shell pre-check trips.
+- **Gate** (`supervise-gate`): `supervise.sh` `gate_check` before every tick — runner dead or unknown, no progress for
+  `SUPERVISE_STALL_MIN` (45), a night PR green or red and untouched, a new triage `ESCALATE`, the deadline within
+  `SUPERVISE_DEADLINE_MIN` (60) with stories left, `watch.status` not OK. All healthy -> `OK healthy`, no Opus.
+- **Forced tick** every `SUPERVISE_FORCE_EVERY_MIN` (120); `0` turns the gate off (every tick Opus, the 1.15.0 behaviour).
+- `supervise.sh --check` prints the verdict the running loop would reach; `run.sh` validates the three new keys.
+- Spec: night-run deny count 67 -> 58 (claude-orchestrator dropped its inert `Write(...)` denies).
+
 ## 1.15.0
 Night-run hardening (owner's innotel-bss prompt, 2026-10-03) and the status-line plan limits.
 - **Night-run settings** (`nr-settings`, `nr-settings-f9`): per-project `settings.local.json` template with explicit env-file
