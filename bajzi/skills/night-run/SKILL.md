@@ -24,7 +24,10 @@ goes into generated files under `~/night-runs/<project>/`.
                      loop's reviewer is ALWAYS a model on that allow-list.
     hours:<n>        Queue budget in hours, default 8. It SIZES the queue, and PHASE E's
                      `--deadline` — the hard stop — is DERIVED from it: launch time plus
-                     `hours:`, capped at 07:30. They are one number, never two.
+                     `hours:`. They are one number, never two. The plan's total estimate
+                     decides whether one night is enough; a multi-day deadline
+                     (`YYYY-MM-DD HH:MM`, which `run.sh` accepts) is the owner's choice at
+                     the PHASE D gate.
     status           Bare mode: read-only health check (below). Changes nothing.
     report           Bare mode: PHASE F, the morning follow-through (spec section 5).
 
@@ -101,6 +104,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
 
    - `WATCH_INTERVAL` (900) — seconds between watchdog ticks; `0` turns the watchdog off.
    - `WATCH_MAX_RESTARTS` (2) — how many times the watchdog may restart a dead runner.
+     PHASE C writes it for each run's length (`Deadline and run length` there).
    - `WATCH_NOTIFY_CMD` (none) — a command called with ONE argument, the message.
    - `QUOTA_MARGIN_SEC` (180) — seconds added to the announced usage-limit reset before a
      session is launched again; `run.sh` applies it once, when it writes `quota-until`.
@@ -417,8 +421,39 @@ Sources, in precedence order:
 4. The previous `~/night-runs/<project>/REPORT-<date>.md` — its PARKED and BLOCKED entries,
    each with the reason that parked it, as retry candidates.
 
-Then SUBTRACT everything `docs/NIGHT-RULES.md` forbids: forbidden story ids, anything
-touching a forbidden path, anything the migration policy reserves for daylight.
+Then find every candidate `docs/NIGHT-RULES.md` restricts (forbidden story ids, anything
+touching a forbidden path, anything the migration policy reserves for daylight) and every
+candidate waiting on an outside answer. None of them is subtracted silently.
+
+**Restrictions are asked ONCE, at the start of planning, before the queue is drafted.**
+Before you defer or drop ANY candidate story because of a NIGHT-RULES restriction or a
+pending outside answer (advisor, accountant, lawyer, owner), list every such story in ONE
+table and ask the owner ONCE:
+
+| story | restriction | source line | recommendation |
+|---|---|---|---|
+
+`source line` quotes the NIGHT-RULES section and line (or the card line) that restricts it;
+`recommendation` is your call per row: `build`, `build with the spec default as config` or
+`defer`. One table with every row, one question — never one question per story, never a
+second round. When no candidate is restricted there is no question; say "no restricted
+candidates" at the gate. The owner's answer per row is RECORDED: PHASE D item 3 quotes it
+next to every deferral, and that quote is what the PHASE D refusal checks. This rule
+supersedes the design spec's PHASE B "subtract" line and its PHASE D "only question" line.
+
+- **Items gated only by an advisor's confirmation are BUILT**, with the card/spec default as
+  a config value the advisor can change later; recommend `build with the spec default as
+  config` for them, never `defer`.
+- A "parked for owner" or "waiting on external answer" list never appears in the plan, the
+  gate or the brief as a fait accompli. A restriction the owner was not asked about is a row
+  in this table, not a deferral.
+- Auth-touching stories are ordinary night work: no plugin rule restricts them. Only the
+  project's `docs/NIGHT-RULES.md` can, and then they are rows in this table like any other.
+- An owner `build` on a story `docs/NIGHT-RULES.md` forbids takes effect only when the owner
+  changes `docs/NIGHT-RULES.md` on the base branch (BRIEF section 6 makes NIGHT-RULES win, so
+  the story would block itself with `reason=forbidden`): say so, and apply the PHASE C
+  re-render rule once that change is merged.
+
 **TODO/FIXME mining and lint debt are NOT a source** — they map to no milestone and burn a
 story slot a real backlog item needed. Do not scan for them.
 
@@ -429,8 +464,22 @@ story slot a real backlog item needed. Do not scan for them.
 - **File-disjoint neighbours**, so consecutive stories do not fight over the same files.
 - **Budget.** `S = 1 h · M = 2 h · L = 3 h · unsized = M` — observed session cost, not ideal
   effort. Queue until `hours:` is spent; `PER_STORY_TIMEOUT` stays the hard per-story cap.
-- **Deferred items are listed WITH their reason** (budget, dependency, forbidden by the
-  rules). Never drop an item silently.
+- **Deferred items are listed WITH their reason** (budget, dependency, or a restriction the
+  owner answered `defer` in the PHASE B table, quoting that answer). Never drop an item
+  silently, and never defer one for a NIGHT-RULES restriction or a pending outside answer
+  the owner was not asked about.
+- **Deadline and run length.** The plan's total estimate decides whether one night is
+  enough. Render with the deadline the plan proposes, written as an absolute
+  `YYYY-MM-DD HH:MM` in the run machine's local time (`run.sh` reads `--deadline` with
+  `date -d` there; the innotel VM runs in UTC, so its `2026-10-07 05:30` deadline was a
+  Budapest morning): launch time plus the queued estimate, or, when that does not fit one
+  night, a multi-day deadline that covers it. The owner confirms or changes it at the
+  PHASE D gate. Write `WATCH_MAX_RESTARTS` into `config.env` for this run length,
+  `max(2, ceil(run_hours / 12))` with `run_hours` = deadline minus launch time in hours, as
+  `WATCH_MAX_RESTARTS="<n>"   # max(2, ceil(run_hours / 12)), run_hours=<h>` —
+  replacing an existing uncommented `WATCH_MAX_RESTARTS=` line, never adding a second (an
+  8-hour night gives 2; innotel's ~3-day run used 6). Do it before `SUPERVISE-PROMPT.md` is
+  rendered below, which reads it.
 
 PHASE A step 0 already created the run directory and `config.env`; re-assert the directory
 here (`mkdir -p` is idempotent) so this phase still works when step 0's output is out of
@@ -885,14 +934,20 @@ the owner to bed with the old rules.
 
 ## PHASE D — Approval gate
 
-ONE screen, and it is the ONLY question this skill asks. The run merges to the base branch
+ONE screen, and apart from the PHASE B restriction table (asked once, before the queue was
+drafted) it is the only question this skill asks. The run merges to the base branch
 for hours while the owner sleeps, so the gate is not optional. Show:
 
 1. the ordered queue — each item with its size and ONE line of why it is in;
 2. what the run may merge unattended per the NIGHT-RULES merge policy, plus the reminder
    that **every item passes the Opus review-and-fix loop and must be review-green AND
    CI-green before anything is merged**;
-3. what was deferred, and why; 4. every blocker PHASE A found;
+3. what was deferred, and why — every deferral for a NIGHT-RULES restriction or a pending
+   outside answer quotes the owner's recorded answer from the PHASE B table. The gate
+   REFUSES a plan that defers a story for a NIGHT-RULES restriction or a pending outside
+   answer without the owner's recorded answer (`UNASKED DEFERRAL: <story> — <restriction>`): go back to the PHASE B table and ask, do
+   not show an approval question. No "parked for owner" or "waiting on external answer" list
+   is shown here; 4. every blocker PHASE A found;
 5. one line that the PHASE C render gate came back clean: no leftover `{{placeholder}}` in
    `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
    `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:`, no `DENY COVERS RUN TREE:`, no `MISSING WT MIRROR:`, no
@@ -911,6 +966,17 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    showing the screen: when it prints a SHA other than the rendered one, the gate REFUSES
    (`STALE RENDER: rendered <SHA>, origin now <SHA2>`): go back to the re-render rule, do not
    show an approval question.
+8. the deadline next to the plan's total estimate, as an absolute date+time in the run
+   machine's local zone AND in UTC (`date -d "<deadline>" '+%F %H:%M %Z'` and `date -u -d "<deadline>" '+%F %H:%M UTC'`).
+   When the estimate does not fit one night, the owner chooses here between a one-night queue
+   (the rest deferred with reason budget) and a multi-day deadline that covers it. Then the
+   `WATCH_MAX_RESTARTS` value written for that run length, and ONCE, as a risk: a multi-day
+   run can exhaust the weekly Claude quota; the runner waits out a session-limit reset, but a
+   weekly-limit hit ends the run and leaves its rows `DEFERRED-quota-weekly` (PHASE F).
+   State that risk as a risk, never as a guessed number. Any change at the gate to the
+   deadline or to the queue goes back to PHASE C: rewrite `WATCH_MAX_RESTARTS`, re-render everything PHASE C renders (`queue.txt`,
+   `BRIEF.md`, `launch.sh`, `WATCHER-BRIEF.md`, `SUPERVISE-PROMPT.md`, the settings
+   post-render step) with its checks, then show the whole gate again before PHASE E.
 The owner approves or edits once. Then go to PHASE E.
 
 ## PHASE E — Launch (the owner's step)
@@ -968,12 +1034,12 @@ killing the launching session's process group, so a `nohup`-only runner dies wit
 The check is the argv test from PHASE A, scoped to this project — a plain `pgrep -af` pattern
 would count the checking shell itself and print four or five numbers for one runner.
 
-Fill `{{DEADLINE}}` yourself when you render `launch.sh` (PHASE C): it is the launch time plus
-the `hours:` budget you actually queued, as `HH:MM`, and never later than 07:30. Say the
-arithmetic out loud at the gate ("queued 5.5 h, launching ~23:00 → `--deadline 04:30`").
-`--deadline` is the HARD stop; if `hours:` would run past it, queue less and say so at the
-PHASE D gate — a 02:00 launch with `hours:8` puts eight hours of work into a 5.5-hour window
-and the rest is simply parked.
+Fill `{{DEADLINE}}` yourself when you render `launch.sh` (PHASE C): it is the deadline the
+PHASE D gate settled, as an absolute `YYYY-MM-DD HH:MM` in the run machine's local time —
+the launch time plus the estimate you actually queued, or the multi-day deadline the owner
+chose. Say the arithmetic out loud at the gate ("queued 5.5 h, launching ~2026-10-05 23:00 →
+`--deadline "2026-10-06 04:30"`"). `--deadline` is the HARD stop; if the queue would run
+past it, queue less and say so at the PHASE D gate — whatever does not fit is simply parked.
 
 > **Success:** the last command prints exactly ONE pgid, and it is a NEW number, not one you
 > saw in PHASE A. If it prints `RUNNER SCAN FAILED`, the check broke, NOT the launch: do NOT
