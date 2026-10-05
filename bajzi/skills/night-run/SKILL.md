@@ -924,27 +924,17 @@ above returns 0, write `<NIGHT_DIR>/supervise.settings.json`: the final `setting
 exactly THIS night's `state*.txt` `Edit`/`Write` deny removed, every other key and rule identical.
 Story sessions and the watcher keep the full file; `supervise.sh` passes this one with
 `--setting-sources user,project` (so BASE's installed copy, which still holds the deny, is not merged
-back in) and refuses to tick without it (`SUPERVISE MISCONFIGURED settings file missing`).
+back in). `supset.js` writes it (atomically, and ONLY when exactly one rule was removed; else nothing,
+non-zero, with the reason); `supervise.sh` re-runs it at EVERY tick from the copy launch.sh installed
+(`<BASE>/.claude/settings.local.json`) and refuses the tick when it fails (`SUPERVISE MISCONFIGURED
+supset: <reason>`), so this PHASE C run is the gate's check, not the supervisor's only source.
 
 ```bash
-python3 - /home/ubuntu/night-runs/<project>/settings.local.json <NIGHT_DIR> <NIGHT_DIR>/supervise.settings.json <<'SUPSET'
-import json, os, re, sys
-src, night, out = sys.argv[1], sys.argv[2].rstrip("/"), sys.argv[3]
-s = json.load(open(src, encoding="utf-8"))
-def own_state(r):  # an Edit/Write deny naming <NIGHT_DIR>/state*.txt; '~/' = $HOME, '//' = absolute root
-    m = re.fullmatch(r"(?:Edit|Write)\((.*)\)", r)
-    g = m and m[1]
-    return bool(g) and (os.path.expanduser(g) if g.startswith("~/") else g[1:] if g.startswith("//") else g) == night + "/state*.txt"
-drop = [r for r in s["permissions"]["deny"] if own_state(r)]
-s["permissions"]["deny"] = [r for r in s["permissions"]["deny"] if r not in drop]
-json.dump(s, open(out, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
-print("supervisor settings: removed", ", ".join(drop) or "NOTHING")
-sys.exit(0 if len(drop) == 1 else 1)
-SUPSET
+node "${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/supset.js" /home/ubuntu/night-runs/<project>/settings.local.json <NIGHT_DIR> <NIGHT_DIR>/supervise.settings.json
 echo "supset rc=$?"   # 0 = exactly the one state deny removed; anything else = the template's state rule changed: fix, re-render
 ```
 
-`deny-run-tree.sh` extracts and runs this heredoc too. Re-run it after every settings re-render.
+`deny-run-tree.sh` runs `supset.js` on the rendered template too. Re-run it after every settings re-render.
 
 **Re-render rule — a plan never outlives the base it was rendered from.** If a NIGHT-RULES
 change, or any PR the plan depends on (a `needs` PR, a rules or CI fix), is MERGED while you
@@ -1148,9 +1138,9 @@ runner is dead for good (`run.flock` unheld, `watch.status` `DEAD` or absent, an
 already holding 2 lines for `run.meta`'s `run_date`: on a multi-day run the deadline is days away and
 every further tick would only spend Opus); otherwise it runs ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
 model = entry [0] of the reviewer allow-list read at that tick, `--permission-mode bypassPermissions`,
-`--setting-sources user,project --settings <NIGHT_DIR>/supervise.settings.json` (the PHASE C night settings
-minus this night's state-file deny, so its re-queue duty can delete a state row; missing = refused, as for
-triage), cwd = BASE (repo-relative and `**/` denies anchor there, as for triage), `SUPERVISE_TICK_TIMEOUT` (1500 s, must be < the interval) hard cap, provider env
+`--setting-sources user,project --settings <NIGHT_DIR>/supervise.settings.json` (BASE's installed night
+settings minus this night's state-file deny, so its re-queue duty can delete a state row; `supset.js`
+rewrites it at every tick and a failure refuses the tick, `SUPERVISE MISCONFIGURED supset: <reason>`), cwd = BASE (repo-relative and `**/` denies anchor there, as for triage), `SUPERVISE_TICK_TIMEOUT` (1500 s, must be < the interval) hard cap, provider env
 (`ANTHROPIC_*`, router selectors) scrubbed so it can never run on GLM, and the same fail-closed
 stream-json init check as triage (`SUPERVISE MISCONFIGURED` in `supervisor.log`, tick killed, no result).
 Each tick's result text and `<ISO> tick exit=<rc>` go to `logs/supervisor-ticks.log`; the tick itself

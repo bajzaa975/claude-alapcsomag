@@ -29,8 +29,9 @@
 #      model = entry [0] of the reviewer allow-list read NOW (reviewer-models.js --first),
 #      --permission-mode bypassPermissions, --setting-sources user,project, --settings
 #      $NIGHT_DIR/supervise.settings.json (the night deny list minus this night's state-file deny,
-#      rendered in PHASE C; missing = SUPERVISE MISCONFIGURED, claude not launched, as in
-#      triage_check), provider env (ANTHROPIC_*, CC_ROUTER_*, ...) scrubbed so
+#      rewritten at every tick by supset.js from $BASE/.claude/settings.local.json, the copy
+#      launch.sh installed; a supset.js failure = SUPERVISE MISCONFIGURED <reason>, claude not
+#      launched), provider env (ANTHROPIC_*, CC_ROUTER_*, ...) scrubbed so
 #      it can never run on GLM, stream-json checked by tick-lib.sh: an init record with another
 #      model or permission mode kills the tick (SUPERVISE MISCONFIGURED in supervisor.log).
 #
@@ -201,7 +202,7 @@ runner_dead(){
 }
 
 tick(){
-  local model raw settings=$NIGHT_DIR/supervise.settings.json
+  local model raw why settings=$NIGHT_DIR/supervise.settings.json
   if [ ! -f "$PROMPT" ] || grep -qF '{{' "$PROMPT" 2>/dev/null; then
     tick_say "SUPERVISE MISCONFIGURED $PROMPT is missing or unrendered — claude not launched (PHASE C renders it)"
     return 0
@@ -213,11 +214,22 @@ tick(){
   fi
   tick_want 'reviewer_models[0]' "$model" || return 0
   # Never unsandboxed: the night deny list passed explicitly, minus only this night's state-file deny
-  # (PHASE C renders supervise.settings.json; the re-queue duty deletes a state row). cwd = BASE, so
-  # repo-relative and **/ denies are anchored at the checkout; --setting-sources user,project keeps
-  # BASE's own settings.local.json (which still holds the state deny) from being merged back in.
+  # (the re-queue duty deletes a state row). supset.js rewrites supervise.settings.json at EVERY tick
+  # from the copy launch.sh installed in BASE, so it can never drift from the night's settings; a
+  # failure refuses the tick. cwd = BASE, so repo-relative and **/ denies are anchored at the
+  # checkout; --setting-sources user,project keeps BASE's own settings.local.json (which still holds
+  # the state deny) from being merged back in.
+  # MEASURED 2026-10-05, Claude Code 2.1.289: 'claude -p --model haiku --permission-mode
+  # bypassPermissions --settings <file>', cwd holding .claude/settings.local.json with a deny, user
+  # ~/.claude/settings.json denying Read(.env). With --setting-sources user,project: the local deny
+  # NOT applied, the --settings deny and the user .env deny applied. With --setting-sources '': local
+  # not applied, --settings applied, user .env deny NOT applied (so '' is not used). Without
+  # --setting-sources: local, --settings and user denies all applied.
   [ -d "$BASE" ] || { tick_say "SUPERVISE MISCONFIGURED BASE is not a directory: $BASE — claude not launched"; return 0; }
-  [ -f "$settings" ] || { tick_say "SUPERVISE MISCONFIGURED settings file missing: $settings — claude not launched"; return 0; }
+  if ! why=$(node "$SKILL_DIR/supset.js" "$BASE/.claude/settings.local.json" "$NIGHT_DIR" "$settings" 2>&1); then
+    tick_say "SUPERVISE MISCONFIGURED $(printf '%s' "$why" | tr '\n' ' ') — claude not launched"
+    return 0
+  fi
   mkdir -p "$TICK_DIR" "${TICKS_LOG%/*}" 2>/dev/null
   raw=$TICK_DIR/$(date +%s)-$$.jsonl
   # Backgrounded and waited for, like the sleep: a foreground tick would hold a trapped TERM/INT

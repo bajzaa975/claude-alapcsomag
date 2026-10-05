@@ -82,6 +82,9 @@ echo 'opusplan'
 EOS
 chmod +x "$WT/bin/claude" "$WT/nodestub/node"
 
+# The NIGHT_DIR form a native node sees: Git Bash rewrites a POSIX argument to C:/...; Linux keeps it.
+nat(){ if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+
 allow(){ # dir id... -> writes <dir>/.claude/bajzi/config.json with reviewer_models = the ids
   local d=$1; shift
   mkdir -p "$d/.claude/bajzi"
@@ -94,7 +97,10 @@ mkcase(){ # name interval timeout [fake.env lines...] -> ND, FD, BH
   local name=$1 iv=$2 to=$3; shift 3
   ND=$WT/$name; FD=$ND/fake; BH=$ND/home
   mkdir -p "$ND/logs" "$FD" "$ND/base/.claude"
-  printf '{}\n' >"$ND/base/.claude/settings.local.json"
+  # BASE's installed night settings: this night's state deny (in the form node sees NIGHT_DIR) and a
+  # sentinel; supervise.settings.json starts STALE ({}): each tick must rewrite it from BASE's file.
+  printf '{"permissions":{"deny":["Edit(%s/state*.txt)","Read(sentinel-%s)"]}}\n' "$(nat "$ND")" "$name" \
+    >"$ND/base/.claude/settings.local.json"
   printf '{}\n' >"$ND/supervise.settings.json"
   cat >"$ND/config.env" <<EOS
 PROJECT="suptest-$name"
@@ -156,6 +162,8 @@ for v in ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_DEFAULT_OPUS_MODEL CC
   if grep -q "^$v=" "$FD/env" 2>/dev/null; then bad "a provider env $v reached the tick"
   elif [ -s "$FD/env" ]; then ok "a provider env $v scrubbed"; else bad "a fake recorded no env"; fi
 done
+yes "a supervise.settings.json rewritten at tick time from BASE's installed file (stale {} replaced)" "$ND/supervise.settings.json" "Read(sentinel-a)"
+no "a supervise.settings.json lacks this night's state deny" "$ND/supervise.settings.json" "state*.txt"
 yes "a decoded result in logs/supervisor-ticks.log" "$ND/logs/supervisor-ticks.log" "SUPERVISE-RESULT OK S1 progressing"
 yes "a 'SUPERVISE CONFIG OK' in supervisor.log" "$ND/supervisor.log" "SUPERVISE CONFIG OK model=claude-opus-5-5-20261001 permissionMode=bypassPermissions"
 no "a no MISCONFIGURED" "$ND/supervisor.log" "MISCONFIGURED"
@@ -374,14 +382,15 @@ yes "l spawned without fd 9 (the run lock)" "$SD/fd9" "closed"
 if [ -f "$SD/stdin" ] && ! has "$SD/stdin" LEAK; then ok "l spawned with stdin /dev/null"; else bad "l stdin was not /dev/null"; fi
 yes "l 'supervisor started' logged" "$SD/log" "supervisor started (pid"
 
-# ------------------- n. settings file missing: refused, claude never starts ---
+# ------- n. BASE's installed settings lack this night's state deny: refused, claude never starts ---
 mkcase n 2 1
-rm -f "$ND/supervise.settings.json"
+printf '{"permissions":{"deny":["Read(sentinel-n)"]}}\n' >"$ND/base/.claude/settings.local.json"
 start_sup
-if wait_for "$ND/supervisor.log" "SUPERVISE MISCONFIGURED settings file missing: $ND/supervise.settings.json — claude not launched" 20; then
-  ok "n 'SUPERVISE MISCONFIGURED settings file missing: <NIGHT_DIR>/supervise.settings.json — claude not launched'"
+if wait_for "$ND/supervisor.log" "SUPERVISE MISCONFIGURED supset: 0 rules in $(nat "$ND")/base/.claude/settings.local.json" 20 \
+   && wait_for "$ND/supervisor.log" "— claude not launched" 5; then
+  ok "n 'SUPERVISE MISCONFIGURED supset: 0 rules in <BASE>/.claude/settings.local.json ... — claude not launched'"
 else bad "n no refusal: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
-if [ -f "$FD/argv" ]; then bad "n claude ran without the settings file"; else ok "n claude never started"; fi
+if [ -f "$FD/argv" ]; then bad "n claude ran without a valid supervisor settings file"; else ok "n claude never started"; fi
 finish_case n
 
 # ------------------- o. past deadline_epoch+1800 and no finished: exits ---
