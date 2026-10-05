@@ -1,6 +1,6 @@
 'use strict';
 // Claude Code statusLine command. Installed by /bajzi:setup to ~/.claude/bajzi/statusline.js
-// (+ lib/). Line: model · Lx · branch* · task · ▓▓░░ NN% · GLM NN% · Qn · peak ...
+// (+ lib/). Line: model · Lx · branch* · task · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN% · Qn · peak ...
 // Missing data = that field is omitted; never an error text. Side effects: writes the ctx
 // bridge <tmpdir>/bajzi-ctx-<session_id>.json that hooks/node/context-guard.js reads, and AFTER the
 // line is out, <status dir>/<session_id>.line.json for the workbench (spec §6.5, writeLine).
@@ -74,6 +74,11 @@ function render(input, opts = {}) {
   if (task) out.push(task);
   const used = usedPct(inp);
   if (used !== null) out.push(bar(used, color));
+  const lim = obj(inp.rate_limits);
+  const h5 = numOr(obj(lim.five_hour).used_percentage);
+  if (h5 !== undefined) out.push(`5h ${Math.round(h5)}%`);
+  const d7 = numOr(obj(lim.seven_day).used_percentage);
+  if (d7 !== undefined) out.push(`7d ${Math.round(d7)}%`);
   let g = null;
   if (level >= 1) {
     g = parts.glmShare({ nowMs, home, env });
@@ -106,6 +111,7 @@ function writeLine(input, facts, nowMs, env = process.env) {
     model: typeof model === 'string' ? strOr(model.trim()) : undefined,
     ctx_pct: numOr(obj(inp.context_window).used_percentage), cost_usd: numOr(obj(inp.cost).total_cost_usd),
     five_hour_pct: numOr(obj(obj(inp.rate_limits).five_hour).used_percentage),
+    seven_day_pct: numOr(obj(obj(inp.rate_limits).seven_day).used_percentage),
     glm_share: facts.glm, bajzi_level: 'L' + facts.level,
   };
   const dir = ss.statusDir(env);
