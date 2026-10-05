@@ -581,7 +581,8 @@ Then write into `~/night-runs/<project>/`:
   `{{REPO}}`, `{{BASE_BRANCH}}`, `{{REQUIRED_CHECK}}`, `{{DISK_FLOOR_GB}}` from `config.env`;
   `{{WATCH_MAX_RESTARTS}}` = config `WATCH_MAX_RESTARTS` (2 when unset); `{{STATE_FILE}}` =
   `<NIGHT_DIR>/night-watch-state.md` (the triage tick's state file, the same value as in
-  WATCHER-BRIEF.md). Then `/usr/bin/grep -o '{{[A-Za-z_0-9]\+}}' "<NIGHT_DIR>/SUPERVISE-PROMPT.md"`
+  WATCHER-BRIEF.md); `{{LAUNCH_LINE}}` = the same runner-only command as WATCHER-BRIEF.md's `{{LAUNCH_LINE}}`
+  (the identical value, character for character: the supervisor's relaunch, never `launch.sh`). Then `/usr/bin/grep -o '{{[A-Za-z_0-9]\+}}' "<NIGHT_DIR>/SUPERVISE-PROMPT.md"`
   must print nothing: an unrendered placeholder is a PHASE C failure (BLOCKER at the gate), exactly
   as for the other templates — and `supervise.sh` refuses such a prompt at every tick
   (`SUPERVISE MISCONFIGURED ... missing or unrendered`), so the supervisor would do nothing all night.
@@ -916,6 +917,35 @@ or learns to wave the hits through; and the next thing waved through is a REAL l
 with section 3 then unenforced for the whole night. The JSON-scoped check above returns
 nothing on that same perfect render and NAMES every leftover on a bad one.
 
+**The supervisor's settings file.** The 30-minute supervisor (PHASE E) re-queues a story by
+deleting its last state row, which the night's own `Edit(~/night-runs/<project>/state*.txt)` deny
+forbids (an `Edit` rule also covers `sed` and redirections into the file). So once the rules check
+above returns 0, write `<NIGHT_DIR>/supervise.settings.json`: the final `settings.local.json` with
+exactly THIS night's `state*.txt` `Edit`/`Write` deny removed, every other key and rule identical.
+Story sessions and the watcher keep the full file; `supervise.sh` passes this one with
+`--setting-sources user,project` (so BASE's installed copy, which still holds the deny, is not merged
+back in) and refuses to tick without it (`SUPERVISE MISCONFIGURED settings file missing`).
+
+```bash
+python3 - /home/ubuntu/night-runs/<project>/settings.local.json <NIGHT_DIR> <NIGHT_DIR>/supervise.settings.json <<'SUPSET'
+import json, os, re, sys
+src, night, out = sys.argv[1], sys.argv[2].rstrip("/"), sys.argv[3]
+s = json.load(open(src, encoding="utf-8"))
+def own_state(r):  # an Edit/Write deny naming <NIGHT_DIR>/state*.txt; '~/' = $HOME, '//' = absolute root
+    m = re.fullmatch(r"(?:Edit|Write)\((.*)\)", r)
+    g = m and m[1]
+    return bool(g) and (os.path.expanduser(g) if g.startswith("~/") else g[1:] if g.startswith("//") else g) == night + "/state*.txt"
+drop = [r for r in s["permissions"]["deny"] if own_state(r)]
+s["permissions"]["deny"] = [r for r in s["permissions"]["deny"] if r not in drop]
+json.dump(s, open(out, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+print("supervisor settings: removed", ", ".join(drop) or "NOTHING")
+sys.exit(0 if len(drop) == 1 else 1)
+SUPSET
+echo "supset rc=$?"   # 0 = exactly the one state deny removed; anything else = the template's state rule changed: fix, re-render
+```
+
+`deny-run-tree.sh` extracts and runs this heredoc too. Re-run it after every settings re-render.
+
 **Re-render rule — a plan never outlives the base it was rendered from.** If a NIGHT-RULES
 change, or any PR the plan depends on (a `needs` PR, a rules or CI fix), is MERGED while you
 are planning, the render is stale. Before the PHASE D gate: fetch again, fast-forward BASE's
@@ -930,8 +960,8 @@ are planning, the render is stale. Before the PHASE D gate: fetch again, fast-fo
 
 A failing `--ff-only` is a BLOCKER (never reset or rebase BASE). Then RE-RENDER everything that
 read BASE or the plugin: `BRIEF.md` (all three steps, `{{NIGHT_RULES}}` first), the
-post-render step and rules check of `settings.local.json`, and `launch.sh` (with the check
-above). Re-read the queue against the changed rules too. A re-render that is skipped sends
+post-render step and rules check of `settings.local.json`, then `supervise.settings.json`, and
+`launch.sh` (with the check above). Re-read the queue against the changed rules too. A re-render that is skipped sends
 the owner to bed with the old rules.
 
 ## PHASE D — Approval gate
@@ -955,7 +985,8 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
    `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:`, no `DENY COVERS RUN TREE:`, no `MISSING WT MIRROR:`, no
    `WT PATH NOT DENIED:`, no `DOCKER RULE MISMATCH:` and no `NEVER-STOP NAME UNPARSEABLE:` line (`rules rc=0`), plus the
-   docker choice the post-render step printed (`docker: denied` or `docker: allowed, prefix <prefix>`).
+   docker choice the post-render step printed (`docker: denied` or `docker: allowed, prefix <prefix>`),
+   and that `supervise.settings.json` was written from that file (`supset rc=0`, the one state deny removed).
    Say it in those words. The `_comment*` keys of `settings.local.json` DO still contain
    `<angle-bracket>` text and that is correct — they are documentation, they are not rules,
    and they are outside the check on purpose. If the rules check did not come back 0, you
@@ -975,14 +1006,16 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    (the rest deferred with reason budget) and a multi-day deadline that covers it. Then the
    `WATCH_MAX_RESTARTS` value written for that run length, and ONCE, as a risk: a multi-day
    run can exhaust the weekly Claude quota; the runner waits out a session-limit reset, but a
-   weekly-limit hit ends the run and leaves its rows `DEFERRED-quota-weekly` (PHASE F).
+   weekly-limit hit ends the run and leaves its rows `DEFERRED-quota-weekly` (PHASE F); and
+   the 30-minute supervisor keeps running one Opus tick per interval until the run finishes, is
+   stopped, passes its deadline + 30 min, or its runner is dead for good (`watch.status` reads `DEAD` and both supervisor relaunches of the `run_date` are used).
    State that risk as a risk, never as a guessed number. A multi-day run relaunches across
    midnights on the same state file: `launch.sh`, the watcher's `{{LAUNCH_LINE}}` and
    `run.args` all pin `--date <RUN_DATE>` (the first night's date), and the supervisor's
    relaunch checks the absolute `deadline_epoch`, not the current date. Any change at the gate to the
    deadline or to the queue goes back to PHASE C: rewrite `WATCH_MAX_RESTARTS`, re-render everything PHASE C renders (`queue.txt`,
    `BRIEF.md`, `launch.sh`, `WATCHER-BRIEF.md`, `SUPERVISE-PROMPT.md`, the settings
-   post-render step) with its checks, then show the whole gate again before PHASE E.
+   post-render step, `supervise.settings.json`) with its checks, then show the whole gate again before PHASE E.
 The owner approves or edits once. Then go to PHASE E.
 
 ## PHASE E — Launch (the owner's step)
@@ -1110,9 +1143,14 @@ default; `0` disables) `run.sh` spawns `supervise.sh` next to the watchdog (same
 setsid, no run-lock fd, stdin `/dev/null`, output in `logs/supervise.out`). It SLEEPS FIRST for
 `SUPERVISE_INTERVAL` (1800 s), then per iteration re-reads `started_epoch` from `run.meta` and exits —
 one line in `~/night-runs/<project>/supervisor.log` — on `SUPERVISE-STOP`, on `STOP`, when `finished`
-holds an epoch >= `started_epoch`, or past `deadline_epoch` + 1800 s with no such `finished`; otherwise it runs ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
+holds an epoch >= `started_epoch`, past `deadline_epoch` + 1800 s with no such `finished`, or when the
+runner is dead for good (`run.flock` unheld, `watch.status` `DEAD` or absent, and `supervise.relaunches`
+already holding 2 lines for `run.meta`'s `run_date`: on a multi-day run the deadline is days away and
+every further tick would only spend Opus); otherwise it runs ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
 model = entry [0] of the reviewer allow-list read at that tick, `--permission-mode bypassPermissions`,
-`--settings <BASE>/.claude/settings.local.json` (missing = refused, as for triage), cwd = the night dir, `SUPERVISE_TICK_TIMEOUT` (1500 s, must be < the interval) hard cap, provider env
+`--setting-sources user,project --settings <NIGHT_DIR>/supervise.settings.json` (the PHASE C night settings
+minus this night's state-file deny, so its re-queue duty can delete a state row; missing = refused, as for
+triage), cwd = BASE (repo-relative and `**/` denies anchor there, as for triage), `SUPERVISE_TICK_TIMEOUT` (1500 s, must be < the interval) hard cap, provider env
 (`ANTHROPIC_*`, router selectors) scrubbed so it can never run on GLM, and the same fail-closed
 stream-json init check as triage (`SUPERVISE MISCONFIGURED` in `supervisor.log`, tick killed, no result).
 Each tick's result text and `<ISO> tick exit=<rc>` go to `logs/supervisor-ticks.log`; the tick itself
@@ -1120,7 +1158,8 @@ appends `<ISO> OK|FIXED|PROBLEM <story id> <sentence>` to `supervisor.log`. ONE 
 (`supervise.pid`): a tier-0 restart that re-runs `run.sh` spawns a second one, which exits at once.
 Ownership: the supervisor owns allowlist edits (both `settings.local.json` copies) and code/harness
 fixes via a PR merged only on a green `REQUIRED_CHECK` pull_request run; the triage tick never edits
-settings. It relaunches (`launch.sh`, at most 2 per run) only when tier 0 cannot, and changes nothing
+settings. It relaunches (the runner-only `{{LAUNCH_LINE}}` WATCHER-BRIEF.md also carries, never
+`launch.sh`; at most 2 per run) only when tier 0 cannot, and changes nothing
 while a triage tick is alive or holds an open `FIXING`. **Stop the supervisor alone:**
 `touch ~/night-runs/<project>/SUPERVISE-STOP` (checked after each sleep). The file is dated: one older
 than the run's `started_epoch` (and the supervisor's own start) is an earlier night's and is ignored,

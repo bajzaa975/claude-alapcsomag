@@ -9,7 +9,8 @@
 #   {{NIGHT_DIR}}  config.env NIGHT_DIR, absolute
 #   {{RUN_SH}}     absolute path of run.sh in the plugin copy that ran the skill:
 #                  ${CLAUDE_PLUGIN_ROOT}/skills/night-run/run.sh, resolved at every render
-#   {{DEADLINE}}   the hard stop: HH:MM or "YYYY-MM-DD HH:MM"
+#   {{DEADLINE}}   the hard stop, absolute "YYYY-MM-DD HH:MM" in the run machine's local time
+#                  (never a bare HH:MM: a relaunch after midnight would roll it to the next day)
 #   {{RUN_DATE}}   the night being planned, YYYY-MM-DD: pinned with --date so a relaunch after
 #                  local midnight continues the same night's state file
 #

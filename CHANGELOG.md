@@ -10,7 +10,13 @@ Night-run hardening (owner's innotel-bss prompt, 2026-10-03) and the status-line
 - **Stale inputs** (`nr-stale-inputs`, `-f6`): `launch.sh` rendered on every plan from the running plugin copy; BASE refreshed
   onto a fresh `night/base-*` branch before rendering; re-render on merges; REQUIRED_CHECK meaning documented and checked.
 - **Supervisor** (`nr-supervisor`): a fresh Opus session every 30 minutes (`SUPERVISE=0` turns it off) that can relaunch a dead
-  runner and merge finished PRs; runs with the project deny list, stops past the deadline, dated `SUPERVISE-STOP`.
+  runner and merge finished PRs; runs from BASE with the night deny list minus only the state-file deny
+  (`supervise.settings.json`), relaunches with the runner-only line (never `launch.sh`), stops past the deadline or when the
+  runner is dead for good, dated `SUPERVISE-STOP`.
+- **User-level env denies**: `/bajzi:setup` writes explicit env-file deny names to `~/.claude/settings.json` instead of
+  `Read(.env.*)` (which also blocked the tracked `.env.example`); `--check` reports the old rule as `DRIFT leftover-deny`, and
+  night-run PHASE A step 7 blocks planning while such a rule remains. Setup never deletes it: remove `Read(.env.*)` /
+  `Edit(.env.*)` from `permissions.deny` by hand.
 - **Planning rules** (`nr-planning-rules`): restrictions asked once, no silent deferral, multi-day deadlines with `--date`
   pinned on every relaunch.
 - **GLM model split** (`glm-flash`): top-level GLM sessions on `glm_orchestrator_model` (glm-5.3), sub-agents and nested

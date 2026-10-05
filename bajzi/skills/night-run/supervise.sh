@@ -22,11 +22,14 @@
 #   2. exit (one line in supervisor.log) when $NIGHT_DIR/SUPERVISE-STOP (not older than the
 #      earlier of started_epoch and this supervisor's start: NIGHT_DIR is permanent) or
 #      $NIGHT_DIR/STOP exists, $NIGHT_DIR/finished holds an epoch >= started_epoch, or it is past
-#      run.meta deadline_epoch + 1800 with no such finished (night-watch.sh's EXPIRED)
-#   3. else ONE tick: `claude -p` with $NIGHT_DIR/SUPERVISE-PROMPT.md on stdin, cwd NIGHT_DIR,
+#      run.meta deadline_epoch + 1800 with no such finished (night-watch.sh's EXPIRED), or the runner
+#      is dead for good: run.flock unheld (night-watch.sh's probe), watch.status DEAD or absent, and
+#      $NIGHT_DIR/supervise.relaunches already holds 2 lines for run.meta's run_date
+#   3. else ONE tick: `claude -p` with $NIGHT_DIR/SUPERVISE-PROMPT.md on stdin, cwd BASE,
 #      model = entry [0] of the reviewer allow-list read NOW (reviewer-models.js --first),
-#      --permission-mode bypassPermissions, --settings $BASE/.claude/settings.local.json (the
-#      project deny list; missing = SUPERVISE MISCONFIGURED, claude not launched, as in
+#      --permission-mode bypassPermissions, --setting-sources user,project, --settings
+#      $NIGHT_DIR/supervise.settings.json (the night deny list minus this night's state-file deny,
+#      rendered in PHASE C; missing = SUPERVISE MISCONFIGURED, claude not launched, as in
 #      triage_check), provider env (ANTHROPIC_*, CC_ROUTER_*, ...) scrubbed so
 #      it can never run on GLM, stream-json checked by tick-lib.sh: an init record with another
 #      model or permission mode kills the tick (SUPERVISE MISCONFIGURED in supervisor.log).
@@ -157,7 +160,7 @@ sup_stop_live(){
 
 # 0 = stop now (already logged), 1 = keep going
 should_exit(){
-  local st fin dl
+  local st fin dl ws rd n
   if sup_stop_live; then note "supervisor stopped (SUPERVISE-STOP)"; return 0; fi
   if [ -e "$NIGHT_DIR/STOP" ]; then note "supervisor stopped (STOP present)"; return 0; fi
   st=$(started_epoch)
@@ -172,11 +175,33 @@ should_exit(){
     note "supervisor exits: past deadline_epoch+1800 with no finished marker (deadline_epoch=$dl)"
     return 0
   fi
+  # A runner dead for good: every further tick is Opus spend with nothing left to act on (a
+  # multi-day deadline is days away). Only when every fact is readable; "cannot tell" keeps ticking.
+  if runner_dead; then
+    ws=$(head -1 "$NIGHT_DIR/watch.status" 2>/dev/null | tr -dc 'A-Z-')
+    rd=$(sed -n 's/^run_date=//p' "$META" 2>/dev/null | tail -1 | tr -dc '0-9-')
+    if [ -n "$rd" ] && { [ ! -e "$NIGHT_DIR/watch.status" ] || [ "$ws" = DEAD ]; }; then
+      n=$(grep -c "^$rd " "$NIGHT_DIR/supervise.relaunches" 2>/dev/null); n=${n:-0}
+      if [ "$n" -ge 2 ]; then
+        note "supervisor exits: runner dead for good (run.flock unheld, watch.status ${ws:-absent}, $n/2 supervisor relaunches used for run_date $rd)"
+        return 0
+      fi
+    fi
+  fi
   return 1
 }
 
+# 0 = provably no runner, judged like night-watch.sh probe_runner: no run.flock, or `flock -n` on it
+# succeeds (released at once — a probe, never a hold). No flock binary or a probe error = 1 (cannot tell).
+runner_dead(){
+  local f=$NIGHT_DIR/run.flock
+  [ -e "$f" ] || return 0
+  command -v flock >/dev/null 2>&1 || return 1
+  flock -n "$f" true 2>/dev/null
+}
+
 tick(){
-  local model raw settings=$BASE/.claude/settings.local.json
+  local model raw settings=$NIGHT_DIR/supervise.settings.json
   if [ ! -f "$PROMPT" ] || grep -qF '{{' "$PROMPT" 2>/dev/null; then
     tick_say "SUPERVISE MISCONFIGURED $PROMPT is missing or unrendered — claude not launched (PHASE C renders it)"
     return 0
@@ -187,7 +212,10 @@ tick(){
     return 0
   fi
   tick_want 'reviewer_models[0]' "$model" || return 0
-  # Never unsandboxed, as triage_check: the project's settings (its deny list) passed explicitly.
+  # Never unsandboxed: the night deny list passed explicitly, minus only this night's state-file deny
+  # (PHASE C renders supervise.settings.json; the re-queue duty deletes a state row). cwd = BASE, so
+  # repo-relative and **/ denies are anchored at the checkout; --setting-sources user,project keeps
+  # BASE's own settings.local.json (which still holds the state deny) from being merged back in.
   [ -d "$BASE" ] || { tick_say "SUPERVISE MISCONFIGURED BASE is not a directory: $BASE — claude not launched"; return 0; }
   [ -f "$settings" ] || { tick_say "SUPERVISE MISCONFIGURED settings file missing: $settings — claude not launched"; return 0; }
   mkdir -p "$TICK_DIR" "${TICKS_LOG%/*}" 2>/dev/null
@@ -196,8 +224,8 @@ tick(){
   # until it ended (up to SUPERVISE_TICK_TIMEOUT); on_signal kills it instead.
   TICK_PIDF=${raw%.jsonl}.pid
   ( TICK_RC=""
-    tick_launch "$NIGHT_DIR" "$SUPERVISE_TICK_TIMEOUT" "$TICK_WANT" "$raw" "$(cat "$PROMPT")" \
-      --model "$model" --permission-mode bypassPermissions --settings "$settings"
+    tick_launch "$BASE" "$SUPERVISE_TICK_TIMEOUT" "$TICK_WANT" "$raw" "$(cat "$PROMPT")" \
+      --model "$model" --permission-mode bypassPermissions --setting-sources user,project --settings "$settings"
     exit "${TICK_RC:-1}" ) 9>&- &
   TICK_BG=$!
   wait "$TICK_BG"

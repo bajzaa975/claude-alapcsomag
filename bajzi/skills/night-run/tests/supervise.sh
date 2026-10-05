@@ -95,6 +95,7 @@ mkcase(){ # name interval timeout [fake.env lines...] -> ND, FD, BH
   ND=$WT/$name; FD=$ND/fake; BH=$ND/home
   mkdir -p "$ND/logs" "$FD" "$ND/base/.claude"
   printf '{}\n' >"$ND/base/.claude/settings.local.json"
+  printf '{}\n' >"$ND/supervise.settings.json"
   cat >"$ND/config.env" <<EOS
 PROJECT="suptest-$name"
 NIGHT_DIR="$ND"
@@ -144,11 +145,12 @@ A=$FD/argv
 if grep -qxF -- -p "$A" 2>/dev/null; then ok "a argv has -p"; else bad "a argv has no -p"; fi
 pair "a argv --model claude-opus-5-5 (allow-list [0], read at tick time)" "$A" --model claude-opus-5-5
 pair "a argv --permission-mode bypassPermissions" "$A" --permission-mode bypassPermissions
-pair "a argv --settings <BASE>/.claude/settings.local.json (the project deny list)" "$A" --settings "$ND/base/.claude/settings.local.json"
+pair "a argv --settings <NIGHT_DIR>/supervise.settings.json (the night deny list minus the state-file deny)" "$A" --settings "$ND/supervise.settings.json"
+pair "a argv --setting-sources user,project (BASE's settings.local.json, which keeps the state deny, not loaded)" "$A" --setting-sources user,project
 pair "a argv --output-format stream-json" "$A" --output-format stream-json
 if grep -qxF -- --verbose "$A" 2>/dev/null; then ok "a argv has --verbose"; else bad "a argv has no --verbose"; fi
-GOT=$(cat "$FD/cwd" 2>/dev/null); WANT=$(cd "$ND" && pwd -P)
-if [ "$GOT" = "$WANT" ]; then ok "a tick cwd == NIGHT_DIR"; else bad "a tick cwd '$GOT', wanted NIGHT_DIR '$WANT'"; fi
+GOT=$(cat "$FD/cwd" 2>/dev/null); WANT=$(cd "$ND/base" && pwd -P)
+if [ "$GOT" = "$WANT" ]; then ok "a tick cwd == BASE (repo-relative denies anchored at the checkout)"; else bad "a tick cwd '$GOT', wanted BASE '$WANT'"; fi
 yes "a the rendered prompt reached the tick on stdin" "$FD/stdin" "Supervise prompt for the test."
 for v in ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_DEFAULT_OPUS_MODEL CC_WORKER_MODE CLAUDECODE; do
   if grep -q "^$v=" "$FD/env" 2>/dev/null; then bad "a provider env $v reached the tick"
@@ -374,10 +376,10 @@ yes "l 'supervisor started' logged" "$SD/log" "supervisor started (pid"
 
 # ------------------- n. settings file missing: refused, claude never starts ---
 mkcase n 2 1
-rm -f "$ND/base/.claude/settings.local.json"
+rm -f "$ND/supervise.settings.json"
 start_sup
-if wait_for "$ND/supervisor.log" "SUPERVISE MISCONFIGURED settings file missing: $ND/base/.claude/settings.local.json — claude not launched" 20; then
-  ok "n 'SUPERVISE MISCONFIGURED settings file missing: <BASE>/.claude/settings.local.json — claude not launched'"
+if wait_for "$ND/supervisor.log" "SUPERVISE MISCONFIGURED settings file missing: $ND/supervise.settings.json — claude not launched" 20; then
+  ok "n 'SUPERVISE MISCONFIGURED settings file missing: <NIGHT_DIR>/supervise.settings.json — claude not launched'"
 else bad "n no refusal: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
 if [ -f "$FD/argv" ]; then bad "n claude ran without the settings file"; else ok "n claude never started"; fi
 finish_case n
@@ -401,6 +403,28 @@ no "p no 'supervisor stopped (SUPERVISE-STOP)' for the stale file" "$ND/supervis
 rm -f "$ND/SUPERVISE-STOP"
 finish_case p
 
+# ------ r. runner dead for good (no runner, watch.status DEAD, relaunch budget spent): exits ---
+# Git Bash has no flock: a stub that always acquires the lock = no runner holds run.flock.
+mkdir -p "$WT/flockstub"; printf '#!/usr/bin/env bash\nexit 0\n' >"$WT/flockstub/flock"; chmod +x "$WT/flockstub/flock"
+deadcase(){ # name relaunch-lines... -> a run with its deadline days away, watch.status DEAD, run.flock unheld
+  mkcase "$1" 2 1; shift
+  printf 'pgid=1\nstarted_epoch=%s\ndeadline_epoch=%s\nrun_date=2026-10-05\nmode=queue\n' "$(($(date +%s) - 100))" "$(($(date +%s) + 259200))" >"$ND/run.meta"
+  printf 'DEAD\n' >"$ND/watch.status"; : >"$ND/run.flock"
+  printf '%s\n' "$@" >"$ND/supervise.relaunches"
+}
+deadcase r '2026-10-05 2026-10-05T01:00:00Z' '2026-10-05 2026-10-05T02:00:00Z'
+start_sup "$WT/flockstub"
+if wait_for "$ND/supervisor.log" "supervisor exits: runner dead for good" 20 && wait_gone "$SPID" 10; then
+  ok "r 'supervisor exits: runner dead for good' logged and the process exited"
+else bad "r no exit with a dead runner and the relaunch budget spent: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+if [ -f "$FD/argv" ]; then bad "r a tick ran although the runner is dead for good"; else ok "r no tick ran"; fi
+deadcase r2 '2026-10-04 2026-10-04T01:00:00Z' '2026-10-05 2026-10-05T02:00:00Z'
+start_sup "$WT/flockstub"
+if wait_for "$ND/logs/supervisor-ticks.log" "tick exit=0" 20; then ok "r2 one relaunch for run_date (the other line is another night's): budget left, a tick ran"
+else bad "r2 no tick with one relaunch left: $(tr '\n' '|' <"$ND/supervisor.log" 2>/dev/null)"; fi
+no "r2 no 'runner dead for good' exit" "$ND/supervisor.log" "runner dead for good"
+finish_case r2
+
 # ---------- q. TERM during a running tick: the supervisor and its tick exit at once ---
 mkcase q 10 9 FAKE_SLEEP_TENTHS=300
 start_sup
@@ -418,9 +442,10 @@ if [ -f "$T" ]; then
   sed -e 's|{{PROJECT}}|demo|g' -e 's|{{NIGHT_DIR}}|/nr/demo|g' -e 's|{{BASE}}|/w/demo-night|g' \
       -e 's|{{REPO}}|o/demo|g' -e 's|{{BASE_BRANCH}}|dev|g' -e 's|{{STATE_FILE}}|/nr/demo/night-watch-state.md|g' \
       -e 's|{{REQUIRED_CHECK}}|CI|g' -e 's|{{WATCH_MAX_RESTARTS}}|2|g' -e 's|{{DISK_FLOOR_GB}}|20|g' \
+      -e 's|{{LAUNCH_LINE}}|setsid nohup bash /p/run.sh --config /nr/demo/config.env --date 2026-10-05|g' \
       "$T" >"$WT/rendered.md"
   no "m rendered SUPERVISE-PROMPT.md has no '{{'" "$WT/rendered.md" "{{"
-  for p in PROJECT NIGHT_DIR BASE REPO BASE_BRANCH STATE_FILE REQUIRED_CHECK WATCH_MAX_RESTARTS DISK_FLOOR_GB; do
+  for p in PROJECT NIGHT_DIR BASE REPO BASE_BRANCH STATE_FILE REQUIRED_CHECK WATCH_MAX_RESTARTS DISK_FLOOR_GB LAUNCH_LINE; do
     yes "m template uses {{$p}}" "$T" "{{$p}}"
     yes "m SKILL.md PHASE C names {{$p}} for SUPERVISE-PROMPT.md" "$SKILL/SKILL.md" "{{$p}}"
   done
@@ -428,9 +453,10 @@ if [ -f "$T" ]; then
   # Relaunch guards that tier 0 has and launch.sh lacks (a bare --deadline rolls forward).
   yes "m relaunch also when tier 0 says DEAD (run.sh deletes watch.restarts)" "$T" "watch.status\` reads \`DEAD\`"
   yes "m relaunch refused within 600 s of deadline_epoch" "$T" "deadline_epoch\` in \`{{NIGHT_DIR}}/run.meta\` minus 600"
-  # launch.sh pins --date "<RUN_DATE>": a post-midnight relaunch continues the same night, so the
-  # guard compares launch.sh's --date with run_date, never today's date.
-  yes "m relaunch only when launch.sh's --date is the run's own run_date" "$T" "the \`--date\` value in \`{{NIGHT_DIR}}/launch.sh\` equals \`run_date\`"
+  # The relaunch line pins --date "<RUN_DATE>": a post-midnight relaunch continues the same night, so
+  # the guard compares the line's --date with run_date, never today's date.
+  yes "m relaunch only when the relaunch line's --date is the run's own run_date" "$T" "the \`--date\` value in the relaunch line above equals \`run_date\`"
+  no "m the supervisor never relaunches through launch.sh (the owner's bedtime command)" "$T" "bash {{NIGHT_DIR}}/launch.sh"
   yes "m a post-midnight relaunch is allowed" "$T" "a relaunch after local midnight continues the same night"
   no "m no today's-date guard left (it blocked every post-midnight relaunch)" "$T" "\`date +%F\` equals \`run_date\`"
   no "m no 'launch.sh passes no --date' left" "$T" "passes no \`--date\`"

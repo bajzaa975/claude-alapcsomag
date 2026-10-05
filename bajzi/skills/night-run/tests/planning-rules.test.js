@@ -91,6 +91,9 @@ test('weekly-quota risk is stated ONCE, as a risk, never as a number', () => {
   assert.strictEqual(count(SKILL, QUOTA_RISK), 1, 'quota risk sentence exactly once');
   has(SKILL, 'the runner waits out a session-limit reset, but a weekly-limit hit ends the run');
   has(SKILL, 'never as a guessed number');
+  // The supervisor keeps spending Opus ticks until one of its exit rules holds: the gate says so in the same line.
+  has(SKILL, 'the 30-minute supervisor keeps running one Opus tick per interval until the run finishes');
+  has(SKILL, 'watch.status` reads `DEAD` and both supervisor relaunches of the `run_date` are used');
 });
 
 test('BRIEF.md.tmpl §5: auth-touching diffs follow the project NIGHT-RULES; no plugin blocker', () => {
@@ -142,7 +145,7 @@ test('multi-day: launch.sh and the watcher relaunch line pin --date next to an a
 test('multi-day relaunch: SUPERVISE-PROMPT drops the bare HH:MM claim; PHASE D says how relaunch works after midnight', () => {
   assert.ok(!SUPERVISE.includes('bare `--deadline HH:MM`'), 'bare HH:MM deadline claim');
   assert.ok(!SUPERVISE.includes('TOMORROW'), 'rolls forward to TOMORROW claim');
-  has(SUPERVISE, 'launch.sh passes the absolute `YYYY-MM-DD HH:MM` deadline the gate settled');
+  has(SUPERVISE, 'the relaunch line passes the absolute `YYYY-MM-DD HH:MM` deadline the gate settled');
   const d = slice(SKILL, '## PHASE D — Approval gate', '## PHASE E — Launch');
   has(d, 'A multi-day run relaunches across midnights on the same state file: `launch.sh`, the watcher\'s `{{LAUNCH_LINE}}` and `run.args` all pin `--date <RUN_DATE>`');
 });

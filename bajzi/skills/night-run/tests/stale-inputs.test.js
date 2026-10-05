@@ -175,3 +175,19 @@ test('WATCHER-BRIEF LAUNCH_LINE is the runner-only command, not launch.sh', () =
   assert.ok(line.endsWith(' &'), 'detaches with trailing &');
   assert.ok(!line.includes('launch.sh'), 'launch.sh in the line');
 });
+
+test('SUPERVISE-PROMPT relaunches with the same runner-only LAUNCH_LINE as WATCHER-BRIEF, never launch.sh', () => {
+  const sup = read('templates', 'SUPERVISE-PROMPT.md.tmpl');
+  const watch = read('templates', 'WATCHER-BRIEF.md.tmpl');
+  const c = flat(phase('## PHASE C', '## PHASE D'));
+  const bullet = c.split('- `SUPERVISE-PROMPT.md`, rendered from')[1].split('- `BRIEF.md`, rendered from')[0];
+  has(bullet, "`{{LAUNCH_LINE}}` = the same runner-only command as WATCHER-BRIEF.md's `{{LAUNCH_LINE}}`");
+  const relaunch = flat(sup).split('- **Relaunch**')[1].split('ONLY when ALL hold')[0];
+  has(relaunch, '`{{LAUNCH_LINE}}`');
+  assert.ok(!sup.includes('bash {{NIGHT_DIR}}/launch.sh'), 'supervisor relaunch through launch.sh');
+  // Rendered with the one LAUNCH_LINE value PHASE C defines, both prompts carry the identical line.
+  const line = flat(SKILL).split('`{{LAUNCH_LINE}}` = the runner-only command (`')[1].split('`')[0];
+  const r = (t) => t.split('{{LAUNCH_LINE}}').join(line);
+  has(flat(r(sup)).split('- **Relaunch**')[1].split('ONLY when ALL hold')[0], line);
+  has(r(watch), line);
+});

@@ -6,12 +6,13 @@
 # SKILL.md ships (extracted, not copied) on the shipped template, rendered with
 # a sample BASE / NIGHT_DIR. No claude runs and nothing outside $NR_SCRATCH is
 # touched; the rendered JSON and check output go to a scratch dir it recreates.
-# Since 1.14.0 it also runs the PHASE C post-render step (extracted the same way)
+# Since 1.15.0 it also runs the PHASE C post-render step (extracted the same way)
 # and proves: repo-relative Edit/Read denies are mirrored into <NIGHT_DIR>/wt/*/
 # (MISSING WT MIRROR / WT PATH NOT DENIED when not), wt/S1/src/index.ts stays
 # editable, .env.example is never denied while .env/.env.local are, the
 # NIGHT-RULES section-7 docker choice (DOCKER RULE MISMATCH), the never-stop name parser
-# (NEVER-STOP NAME UNPARSEABLE), and the glm/worker allows.
+# (NEVER-STOP NAME UNPARSEABLE), the glm/worker allows, and the supervisor's settings file
+# (heredoc SUPSET: the night settings minus exactly this night's state-file deny).
 #
 # Usage:  bash tests/deny-run-tree.sh
 set -u
@@ -335,5 +336,25 @@ check $ok_ "NIGHT-RULES section 7 tells the owner the never-stop name format"
 # --- (D) saver-level allows --------------------------------------------------------------------
 has base allow 'Bash(glm *)' && has base allow 'Bash(worker --usage*)' && has base allow 'Bash(worker --status*)'
 check $? "the glm / worker --usage / worker --status allows are rendered"
+
+# --- (E) the supervisor's own settings: the night file minus THIS night's state-file deny ----------
+# The supervisor re-queues a story by deleting its state row, which Edit(~/night-runs/<project>/state*.txt)
+# forbids; PHASE C renders <NIGHT_DIR>/supervise.settings.json without that one rule (heredoc SUPSET).
+sed -n "/^python3 - .*supervise\.settings\.json <<'SUPSET'\$/,/^SUPSET\$/p" "$SKILL" | sed '1d;$d' >"$T/supset.py"
+[ -s "$T/supset.py" ]; check $? "SKILL.md PHASE C supervisor-settings snippet found"
+OTHER='Edit(~/night-runs/other/state*.txt)'
+render sup.json "$OTHER"
+(cd "$T" && py - sup.json "$NIGHT" supout.json <supset.py >sup.out 2>&1); check $? "the supervisor-settings snippet exits 0 on the rendered night settings"
+(cd "$T" && py - sup.json supout.json <<'PY'
+import json, sys
+a, b = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
+a["permissions"]["deny"].remove("Edit(~/night-runs/bss/state*.txt)")
+sys.exit(0 if a == b else 1)
+PY
+); check $? "supervise.settings.json = the night settings minus exactly Edit(~/night-runs/bss/state*.txt), all else identical"
+has supout deny "$OTHER"; check $? "another night dir's state deny stays in the supervisor file"
+DROP='Edit(~/night-runs/bss/state*.txt)' render nostate.json
+(cd "$T" && py - nostate.json "$NIGHT" nostateout.json <supset.py >nostate.out 2>&1); [ $? -ne 0 ]
+check $? "a night settings file without this night's state deny makes the snippet fail (nothing silently copied)"
 
 nr_summary deny-run-tree

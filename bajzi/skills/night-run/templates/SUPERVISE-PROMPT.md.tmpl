@@ -53,9 +53,12 @@ Do nothing that changes state, and log it for the next tick instead, when EITHER
   itself (`sed -i` on the link replaces it with a copy). The deleted row is re-picked only when run.sh
   walks the queue again: a later pass of the same run (it makes one only when the previous pass deferred
   a story) or the next run.sh start on the same night date (a tier-0 restart re-execs run.args, which
-  pins `--date`; so does launch.sh, with the date it was rendered for). A live runner
+  pins `--date`; so does the relaunch line below, with the date it was rendered for). A live runner
   that has already walked past the story will not re-pick it in this pass.
-- **Relaunch** with `bash {{NIGHT_DIR}}/launch.sh` ONLY when ALL hold:
+- **Relaunch** with exactly this runner-only line, the one the triage tick uses (never `launch.sh`,
+  the owner's bedtime command, which re-installs settings and writes another pre-night backup):
+  `{{LAUNCH_LINE}}`
+  ONLY when ALL hold:
   1. the flock probe says NO-RUNNER;
   2. `{{NIGHT_DIR}}/finished` is absent or holds an epoch smaller than `started_epoch` in
      `{{NIGHT_DIR}}/run.meta`; no `{{NIGHT_DIR}}/STOP` exists;
@@ -63,12 +66,11 @@ Do nothing that changes state, and log it for the next tick instead, when EITHER
      dead or its `/proc/<pid>/cmdline` does not name night-watch.sh), or `{{NIGHT_DIR}}/watch.restarts`
      has reached {{WATCH_MAX_RESTARTS}}, or `{{NIGHT_DIR}}/watch.status` reads `DEAD` (a restarted
      run.sh deletes watch.restarts, so the count alone can read 0 after the budget is spent);
-  4. `date +%s` is below `deadline_epoch` in `{{NIGHT_DIR}}/run.meta` minus 600: launch.sh passes the absolute `YYYY-MM-DD HH:MM` deadline the gate settled,
+  4. `date +%s` is below `deadline_epoch` in `{{NIGHT_DIR}}/run.meta` minus 600: the relaunch line passes the absolute `YYYY-MM-DD HH:MM` deadline the gate settled,
      so this holds on every day of a multi-day run;
-  5. the `--date` value in `{{NIGHT_DIR}}/launch.sh` equals `run_date` in `{{NIGHT_DIR}}/run.meta`
-     (`sed -n 's/.* --date "\([0-9-]*\)".*/\1/p' {{NIGHT_DIR}}/launch.sh`): launch.sh pins the night, so
-     a relaunch after local midnight continues the same night. A launch.sh without `--date`, or with
-     another date, would open another night's state file and re-run the queue, merged stories
+  5. the `--date` value in the relaunch line above equals `run_date` in `{{NIGHT_DIR}}/run.meta`:
+     the line pins the night, so a relaunch after local midnight continues the same night. A line
+     with another date would open another night's state file and re-run the queue, merged stories
      included: then log PROBLEM and leave the relaunch to the owner;
   6. the relaunch budget is not spent: `{{NIGHT_DIR}}/supervise.relaunches` holds one line
      `<run_date> <ISO time>` per supervisor relaunch;
