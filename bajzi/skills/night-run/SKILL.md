@@ -7,7 +7,8 @@ description: Plan an unattended multi-hour overnight autopilot run for one proje
 
 The full design is in `docs/superpowers/specs/2026-09-18-night-run-design.md` of this
 plugin repo. READ IT when a detail here is not enough: this file is the procedure, the spec
-is the reasoning, and where they disagree the spec wins. You never start the runner (PHASE
+is the reasoning, and where they disagree the spec wins, EXCEPT the PHASE B-D planning rules
+(restrictions asked once, deadline and run length), where this file wins. You never start the runner (PHASE
 E) and you never edit `run.sh` or the templates per project — everything project-specific
 goes into generated files under `~/night-runs/<project>/`.
 
@@ -22,12 +23,12 @@ goes into generated files under `~/night-runs/<project>/`.
                      is invalid, a BLOCKER at the PHASE D gate ("run /bajzi:setup"), never a
                      guessed id. It sets ONLY the per-story orchestrator — the review-and-fix
                      loop's reviewer is ALWAYS a model on that allow-list.
-    hours:<n>        Queue budget in hours, default 8. It SIZES the queue, and PHASE E's
-                     `--deadline` — the hard stop — is DERIVED from it: launch time plus
-                     `hours:`. They are one number, never two. The plan's total estimate
-                     decides whether one night is enough; a multi-day deadline
-                     (`YYYY-MM-DD HH:MM`, which `run.sh` accepts) is the owner's choice at
-                     the PHASE D gate.
+    hours:<n>        One night's queue budget in hours, default 8. "One night" in this file
+                     means `hours:` hours from launch. When the plan's total estimate fits
+                     in one night, PHASE E's `--deadline` — the hard stop — is launch time
+                     plus the queued estimate; when it does not, the owner chooses at the
+                     PHASE D gate between a one-night queue and a multi-day deadline
+                     (`YYYY-MM-DD HH:MM`, which `run.sh` accepts) that covers it.
     status           Bare mode: read-only health check (below). Changes nothing.
     report           Bare mode: PHASE F, the morning follow-through (spec section 5).
 
@@ -438,8 +439,8 @@ table and ask the owner ONCE:
 `defer`. One table with every row, one question — never one question per story, never a
 second round. When no candidate is restricted there is no question; say "no restricted
 candidates" at the gate. The owner's answer per row is RECORDED: PHASE D item 3 quotes it
-next to every deferral, and that quote is what the PHASE D refusal checks. This rule
-supersedes the design spec's PHASE B "subtract" line and its PHASE D "only question" line.
+next to every deferral, and that quote is what the PHASE D refusal checks. The design spec
+states the same rule in its PHASE B and PHASE D.
 
 - **Items gated only by an advisor's confirmation are BUILT**, with the card/spec default as
   a config value the advisor can change later; recommend `build with the spec default as
@@ -463,7 +464,8 @@ story slot a real backlog item needed. Do not scan for them.
   skipped FORWARD, never reordered upwards.
 - **File-disjoint neighbours**, so consecutive stories do not fight over the same files.
 - **Budget.** `S = 1 h · M = 2 h · L = 3 h · unsized = M` — observed session cost, not ideal
-  effort. Queue until `hours:` is spent; `PER_STORY_TIMEOUT` stays the hard per-story cap.
+  effort. A one-night queue stops when `hours:` is spent, a multi-day one when the deadline
+  the owner chose at the gate is; `PER_STORY_TIMEOUT` stays the hard per-story cap.
 - **Deferred items are listed WITH their reason** (budget, dependency, or a restriction the
   owner answered `defer` in the PHASE B table, quoting that answer). Never drop an item
   silently, and never defer one for a NIGHT-RULES restriction or a pending outside answer
@@ -947,7 +949,8 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    REFUSES a plan that defers a story for a NIGHT-RULES restriction or a pending outside
    answer without the owner's recorded answer (`UNASKED DEFERRAL: <story> — <restriction>`): go back to the PHASE B table and ask, do
    not show an approval question. No "parked for owner" or "waiting on external answer" list
-   is shown here; 4. every blocker PHASE A found;
+   is shown here. When PHASE B found no restricted candidate, say "no restricted candidates";
+4. every blocker PHASE A found;
 5. one line that the PHASE C render gate came back clean: no leftover `{{placeholder}}` in
    `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
    `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:`, no `DENY COVERS RUN TREE:`, no `MISSING WT MIRROR:`, no
@@ -973,7 +976,10 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    `WATCH_MAX_RESTARTS` value written for that run length, and ONCE, as a risk: a multi-day
    run can exhaust the weekly Claude quota; the runner waits out a session-limit reset, but a
    weekly-limit hit ends the run and leaves its rows `DEFERRED-quota-weekly` (PHASE F).
-   State that risk as a risk, never as a guessed number. Any change at the gate to the
+   State that risk as a risk, never as a guessed number. A multi-day run relaunches across
+   midnights on the same state file: `launch.sh`, the watcher's `{{LAUNCH_LINE}}` and
+   `run.args` all pin `--date <RUN_DATE>` (the first night's date), and the supervisor's
+   relaunch checks the absolute `deadline_epoch`, not the current date. Any change at the gate to the
    deadline or to the queue goes back to PHASE C: rewrite `WATCH_MAX_RESTARTS`, re-render everything PHASE C renders (`queue.txt`,
    `BRIEF.md`, `launch.sh`, `WATCHER-BRIEF.md`, `SUPERVISE-PROMPT.md`, the settings
    post-render step) with its checks, then show the whole gate again before PHASE E.

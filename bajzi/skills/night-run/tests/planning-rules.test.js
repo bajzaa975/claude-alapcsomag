@@ -16,6 +16,9 @@ const SKILL = flat(read('SKILL.md'));
 const BRIEF = flat(read('templates', 'BRIEF.md.tmpl'));
 const CONFIG = flat(read('templates', 'config.env.tmpl'));
 const RULES = flat(read('templates', 'NIGHT-RULES.md.tmpl'));
+const SUPERVISE = flat(read('templates', 'SUPERVISE-PROMPT.md.tmpl'));
+const LAUNCH = read('templates', 'launch.sh.tmpl');
+const DESIGN = flat(read('..', '..', '..', 'docs', 'superpowers', 'specs', '2026-09-18-night-run-design.md'));
 const has = (hay, phrase) => assert.ok(hay.includes(phrase), `missing: ${phrase}`);
 const slice = (hay, from, to) => {
   const a = hay.indexOf(from), b = hay.indexOf(to, a + 1);
@@ -34,7 +37,7 @@ test('PHASE B: restrictions are asked ONCE in ONE table, before the queue is dra
   has(b, '| story | restriction | source line | recommendation |');
   has(b, '`build`, `build with the spec default as config` or `defer`');
   has(b, 'never one question per story, never a second round');
-  has(b, 'This rule supersedes the design spec\'s PHASE B "subtract" line and its PHASE D "only question" line');
+  has(b, 'The design spec states the same rule in its PHASE B and PHASE D.');
   assert.ok(!b.includes('Then SUBTRACT everything'), 'the silent NIGHT-RULES subtraction is gone');
   // the table comes before PHASE C drafts the queue
   assert.ok(SKILL.indexOf('| story | restriction | source line | recommendation |') < SKILL.indexOf('## PHASE C — Plan'));
@@ -92,7 +95,7 @@ test('weekly-quota risk is stated ONCE, as a risk, never as a number', () => {
 
 test('BRIEF.md.tmpl §5: auth-touching diffs follow the project NIGHT-RULES; no plugin blocker', () => {
   const s5 = slice(BRIEF, '## 5. Merge gate', '## 6. Project rules');
-  has(s5, 'Auth-touching diffs follow the project\'s NIGHT-RULES (sections 2 and 6) like any other change; no plugin rule makes them a blocker.');
+  has(s5, 'Auth-touching diffs follow the project\'s NIGHT-RULES (its section 2 Forbidden stories and section 3 Forbidden paths) like any other change; no plugin rule makes them a blocker.');
   assert.ok(!BRIEF.includes('{{AUTH'), 'no new placeholder');
 });
 
@@ -100,4 +103,51 @@ test('NIGHT-RULES.md.tmpl §2 no longer seeds an owner-decision deferral', () =>
   const s2 = slice(RULES, '## 2. Forbidden stories', '## 3. Forbidden paths');
   assert.ok(!s2.includes('needs a decision only the owner can take'));
   has(s2, 'asked ONCE at planning');
+});
+
+test('precedence: SKILL.md names the planning rules as the exception to "the spec wins"; the design doc agrees', () => {
+  has(SKILL, 'where they disagree the spec wins, EXCEPT the PHASE B-D planning rules (restrictions asked once, deadline and run length), where this file wins');
+  assert.ok(!DESIGN.includes('Then subtract everything'), 'design doc still subtracts silently');
+  assert.ok(!DESIGN.includes('the only question the skill asks'), 'design doc gate is still the only question');
+  has(DESIGN, 'asks the owner ONCE');
+});
+
+test('hours: defines one night; no "launch plus hours:" deadline, no "Queue until hours: is spent"', () => {
+  const args = slice(SKILL, '## Arguments', '## Review loop');
+  assert.ok(!args.includes('one number, never two'), 'hours: and deadline still one number');
+  assert.ok(!args.includes('launch time plus `hours:`'), 'deadline still launch plus hours:');
+  has(args, '"One night" in this file means `hours:` hours from launch');
+  assert.ok(!SKILL.includes('Queue until `hours:` is spent'), 'PHASE C budget still ignores multi-day');
+});
+
+test('BRIEF §5 auth sentence cites NIGHT-RULES sections that ARE forbidden stories / forbidden paths', () => {
+  const s5 = slice(BRIEF, '## 5. Merge gate', '## 6. Project rules');
+  const sent = s5.slice(s5.indexOf('Auth-touching diffs'));
+  const nums = sent.slice(sent.indexOf('('), sent.indexOf(')')).match(/\d+/g) || [];
+  assert.ok(nums.length > 0, 'no section cited');
+  for (const n of nums) {
+    const at = RULES.indexOf(`## ${n}. `);
+    assert.ok(at >= 0, `NIGHT-RULES has no section ${n}`);
+    const head = RULES.slice(at, at + 40);
+    assert.ok(/^## \d+\. Forbidden (stories|paths)/.test(head), `NIGHT-RULES section ${n} is "${head}"`);
+  }
+});
+
+test('multi-day: launch.sh and the watcher relaunch line pin --date next to an absolute deadline', () => {
+  const out = LAUNCH.split('{{DEADLINE}}').join('2026-10-07 05:30').split('{{RUN_DATE}}').join('2026-10-04');
+  has(out, '--deadline "2026-10-07 05:30" --date "2026-10-04"');
+  has(SKILL, '--deadline "<DEADLINE>" --date "<RUN_DATE>"');
+});
+
+test('multi-day relaunch: SUPERVISE-PROMPT drops the bare HH:MM claim; PHASE D says how relaunch works after midnight', () => {
+  assert.ok(!SUPERVISE.includes('bare `--deadline HH:MM`'), 'bare HH:MM deadline claim');
+  assert.ok(!SUPERVISE.includes('TOMORROW'), 'rolls forward to TOMORROW claim');
+  has(SUPERVISE, 'launch.sh passes the absolute `YYYY-MM-DD HH:MM` deadline the gate settled');
+  const d = slice(SKILL, '## PHASE D — Approval gate', '## PHASE E — Launch');
+  has(d, 'A multi-day run relaunches across midnights on the same state file: `launch.sh`, the watcher\'s `{{LAUNCH_LINE}}` and `run.args` all pin `--date <RUN_DATE>`');
+});
+
+test('PHASE D carries the "no restricted candidates" line', () => {
+  const d = slice(SKILL, '## PHASE D — Approval gate', '## PHASE E — Launch');
+  has(d, 'no restricted candidates');
 });
