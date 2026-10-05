@@ -239,10 +239,17 @@ case "$DISK_FLOOR_GB"     in *[!0-9]*) echo "run.sh: DISK_FLOOR_GB must be a who
 : "${QUOTA_MAX_WAITS:=3}"             # bounded: a run never waits more times than this
 : "${QUOTA_FALLBACK_WAIT_SEC:=1800}"  # used when the reset time cannot be parsed
 : "${QUOTA_MAX_WAIT_SEC:=21600}"      # 6 h: no SINGLE quota wait may be longer
-for v in WATCH_INTERVAL WATCH_MAX_RESTARTS QUOTA_MARGIN_SEC QUOTA_MAX_WAITS QUOTA_FALLBACK_WAIT_SEC QUOTA_MAX_WAIT_SEC; do
+: "${SUPERVISE:=1}"                   # 1 = spawn supervise.sh (30-minute fresh-session supervisor); 0 = off
+: "${SUPERVISE_INTERVAL:=1800}"       # seconds between supervisor ticks (it sleeps first)
+: "${SUPERVISE_TICK_TIMEOUT:=1500}"   # hard cap of one supervisor tick; must be < SUPERVISE_INTERVAL
+for v in WATCH_INTERVAL WATCH_MAX_RESTARTS QUOTA_MARGIN_SEC QUOTA_MAX_WAITS QUOTA_FALLBACK_WAIT_SEC QUOTA_MAX_WAIT_SEC SUPERVISE_INTERVAL SUPERVISE_TICK_TIMEOUT; do
   eval "val=\${$v}"
   case "$val" in ""|*[!0-9]*) echo "run.sh: $v must be a whole number, got '$val'" >&2; exit 2;; esac
 done
+case "$SUPERVISE" in 0|1) :;; *) echo "run.sh: SUPERVISE must be 0 or 1, got '$SUPERVISE'" >&2; exit 2;; esac
+[ "$SUPERVISE_TICK_TIMEOUT" -ge 1 ] || { echo "run.sh: SUPERVISE_TICK_TIMEOUT must be at least 1 second, got '$SUPERVISE_TICK_TIMEOUT'" >&2; exit 2; }
+[ "$SUPERVISE_TICK_TIMEOUT" -lt "$SUPERVISE_INTERVAL" ] || {
+  echo "run.sh: SUPERVISE_TICK_TIMEOUT ($SUPERVISE_TICK_TIMEOUT) must be less than SUPERVISE_INTERVAL ($SUPERVISE_INTERVAL)" >&2; exit 2; }
 # Optional, has a default: the bounded CI wait handed to every story session.
 # It has a floor because 0 parks every story on its first CI poll.
 CI_WAIT_MINUTES=${CI_WAIT_MINUTES:-45}
@@ -1252,6 +1259,25 @@ spawn_watcher(){
   log "watcher started (pid $!, interval ${WATCH_INTERVAL}s, max restarts $WATCH_MAX_RESTARTS, log $NIGHT_DIR/watch.log)"
   return 0
 }
+# The 30-minute supervisor (supervise.sh): a fresh headless session per tick that checks the LIVE
+# story, where the triage tick only wakes on a terminal row. Same detached spawn as the watcher, and
+# just as unable to fail the run. A tier-0 restart re-runs this: supervise.sh's single-instance
+# check (supervise.pid) makes the second spawn exit at once, never a second loop.
+spawn_supervisor(){
+  local s=$SKILL_DIR/supervise.sh
+  if [ "$SUPERVISE" = 0 ]; then
+    log "supervisor disabled (SUPERVISE=0)"
+    return 0
+  fi
+  if [ -z "$SKILL_DIR" ] || [ ! -f "$s" ]; then
+    log "WARN no supervisor: $s does not exist"
+    return 0
+  fi
+  mkdir -p "$LOGS" 2>/dev/null
+  ( exec 9>&-; exec "$SETSID" bash "$s" --config "$CONFIG" ) </dev/null >>"$LOGS/supervise.out" 2>&1 &
+  log "supervisor started (pid $!, interval ${SUPERVISE_INTERVAL}s, tick timeout ${SUPERVISE_TICK_TIMEOUT}s, log $NIGHT_DIR/supervisor.log)"
+  return 0
+}
 
 # ----------------------------------------------------------------- modes -----
 if [ $REPORT_ONLY -eq 1 ]; then
@@ -1297,6 +1323,7 @@ if [ $DRY -eq 0 ]; then
   acquire_lock
   publish_run_inputs
   spawn_watcher
+  spawn_supervisor
   disk_ok || { log "REFUSING to start: free disk $(free_gb_or_unknown)G is below DISK_FLOOR_GB=${DISK_FLOOR_GB}G (or could not be read)"; exit 4; }
 fi
 

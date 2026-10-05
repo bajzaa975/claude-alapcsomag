@@ -104,7 +104,7 @@
       "Verify .gsd-surface.json still has ALL FOUR keys (baseProfile, disabledClusters, explicitAdds, explicitRemoves) — a missing key is silently ignored and restores all 72 skills.",
       "Move aside any skill dir that duplicates a slash command (1.14 installs 46 over 46; ~+1,110 tokens for nothing). Verified safe: 42/46 commands load their workflow from gsd-core/workflows, not from the skill dir.",
       "Agents: move ONLY the ui cluster's three (gsd-ui-auditor, gsd-ui-checker, gsd-ui-researcher). The other 26 are dispatched by kept commands — KEEP them (owner decision 2026-09-15).",
-      "Restore our permissions.deny (Read(.env), Read(.env.*), Read(.secrets)) — GSD 1.14 removes that block in favour of its own secret-read-guard hook.",
+      "Restore our permissions.deny (Read(.env), Read(.env.local), Read(.env.*.local), Read(.env.production*), Read(.env.development*), Read(.env.test*), Read(.env.staging*), Read(.secrets)) — GSD 1.14 removes that block in favour of its own secret-read-guard hook. The env denies are explicit names, not .env.* (owner decision 2026-10-03): .env.* also blocks the tracked .env.example, and .env.[!e]* was measured inverted on Claude Code 2.1.288 (it denied .env.example and allowed .env.local). The ceiling is that any other env name (.env.e2e) is not denied. bajzi's secret-guard hook keeps its own exact allow-list.",
       "Re-measure. Expected: 9 skills (~248) + 46 commands (~1,264) + 26 agents (~1,507) = ~3,019 always-on tokens."
     ],
     "agent_layer": "1.14 stages 29 agents (~1,648 tok always-on); 1.12 staged ZERO, which meant every agent-dispatching GSD command was spawning a non-existent agent. Keeping 26 is the owner's explicit decision: cutting them saves ~910 tok and breaks code-review, debug, ship, secure-phase, eval-review, ai-integration-phase, validate-phase, audit-milestone, profile-user.",
@@ -193,7 +193,12 @@
       "defaultMode": "auto",
       "deny": [
         "Read(.env)",
-        "Read(.env.*)",
+        "Read(.env.local)",
+        "Read(.env.*.local)",
+        "Read(.env.production*)",
+        "Read(.env.development*)",
+        "Read(.env.test*)",
+        "Read(.env.staging*)",
         "Read(.secrets)"
       ]
     },
@@ -384,6 +389,10 @@
       "gsd-",
       ".planning/",
       "claude-mem"
+    ],
+    "deny_rules": [
+      { "rule": "Read(.env.*)", "why": "too broad: it also blocks the tracked .env.example. settings_merge now denies the explicit env names (.env.local, .env.*.local, .env.production*, .env.development*, .env.test*, .env.staging*); remove this rule from ~/.claude/settings.json permissions.deny" },
+      { "rule": "Edit(.env.*)", "why": "too broad: it also blocks the tracked .env.example. settings_merge now denies the explicit env names (.env.local, .env.*.local, .env.production*, .env.development*, .env.test*, .env.staging*); remove this rule from ~/.claude/settings.json permissions.deny" }
     ]
   }
 }

@@ -175,3 +175,7 @@ test('only tick-written FIXED / FIXING lines count, never tier 0 echoes (peer co
   has(d, "Lines starting with `[HH:MM:SS] watch:` are tier 0's echoes (they can contain \"TICK FIXED\") and never count.");
   assert.ok(d.indexOf('A FIXED / FIXING line is one a tick wrote itself') < d.indexOf('fewer than 2'), 'definition before the budget check');
 });
+
+test('permission-rule additions belong to the 30-minute supervisor, not the triage tick', () => {
+  has(TEXT, 'Permission-rule (allowlist) additions are handled by the 30-minute supervisor (supervise.sh), not by the triage tick: log the denial and leave settings alone.');
+});

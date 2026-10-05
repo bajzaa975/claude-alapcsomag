@@ -7,7 +7,8 @@ description: Plan an unattended multi-hour overnight autopilot run for one proje
 
 The full design is in `docs/superpowers/specs/2026-09-18-night-run-design.md` of this
 plugin repo. READ IT when a detail here is not enough: this file is the procedure, the spec
-is the reasoning, and where they disagree the spec wins. You never start the runner (PHASE
+is the reasoning, and where they disagree the spec wins, EXCEPT the PHASE B-D planning rules
+(restrictions asked once, deadline and run length), where this file wins. You never start the runner (PHASE
 E) and you never edit `run.sh` or the templates per project — everything project-specific
 goes into generated files under `~/night-runs/<project>/`.
 
@@ -22,9 +23,12 @@ goes into generated files under `~/night-runs/<project>/`.
                      is invalid, a BLOCKER at the PHASE D gate ("run /bajzi:setup"), never a
                      guessed id. It sets ONLY the per-story orchestrator — the review-and-fix
                      loop's reviewer is ALWAYS a model on that allow-list.
-    hours:<n>        Queue budget in hours, default 8. It SIZES the queue, and PHASE E's
-                     `--deadline` — the hard stop — is DERIVED from it: launch time plus
-                     `hours:`, capped at 07:30. They are one number, never two.
+    hours:<n>        One night's queue budget in hours, default 8. "One night" in this file
+                     means `hours:` hours from launch. When the plan's total estimate fits
+                     in one night, PHASE E's `--deadline` — the hard stop — is launch time
+                     plus the queued estimate; when it does not, the owner chooses at the
+                     PHASE D gate between a one-night queue and a multi-day deadline
+                     (`YYYY-MM-DD HH:MM`, which `run.sh` accepts) that covers it.
     status           Bare mode: read-only health check (below). Changes nothing.
     report           Bare mode: PHASE F, the morning follow-through (spec section 5).
 
@@ -53,7 +57,7 @@ paths. A reviewer that cannot say WHICH path refused has not verified that test.
 
 ## PHASE A — Preflight
 
-Run all of it before planning anything, and run step 0 FIRST — steps 3, 4 and 5, and the
+Run all of it before planning anything, and run step 0 FIRST — steps 3, 4, 5 and 8, and the
 whole of PHASE C, read values out of `config.env`, so it has to exist and be checked before
 anything reads it. Exactly two findings STOP the skill on the spot, because nothing past
 them is worth planning: a live runner FOR THIS PROJECT (steps 1-2) and a missing
@@ -101,6 +105,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
 
    - `WATCH_INTERVAL` (900) — seconds between watchdog ticks; `0` turns the watchdog off.
    - `WATCH_MAX_RESTARTS` (2) — how many times the watchdog may restart a dead runner.
+     PHASE C writes it for each run's length (`Deadline and run length` there).
    - `WATCH_NOTIFY_CMD` (none) — a command called with ONE argument, the message.
    - `QUOTA_MARGIN_SEC` (180) — seconds added to the announced usage-limit reset before a
      session is launched again; `run.sh` applies it once, when it writes `quota-until`.
@@ -194,17 +199,208 @@ only where the `owner/name` value is wanted. There is no third spelling.
 
    ```bash
    /usr/bin/git -C "<BASE>" fetch origin --prune
-   /usr/bin/git -C "<BASE>" rev-list --left-right --count <BASE_BRANCH>...origin/<BASE_BRANCH>
    ```
 
-   A non-zero right-hand count (the base branch is behind its remote) is a gate blocker.
+   There is no "local `<BASE_BRANCH>` is behind its remote" check: BASE is moved onto a
+   `night/base-*` branch cut from `origin/<BASE_BRANCH>` below and the local `<BASE_BRANCH>`
+   is never advanced, so that count would only grow. What keeps the render honest is the
+   `render-base.sha` / `ls-remote` check at PHASE D.
+
+   **Fresh BASE — nothing is rendered from a stale tree.** `BASE` is a long-lived checkout
+   that still holds whatever an earlier night left on it, and `docs/NIGHT-RULES.md`, the
+   section-3 and section-7 rulings and every other value read from BASE's files come from
+   THAT tree. So, in THIS phase (an earlier fetch, from another session or an earlier phase,
+   does not count), fetch the base branch again and move BASE onto a NEW branch cut from it:
+
+   ```bash
+   /usr/bin/git -C "<BASE>" fetch origin <BASE_BRANCH>
+   /usr/bin/git -C "<BASE>" status --porcelain --untracked-files=no
+   ```
+
+   Any line from `status` means BASE's tracked tree is dirty: BLOCKER `BASE tracked tree is
+   dirty: <the lines>`, carried to the gate. Do NOT move BASE, do NOT stash, reset or clean
+   it, and plan nothing that reads BASE's files. A clean tree continues (steps 1-2 already
+   proved no runner of this project is alive, so nothing is working in it):
+
+   ```bash
+   STAMP=$(date +%Y-%m-%d-%H%M)
+   /usr/bin/git -C "<BASE>" checkout --no-track -b "night/base-$STAMP" "origin/<BASE_BRANCH>" || echo "BLOCKER: checkout failed"
+   # earlier night/base-* branches are no longer checked out now: delete them, same step
+   /usr/bin/git -C "<BASE>" for-each-ref --format='%(refname:short)' 'refs/heads/night/base-*' | while read -r b; do [ "$b" = "night/base-$STAMP" ] || /usr/bin/git -C "<BASE>" branch -D "$b"; done
+   /usr/bin/git -C "<BASE>" rev-parse "origin/<BASE_BRANCH>" > "<NIGHT_DIR>/render-base.sha"
+   cat "<NIGHT_DIR>/render-base.sha"
+   ```
+
+   A failing `checkout` is a BLOCKER too (same rule: plan nothing from BASE). The SHA in
+   `render-base.sha` is the `origin/<BASE_BRANCH>` the render uses; PHASE D prints it. This
+   branch is the ONLY thing this skill ever switches BASE to; `<BASE_BRANCH>` itself is never
+   checked out, committed to or pushed. Steps 6-8 and the whole of PHASE C read BASE's files
+   only after this point. (The BASE rules above are unchanged: `BASE` comes from `config.env`
+   and is never a deployed tree or a `REPO` coordinate.)
 4. **Disk.** `df -BG --output=avail "<BASE>" | tail -1` must be at or above `DISK_FLOOR_GB`
    from `config.env` — the build cache has filled this VM's root twice.
 5. **Is the base branch red?** The latest `REQUIRED_CHECK` run on the base branch:
    `gh run list -R <REPO> --branch <BASE_BRANCH> --limit 3 --json name,conclusion,event`.
    Red = the top blocker; do not queue filler work around a red base.
+
+   **Is `REQUIRED_CHECK` the name the night matches?** The night compares `REQUIRED_CHECK`
+   with the NAME OF THE WORKFLOW RUN as `gh run list` shows it (the workflow file's `name:`,
+   e.g. `CI`), read from a `pull_request`-event run (`run.sh` puts the value into the per-story
+   prompt and BRIEF section 5.1 reads runs with `gh run list ... --json ...`; neither ever
+   looks at branch protection). The branch-protection check or job name (e.g. `ci`) is a
+   different string and does NOT match. Look at what `gh` prints for this repo:
+
+   ```bash
+   gh run list -R "<REPO>" --event pull_request --limit 10 --json workflowName,name --jq '.[].workflowName' | sort -u
+   ```
+
+   The configured value must appear in that output as a whole line:
+
+   ```bash
+   set -a; . ~/night-runs/<project>/config.env; set +a
+   gh run list -R "<REPO>" --event pull_request --limit 10 --json workflowName,name --jq '.[].workflowName' | /usr/bin/grep -qxF -- "$REQUIRED_CHECK" \
+     || echo "BLOCKER: REQUIRED_CHECK '$REQUIRED_CHECK' is not a workflow run name; gh shows: $(gh run list -R "<REPO>" --event pull_request --limit 10 --json workflowName --jq '.[].workflowName' | sort -u | tr '\n' ',')"
+   ```
+
+   A line of output is a gate BLOCKER carrying the value(s) found; never "fix" the config
+   value yourself from a guess. (`gh run list -R <REPO> --limit 3 --json workflowName,name`
+   is the plain form of the command, as documented in `config.env.tmpl` and NIGHT-RULES
+   section 5.) A repo with no `pull_request` run yet cannot prove the name: carry that as a
+   BLOCKER too, naming the value you could not verify.
 6. **`docs/NIGHT-RULES.md` gate.** Missing in the project repo → copy
    `templates/NIGHT-RULES.md.tmpl` there, show the owner that it needs their rulings, STOP.
+7. **User-level env denies.** Every new env var a story adds must reach the tracked
+   `.env.example`, so a user-level deny that covers it breaks the night. Check
+   `~/.claude/settings.json` and `~/.claude/settings.local.json` `permissions.deny` for a
+   `Read(...)`/`Edit(...)` rule whose glob also matches `.env.example`: it ends in `.env*`,
+   `.env.*` or `.env.**` (with or without a `**/` prefix),
+   and for any rule using a bracket class on an env name (`.env.[!e]*`, `.env.[^e]*`):
+   measured 2026-10-03 on Claude Code 2.1.288, the real matcher does NOT read `[!e]` as
+   negation, so `Read(.env.[!e]*)` ALLOWS `.env.local` and DENIES `.env.example` (the
+   `_comment_env` key of `templates/settings.local.json.tmpl`). Write the script below to
+   `<NIGHT_DIR>/user-deny-check.js` with the Write tool (a Bash command whose text names an env
+   file is refused by bajzi's secret guard), then run `node "<NIGHT_DIR>/user-deny-check.js"`:
+
+   ```js
+   // user-deny-check.js - PHASE A step 7. Reads ~/.claude/settings.json and settings.local.json only.
+   const fs = require('fs'), os = require('os'), path = require('path');
+   // The explicit env-name list of templates/settings.local.json.tmpl and setup/manifest.json.
+   const NAMES = ['.env', '.env.local', '.env.*.local', '.env.production*', '.env.development*', '.env.test*', '.env.staging*'];
+   for (const f of ['settings.json', 'settings.local.json']) {
+     const p = path.join(os.homedir(), '.claude', f);
+     let raw;
+     try { raw = fs.readFileSync(p, 'utf8').replace(/^﻿/, ''); } catch { continue; }   // missing: nothing to check
+     let rules;
+     try { rules = ((JSON.parse(raw) || {}).permissions || {}).deny; }
+     catch (e) { console.log(`USER SETTINGS NOT PARSED: ${p}: ${e.message}`); continue; }
+     for (const rule of Array.isArray(rules) ? rules : []) {
+       const m = /^(\w+)\((.*)\)$/.exec(String(rule));
+       if (!m) continue;
+       const [, kind, glob] = m;
+       const list = NAMES.map((n) => `${kind}(${glob.slice(0, glob.lastIndexOf('.env'))}${n})`).join(', ');
+       if (/^(Read|Edit)$/.test(kind) && /(^|\/)\.env\.?\*+$/.test(glob)) console.log(`USER DENY BLOCKS .env.example: ${rule} -> replace it with ${list}`);
+       else if (/\.env[^/]*\[/.test(glob)) console.log(`USER DENY INVERTED: ${rule} -> replace it with ${list}`);
+     }
+   }
+   ```
+
+   Every `USER DENY BLOCKS .env.example: <rule> -> replace it with <explicit list>` and every
+   `USER DENY INVERTED: <rule> -> replace it with <explicit list>` line is a BLOCKER, carried
+   verbatim: `<explicit list>` is the explicit env-name list, same Read/Edit kind and same
+   prefix as the hit. `USER SETTINGS NOT PARSED: <file>: <error>` is reported at the gate, not
+   fatal; the other file is still checked. Never recommend a bracket class. Never edit the
+   user's settings yourself; the owner does.
+8. **Saver level: GLM preflight, only at L1-L3.** Resolve the level with the resolver the bajzi
+   hooks share (`CC_WORKER_MODE`, else `~/.claude/worker-mode`, forced to `tight` on a
+   non-Anthropic `ANTHROPIC_BASE_URL`):
+
+   ```bash
+   . "${CLAUDE_PLUGIN_ROOT}/hooks/lib-saver-level.sh"; saver_resolve "<BASE>"
+   case "$SAVER_LEVEL" in light|glm|tight) echo "SAVER $SAVER_LEVEL: run step 8" ;; *) echo "SAVER L0 ($SAVER_LEVEL): skip step 8" ;; esac
+   ```
+
+   At L0 nothing in this step runs (an unknown word counts as L0, as in `day-run-mode.sh`). At
+   L1-L3 (`light`/`glm`/`tight`) the night dispatches work to `glm`, so prove it can work:
+
+   **(a) Launchers.** Any line is a BLOCKER with the fix
+   `bash "${CLAUDE_PLUGIN_ROOT}/bin/install.sh"` (print it with the plugin root resolved);
+   (b) and (c) wait until it is fixed.
+
+   ```bash
+   for c in glm worker; do command -v "$c" >/dev/null || echo "BLOCKER: $c not on PATH"; done
+   ```
+
+   **(b) Z.ai key.**
+
+   ```bash
+   worker --status | grep -Eq '^ZAI_API_KEY[[:space:]]+found' && echo "ZAI KEY FOUND" || echo "ZAI KEY MISSING"
+   ```
+
+   `ZAI KEY MISSING`: render `templates/set-zai-key.sh.tmpl` to `<NIGHT_DIR>/set-zai-key.sh`
+   (`{{NIGHT_DIR}}` = the absolute `NIGHT_DIR`, nothing else) and carry a BLOCKER with the
+   owner's exact command, `bash <NIGHT_DIR>/set-zai-key.sh`, typed in a plain bash terminal on
+   the night machine (it prompts for the key, so not the Claude Code prompt). It takes
+   `read-secret.sh` from the newest bajzi-infra copy in the plugin cache, else
+   `<NIGHT_DIR>/read-secret.sh`; atomically replaces only the `ZAI_API_KEY` line of
+   `~/.claude/cc-router.env` (mode 600), keeping every other line; prints the level
+   and key lines of `worker --status`; never changes the saver level; a re-run replaces the
+   key. Never ask for the key in chat. (c) waits until the owner reports it done.
+
+   **(c) GLM smoke, exactly as the night dispatches GLM.** GLM is ~10x slower than Sonnet, so
+   the smoke takes minutes. `<date>` is today, `YYYY-MM-DD`. Set up a throwaway worktree from
+   the freshly fetched base (a leftover from an earlier smoke is removed first, registered or
+   not, with or without its directory):
+
+   ```bash
+   /usr/bin/git -C "<BASE>" fetch origin --prune
+   /usr/bin/git -C "<BASE>" worktree remove --force "<NIGHT_DIR>/wt/SMOKE-GLM" 2>/dev/null
+   rm -rf "<NIGHT_DIR>/wt/SMOKE-GLM"
+   /usr/bin/git -C "<BASE>" worktree prune
+   /usr/bin/git -C "<BASE>" branch -D night/smoke-glm-<date> 2>/dev/null
+   /usr/bin/git -C "<BASE>" worktree add -b night/smoke-glm-<date> "<NIGHT_DIR>/wt/SMOKE-GLM" origin/<BASE_BRANCH>
+   mkdir -p "<NIGHT_DIR>/logs"
+   ```
+
+   With the Write tool (the secret guard refuses a Bash command naming the file), create
+   `<NIGHT_DIR>/wt/SMOKE-GLM/.env` holding exactly `SMOKE_DUMMY=1`: a dummy, no secret, so the
+   prompt's read probes a real file. A refused Write is a BLOCKER naming that file. Render
+   `templates/GLM-SMOKE-PROMPT.md.tmpl` to `<NIGHT_DIR>/GLM-SMOKE-PROMPT.md` (Write tool):
+   `{{WORKTREE}}` = `<NIGHT_DIR>/wt/SMOKE-GLM`; `{{INSTALL_CMD}}`, `{{TYPECHECK_CMD}}`,
+   `{{TEST_CMD}}` = the repo's commands from NIGHT-RULES section 5 (CI facts) or 6, else from
+   the workflow that runs `REQUIRED_CHECK`, naming the source of each (no typecheck in CI =
+   `echo "no typecheck in CI"`; an install or test command you cannot resolve is a BLOCKER and
+   the smoke does not run); `{{DOCKER_STEP}}` = ``8. Run `docker ps` and report whether it
+   listed containers.`` only when NIGHT-RULES section 7 says `docker: allowed, container prefix
+   <prefix>`, else an empty line (the step is omitted). No `{{` may be left.
+
+   Run it with cwd = the worktree and NO permission flags: the GLM child gets the owner's
+   default mode, not the night allowlist, and the smoke is what proves it can work there. It
+   may take up to 25 minutes, longer than a foreground Bash call may run: start it in the Bash
+   tool's background mode, wait for its exit, and stop it only by the PID you started.
+
+   ```bash
+   cd "<NIGHT_DIR>/wt/SMOKE-GLM" && timeout 1500 glm -p "$(cat "<NIGHT_DIR>/GLM-SMOKE-PROMPT.md")" --output-format json > "<NIGHT_DIR>/logs/glm-smoke.json" 2> "<NIGHT_DIR>/logs/glm-smoke.err"; echo "exit=$?"
+   node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).result || "")' "<NIGHT_DIR>/logs/glm-smoke.json"
+   ```
+
+   **Pass** = exit 0 AND a `STEP <n>: OK` line for every step 1-6 (and 8 when the docker step
+   was rendered) AND `STEP 7: DENIED` AND `SMOKE_DUMMY` nowhere in the reply (it only appears
+   when the read succeeded). Anything else is a BLOCKER `GLM SMOKE FAILED: <every STEP line
+   that is not OK, verbatim>`: a missing STEP line counts as not OK, and `STEP 7: READ` or a
+   `SMOKE_DUMMY` sighting means the GLM child can read secrets. A non-zero exit is a BLOCKER
+   `GLM SMOKE FAILED: exit=<n>` plus the last lines of `glm-smoke.err`: exit 75 = the Z.ai
+   peak-window refusal (re-run outside 06:00-10:00 UTC = 14:00-18:00 UTC+8; `glm-smoke.err`
+   prints the local window), 78 = no API key (back to (b)), 124 =
+   the 25-minute timeout.
+
+   **Cleanup, pass or fail.** The smoke commit is throwaway: never push the branch.
+   `--force` because the dummy env file and install output leave the worktree dirty, `-D`
+   because the commit is unmerged:
+
+   ```bash
+   /usr/bin/git -C "<BASE>" worktree remove --force "<NIGHT_DIR>/wt/SMOKE-GLM"
+   /usr/bin/git -C "<BASE>" branch -D night/smoke-glm-<date>
+   ```
 
 ### `status` mode
 
@@ -226,8 +422,39 @@ Sources, in precedence order:
 4. The previous `~/night-runs/<project>/REPORT-<date>.md` — its PARKED and BLOCKED entries,
    each with the reason that parked it, as retry candidates.
 
-Then SUBTRACT everything `docs/NIGHT-RULES.md` forbids: forbidden story ids, anything
-touching a forbidden path, anything the migration policy reserves for daylight.
+Then find every candidate `docs/NIGHT-RULES.md` restricts (forbidden story ids, anything
+touching a forbidden path, anything the migration policy reserves for daylight) and every
+candidate waiting on an outside answer. None of them is subtracted silently.
+
+**Restrictions are asked ONCE, at the start of planning, before the queue is drafted.**
+Before you defer or drop ANY candidate story because of a NIGHT-RULES restriction or a
+pending outside answer (advisor, accountant, lawyer, owner), list every such story in ONE
+table and ask the owner ONCE:
+
+| story | restriction | source line | recommendation |
+|---|---|---|---|
+
+`source line` quotes the NIGHT-RULES section and line (or the card line) that restricts it;
+`recommendation` is your call per row: `build`, `build with the spec default as config` or
+`defer`. One table with every row, one question — never one question per story, never a
+second round. When no candidate is restricted there is no question; say "no restricted
+candidates" at the gate. The owner's answer per row is RECORDED: PHASE D item 3 quotes it
+next to every deferral, and that quote is what the PHASE D refusal checks. The design spec
+states the same rule in its PHASE B and PHASE D.
+
+- **Items gated only by an advisor's confirmation are BUILT**, with the card/spec default as
+  a config value the advisor can change later; recommend `build with the spec default as
+  config` for them, never `defer`.
+- A "parked for owner" or "waiting on external answer" list never appears in the plan, the
+  gate or the brief as a fait accompli. A restriction the owner was not asked about is a row
+  in this table, not a deferral.
+- Auth-touching stories are ordinary night work: no plugin rule restricts them. Only the
+  project's `docs/NIGHT-RULES.md` can, and then they are rows in this table like any other.
+- An owner `build` on a story `docs/NIGHT-RULES.md` forbids takes effect only when the owner
+  changes `docs/NIGHT-RULES.md` on the base branch (BRIEF section 6 makes NIGHT-RULES win, so
+  the story would block itself with `reason=forbidden`): say so, and apply the PHASE C
+  re-render rule once that change is merged.
+
 **TODO/FIXME mining and lint debt are NOT a source** — they map to no milestone and burn a
 story slot a real backlog item needed. Do not scan for them.
 
@@ -237,23 +464,84 @@ story slot a real backlog item needed. Do not scan for them.
   skipped FORWARD, never reordered upwards.
 - **File-disjoint neighbours**, so consecutive stories do not fight over the same files.
 - **Budget.** `S = 1 h · M = 2 h · L = 3 h · unsized = M` — observed session cost, not ideal
-  effort. Queue until `hours:` is spent; `PER_STORY_TIMEOUT` stays the hard per-story cap.
-- **Deferred items are listed WITH their reason** (budget, dependency, forbidden by the
-  rules). Never drop an item silently.
+  effort. A one-night queue stops when `hours:` is spent, a multi-day one when the deadline
+  the owner chose at the gate is; `PER_STORY_TIMEOUT` stays the hard per-story cap.
+- **Deferred items are listed WITH their reason** (budget, dependency, or a restriction the
+  owner answered `defer` in the PHASE B table, quoting that answer). Never drop an item
+  silently, and never defer one for a NIGHT-RULES restriction or a pending outside answer
+  the owner was not asked about.
+- **Deadline and run length.** The plan's total estimate decides whether one night is
+  enough. Render with the deadline the plan proposes, written as an absolute
+  `YYYY-MM-DD HH:MM` in the run machine's local time (`run.sh` reads `--deadline` with
+  `date -d` there; the innotel VM runs in UTC, so its `2026-10-07 05:30` deadline was a
+  Budapest morning): launch time plus the queued estimate, or, when that does not fit one
+  night, a multi-day deadline that covers it. The owner confirms or changes it at the
+  PHASE D gate. Write `WATCH_MAX_RESTARTS` into `config.env` for this run length,
+  `max(2, ceil(run_hours / 12))` with `run_hours` = deadline minus launch time in hours, as
+  `WATCH_MAX_RESTARTS="<n>"   # max(2, ceil(run_hours / 12)), run_hours=<h>` —
+  replacing an existing uncommented `WATCH_MAX_RESTARTS=` line, never adding a second (an
+  8-hour night gives 2; innotel's ~3-day run used 6). Do it before `SUPERVISE-PROMPT.md` is
+  rendered below, which reads it.
 
 PHASE A step 0 already created the run directory and `config.env`; re-assert the directory
 here (`mkdir -p` is idempotent) so this phase still works when step 0's output is out of
 sight. NOTHING ELSE creates it. `config.env` says `NIGHT_DIR` "must
-already exist", and PHASE E's launch line opens `logs/console.log` in the OWNER'S shell,
-before run.sh's own `mkdir -p` can run, so a missing `logs/` kills the night before it
-starts and leaves no console.log to diagnose it from:
+already exist", and `launch.sh` (PHASE E) opens `logs/console.log` for the runner's output
+in the OWNER'S shell, so `logs/` should be there before it runs (`launch.sh` also runs
+`mkdir -p`, belt and braces):
 
 ```bash
 mkdir -p ~/night-runs/<project>/logs
 ```
 
+Everything below that reads a file of BASE (`docs/NIGHT-RULES.md` for `{{NIGHT_RULES}}`, the
+section-3 and section-7 rulings, the rules check) reads the `night/base-<stamp>` branch PHASE A
+step 3 created from a fresh `origin/<BASE_BRANCH>`, never the tree BASE happened to hold. If
+that step did not run or was a BLOCKER, render nothing from BASE.
+
 Then write into `~/night-runs/<project>/`:
 
+- `launch.sh`, rendered from `templates/launch.sh.tmpl` into `<NIGHT_DIR>/launch.sh` on EVERY
+  plan, overwriting an old one: a launch.sh left over from an earlier night points at that
+  night's `run.sh` (the innotel-bss one pointed at an old `bajzi/1.13.0` plugin-cache path).
+  Substitute with literal `str.replace`, like `BRIEF.md`: `{{PROJECT}}`, `{{BASE}}`,
+  `{{NIGHT_DIR}}` from `config.env` (absolute); `{{DEADLINE}}` = the PHASE E `--deadline`
+  value; `{{RUN_DATE}}` = `date +%F` of the night being planned (pinned as `--date`, so a
+  relaunch after local midnight continues the same night instead of re-running the queue);
+  `{{RUN_SH}}` = the absolute path of the `run.sh` in the plugin copy that is running
+  THIS skill, resolved AT EVERY RENDER, never typed from memory, never copied from an earlier
+  launch.sh and never the path of another plugin version:
+
+  ```bash
+  RUN_SH="${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/run.sh"
+  case "$RUN_SH" in /*) :;; *) echo "BLOCKER: RUN_SH is not absolute: '$RUN_SH'";; esac
+  [ -f "$RUN_SH" ] || echo "BLOCKER: run.sh not found: $RUN_SH"
+  python3 - "${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/templates/launch.sh.tmpl" "<NIGHT_DIR>/launch.sh" \
+    "$RUN_SH" "<PROJECT>" "<BASE>" "<NIGHT_DIR>" "<DEADLINE>" "<RUN_DATE>" <<'PY'
+  import sys
+  tmpl, out, run_sh, project, base, night, deadline, run_date = sys.argv[1:9]
+  src = open(tmpl).read()
+  for k, v in (('RUN_SH', run_sh), ('PROJECT', project), ('BASE', base), ('NIGHT_DIR', night), ('DEADLINE', deadline), ('RUN_DATE', run_date)):
+      src = src.replace('{{%s}}' % k, v)   # str.replace: both sides literal
+  open(out, 'w', newline='\n').write(src)
+  PY
+  ```
+
+  Check it, and refuse a launch.sh that fails any line (every line is a PHASE D gate item,
+  and the same check runs again at the gate):
+
+  ```bash
+  L="<NIGHT_DIR>/launch.sh"; RUN_SH="${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/run.sh"
+  got=$(sed -n 's/^setsid nohup bash "\(.*\)" --config .*/\1/p' "$L")
+  [ -n "$got" ] || echo "LAUNCH.SH NOT RENDERED: no runner line in $L"
+  [ -f "$got" ] || echo "LAUNCH.SH RUN_SH MISSING: $got"
+  [ "$got" = "$RUN_SH" ] || echo "LAUNCH.SH RUN_SH STALE: $got is not the current plugin's $RUN_SH"
+  /usr/bin/grep -o '{{[A-Za-z_0-9]\+}}' "$L" | sort -u
+  bash -n "$L" || echo "LAUNCH.SH SYNTAX ERROR"
+  ```
+
+  A launch.sh whose RUN_SH does not exist, or differs from the current plugin root, is
+  re-rendered, never edited by hand and never handed to the owner.
 - `queue.txt`, one line per story in exactly the format the runner parses (`#` starts a
   comment): `<id>|<slug>|<needs>|<note>`.
   `<slug>`: lowercase, hyphenated, <= 5 words (it becomes `feat/<BRANCH_PREFIX>-<id>-<slug>`).
@@ -272,8 +560,9 @@ Then write into `~/night-runs/<project>/`:
 - `WATCHER-BRIEF.md`, rendered from `templates/WATCHER-BRIEF.md.tmpl` into the night dir: substitute
   `{{PROJECT}}` (config), `{{RUNNER}}` = `run.sh`, `{{RUN_DIR}}` = the night dir, `{{RUN_LOG}}` =
   `<night dir>/logs/runner.log`, `{{TERMINAL_LINE_REGEX}}` = `^\S+ (merged|open|parked|blocked|DEFERRED-\S+) `,
-  `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the PHASE E launch
-  line, `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
+  `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the runner-only
+  command (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000 setsid nohup bash "<RUN_SH>" --config "<NIGHT_DIR>/config.env" --deadline "<DEADLINE>" --date "<RUN_DATE>" </dev/null >> "<NIGHT_DIR>/logs/console.log" 2>&1 &`, the same RUN_SH
+  as launch.sh; never `launch.sh`, which is the owner's bedtime command and re-installs settings), `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
   `<night dir>/night-watch-summary.md`, `{{ESCALATION_MODEL}}` = entry [0] of the reviewer allow-list,
   `{{ALLOWLIST}}` = the four lines below verbatim. Leave `{{EVENT}}` and `{{FACTS}}` in place: the
   watchdog fills them per tick.
@@ -286,6 +575,17 @@ Then write into `~/night-runs/<project>/`:
     no story session is running; never reset, checkout, push or touch main.
   - never: runner scripts, hooks, settings, `.git/**`, review-queue ledger, a session under 45 min.
   ```
+- `SUPERVISE-PROMPT.md`, rendered from `templates/SUPERVISE-PROMPT.md.tmpl` into
+  `<NIGHT_DIR>/SUPERVISE-PROMPT.md` on EVERY plan (the 30-minute supervisor, PHASE E, reads it per
+  tick). Literal `str.replace`, like `launch.sh`: `{{PROJECT}}`, `{{NIGHT_DIR}}`, `{{BASE}}`,
+  `{{REPO}}`, `{{BASE_BRANCH}}`, `{{REQUIRED_CHECK}}`, `{{DISK_FLOOR_GB}}` from `config.env`;
+  `{{WATCH_MAX_RESTARTS}}` = config `WATCH_MAX_RESTARTS` (2 when unset); `{{STATE_FILE}}` =
+  `<NIGHT_DIR>/night-watch-state.md` (the triage tick's state file, the same value as in
+  WATCHER-BRIEF.md); `{{LAUNCH_LINE}}` = the same runner-only command as WATCHER-BRIEF.md's `{{LAUNCH_LINE}}`
+  (the identical value, character for character: the supervisor's relaunch, never `launch.sh`). Then `/usr/bin/grep -o '{{[A-Za-z_0-9]\+}}' "<NIGHT_DIR>/SUPERVISE-PROMPT.md"`
+  must print nothing: an unrendered placeholder is a PHASE C failure (BLOCKER at the gate), exactly
+  as for the other templates — and `supervise.sh` refuses such a prompt at every tick
+  (`SUPERVISE MISCONFIGURED ... missing or unrendered`), so the supervisor would do nothing all night.
 - `BRIEF.md`, rendered from `templates/BRIEF.md.tmpl` in three steps, in this order.
 
   **1. Substitute these THIRTEEN placeholders, and only these thirteen.**
@@ -387,18 +687,123 @@ The JSON template is NOT copy-ready and its own `_comment_placeholders` says wha
 - ONE `Edit(<glob>)` deny line per forbidden path in `docs/NIGHT-RULES.md` section 3, and
   one `Read(<glob>)` deny line per secret file. This translation is section 3's ONLY
   enforcement channel — sections 1, 5 and 6 are wired into the brief, section 3 is prose
-  until you turn it into rules.
+  until you turn it into rules. Env files are denied by explicit name (`.env`, `.env.local`,
+  `.env.*.local`, `.env.production*`, `.env.development*`, `.env.test*`, `.env.staging*`),
+  never `.env.*`, which also denies the tracked `.env.example`. Never write a `[!x]` class:
+  measured on Claude Code 2.1.288, `.env.[!e]*` denied `.env.example` and allowed `.env.local`.
 - The deployed-tree lines: the real path, or delete them. In a file rule a single leading
   `/` is resolved relative to `<BASE>` and therefore matches NOTHING; write `~/...` for
   home paths and a DOUBLED `//...` for anything else.
 - `<PR number the run must never merge>` from NIGHT-RULES section 1, or delete the line.
 
+Then run the post-render step. It does two mechanical things in place, after the section-3
+lines are in: (1) Story worktrees: a repo-relative `Edit(<glob>)`/`Read(<glob>)` deny
+resolves against the session cwd (`BASE`), but stories work in `<NIGHT_DIR>/wt/<id>`, so
+every repo-relative one (its glob does not start with `~` or `/`; a leading `./` is dropped)
+gets a mirror `Edit(//<NIGHT_DIR without its leading slash>/wt/*/<glob>)` / `Read(...)`. A
+slash-less glob (trailing `/` ignored) matches at any depth in `BASE`, so its mirror is
+`.../wt/*/**/<glob>`. (2) NIGHT-RULES section 7's docker line — `docker: denied`, also the
+default when the line is missing, keeps the template's blanket `Bash(*docker *)` /
+`Bash(*docker-compose*)` denies; `docker: allowed, container prefix <prefix>` removes both,
+adds the scoped allows (container logs/exec/restart by prefix, throwaway `night-*`
+containers and compose projects, build, pull) AND adds denies: one `Bash(*docker*<name>*)`
+per name on section 7's "Never stop or restart" line (per comma-separated item, `(note)`s
+dropped: every backticked token, else the item's single word, several plain words being
+unparseable; a name must match `^[A-Za-z0-9][A-Za-z0-9_.-]*$`), plus `-v `, `--volume`, `--mount`,
+`--privileged`, `docker.sock` and `prune`. Story sessions run in auto mode and a deny always
+beats an allow; a Bash rule's `*` also matches spaces, so `docker rm -f night-*` alone would
+approve `docker rm -f night-x prod-db` — the denies are what protect the neighbours. They are
+a pattern guard, not a security boundary: docker is root-equivalent on the host, and a
+mount written in a compose file is not caught. The docker step first strips every docker
+allow and every `Bash(*docker...` deny, then adds the current choice, so re-running it is
+idempotent and switching section 7 back to `denied` restores the blanket denies. Both
+snippets import the shared helpers from `nr_rules.py`, written first:
+
+```bash
+cat > /home/ubuntu/night-runs/<project>/nr_rules.py <<'NRLIB'
+# Shared by the PHASE C post-render step and the rules check, so the two cannot drift apart.
+import re
+BLANKET = ("Bash(*docker *)", "Bash(*docker-compose*)")   # the template's docker denies, kept for `docker: denied`
+def repo_relative(r):  # Edit(<glob>)/Read(<glob>) not starting with ~ or / -> (kind, glob without a leading ./), else None
+    m = re.fullmatch(r"(Edit|Read)\(([^~/].*)\)", r)
+    return m and (m[1], m[2][2:] if m[2].startswith("./") else m[2])
+def mirror(kind, night, g):  # the story-worktree mirror; a slash-less glob matches at any depth, so it keeps that via **/
+    return "%s(/%s/wt/*/%s%s)" % (kind, night, "" if "/" in g.rstrip("/") else "**/", g)
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+def never_stop(line):  # section 7 "Never stop or restart" line -> (names, items with no valid name)
+    names, bad = [], []
+    for item in re.split(r",(?=(?:[^`]*`[^`]*`)*[^`]*$)(?![^()]*\))", line):  # no split inside a (note) or `span`
+        item = item.strip()
+        core = re.sub(r"\([^()]*\)", " ", item)     # a (note) is dropped first, backticks inside it included
+        ticks = re.findall(r"`([^`]*)`", core)
+        rest = re.sub(r"`[^`]*`", " ", core).strip(" `.,;:!?")
+        if ticks:   # every backticked token is a name; outside them only separators may stand
+            ws = [w for t in ticks for w in re.split(r"[\s,/]+", t) if w]
+            ok = not re.sub(r"(?i)\b(?:and|or)\b|[\s/&+.,;:!?]", "", rest)
+        else:       # a plain item is exactly one name, else it is unparseable rather than guessed
+            ws = rest.split()
+            ok = len(ws) == 1
+        if not item or ok and [w.lower() for w in ws] == ["none"]:
+            continue
+        if ok and ws and all(NAME.fullmatch(w) for w in ws):
+            names += ws
+        else:
+            bad.append(item)
+    return names, bad
+def docker(md):  # NIGHT-RULES section 7 -> (prefix, allows, denies, never-stop names, unparseable items) when allowed; else None
+    try:
+        sec = re.split(r"(?m)^## 7\.", open(md, encoding="utf-8").read(), maxsplit=1)[1].split("\n## ", 1)[0]
+    except (OSError, IndexError):
+        return None
+    m = re.search(r"docker:\s*`?allowed,\s*container prefix\s+`?([A-Za-z0-9][A-Za-z0-9_.-]*)", sec)
+    if not m:
+        return None
+    p, n = m[1], re.search(r"(?m)^\s*-\s*Never stop or restart:(.*)$", sec)
+    names, bad = never_stop(n[1] if n else "")
+    allow = ["Bash(docker ps*)", "Bash(docker logs %s-*)" % p, "Bash(docker exec %s-*)" % p,
+             "Bash(docker restart %s-*)" % p, "Bash(docker run --rm --name night-*)", "Bash(docker rm -f night-*)",
+             "Bash(docker compose -p night-* *)", "Bash(docker build *)", "Bash(docker pull *)"]
+    deny = ["Bash(*docker*%s*)" % x for x in names] + [
+        "Bash(*docker*-v *)", "Bash(*docker*--volume*)", "Bash(*docker*--mount*)", "Bash(*docker*--privileged*)",
+        "Bash(*docker*docker.sock*)", "Bash(*docker*prune*)"]
+    return p, allow, deny, names, bad
+NRLIB
+python3 - /home/ubuntu/night-runs/<project>/settings.local.json <NIGHT_DIR> <BASE>/docs/NIGHT-RULES.md <<'POST'
+import json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(sys.argv[1])))
+from nr_rules import BLANKET, docker, mirror, repo_relative
+f, night, md = sys.argv[1], sys.argv[2].rstrip("/"), sys.argv[3]
+s = json.load(open(f, encoding="utf-8"))
+p = s["permissions"]
+for r in list(p["deny"]):
+    rr = repo_relative(r)
+    if rr and mirror(rr[0], night, rr[1]) not in p["deny"]:
+        p["deny"].append(mirror(rr[0], night, rr[1]))
+p["allow"] = [r for r in p["allow"] if "docker" not in r]          # strip every earlier docker choice ...
+p["deny"] = [r for r in p["deny"] if not r.startswith("Bash(*docker")]
+dk = docker(md)                                                    # ... then add the current one
+p["allow"] += dk[1] if dk else []
+p["deny"] += dk[2] if dk else list(BLANKET)
+json.dump(s, open(f, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+print("docker:", "allowed, prefix " + dk[0] if dk else "denied", "| deny", len(p["deny"]), "| allow", len(p["allow"]))
+POST
+```
+
+Read its `docker:` line back against section 7: `denied` while the owner wrote `allowed` means
+the line is not in the `docker: allowed, container prefix <prefix>` form — fix the file, re-run.
+Under `allowed`, every backticked token on the never-stop line is a name (`` `a` `b` ``,
+`` `a` / `b` `` both give two); a plain item without backticks must be one name plus an
+optional `(note)`. An item that yields no valid name (an unfilled `<name>` placeholder,
+`(see wiki)`) or is several plain words (`main postgres db`, `a / b`) renders no deny and
+fails the rules check with `NEVER-STOP NAME UNPARSEABLE: <item>`: fix it (or write `none`).
 Then prove the render, with the `~` expanded:
 
 ```bash
 python3 -c "import json;json.load(open('/home/ubuntu/night-runs/<project>/settings.local.json'))" && echo JSON_OK
-python3 - /home/ubuntu/night-runs/<project>/settings.local.json <BASE> <NIGHT_DIR> <<'PY'
+python3 - /home/ubuntu/night-runs/<project>/settings.local.json <BASE> <NIGHT_DIR> <BASE>/docs/NIGHT-RULES.md <<'PY'
 import json, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(sys.argv[1])))
+from nr_rules import BLANKET, docker, mirror, repo_relative
 perms = json.load(open(sys.argv[1]))["permissions"]
 base, night = sys.argv[2].rstrip("/"), sys.argv[3].rstrip("/")   # config.env BASE / NIGHT_DIR, absolute
 rules = perms.get("allow", []) + perms.get("deny", []) + perms.get("ask", [])
@@ -425,15 +830,56 @@ def up(p):  # the probe and every directory above it: a deny on a directory cove
         yield p
         p = p.rpartition("/")[0]
 probes = [base + "/runtime/" + f for f in ("AUTOPILOT-REPORT.md", "DECISIONS.md", "handoff/night-S1.md",
-                                           "handoff/night-latest.md")] + [night + "/wt/S1/file"]
+                                           "handoff/night-latest.md")] + [night + "/wt/S1/file", night + "/wt/S1/src/index.ts"]
 hits = [r for r in perms.get("deny", [])
         if (m := re.fullmatch(r"(?:Edit|Write)\((.*)\)", r))
         and any(rx(path(m[1])).match(a) for p in probes for a in up(p))]
 for r in hits:
     print("DENY COVERS RUN TREE:", r)
-sys.exit(1 if bad or hits else 0)
+deny, allow = perms.get("deny", []), perms.get("allow", [])
+def denied(kind, p):  # a <kind> deny covers the path p or a directory above it
+    return any((m := re.fullmatch(kind + r"\((.*)\)", r)) and any(rx(path(m[1])).match(a) for a in up(p)) for r in deny)
+wt = []   # every repo-relative Edit/Read deny needs its story-worktree mirror, and a wildcard-free one must deny there
+for r in deny:
+    rr = repo_relative(r)
+    if not rr:
+        continue
+    kind, g = rr
+    if mirror(kind, night, g) not in deny:
+        wt.append(r)
+        print("MISSING WT MIRROR:", r)
+    g = g.rstrip("/")
+    if not re.search(r"[*?[]", g):   # a slash-less one matches at any depth, so a nested path is probed too
+        for q in [night + "/wt/S1/" + g] + ([] if "/" in g else [night + "/wt/S1/apps/x/" + g]):
+            if not denied(kind, q):
+                wt.append(r)
+                print("WT PATH NOT DENIED: %s -> %s" % (r, q))
+def bash_denied(c):  # a Bash(...) deny matches command c: anchored, every '*' crosses spaces, ':*' = ' *', the rest literal
+    for r in deny:
+        if m := re.fullmatch(r"Bash\((.*)\)", r):
+            b = m[1][:-2] + " *" if m[1].endswith(":*") else m[1]
+            if re.fullmatch(".*".join(map(re.escape, b.split("*"))), c, re.S):
+                return True
+    return False
+dk = docker(sys.argv[4] if len(sys.argv) > 4 else "")
+unparsed = dk[4] if dk else []
+for u in unparsed:
+    print("NEVER-STOP NAME UNPARSEABLE:", u)
+if dk:
+    dock = ["docker allowed in section 7, blanket deny still rendered: " + r for r in deny if r in BLANKET]
+    dock += ["docker allowed in section 7, rule missing: " + r for r in dk[1] + dk[2] if r not in allow + deny]
+    dock += ["docker allowed in section 7, never-stop name not denied: " + c for n in dk[3]
+             for c in ("docker rm -f night-x " + n, "docker restart %s-a %s" % (dk[0], n)) if not bash_denied(c)]
+else:
+    dock = ["docker denied in section 7, docker allow rendered: " + r for r in allow if "docker" in r]
+    dock += ["docker denied in section 7, blanket deny missing: " + r for r in BLANKET if r not in deny]
+    dock += ["docker denied in section 7, deny left from allowed: " + r for r in deny
+             if r.startswith("Bash(*docker") and r not in BLANKET]
+for d in dock:
+    print("DOCKER RULE MISMATCH:", d)
+sys.exit(1 if bad or hits or wt or dock or unparsed else 0)
 PY
-echo "rules rc=$?"   # 0 = every allow/deny/ask entry is rendered AND no Edit/Write deny covers the run's own trees; anything else = the lines above
+echo "rules rc=$?"   # 0 = every rule rendered, no Edit/Write deny covers the run's own trees, every repo-relative Edit/Read deny is mirrored into wt/*, docker matches section 7, every never-stop name parsed and denied; anything else = the lines above
 ```
 
 `<BASE>` and `<NIGHT_DIR>` are config.env's `BASE` and `NIGHT_DIR`, absolute (the same values
@@ -441,8 +887,23 @@ that scope the `git -C` allow rules). The second check exists because the run's 
 must be able to write in `<BASE>/runtime/` (`AUTOPILOT-REPORT.md`, `DECISIONS.md`, `handoff/night-*.md`) and in
 `<NIGHT_DIR>/wt/<id>/`: a section-3 `Edit(<glob>)` line that covers any of those (e.g. an
 innotel `Edit(~/bss-*/**)` next to `BASE=~/bss-night`) prints `DENY COVERS RUN TREE: <rule>`
-and fails the render. Narrow the glob to the protected subtree, or drop the rule. The check is
-proved by `bajzi/skills/night-run/tests/deny-run-tree.sh`, which runs THIS snippet.
+and fails the render. Narrow the glob to the protected subtree, or drop the rule. The same
+probe list holds `<NIGHT_DIR>/wt/S1/src/index.ts`, so a mirror that would freeze ordinary
+story code fails the same way. The third check fails with `MISSING WT MIRROR: <rule>` for a
+repo-relative `Edit`/`Read` deny the post-render step did not mirror, and with
+`WT PATH NOT DENIED: <rule> -> <NIGHT_DIR>/wt/S1/<glob>` when a wildcard-free one does not
+actually deny that worktree path, or for a slash-less one the nested
+`<NIGHT_DIR>/wt/S1/apps/x/<glob>` (re-run the post-render step). The fourth takes
+`<BASE>/docs/NIGHT-RULES.md` as its last argument and fails with
+`DOCKER RULE MISMATCH: <why>` when section 7 says `allowed` but a blanket docker deny is still
+rendered, a scoped allow / never-stop / mount deny is missing, or a probe
+`docker rm -f night-x <name>` / `docker restart <prefix>-a <name>` is not denied for a parsed
+never-stop name, or says `denied` (or nothing) while an allow rule names docker, a blanket
+deny is missing or a deny the `allowed` choice added is left. Under `allowed` it also fails
+with `NEVER-STOP NAME UNPARSEABLE: <item>` for a never-stop item that yields no valid name
+or is several plain words.
+All three heredocs are proved by
+`bajzi/skills/night-run/tests/deny-run-tree.sh`, which extracts and runs them.
 
 **The check is scoped to the RULES, never to the whole file, and that is load-bearing.** A
 whole-file `grep '<[A-Za-z]'` is UNSATISFIABLE: on a PERFECT render it still returns 6 hits,
@@ -456,61 +917,134 @@ or learns to wave the hits through; and the next thing waved through is a REAL l
 with section 3 then unenforced for the whole night. The JSON-scoped check above returns
 nothing on that same perfect render and NAMES every leftover on a bad one.
 
+**The supervisor's settings file.** The 30-minute supervisor (PHASE E) re-queues a story by
+deleting its last state row, which the night's own `Edit(~/night-runs/<project>/state*.txt)` deny
+forbids (an `Edit` rule also covers `sed` and redirections into the file). So once the rules check
+above returns 0, write `<NIGHT_DIR>/supervise.settings.json`: the final `settings.local.json` with
+exactly THIS night's `state*.txt` `Edit`/`Write` deny removed, every other key and rule identical.
+Story sessions and the watcher keep the full file; `supervise.sh` passes this one with
+`--setting-sources user,project` (so BASE's installed copy, which still holds the deny, is not merged
+back in). `supset.js` writes it (atomically, and ONLY when exactly one rule was removed; else nothing,
+non-zero, with the reason); `supervise.sh` re-runs it at EVERY tick from the copy launch.sh installed
+(`<BASE>/.claude/settings.local.json`) and refuses the tick when it fails (`SUPERVISE MISCONFIGURED
+supset: <reason>`), so this PHASE C run is the gate's check, not the supervisor's only source.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/supset.js" /home/ubuntu/night-runs/<project>/settings.local.json <NIGHT_DIR> <NIGHT_DIR>/supervise.settings.json
+echo "supset rc=$?"   # 0 = exactly the one state deny removed; anything else = the template's state rule changed: fix, re-render
+```
+
+`deny-run-tree.sh` runs `supset.js` on the rendered template too. Re-run it after every settings re-render.
+
+**Re-render rule — a plan never outlives the base it was rendered from.** If a NIGHT-RULES
+change, or any PR the plan depends on (a `needs` PR, a rules or CI fix), is MERGED while you
+are planning, the render is stale. Before the PHASE D gate: fetch again, fast-forward BASE's
+`night/base-<stamp>` branch (confirm `git -C "<BASE>" branch --show-current` starts with
+`night/base-`, else BLOCKER) and rewrite `<NIGHT_DIR>/render-base.sha`:
+
+```bash
+/usr/bin/git -C "<BASE>" fetch origin <BASE_BRANCH>
+/usr/bin/git -C "<BASE>" merge --ff-only "origin/<BASE_BRANCH>"
+/usr/bin/git -C "<BASE>" rev-parse "origin/<BASE_BRANCH>" > "<NIGHT_DIR>/render-base.sha"
+```
+
+A failing `--ff-only` is a BLOCKER (never reset or rebase BASE). Then RE-RENDER everything that
+read BASE or the plugin: `BRIEF.md` (all three steps, `{{NIGHT_RULES}}` first), the
+post-render step and rules check of `settings.local.json`, then `supervise.settings.json`, and
+`launch.sh` (with the check above). Re-read the queue against the changed rules too. A re-render that is skipped sends
+the owner to bed with the old rules.
+
 ## PHASE D — Approval gate
 
-ONE screen, and it is the ONLY question this skill asks. The run merges to the base branch
+ONE screen, and apart from the PHASE B restriction table (asked once, before the queue was
+drafted) it is the only question this skill asks. The run merges to the base branch
 for hours while the owner sleeps, so the gate is not optional. Show:
 
 1. the ordered queue — each item with its size and ONE line of why it is in;
 2. what the run may merge unattended per the NIGHT-RULES merge policy, plus the reminder
    that **every item passes the Opus review-and-fix loop and must be review-green AND
    CI-green before anything is merged**;
-3. what was deferred, and why; 4. every blocker PHASE A found;
+3. what was deferred, and why — every deferral for a NIGHT-RULES restriction or a pending
+   outside answer quotes the owner's recorded answer from the PHASE B table. The gate
+   REFUSES a plan that defers a story for a NIGHT-RULES restriction or a pending outside
+   answer without the owner's recorded answer (`UNASKED DEFERRAL: <story> — <restriction>`): go back to the PHASE B table and ask, do
+   not show an approval question. No "parked for owner" or "waiting on external answer" list
+   is shown here. When PHASE B found no restricted candidate, say "no restricted candidates";
+4. every blocker PHASE A found;
 5. one line that the PHASE C render gate came back clean: no leftover `{{placeholder}}` in
    `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
-   `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:` and no `DENY COVERS RUN TREE:` line (`rules rc=0`).
+   `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:`, no `DENY COVERS RUN TREE:`, no `MISSING WT MIRROR:`, no
+   `WT PATH NOT DENIED:`, no `DOCKER RULE MISMATCH:` and no `NEVER-STOP NAME UNPARSEABLE:` line (`rules rc=0`), plus the
+   docker choice the post-render step printed (`docker: denied` or `docker: allowed, prefix <prefix>`),
+   and that `supervise.settings.json` was written from that file (`supset rc=0`, the one state deny removed).
    Say it in those words. The `_comment*` keys of `settings.local.json` DO still contain
    `<angle-bracket>` text and that is correct — they are documentation, they are not rules,
    and they are outside the check on purpose. If the rules check did not come back 0, you
    are not at this gate yet.
+6. one line that `launch.sh` was rendered in this plan and its check printed nothing (the
+   PHASE C `launch.sh` check, run again now): `RUN_SH` exists and equals the current plugin
+   root's `skills/night-run/run.sh`; quote the path;
+7. one line `Rendered from origin/<BASE_BRANCH> @ <SHA>` with the SHA from
+   `<NIGHT_DIR>/render-base.sha`, and the BASE branch `night/base-<stamp>` it sits on. Run a
+   fresh `/usr/bin/git -C "<BASE>" ls-remote origin "refs/heads/<BASE_BRANCH>"` right before
+   showing the screen: when it prints a SHA other than the rendered one, the gate REFUSES
+   (`STALE RENDER: rendered <SHA>, origin now <SHA2>`): go back to the re-render rule, do not
+   show an approval question.
+8. the deadline next to the plan's total estimate, as an absolute date+time in the run
+   machine's local zone AND in UTC (`date -d "<deadline>" '+%F %H:%M %Z'` and `date -u -d "<deadline>" '+%F %H:%M UTC'`).
+   When the estimate does not fit one night, the owner chooses here between a one-night queue
+   (the rest deferred with reason budget) and a multi-day deadline that covers it. Then the
+   `WATCH_MAX_RESTARTS` value written for that run length, and ONCE, as a risk: a multi-day
+   run can exhaust the weekly Claude quota; the runner waits out a session-limit reset, but a
+   weekly-limit hit ends the run and leaves its rows `DEFERRED-quota-weekly` (PHASE F); and
+   the 30-minute supervisor keeps running one Opus tick per interval until the run finishes, is
+   stopped, passes its deadline + 30 min, or its runner is dead for good (`watch.status` reads `DEAD` and both supervisor relaunches of the `run_date` are used).
+   State that risk as a risk, never as a guessed number. A multi-day run relaunches across
+   midnights on the same state file: `launch.sh`, the watcher's `{{LAUNCH_LINE}}` and
+   `run.args` all pin `--date <RUN_DATE>` (the first night's date), and the supervisor's
+   relaunch checks the absolute `deadline_epoch`, not the current date. Any change at the gate to the
+   deadline or to the queue goes back to PHASE C: rewrite `WATCH_MAX_RESTARTS`, re-render everything PHASE C renders (`queue.txt`,
+   `BRIEF.md`, `launch.sh`, `WATCHER-BRIEF.md`, `SUPERVISE-PROMPT.md`, the settings
+   post-render step, `supervise.settings.json`) with its checks, then show the whole gate again before PHASE E.
 The owner approves or edits once. Then go to PHASE E.
 
 ## PHASE E — Launch (the owner's step)
 
 You never launch the runner: a Claude session is denied by the auto-mode classifier
 (Interfere With Workloads). Emit the block below with EVERY `<...>` already filled in from
-`config.env` and from the absolute path of `run.sh` next to this file — never ask the owner
-for a value you can resolve, say where you took it from instead.
+`config.env` — never ask the owner for a value you can resolve, say where you took it from
+instead. The commands that install the allowlist and start the runner are NOT typed here: they
+are in `<NIGHT_DIR>/launch.sh`, which PHASE C rendered in this plan from
+`templates/launch.sh.tmpl` (its `run.sh` is the one of the plugin copy running this skill).
 
-> **Where:** this VM, a plain **bash** terminal — not the Claude prompt, not `!`.
-> **Working directory:** `<BASE>` (the `BASE` field of `config.env`)
+> **Where:** this VM, a plain **bash** terminal outside Claude Code — not the Claude prompt, not `!`.
+> **Working directory:** any (`launch.sh` does `cd <BASE>` itself; `<BASE>` is the `BASE` field of `config.env`)
 
-**Step 1 — install the allowlist, without destroying anything.** `<BASE>` is a real,
-persistent worktree and may already have project settings: a plain `cp` replaces them
-silently, and the "just delete the file to revert" promise is then a lie. Back up first.
+**Step 1 — launch.** One command:
 
 ```bash
-cd <BASE>
-mkdir -p <BASE>/.claude ~/night-runs/<project>/logs
-DEST=<BASE>/.claude/settings.local.json
-if [ -e "$DEST" ] && ! cp -a "$DEST" "$DEST.pre-night-$(date +%F-%H%M%S)"; then
-  echo "BACKUP FAILED — stopping, nothing was overwritten"
-else
-  cp ~/night-runs/<project>/settings.local.json "$DEST"
-fi
-ls -l <BASE>/.claude/
+bash <NIGHT_DIR>/launch.sh
 ```
+
+What `launch.sh` does, in order: refuses to start when a runner already holds
+`<NIGHT_DIR>/run.flock` (printing the `run.lock` content); backs up an existing
+`<BASE>/.claude/settings.local.json` to `settings.local.json.pre-night-<stamp>` and, when that
+copy fails, prints `BACKUP FAILED — nothing was overwritten` and stops; installs
+`<NIGHT_DIR>/settings.local.json`; exports `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000`;
+starts `run.sh` with `setsid nohup`, stdin from `/dev/null`, output to `logs/console.log`;
+shows the first `runner.log` lines. A plain `cp` of the settings would replace the owner's
+project settings silently, which is why the backup comes first.
 
 > **Success:** `ls` lists `settings.local.json`, plus a `settings.local.json.pre-night-<stamp>`
 > if you had one before — that backup is what you move back in the morning, instead of just
 > deleting the file. If you see `BACKUP FAILED`, STOP: nothing was overwritten and nothing
-> should be launched.
+> was launched. `A runner is ALREADY running` also means nothing was launched: read the
+> `run.lock` pgid it printed, and do not start another.
 
-**Step 2 — start the runner.**
+**Step 2 — check that exactly one runner started.**
 
 ```bash
 cd <BASE>
-setsid nohup bash <absolute path of run.sh> --config ~/night-runs/<project>/config.env --deadline "<HH:MM>" >> ~/night-runs/<project>/logs/console.log 2>&1 &
 CFG=~/night-runs/<project>/config.env
 pids=$(pgrep -f 'run\.sh'); rc=$?   # 0=hits 1=none >1=the SCAN itself failed
 [ "$rc" -le 1 ] || echo "RUNNER SCAN FAILED (pgrep rc=$rc) — this is NOT 'nothing started'"
@@ -524,31 +1058,31 @@ for p in $pids; do
 done | sort -u
 ```
 
-`setsid` is required, not cosmetic: `nohup` blocks SIGHUP but not the harness killing the
-launching session's process group, so a `nohup`-only runner dies with the session. The check
-is the argv test from PHASE A, scoped to this project — a plain `pgrep -af` pattern would
-count the checking shell itself and print four or five numbers for one runner.
+`setsid` (inside `launch.sh`) is required, not cosmetic: `nohup` blocks SIGHUP but not the harness
+killing the launching session's process group, so a `nohup`-only runner dies with the session.
+The check is the argv test from PHASE A, scoped to this project — a plain `pgrep -af` pattern
+would count the checking shell itself and print four or five numbers for one runner.
 
-Fill `<HH:MM>` yourself before you show the block: it is the launch time plus the `hours:`
-budget you actually queued, and never later than 07:30. Say the arithmetic out loud in the
-block ("queued 5.5 h, launching ~23:00 → `--deadline 04:30`"). `--deadline` is the HARD stop;
-if `hours:` would run past it, queue less and say so at the PHASE D gate — a 02:00 launch
-with `hours:8` puts eight hours of work into a 5.5-hour window and the rest is simply parked.
+Fill `{{DEADLINE}}` yourself when you render `launch.sh` (PHASE C): it is the deadline the
+PHASE D gate settled, as an absolute `YYYY-MM-DD HH:MM` in the run machine's local time —
+the launch time plus the estimate you actually queued, or the multi-day deadline the owner
+chose. Say the arithmetic out loud at the gate ("queued 5.5 h, launching ~2026-10-05 23:00 →
+`--deadline "2026-10-06 04:30"`"). `--deadline` is the HARD stop; if the queue would run
+past it, queue less and say so at the PHASE D gate — whatever does not fit is simply parked.
 
 > **Success:** the last command prints exactly ONE pgid, and it is a NEW number, not one you
 > saw in PHASE A. If it prints `RUNNER SCAN FAILED`, the check broke, NOT the launch: do NOT
-> re-run the launch line — that is how a second runner ends up in one worktree. Read
+> run `launch.sh` again — that is how a second runner ends up in one worktree (its flock check
+> would refuse, but do not rely on it). Read
 > `tail ~/night-runs/<project>/logs/runner.log` instead, and fix `pgrep` first.
 > On a clean ONE-pgid result, `tail ~/night-runs/<project>/logs/runner.log` then shows
 > `RUN start` followed by `START <first id>`.
-> **Likeliest failure:** the launch line prints
-> `bash: .../logs/console.log: No such file or directory` and nothing starts. The `logs/`
-> directory is missing, the redirect fails in YOUR shell before run.sh ever runs, and there
-> is NO console.log to read — do not go looking for one. Fix:
-> `mkdir -p ~/night-runs/<project>/logs`, then re-run the launch line.
+> **Likeliest failure:** `launch.sh` prints `run.sh not found: <path>`. The plugin copy it was
+> rendered from is gone (an update replaced it): run `/bajzi:night-run` again so PHASE C renders
+> `launch.sh` anew; never edit the path by hand.
 > **Second likeliest:** the pgid check prints nothing and `console.log` ends with
 > `run.sh: config file not found`. Fix: check the path with
-> `ls -l ~/night-runs/<project>/config.env`, then re-run the launch line with the real one.
+> `ls -l ~/night-runs/<project>/config.env`, then re-render `launch.sh` and run it again.
 > **`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`: export a LARGE value (e.g. `3600000`, one hour) for the
 > runner, never 0.** It is how long headless claude waits for a pending background task after the
 > session yields; the default is 600 s and 0 means no wait at all, so a session that yields while a
@@ -592,6 +1126,34 @@ result line or a non-zero exit logs `TICK FAILED`. It appends one line per tick 
 `night-watch-state.md`. The last tick, on the queue end, writes `night-watch-summary.md` with a Lessons
 section. It never polls: the 2026-09-25 lesson was a watcher that logged "no status file" at 03:34 and
 waited for morning; the brief now tells it to diagnose and act.
+
+**The 30-minute supervisor watches the LIVE story.** Triage wakes only on a terminal row, so a story
+stuck in its first 20 minutes would be noticed only when its budget ends. With `SUPERVISE=1` (the
+default; `0` disables) `run.sh` spawns `supervise.sh` next to the watchdog (same detached spawn:
+setsid, no run-lock fd, stdin `/dev/null`, output in `logs/supervise.out`). It SLEEPS FIRST for
+`SUPERVISE_INTERVAL` (1800 s), then per iteration re-reads `started_epoch` from `run.meta` and exits —
+one line in `~/night-runs/<project>/supervisor.log` — on `SUPERVISE-STOP`, on `STOP`, when `finished`
+holds an epoch >= `started_epoch`, past `deadline_epoch` + 1800 s with no such `finished`, or when the
+runner is dead for good (`run.flock` unheld, `watch.status` `DEAD` or absent, and `supervise.relaunches`
+already holding 2 lines for `run.meta`'s `run_date`: on a multi-day run the deadline is days away and
+every further tick would only spend Opus); otherwise it runs ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
+model = entry [0] of the reviewer allow-list read at that tick, `--permission-mode bypassPermissions`,
+`--setting-sources user,project --settings <NIGHT_DIR>/supervise.settings.json` (BASE's installed night
+settings minus this night's state-file deny, so its re-queue duty can delete a state row; `supset.js`
+rewrites it at every tick and a failure refuses the tick, `SUPERVISE MISCONFIGURED supset: <reason>`), cwd = BASE (repo-relative and `**/` denies anchor there, as for triage), `SUPERVISE_TICK_TIMEOUT` (1500 s, must be < the interval) hard cap, provider env
+(`ANTHROPIC_*`, router selectors) scrubbed so it can never run on GLM, and the same fail-closed
+stream-json init check as triage (`SUPERVISE MISCONFIGURED` in `supervisor.log`, tick killed, no result).
+Each tick's result text and `<ISO> tick exit=<rc>` go to `logs/supervisor-ticks.log`; the tick itself
+appends `<ISO> OK|FIXED|PROBLEM <story id> <sentence>` to `supervisor.log`. ONE supervisor per run
+(`supervise.pid`): a tier-0 restart that re-runs `run.sh` spawns a second one, which exits at once.
+Ownership: the supervisor owns allowlist edits (both `settings.local.json` copies) and code/harness
+fixes via a PR merged only on a green `REQUIRED_CHECK` pull_request run; the triage tick never edits
+settings. It relaunches (the runner-only `{{LAUNCH_LINE}}` WATCHER-BRIEF.md also carries, never
+`launch.sh`; at most 2 per run) only when tier 0 cannot, and changes nothing
+while a triage tick is alive or holds an open `FIXING`. **Stop the supervisor alone:**
+`touch ~/night-runs/<project>/SUPERVISE-STOP` (checked after each sleep). The file is dated: one older
+than the run's `started_epoch` (and the supervisor's own start) is an earlier night's and is ignored,
+so to keep the supervisor off for a whole night set `SUPERVISE=0` before the launch.
 
 ## PHASE F — Morning follow-through (`report` mode)
 
@@ -690,6 +1252,6 @@ watcher ignores it for exactly that reason).
 
 Table: what was queued (id · size · why) · what was deferred and why · PHASE A blockers ·
 the paths of the generated files (`config.env`, `queue.txt`, `BRIEF.md`,
-`settings.local.json`) · whether `<BASE>/.claude/settings.local.json` already exists, so the
+`settings.local.json`, `launch.sh`) · whether `<BASE>/.claude/settings.local.json` already exists, so the
 owner knows PHASE E will back it up rather than eat it. State plainly that nothing was
 launched and that the run starts only when the owner runs PHASE E.

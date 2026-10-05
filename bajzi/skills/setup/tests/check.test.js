@@ -21,6 +21,7 @@ const MANIFEST = {
   forbidden_leftovers: {
     paths: ['~/.claude/hooks/gsd-*', '~/.claude/gsd-core', '~/.claude-mem'],
     settings_substrings: ['gsd-', '.planning/'],
+    deny_rules: [{ rule: 'Read(.env.*)', why: 'narrowed to the explicit env list' }],
   },
 };
 
@@ -180,6 +181,15 @@ test('forbidden leftovers: files, dirs and settings substrings', () => {
   assert.doesNotMatch(r.out, /my-own-hook/);
 });
 
+test('forbidden leftovers: an old broad deny rule left in settings.json permissions.deny', () => {
+  const m = machine();
+  edit(m, '.claude/settings.json', v => { v.permissions.deny.push('Read(.env.*)', 'Read(.env.*x)'); });
+  const r = run(m);
+  assert.match(r.out, /^DRIFT leftover-deny Read\(\.env\.\*\): narrowed to the explicit env list$/m);
+  assert.doesNotMatch(r.out, /\.env\.\*x/);
+  assert.strictEqual(r.code, 1);
+});
+
 test('unreadable settings.json is reported, not a crash', () => {
   const m = machine();
   fs.writeFileSync(path.join(m.c, 'settings.json'), '{ broken');
@@ -252,6 +262,10 @@ test('real manifest: new blocks present, GSD retired, no GSD permissions left', 
   assert.strictEqual(m.gsd.machine_exception, undefined);
   assert.strictEqual(m.gsd.laptop_retained_hooks, undefined);   // removed at the cut-over (Task 8 Step 10)
   assert.strictEqual(m.settings_merge.permissions.defaultMode, 'auto');
+  // explicit env names keep the tracked .env.example readable; .env.[!e]* was measured inverted on Claude Code 2.1.288
+  assert.deepStrictEqual(m.settings_merge.permissions.deny, ['Read(.env)', 'Read(.env.local)', 'Read(.env.*.local)',
+    'Read(.env.production*)', 'Read(.env.development*)', 'Read(.env.test*)', 'Read(.env.staging*)', 'Read(.secrets)']);
+  assert.deepStrictEqual(m.forbidden_leftovers.deny_rules.map(x => x.rule), ['Read(.env.*)', 'Edit(.env.*)']);
   assert.strictEqual(m.settings_merge.remoteControlAtStartup, true);
   assert.deepStrictEqual(m.user_mcps['code-review-graph'].args, ['code-review-graph', 'serve']);
   assert.deepStrictEqual(m.secret_patterns, ['*.pem', '*.key', 'id_rsa*', 'id_ed25519*', 'credentials.json']);

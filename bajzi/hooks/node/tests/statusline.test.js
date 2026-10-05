@@ -235,13 +235,13 @@ test('the status line writes the bridge for a safe session id only', () => {
 });
 
 // --- the line file <status dir>/<session_id>.line.json (the status record contract, spec §6.5) ---
-const LINE = 'Opus 5.5 \u00b7 L0 \u00b7 feat/x* \u00b7 status line port \u00b7 \u2593\u2593\u2593\u2593\u2591\u2591\u2591\u2591\u2591\u2591 42% \u00b7 Q1';
+const LINE = 'Opus 5.5 \u00b7 L0 \u00b7 feat/x* \u00b7 status line port \u00b7 \u2593\u2593\u2593\u2593\u2591\u2591\u2591\u2591\u2591\u2591 42% \u00b7 5h 42% \u00b7 7d 34% \u00b7 Q1';
 const lineRe = line => new RegExp('^' + line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( \u00b7 peak [^\u00b7\n]+)?\n$');
 const fullInput = cwd => ({
   session_id: 's1', session_name: 'night', cwd, model: { display_name: 'Opus 5.5' },
   workspace: { current_dir: cwd, project_dir: cwd, git_worktree: 'wt-1' },
   context_window: { remaining_percentage: 58, used_percentage: 42.5 }, cost: { total_cost_usd: 1.23 },
-  rate_limits: { five_hour: { used_percentage: 42 } },
+  rate_limits: { five_hour: { used_percentage: 42 }, seven_day: { used_percentage: 33.6 } },
 });
 const lineFile = (d, id = 's1') => JSON.parse(fs.readFileSync(path.join(d, `${id}.line.json`), 'utf8'));
 
@@ -256,7 +256,7 @@ test('line file: the contract fields from a full fixture; the rendered line is b
   const f = lineFile(d);
   assert.ok(f.ts >= t0 && f.ts <= Math.floor(Date.now() / 1000), String(f.ts));
   assert.deepStrictEqual(f, { v: 1, session_id: 's1', session_name: 'night', cwd, project_dir: cwd, git_worktree: 'wt-1',
-    branch: 'feat/x', model: 'Opus 5.5', ctx_pct: 42.5, cost_usd: 1.23, five_hour_pct: 42, bajzi_level: 'L0', ts: f.ts });
+    branch: 'feat/x', model: 'Opus 5.5', ctx_pct: 42.5, cost_usd: 1.23, five_hour_pct: 42, seven_day_pct: 33.6, bajzi_level: 'L0', ts: f.ts });
   assert.deepStrictEqual(fs.readdirSync(d), ['s1.line.json']);
 });
 
@@ -318,6 +318,28 @@ test('line file: rewritten only when the content changed or 30 s passed since it
   assert.strictEqual(writeLine({ session_id: '../x' }, facts, 1, env), false);
   assert.strictEqual(writeLine({}, facts, 1, env), false);
   assert.deepStrictEqual(fs.readdirSync(d), ['s1.line.json']);
+});
+
+test('plan limits: 5h and 7d parts follow the bar, rounded; absent/invalid -> omitted, no throw', () => {
+  const cwd = tmpDir('bajzi-nr-');
+  const r = rl => strip(render({ context_window: { remaining_percentage: 58 }, workspace: { current_dir: cwd }, rate_limits: rl },
+    { env: {}, home: tmpDir('bajzi-h-'), nowMs: NIGHT, color: false }));
+  assert.match(r({ five_hour: { used_percentage: 20 }, seven_day: { used_percentage: 34 } }), /42% \u00b7 5h 20% \u00b7 7d 34%/);
+  assert.match(r({ seven_day: { used_percentage: 33.6 } }), /42% \u00b7 7d 34%$/);
+  const only5 = r({ five_hour: { used_percentage: 20 } });
+  assert.match(only5, /5h 20%/); assert.doesNotMatch(only5, /7d/);
+  for (const bad of [undefined, null, 'x', { five_hour: null, seven_day: 'x' }, { five_hour: { used_percentage: 'x' }, seven_day: { used_percentage: NaN } }]) {
+    const l = r(bad);
+    assert.doesNotMatch(l, /5h|7d|NaN/);
+  }
+});
+
+test('line file: seven_day_pct next to five_hour_pct', () => {
+  const d = tmpDir('bajzi-ln-');
+  writeLine(fullInput(tmpDir('bajzi-nr-')), { level: 0 }, Date.now(), { BAJZI_STATUS_DIR: d });
+  const f = lineFile(d);
+  assert.strictEqual(f.five_hour_pct, 42);
+  assert.strictEqual(f.seven_day_pct, 33.6);
 });
 
 test('p95 of 20 warm runs < 150 ms', PERF, () => {

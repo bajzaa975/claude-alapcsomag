@@ -39,9 +39,11 @@ its OWN green PRs unattended, or must leave every PR open for the morning.
 
 ## 2. Forbidden stories
 
-Story ids the run must never pick up, each with the reason. PHASE B subtracts them.
+Story ids the run must never pick up, each with the reason. Every entry is asked ONCE at
+planning (the PHASE B restriction table), never deferred silently; a story waiting only on
+an advisor's confirmation is built with the spec default as config, so it does not belong here.
 
-- `<ID>` — `<why, e.g. needs a decision only the owner can take>`
+- `<ID>` — `<why, e.g. touches the production billing run>`
 
 ## 3. Forbidden paths
 
@@ -51,10 +53,13 @@ below into an `Edit(<glob>)` deny line (and every secret into a `Read(<glob>)`
 deny line) in the generated `settings.local.json`. So write each entry as a real
 glob, repo-relative for paths inside the repo and with a DOUBLED leading slash
 or a `~/` for anything outside it — `/x/**` alone is read as repo-relative and
-would silently match nothing.
+would silently match nothing. PHASE C also mirrors every repo-relative entry into
+the story worktrees (a slash-less entry keeps matching at any depth there too).
+Env files are listed by name (`**/.env.local`, `**/.env.production*`, ...), never
+`**/.env.*` and never a `[!e]` class, so the tracked `.env.example` stays editable.
 
 - `<.github/**>` — `<CI config is daylight-only work>`
-- `<path/to/secrets/**>`, `<**/.env>` — `<credentials>`
+- `<path/to/secrets/**>`, `<**/.env>`, `<**/.env.local>` — `<credentials>`
 - `<~/another-product-tree/**>` — `<not this project>`
 
 ## 4. Migration policy
@@ -69,7 +74,11 @@ numbering authority that hands out migration numbers, and what is daylight-only.
 
 Facts about this repo's CI that a session cannot infer and will otherwise get wrong.
 
-- Required check NAME: `<the check that must be green>`
+- Required check NAME: `<the check that must be green>` — the workflow RUN name as
+  `gh run list` shows it (the workflow file's `name:`, e.g. `CI`), NOT the branch-protection
+  check or job name (e.g. `ci`); the night matches the former. Show it with
+  `gh run list -R <owner>/<repo> --limit 3 --json workflowName,name`. It must equal
+  `REQUIRED_CHECK` in `config.env`.
 - Only this run event satisfies it: `<pull_request>` — a `push`, `schedule` or
   `workflow_dispatch` run does NOT count, however green it looks.
 - Tooling quirks: `<e.g. "gh pr checks" fails with the configured token — read CI
@@ -90,9 +99,35 @@ something merged green and broke anyway. Name the command and what a pass looks 
 Containers, ports, services and trees on this shared machine that this project must
 never touch or restart. Cross-check `~/infra/INVENTORY.md` and `~/infra/PORTS.md`.
 
-- Never stop or restart: `<container/service names>`
+- Never stop or restart: `<name>` (<optional note>), `<name>`
 - Ports owned by others: `<port list>`
 - Deployed tree — worktree/branch/tag operations only, never development: `<path>`
+- docker: `<denied|allowed, container prefix <prefix>>`
+
+Write the never-stop container/service names in backticks, comma-separated, one
+name per pair of backticks, any note after the name in parentheses:
+`` `prod-db` (postgres), `redis` ``, or `none`. A name is letters, digits, `_`,
+`.` and `-`; an item without backticks must be a single name. With docker `allowed`, PHASE C denies every docker command naming
+one, and an item it cannot read as a name fails the render with
+`NEVER-STOP NAME UNPARSEABLE`.
+
+The docker line is required; write exactly `docker: denied` or
+`docker: allowed, container prefix <prefix>`. Choose `allowed` only when the
+project's sandbox runs in docker and stories must read its logs, exec into it,
+restart it or start throwaway test containers: PHASE C then replaces the blanket
+docker deny with allows for containers named `<prefix>-*` plus throwaway
+`night-*` containers and compose projects, image build and pull. `denied` (and a
+missing line) keeps every docker command denied.
+
+Know what `allowed` opens before you choose it. Docker access is root-equivalent
+on this host. The allowed `docker exec <prefix>-*` and `docker run --rm --name
+night-*` accept any later arguments, so a session could add a volume mount
+(`-v /:/host`) that gets past every Edit and Read deny in the settings file, or
+name a second container. PHASE C therefore also denies every docker command that
+names a container from the "Never stop or restart" line above, and any `-v `,
+`--volume`, `--mount`, `--privileged`, `docker.sock` or `prune`. Those denies are
+a pattern guard, not a security boundary: a mount written in a compose file, or
+a spelling the patterns do not foresee, is not caught.
 
 ## 8. Resource floors
 

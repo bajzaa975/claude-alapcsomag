@@ -6,7 +6,9 @@
 //   ccr code ...   compatibility with the old claude-code-router launcher: always non-Claude
 //                  (--model deepseek-* goes to DeepSeek, everything else to GLM)
 // In GLM mode the Claude aliases are remapped, so callers never change their arguments:
-//   --model sonnet|opus -> glm_model      --model haiku -> glm_fast_model
+//   top-level (not launched from inside Claude Code): --model sonnet|opus and the main session -> glm_orchestrator_model
+//   nested (CLAUDECODE set, e.g. a `glm -p` worker): --model sonnet|opus and the main session -> glm_model
+//   both: sub-agents (CLAUDE_CODE_SUBAGENT_MODEL) -> glm_model      --model haiku -> glm_fast_model
 // State (all under ~/.claude):  worker-mode (claude|light|glm|tight)   cc-router.json (models)   cc-router.log
 //   bajzi/sessions/<session_id>.level  the level of ONE session (--level/--set from inside it)
 'use strict';
@@ -22,14 +24,16 @@ const LOG_FILE = process.env.CC_ROUTER_LOG || path.join(DIR, 'cc-router.log');
 const MODES = ['claude', 'light', 'glm', 'tight'];            // L0..L3; 'glm' stays the L2 spelling
 const LEVEL_OF = { claude: 0, light: 1, glm: 2, tight: 3 };
 const GLM_MODES = ['glm', 'tight'];                            // modes whose MAIN session runs on GLM
-const DEFAULTS = { glm_model: 'glm-5.3', glm_fast_model: 'glm-4.7' };
+const DEFAULTS = { glm_orchestrator_model: 'glm-5.3', glm_model: 'glm-5.3-flash', glm_fast_model: 'glm-5.3-flash' };
 const entry = (process.env.CC_ROUTER_ENTRY || 'worker').toLowerCase();
 let args = process.argv.slice(2);
+const insideClaude = !!process.env.CLAUDECODE;   // nested launch; read BEFORE the env scrub below deletes it
 
 function die(msg, code) { process.stderr.write('[' + entry + '] ' + msg + '\n'); process.exit(code); }
-function readConf() { try { return Object.assign({}, DEFAULTS, JSON.parse(fs.readFileSync(CONF_FILE, 'utf8'))); } catch (_) { return Object.assign({}, DEFAULTS); } }
+function readConf(raw) { let o = null; try { o = JSON.parse(fs.readFileSync(CONF_FILE, 'utf8')); } catch (_) {} if (!o || typeof o !== 'object' || Array.isArray(o)) o = {}; return raw ? o : Object.assign({}, DEFAULTS, o); }   // raw: the file only, no defaults
 function writeConf(c) { fs.mkdirSync(path.dirname(CONF_FILE), { recursive: true }); fs.writeFileSync(CONF_FILE, JSON.stringify(c, null, 2) + '\n'); }
-function models() { const c = readConf(); return { big: process.env.GLM_MODEL || c.glm_model, fast: process.env.GLM_FAST_MODEL || c.glm_fast_model }; }
+function models() { const c = readConf(); return { orch: process.env.GLM_ORCHESTRATOR_MODEL || c.glm_orchestrator_model, big: process.env.GLM_MODEL || c.glm_model, fast: process.env.GLM_FAST_MODEL || c.glm_fast_model }; }
+function glmMain(m) { return insideClaude ? m.big : m.orch; }   // the opus/sonnet aliases and the default main model
 // Per-session level (spec §6.1): <status dir>/<session_id>.level, written by --level/--set from inside a
 // Claude session (CLAUDE_CODE_SESSION_ID). KEEP IN SYNC with hooks/node/lib/session-status.js (SAFE_ID,
 // statusDir): this file is installed alone into ~/.local/bin, so it cannot require that lib.
@@ -91,7 +95,7 @@ function effective(provider, req) {
   if (provider === 'claude') return req || '(session default)';
   if (provider === 'deepseek') return req || 'deepseek-v4-pro';
   const m = models(), r = (req || '').toLowerCase().replace(/\[.*$/, '');
-  if (!r || r === 'sonnet' || r === 'opus') return m.big; if (r === 'haiku') return m.fast; return req;
+  if (!r || r === 'sonnet' || r === 'opus') return glmMain(m); if (r === 'haiku') return m.fast; return req;
 }
 function logLaunch(provider, req) {
   try {
@@ -256,10 +260,11 @@ function workerAdmin() {
     if (!/^[0-3]$/.test(n || '') || !name) die('usage: worker --level 0|1|2|3 [--global]   (0 claude, 1 light, 2 glm, 3 tight)', 64);
     writeLevel(name); return true;
   }
-  if (a0 === 'set-model' || a0 === 'set-fast-model') {
+  const KEY = { 'set-model': 'glm_model', 'set-fast-model': 'glm_fast_model', 'set-orchestrator-model': 'glm_orchestrator_model' }[a0];
+  if (KEY) {
     if (!okModel(args[1])) die('usage: worker --' + a0 + ' <model-id>   e.g. worker --' + a0 + ' glm-5.4', 64);
-    const c = readConf(); c[a0 === 'set-model' ? 'glm_model' : 'glm_fast_model'] = args[1]; writeConf(c);
-    console.log('glm_model = ' + c.glm_model + '   glm_fast_model = ' + c.glm_fast_model); return true;
+    const raw = readConf(true); raw[KEY] = args[1]; writeConf(raw); const c = readConf();   // write only the set key; defaults stay code-side
+    console.log('glm_orchestrator_model = ' + c.glm_orchestrator_model + '   glm_model = ' + c.glm_model + '   glm_fast_model = ' + c.glm_fast_model); return true;
   }
   if (a0 === 'usage') return cmdUsage(args.slice(1));
   if (a0 === 'log') {
@@ -272,6 +277,7 @@ function workerAdmin() {
     const { mode: md, src } = resolveMode();
     console.log('level           L' + LEVEL_OF[md] + ' (' + md + ')   (' + src + ')');
     console.log('mode            ' + md);
+    console.log('orchestrator    ' + m.orch + (process.env.GLM_ORCHESTRATOR_MODEL ? '   (forced by GLM_ORCHESTRATOR_MODEL)' : ''));
     console.log('glm model       ' + m.big + (process.env.GLM_MODEL ? '   (forced by GLM_MODEL)' : ''));
     console.log('glm fast model  ' + m.fast + (process.env.GLM_FAST_MODEL ? '   (forced by GLM_FAST_MODEL)' : ''));
     console.log('ZAI_API_KEY     ' + (secret('ZAI_API_KEY') ? 'found' : 'MISSING'));
@@ -281,7 +287,7 @@ function workerAdmin() {
     return true;
   }
   if (a0 === 'router-help') {
-    console.log('worker --status | --mode | --level 0|1|2|3 [--global] | --set claude|light|glm|tight [--global] | --set-model <id> | --set-fast-model <id> | --log [n] | --usage [since] [--json]\nanything else is passed to Claude Code unchanged, e.g.  worker -p "..." --model sonnet'); return true;
+    console.log('worker --status | --mode | --level 0|1|2|3 [--global] | --set claude|light|glm|tight [--global] | --set-orchestrator-model <id> | --set-model <id> | --set-fast-model <id> | --log [n] | --usage [since] [--json]\nanything else is passed to Claude Code unchanged, e.g.  worker -p "..." --model sonnet'); return true;
   }
   return false;
 }
@@ -304,7 +310,6 @@ if (entry === 'ccr') {
 } else if (entry === 'glm') { provider = 'glm'; }
 else { if (workerAdmin()) process.exit(0); const rm = resolveMode(); provider = GLM_MODES.includes(rm.mode) ? 'glm' : 'claude'; if (rm.src.startsWith('session')) sessionMode = rm.mode; }
 
-const insideClaude = !!process.env.CLAUDECODE;   // read BEFORE the scrub below deletes it
 function peakOpen(now) { const h = now.getUTCHours(); return h >= 6 && h < 10; }   // 14:00-18:00 UTC+8, Z.ai 3x quota
 if (provider === 'glm' && process.env.CC_GLM_PEAK_OK !== '1') {
   let now = process.env.CC_ROUTER_NOW ? new Date(process.env.CC_ROUTER_NOW) : new Date();   // CC_ROUTER_NOW: test clock (ISO)
@@ -326,10 +331,10 @@ if (provider === 'glm') {
   const key = secret('ZAI_API_KEY'); if (!key) die('ZAI_API_KEY not found (environment variable, or a line in ' + ENV_FILE + ').', 78);
   const m = models();
   Object.assign(env, { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', ANTHROPIC_AUTH_TOKEN: key,
-    ANTHROPIC_DEFAULT_OPUS_MODEL: m.big, ANTHROPIC_DEFAULT_SONNET_MODEL: m.big, ANTHROPIC_DEFAULT_HAIKU_MODEL: m.fast,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: glmMain(m), ANTHROPIC_DEFAULT_SONNET_MODEL: glmMain(m), ANTHROPIC_DEFAULT_HAIKU_MODEL: m.fast,
     CLAUDE_CODE_SUBAGENT_MODEL: m.big, API_TIMEOUT_MS: '3000000', ENABLE_TOOL_SEARCH: 'false', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: '1' });   // GLM ids are not in Claude Code's model catalog; silences the yellow warning
-  if (!asked) env.ANTHROPIC_MODEL = m.big;
+  if (!asked) env.ANTHROPIC_MODEL = glmMain(m);
 } else if (provider === 'deepseek') {   // UNTESTED path: keeps old "ccr code --model deepseek-*" calls failing clearly or working
   const key = secret('DEEPSEEK_API_KEY'); if (!key) die('DEEPSEEK_API_KEY not found (environment variable, or a line in ' + ENV_FILE + ').', 78);
   const m = asked || 'deepseek-v4-pro';

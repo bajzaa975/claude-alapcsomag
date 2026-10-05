@@ -603,6 +603,10 @@ Squash-merge your own PR into `{{BASE_BRANCH}}` ONLY when ALL THREE hold:
 2. **CI-green** — `{{REQUIRED_CHECK}}` succeeded on a run triggered by a
    `pull_request` event.
 
+Auth-touching diffs follow the project's NIGHT-RULES (its section 2 Forbidden
+stories and section 3 Forbidden paths) like any other change; no plugin rule makes
+them a blocker.
+
 ### 5.1 How to read CI
 
 ```bash

@@ -140,6 +140,8 @@ function checkAll({ home, manifest, env = process.env }) {
   }
   const hay = JSON.stringify({ hooks: settings.hooks || {}, allow: (isObj(settings.permissions) && settings.permissions.allow) || [] });
   for (const s of fl.settings_substrings || []) if (hay.includes(s)) d.push(['leftover-setting', s]);
+  const deny = (isObj(settings.permissions) && Array.isArray(settings.permissions.deny)) ? settings.permissions.deny : [];
+  for (const x of fl.deny_rules || []) if (x && deny.includes(x.rule)) d.push(['leftover-deny', `${x.rule}: ${x.why}`]);
   return d;
 }
 

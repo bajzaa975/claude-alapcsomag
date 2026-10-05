@@ -45,7 +45,8 @@ const rootReadme = () => read(path.join(ROOT, 'README.md'));
 
 test('README night-run bullet names the runner the skill launch block starts', () => {
   const bullet = /\*\*Night-run\*\*[\s\S]*?(?=\n\n|\n###)/.exec(rootReadme())[0];
-  assert.match(read(path.join(BAJZI, 'skills', 'night-run', 'SKILL.md')), /setsid nohup bash .*run\.sh/);
+  assert.match(read(path.join(BAJZI, 'skills', 'night-run', 'templates', 'launch.sh.tmpl')), /setsid nohup bash .*RUN_SH/);
+  assert.match(read(path.join(BAJZI, 'skills', 'night-run', 'SKILL.md')), /bash <NIGHT_DIR>\/launch\.sh/);
   assert.match(bullet, /run\.sh/);
   assert.doesNotMatch(bullet, /PowerShell|Windows laptop/);
 });
