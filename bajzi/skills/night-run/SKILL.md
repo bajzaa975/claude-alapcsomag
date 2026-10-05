@@ -508,7 +508,7 @@ Then write into `~/night-runs/<project>/`:
   `{{PROJECT}}` (config), `{{RUNNER}}` = `run.sh`, `{{RUN_DIR}}` = the night dir, `{{RUN_LOG}}` =
   `<night dir>/logs/runner.log`, `{{TERMINAL_LINE_REGEX}}` = `^\S+ (merged|open|parked|blocked|DEFERRED-\S+) `,
   `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the runner-only
-  command (`setsid nohup bash <RUN_SH> --config <NIGHT_DIR>/config.env --deadline <DEADLINE>`, the same RUN_SH
+  command (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000 setsid nohup bash "<RUN_SH>" --config "<NIGHT_DIR>/config.env" --deadline "<DEADLINE>" </dev/null >> "<NIGHT_DIR>/logs/console.log" 2>&1 &`, the same RUN_SH
   as launch.sh; never `launch.sh`, which is the owner's bedtime command and re-installs settings), `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
   `<night dir>/night-watch-summary.md`, `{{ESCALATION_MODEL}}` = entry [0] of the reviewer allow-list,
   `{{ALLOWLIST}}` = the four lines below verbatim. Leave `{{EVENT}}` and `{{FACTS}}` in place: the

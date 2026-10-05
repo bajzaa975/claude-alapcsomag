@@ -160,6 +160,11 @@ test('PHASE A deletes earlier night/base-* branches in the step that creates the
 
 test('WATCHER-BRIEF LAUNCH_LINE is the runner-only command, not launch.sh', () => {
   const s = flat(SKILL);
-  has(s, '`{{LAUNCH_LINE}}` = the runner-only command (`setsid nohup bash <RUN_SH> --config <NIGHT_DIR>/config.env --deadline <DEADLINE>`');
+  has(s, '`{{LAUNCH_LINE}}` = the runner-only command (`');
   assert.ok(!s.includes('`{{LAUNCH_LINE}}` = the PHASE E launch'), 'launch.sh as LAUNCH_LINE');
+  const line = s.split('`{{LAUNCH_LINE}}` = the runner-only command (`')[1].split('`')[0];
+  for (const p of ['CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000', 'setsid nohup bash', '--config', '--deadline',
+    '</dev/null', '>> "<NIGHT_DIR>/logs/console.log" 2>&1']) has(line, p);
+  assert.ok(line.endsWith(' &'), 'detaches with trailing &');
+  assert.ok(!line.includes('launch.sh'), 'launch.sh in the line');
 });
