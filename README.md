@@ -15,12 +15,16 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 - **Saver levels L0-L3** — how much work moves to the cheaper Z.ai GLM models. L0 `claude`: all on the
   Claude subscription (default). L1 `light`: flash-class work (locate/map, tests/lint/build, long-file
   summaries) goes to GLM. L2 `glm` (balanced): also implementation, fixes and document writing on
-  `glm-5.3`; risk slices, debugging and every review stay on Claude. L3 `tight`: the whole session runs
+  GLM (`glm -p`, `glm_model`); risk slices, debugging and every review stay on Claude. L3 `tight`: the whole session runs
   on GLM and reviews are queued instead of performed. Set with `worker --level 0|1|2|3`.
 - **rtk** — installed by `/bajzi:setup`; compresses command output. A `noise-filter` hook additionally
   keeps loud install/build output out of the context (exit code preserved).
 - **`glm` / `worker` / `ccr` shims** — launchers around `cc-router.js`, no daemon. `glm` always runs on
-  GLM, `worker` follows the saved saver mode, `ccr` is the back-compat entry. `worker --status` shows
+  GLM, `worker` follows the saved saver mode, `ccr` is the back-compat entry. Models (`~/.claude/cc-router.json`):
+  `glm_orchestrator_model` (default `glm-5.3`), `glm_model` and `glm_fast_model` (both default `glm-5.3-flash`);
+  set with `worker --set-orchestrator-model|--set-model|--set-fast-model <id>`, force per shell with
+  `GLM_ORCHESTRATOR_MODEL`/`GLM_MODEL`/`GLM_FAST_MODEL`. A top-level GLM session runs on the orchestrator model,
+  its sub-agents on `glm_model`; a nested launch (a `glm -p` worker) runs on `glm_model` throughout. `worker --status` shows
   the level, `worker --usage` reports the Anthropic/GLM weighted-token split. A GLM launch is refused
   during the Z.ai peak window (08:00-12:00 CEST, 07:00-11:00 CET in winter); override one call with `CC_GLM_PEAK_OK=1`.
 - **Status line** — model, saver level, branch, task, context percentage, GLM share, open review-queue

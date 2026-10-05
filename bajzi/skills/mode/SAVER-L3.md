@@ -1,7 +1,8 @@
 SAVER LEVEL L3 (tight). THIS SESSION RUNS ON GLM. No Anthropic model is reachable from it: every
 "opus"/"sonnet"/"haiku" sub-agent you dispatch is served by GLM.
+MODELS: this top-level session = glm_orchestrator_model (glm-5.3); every sub-agent and every `glm -p` dispatch = glm_model / glm_fast_model (both glm-5.3-flash today).
 PRECEDENCE: at L3 this block OVERRIDES the day-run REVIEW LOOP and its "review a diff -> REVIEWER" and "final whole-branch review -> REVIEWER" rows. Queuing the review IS how those rows are met at L3; no sub-agent here is an Opus review, whatever model name it was given.
-FLASH RUNG: locate/map, tests/lint/build/shellcheck, long-file summaries (summary only) -> glm -p --model haiku "<task>". Flash NEVER writes code.
+FLASH RUNG: locate/map, tests/lint/build/shellcheck, long-file summaries (summary only) -> glm -p --model haiku "<task>".
 Everything else, including orchestration and implementation, runs here or via glm -p "<task>".
 REVIEWS: do NOT dispatch review sub-agents, and never call anything a review. For every review the
 work owes (each slice's Tier-1/Tier-2 review, the final whole-branch review), APPEND the evidence to
