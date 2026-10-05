@@ -6,11 +6,19 @@ and run this file. `worker ...` follows the saver switch (`claude|light` = plain
 subscription, `glm|tight` = Z.ai GLM); `glm ...` is always GLM; `ccr code ...` keeps the
 old claude-code-router launcher working (`--model deepseek-*` goes to DeepSeek, everything
 else to GLM). In GLM mode the Claude aliases are remapped so callers never change their
-arguments: `--model sonnet|opus` -> `glm_model`, `--model haiku` -> `glm_fast_model`.
+arguments. Three keys in `cc-router.json`: `glm_orchestrator_model` (default `glm-5.3`),
+`glm_model` and `glm_fast_model` (both default `glm-5.3-flash`); an explicit value in the file wins.
+- Top-level launch (not from inside Claude Code): main session and `--model sonnet|opus` -> `glm_orchestrator_model`; sub-agents -> `glm_model`; `haiku` -> `glm_fast_model`.
+- Nested launch (`CLAUDECODE` set, e.g. a `glm -p` worker): main session, `sonnet|opus` and sub-agents -> `glm_model`; `haiku` -> `glm_fast_model`.
+
+`--set-*` writes only its own key; unset keys follow the code defaults. A `cc-router.json`
+written by an older `--set-model`/`--set-fast-model` pins every key (`glm_model: "glm-5.3"`,
+`glm_fast_model: "glm-4.7"`); if `worker --status` shows `glm-5.3` as glm model or `glm-4.7` as
+glm fast model, delete that key from the file to get the default.
 
 Admin commands (run via `worker`): `--level 0|1|2|3 [--global]` (0 claude, 1 light, 2 glm,
-3 tight), `--set claude|light|glm|tight [--global]`, `--status`, `--set-model <id>`,
-`--set-fast-model <id>`, `--log [n]`, `--usage [since] [--until <t>] [--json]`. Anything else
+3 tight), `--set claude|light|glm|tight [--global]`, `--status`, `--set-orchestrator-model <id>`,
+`--set-model <id>`, `--set-fast-model <id>`, `--log [n]`, `--usage [since] [--until <t>] [--json]`. Anything else
 is passed to Claude Code unchanged. State lives under `~/.claude`: `worker-mode` (the machine
 default level word), `cc-router.json` (models), `cc-router.log`.
 
@@ -37,6 +45,8 @@ launchers are tracked byte-for-byte (`.gitattributes`: `-text`), so edit them he
   and `~/.claude/worker-mode` (one of `claude|light|glm|tight`; anything else exits 64).
 - `CLAUDE_CODE_SESSION_ID` — exported by Claude Code to its tool processes; selects the
   session level file. An id outside `^[A-Za-z0-9_-]{1,128}$` counts as no session.
+- `GLM_ORCHESTRATOR_MODEL`, `GLM_MODEL`, `GLM_FAST_MODEL` — force the matching model for this
+  shell over `cc-router.json`; `worker --status` marks a forced value.
 - `CC_GLM_PEAK_OK=1` — bypass the GLM peak-window refusal. Without it, a GLM-bound launch
   inside the Z.ai peak window (06:00-10:00 UTC = 14:00-18:00 UTC+8, 3x quota) is refused
   with exit 75 and one line is appended to the peak log.

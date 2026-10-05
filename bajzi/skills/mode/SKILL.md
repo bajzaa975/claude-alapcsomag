@@ -93,16 +93,19 @@ tool, so they cost no Anthropic quota. Task classes, ordered by risk (how far a 
 travels before something catches it): 1 search/locate, 2 tests/lint/build, 3 long-file
 summaries, 4 first-round fixes, 5 implementing.
 
-| Level | GLM flash (`glm-5.3-flash`) | GLM big (`glm-5.3`) | Stays on Claude | Target GLM share |
+| Level | GLM flash rung (`glm_fast_model`) | GLM rung (`glm_model`) | Stays on Claude | Target GLM share |
 |---|---|---|---|---|
 | **L0 Claude** | - | - | everything | 0% |
 | **L1 Light** | 1-3 (replaces haiku) | - | 4-5 (sonnet), orchestration + every review (reviewer allow-list) | 20-30% |
 | **L2 Balanced** | 1-3 | 4-5 | orchestration, every review (reviewer allow-list), risk-bearing slices (Opus) | 60-70% |
 | **L3 Tight** | 1-3 | 4-5, orchestration, Tier-2 findings | Tier-1 + final whole-branch reviews - **queued** (SAVER-L3.md) | 85-90% build-phase |
 
-Fixed rules, all levels: flash never writes code (classes 4-5); risk-bearing slices never
-start on GLM below L3; GLM never reviews GLM's code as a substitute for a reviewer-allow-list review -
-where no such review is available the review is queued, never downgraded; the GLM
+GLM models (`~/.claude/cc-router.json`): a top-level GLM session (the L3 orchestrator) runs on
+`glm_orchestrator_model` (default `glm-5.3`); its sub-agents and every `glm -p` dispatch, GLM rung and
+flash rung alike, run on `glm_model` / `glm_fast_model` (defaults: both `glm-5.3-flash`).
+
+Fixed rules, all levels: risk-bearing slices never start on GLM below L3; GLM never reviews GLM's
+code as a substitute for a reviewer-allow-list review - where no such review is available the review is queued, never downgraded; the GLM
 peak-window ban applies at every level that uses GLM (L1-L3), enforced by the shim.
 
 - `worker --level N` sets the level (0=claude, 1=light, 2=glm, 3=tight). Run from inside a
