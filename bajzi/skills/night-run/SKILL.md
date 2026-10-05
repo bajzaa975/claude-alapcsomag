@@ -194,10 +194,12 @@ only where the `owner/name` value is wanted. There is no third spelling.
 
    ```bash
    /usr/bin/git -C "<BASE>" fetch origin --prune
-   /usr/bin/git -C "<BASE>" rev-list --left-right --count <BASE_BRANCH>...origin/<BASE_BRANCH>
    ```
 
-   A non-zero right-hand count (the base branch is behind its remote) is a gate blocker.
+   There is no "local `<BASE_BRANCH>` is behind its remote" check: BASE is moved onto a
+   `night/base-*` branch cut from `origin/<BASE_BRANCH>` below and the local `<BASE_BRANCH>`
+   is never advanced, so that count would only grow. What keeps the render honest is the
+   `render-base.sha` / `ls-remote` check at PHASE D.
 
    **Fresh BASE — nothing is rendered from a stale tree.** `BASE` is a long-lived checkout
    that still holds whatever an earlier night left on it, and `docs/NIGHT-RULES.md`, the
@@ -217,7 +219,9 @@ only where the `owner/name` value is wanted. There is no third spelling.
 
    ```bash
    STAMP=$(date +%Y-%m-%d-%H%M)
-   /usr/bin/git -C "<BASE>" checkout --no-track -b "night/base-$STAMP" "origin/<BASE_BRANCH>"
+   /usr/bin/git -C "<BASE>" checkout --no-track -b "night/base-$STAMP" "origin/<BASE_BRANCH>" || echo "BLOCKER: checkout failed"
+   # earlier night/base-* branches are no longer checked out now: delete them, same step
+   /usr/bin/git -C "<BASE>" for-each-ref --format='%(refname:short)' 'refs/heads/night/base-*' | while read -r b; do [ "$b" = "night/base-$STAMP" ] || /usr/bin/git -C "<BASE>" branch -D "$b"; done
    /usr/bin/git -C "<BASE>" rev-parse "origin/<BASE_BRANCH>" > "<NIGHT_DIR>/render-base.sha"
    cat "<NIGHT_DIR>/render-base.sha"
    ```
@@ -248,6 +252,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
    The configured value must appear in that output as a whole line:
 
    ```bash
+   set -a; . ~/night-runs/<project>/config.env; set +a
    gh run list -R "<REPO>" --event pull_request --limit 10 --json workflowName,name --jq '.[].workflowName' | /usr/bin/grep -qxF -- "$REQUIRED_CHECK" \
      || echo "BLOCKER: REQUIRED_CHECK '$REQUIRED_CHECK' is not a workflow run name; gh shows: $(gh run list -R "<REPO>" --event pull_request --limit 10 --json workflowName --jq '.[].workflowName' | sort -u | tr '\n' ',')"
    ```
@@ -502,8 +507,9 @@ Then write into `~/night-runs/<project>/`:
 - `WATCHER-BRIEF.md`, rendered from `templates/WATCHER-BRIEF.md.tmpl` into the night dir: substitute
   `{{PROJECT}}` (config), `{{RUNNER}}` = `run.sh`, `{{RUN_DIR}}` = the night dir, `{{RUN_LOG}}` =
   `<night dir>/logs/runner.log`, `{{TERMINAL_LINE_REGEX}}` = `^\S+ (merged|open|parked|blocked|DEFERRED-\S+) `,
-  `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the PHASE E launch
-  line (`bash <NIGHT_DIR>/launch.sh`), `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
+  `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the runner-only
+  command (`setsid nohup bash <RUN_SH> --config <NIGHT_DIR>/config.env --deadline <DEADLINE>`, the same RUN_SH
+  as launch.sh; never `launch.sh`, which is the owner's bedtime command and re-installs settings), `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
   `<night dir>/night-watch-summary.md`, `{{ESCALATION_MODEL}}` = entry [0] of the reviewer allow-list,
   `{{ALLOWLIST}}` = the four lines below verbatim. Leave `{{EVENT}}` and `{{FACTS}}` in place: the
   watchdog fills them per tick.

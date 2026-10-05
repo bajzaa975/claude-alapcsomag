@@ -142,3 +142,24 @@ test('config.env.tmpl and NIGHT-RULES.md.tmpl say which REQUIRED_CHECK name the 
   has(sec5, 'NOT the branch-protection');
   has(flat(sec5), CMD);
 });
+
+test('PHASE A: no local-BASE_BRANCH behind check; REQUIRED_CHECK snippet loads config.env itself', () => {
+  const a = flat(phase('## PHASE A', '## PHASE B'));
+  assert.ok(!a.includes('rev-list --left-right --count <BASE_BRANCH>...origin/<BASE_BRANCH>'), 'stale behind-check');
+  const snip = SKILL.slice(SKILL.indexOf('gh run list -R "<REPO>" --event pull_request --limit 10 --json workflowName,name'));
+  assert.ok(snip.indexOf('. ~/night-runs/<project>/config.env') >= 0
+    && snip.indexOf('. ~/night-runs/<project>/config.env') < snip.indexOf('grep -qxF -- "$REQUIRED_CHECK"'), 'config.env loaded in the snippet');
+});
+
+test('PHASE A deletes earlier night/base-* branches in the step that creates the new one', () => {
+  const a = flat(phase('## PHASE A', '## PHASE B'));
+  has(a, "for-each-ref --format='%(refname:short)' 'refs/heads/night/base-*'");
+  has(a, 'branch -D "$b"');
+  assert.ok(a.indexOf('checkout --no-track -b "night/base-$STAMP"') < a.indexOf('branch -D "$b"'));
+});
+
+test('WATCHER-BRIEF LAUNCH_LINE is the runner-only command, not launch.sh', () => {
+  const s = flat(SKILL);
+  has(s, '`{{LAUNCH_LINE}}` = the runner-only command (`setsid nohup bash <RUN_SH> --config <NIGHT_DIR>/config.env --deadline <DEADLINE>`');
+  assert.ok(!s.includes('`{{LAUNCH_LINE}}` = the PHASE E launch'), 'launch.sh as LAUNCH_LINE');
+});
