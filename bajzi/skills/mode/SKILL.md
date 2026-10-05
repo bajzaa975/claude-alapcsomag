@@ -57,8 +57,12 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
   bigger file in its place) and restate its rules as the active rules for the rest of this
   session. If a saver level is in force (see "Saver levels" below), also apply its text on
   top. Resolve the level exactly as the SessionStart hook does (`bajzi/hooks/lib-saver-level.sh`,
-  `day-run-mode.sh` level block): level = `$CC_WORKER_MODE` if set, else the content of
-  `$HOME/.claude/worker-mode`; if `ANTHROPIC_BASE_URL` is set and its host is not
+  `day-run-mode.sh` level block): level = `$CC_WORKER_MODE` if set, else THIS session's level
+  file `<status dir>/$CLAUDE_CODE_SESSION_ID.level` if the id matches `^[A-Za-z0-9_-]{1,128}$` and
+  the file's first line reads non-empty (`<status dir>` = `$BAJZI_STATUS_DIR`, else
+  `${BAJZI_HOME:-$HOME}/.claude/bajzi/sessions`), else `$BAJZI_SESSION_LEVEL` (inherited from a parent session; never opens the gate), else the content of `$HOME/.claude/worker-mode` (the machine
+  default). Read both level files like a mode file above, after dropping a leading UTF-8 BOM.
+  If `ANTHROPIC_BASE_URL` is set and its host is not
   `*.anthropic.com`, the level is `tight` whatever the file says. Then read ONE file from
   `${CLAUDE_PLUGIN_ROOT}/skills/mode/`: `light` -> `SAVER-L1.md`, `glm` -> `SAVER-RULES.md` (the
   L2 text), `tight` -> `SAVER-L3.md` (its PRECEDENCE line overrides the day-run review rows);
@@ -73,11 +77,13 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
   3. whether a project override is in force (a `runtime/bajzi-mode` present and different from
      the user-level file - yes/no),
   4. the saver level, resolved exactly as the `day-run` switch above resolves it
-     (`$CC_WORKER_MODE` if set, else `$HOME/.claude/worker-mode` read the same way as above;
+     (`$CC_WORKER_MODE` if set, else this session's level file, else `$BAJZI_SESSION_LEVEL`, else
+     `$HOME/.claude/worker-mode`, read the same way as above;
      a non-Anthropic `ANTHROPIC_BASE_URL` forces tight): `light`, `glm` and `tight` print
      `saver: L1 (light)` / `saver: L2 (glm)` / `saver: L3 (tight)`, `claude` prints
-     `saver: off`, a missing file prints `saver: off (no worker-mode file)`, and any other
-     word prints `saver: unknown (<word>)`. Never write that file from this skill.
+     `saver: off`, no level from any of the three prints `saver: off (no worker-mode file)`, and any other
+     word prints `saver: unknown (<word>)`; append ` - this session` when the session file set it,
+     ` - machine default` when worker-mode did. Never write either file from this skill.
 
 ## Saver levels (GLM rungs under day-run)
 
@@ -99,11 +105,15 @@ start on GLM below L3; GLM never reviews GLM's code as a substitute for a review
 where no such review is available the review is queued, never downgraded; the GLM
 peak-window ban applies at every level that uses GLM (L1-L3), enforced by the shim.
 
-- `worker --level N` sets the level (0=claude, 1=light, 2=glm, 3=tight); `worker --status`
-  prints the level, the GLM models and the state files; `worker --usage <since> --until <t>`
+- `worker --level N` sets the level (0=claude, 1=light, 2=glm, 3=tight). Run from inside a
+  session (Bash/PowerShell tool) it sets THIS session's level only - other running sessions keep
+  theirs; `worker --level N --global`, or the same command from a plain shell, sets the machine
+  default (`~/.claude/worker-mode`), which every session without its own level follows.
+  `worker --status` prints the level and where it came from (env / session / machine default /
+  none), the GLM models and the state files; `worker --usage <since> --until <t>`
   reports the Anthropic/GLM weighted-token split since a time. Those commands come from the
   owner's `worker` wrapper (`bin/cc-router.js`), not from this plugin - this skill only
-  READS `$HOME/.claude/worker-mode` and never writes it.
+  READS the level files and never writes them. Day-run on/off stays machine-wide.
 - The hook injects saver text when day-run is on OR `$CC_WORKER_MODE` names a level
   (a runner-forced level) OR the provider is non-Anthropic; in plain normal mode with none of
   those it emits `{}` and saver mode has no effect at all. A non-Anthropic provider forces L3

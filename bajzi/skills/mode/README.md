@@ -19,7 +19,13 @@ task routing plus stricter session discipline), `normal` (no routing changes), o
 A project file wins over the global file when both exist. A missing file means
 normal mode: the plugin behaves exactly as it did before this skill existed.
 
-Saver mode: while day-run is on and `~/.claude/worker-mode` says `glm`, `SAVER-RULES.md` is injected too and the cheap rungs run on a headless GLM worker (`worker --set claude` turns it off).
+Saver mode: while day-run is on and the saver level is `glm`, `SAVER-RULES.md` is injected too and the cheap rungs run on a headless GLM worker (`worker --set claude` turns it off).
+
+The saver level is per session when set from inside a session: `worker --level N` run by a
+session's Bash tool writes `~/.claude/bajzi/sessions/<session id>.level` and changes only that
+session. Every other session follows the machine default, `~/.claude/worker-mode`, which
+`worker --level N --global` (or the same command from a plain shell, outside Claude Code) sets.
+Day-run on/off (`bajzi-mode`) stays machine-wide.
 
 ## Turning injection off
 

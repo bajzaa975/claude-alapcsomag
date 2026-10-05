@@ -330,3 +330,33 @@ test('p95 of 20 warm runs < 150 ms', PERF, () => {
   for (let i = 0; i < 20; i++) ms.push(runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd }).ms);
   assert.ok(p95(ms) < 150, `p95 ${p95(ms).toFixed(1)} ms`);
 });
+
+// --- per-session level: the line shows THIS session's level (<status dir>/<session_id>.level) ---
+test('per-session level: machine default glm, session A set tight -> A shows L3, B shows L2', () => {
+  const cwd = tmpDir('bajzi-nr-');
+  const home = tmpDir('bajzi-h-');
+  const dir = path.join(home, '.claude', 'bajzi', 'sessions');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'worker-mode'), 'glm\n');
+  fs.writeFileSync(path.join(dir, 'A.level'), 'tight\n');
+  const lvl = (id, env = {}) => {
+    const facts = {};
+    render({ session_id: id, workspace: { current_dir: cwd } }, { env, home, nowMs: NIGHT, color: false, facts });
+    return facts.level;
+  };
+  assert.strictEqual(lvl('A'), 3);
+  assert.strictEqual(lvl('B'), 2);
+  assert.strictEqual(lvl('A', { CC_WORKER_MODE: 'light' }), 1);                                  // env beats the session file
+  fs.writeFileSync(path.join(dir, 'B.level'), 'claude\n');
+  assert.strictEqual(lvl('B', { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic' }), 3);   // non-Anthropic forces tight
+  assert.strictEqual(lvl('../A'), 2);                                                           // unsafe id: machine default
+});
+test('per-session level end to end: the script reads the session file named by the input session_id', () => {
+  const cwd = tmpDir('bajzi-nr-');
+  const d = tmpDir('bajzi-ln-');
+  fs.writeFileSync(path.join(d, 's9.level'), 'light\n');
+  const r = runScript(SCRIPT, JSON.stringify({ session_id: 's9', workspace: { current_dir: cwd } }), { BAJZI_STATUS_DIR: d, NO_COLOR: '1' }, { cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.match(r.stdout, /^L1( |\n)/);
+  assert.strictEqual(lineFile(d, 's9').bajzi_level, 'L1');
+});
