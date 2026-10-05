@@ -66,7 +66,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`, session-signal on every tool, never any output, §6.5); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js:20-22` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` (runs from `pre-tool.js`/`post-tool.js`) | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in the plan's Global Constraints and in `docs/superpowers/specs/2026-09-23-bajzi-env-unification-design.md` section 3.2 (`:110`) — keep all three in sync or the doc lies. |
 | What is allowed above 50% | `context-guard.js:36-153` `isHandoffPath`, `commandCheck`, `commandRule`, `mvRule`, `skillRule`, `exemptCheck` | same, tests `RF4:*`, `I1a/I1b/I1c:*`, `I-1: shell escapes...` | 1 | The `PLAIN_WORD` whitelist (`:67`) covers only `mkdir`/`mv`/`git mv` argument tokens. `isHandoffPath` itself is not anchored to the repo root — an accepted limit (§9.4). |
-| Status-line fields/order | `bajzi/hooks/node/statusline.js:59-88` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). GLM share only rendered at level ≥ 1. |
+| Status-line fields/order | `bajzi/hooks/node/statusline.js:59-93` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). `5h N%` / `7d N%` (`rate_limits.five_hour` / `.seven_day` `.used_percentage`, rounded) follow the context bar, plain text, omitted when absent or non-numeric. GLM share only rendered at level ≥ 1. |
 | Session status records for the workbench (`<id>.event.json`, `<id>.line.json`, `<id>.artifacts.jsonl`, redacted hook samples; the contract is in §6.5) | `bajzi/hooks/node/session-signal.js` `handle` (the state table, idle rule, resume rule, Artifact append), `sample` (`hook-samples.on`), `check` (the `post-tool.js` `CHECKS` row, every tool); `bajzi/hooks/node/lib/session-status.js` `statusDir`/`writeJson`/`appendLine`/`prune`; `bajzi/hooks/node/statusline.js` `writeLine` (+ `render()`'s `opts.facts`); wired in `bajzi/hooks/hooks.json` (SessionStart, UserPromptSubmit, Notification, Stop, StopFailure, SessionEnd) | `node --test bajzi/hooks/node/tests/session-signal.test.js bajzi/hooks/node/tests/session-status.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/hooks/node/tests/tool-hooks.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (13m2) | 1 | Runs in every session: write-only, never stdout/stderr, exit 0 on anything, every entry `timeout: 5`. The contract is shared with claude-orchestrator (SPRINT-170 reads it): renaming a field or adding a state changes both sides, and `"v"` moves on an incompatible change. Ids outside `SAFE_ID` write nothing; `prune` deletes only the three record kinds (+ stale tmp files), never a foreign file, so a wrong `BAJZI_STATUS_DIR` deletes nothing else. The status line writes its file only after stdout is out (a missing lib or failed write never blanks the line). Not the `bajzi-ctx-<id>.json` bridge: that one is untouched. |
 | Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js:38` `matchProtected`, `:169` `commandReadsProtected`; `manifest.json:294` `secret_patterns` (runs from `pre-tool.js`) | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | Globs, brace lists, PowerShell comma arrays and `rtk` wrappers must all stay covered (§6.7). The pipe-into-reader rule must fire only when a downstream pipeline stage (any, not just the next) reads paths from stdin (§6.7). |
 | Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js:4-20` `REGEX_RULES`, `:54` `scan`, `:27` `RULE_IDS` (17 ids), `:34` `sanitize`; `bajzi/hooks/node/injection-scan.js:31` `decide` (runs from `post-tool.js`) | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Warn-only by design — `addContext` only, never `deny()`; never wire it to block. Every rule regex avoids the `\s*X?\s*` quadratic shape (§6.8); excerpts/source run through `sanitize()`. |
@@ -726,10 +726,11 @@ frontmatter is the upgrade if that bites.
 `workspace.current_dir` (falls back to `cwd`, then `process.cwd()`), `context_window
 .remaining_percentage`; for the line file also `session_name`, `workspace.project_dir`,
 `workspace.git_worktree`, `context_window.used_percentage`, `cost.total_cost_usd`,
-`rate_limits.five_hour.used_percentage`.
+`rate_limits.five_hour.used_percentage`, `rate_limits.seven_day.used_percentage` (the line also
+shows both).
 
-**Line**: `model · Lx · branch* · task · ▓▓░░ NN% · GLM NN% · Qn · peak ...`
-(`statusline.js:20` `SEP = ' · '`). Fields, in order (`render()`, `:59-88`):
+**Line**: `model · Lx · branch* · task · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN% · Qn · peak ...`
+(`statusline.js:20` `SEP = ' · '`). Fields, in order (`render()`, `:59-93`):
 1. `model.display_name`, trimmed; omitted if blank.
 2. `L<level>` from `resolveLevel()` (`saver-level.js:48`) — always present.
 3. git branch + `*` if dirty (`status-parts.js:80` `gitInfo`, 5 s cache per cwd, §7.2) —
@@ -738,6 +739,9 @@ frontmatter is the upgrade if that bites.
    (`handoffTask()`, `:99-118`) — omitted if none.
 5. the context bar: `▓`×`round(used/10)` + `░`×remainder + ` NN%`, coloured green `<40`,
    yellow `40-49`, red `≥50` (`bar()`, `:23-29`).
+   5a. `5h NN%` — `rate_limits.five_hour.used_percentage`, rounded; plain text; omitted when absent,
+   non-object or non-numeric (API-key users, before the first response, GLM sessions).
+   5b. `7d NN%` — same, from `rate_limits.seven_day.used_percentage`.
 6. `GLM NN%` — **only at level ≥ 1** (`glmShare()`, `:173-181`, 5-minute cache, refreshed by a
    **detached** child so the line never waits on `worker --usage`; a 60 s lock file prevents
    concurrent status lines from all spawning a refresh, `takeLock`, `:157-171`; files in §7.2).
@@ -754,7 +758,7 @@ frontmatter is the upgrade if that bites.
 {used_pct, ts}` atomically (`bridge.js:27` `writeBridge`, §7.2). This is the **only** producer
 of that file — the context guard (§6.6) is a pure consumer.
 
-**Side effect — the line file**: after the rendered line is on stdout, `writeLine()` (`:97-118`)
+**Side effect — the line file**: after the rendered line is on stdout, `writeLine()` (`:103-125`)
 writes `<status dir>/<session_id>.line.json` (the status record contract below) from the stdin
 fields plus what `render()` computed (`opts.facts`: level, branch, GLM share — no second git or
 GLM lookup). It is rewritten only when its content changed or 30 s (`LINE_EVERY_S`) passed since
@@ -783,7 +787,7 @@ three kinds below + stale tmp files, nothing else) whose mtime is older than 7 d
 `<id>.line.json` — written by the status line when the content changed or 30 s passed since its last write:
 ```json
 {"v":1,"session_id":"…","session_name":"…","cwd":"…","project_dir":"…","git_worktree":"…","branch":"…",
- "model":"Opus 5.5","ctx_pct":37.5,"cost_usd":1.23,"five_hour_pct":42,"glm_share":64,"bajzi_level":"L2","ts":1759340000}
+ "model":"Opus 5.5","ctx_pct":37.5,"cost_usd":1.23,"five_hour_pct":42,"seven_day_pct":34,"glm_share":64,"bajzi_level":"L2","ts":1759340000}
 ```
 `<id>.event.json` — written whole by the session-signal hook (never merged: only the idle and resume rules read it, to decide whether to write):
 ```json
@@ -1829,10 +1833,10 @@ root. Line numbers are pinned to the commits in §11.
 
 | Path | Writer | Readers | Format | Lifecycle |
 |---|---|---|---|---|
-| `<tmpdir>/bajzi-ctx-<session_id>.json` (the bridge) | `statusline.js:126` → `writeBridge` (`bridge.js:27-41`: `wx` temp file, then rename) | `readBridge` (`bridge.js:43-52`), called by `context-guard.js:232` | `{"used_pct": 42, "ts": <ms>}` | stale after 60 s, rejected if > 5 s in the future (`bridge.js:13,50`); never deleted; `session_id` must match `^[A-Za-z0-9_-]{1,128}$` (`bridge.js:12`) |
+| `<tmpdir>/bajzi-ctx-<session_id>.json` (the bridge) | `statusline.js:132` → `writeBridge` (`bridge.js:27-41`: `wx` temp file, then rename) | `readBridge` (`bridge.js:43-52`), called by `context-guard.js:232` | `{"used_pct": 42, "ts": <ms>}` | stale after 60 s, rejected if > 5 s in the future (`bridge.js:13,50`); never deleted; `session_id` must match `^[A-Za-z0-9_-]{1,128}$` (`bridge.js:12`) |
 | `<tmpdir>/bajzi-ctx-<session_id>-warned.json` | `context-guard.js:205-228` `shouldWarn` (temp + rename `:219-223`) | same function | `{"calls": 3}` | reset to 0 on every warning; never deleted |
 | `<tmpdir>/bajzi-git-<sha1(cwd)[0..16]>.json` | `gitInfo` (`status-parts.js:80-97`) | same | `{"ts": <ms>, "info": null \| {"branch", "dirty"}}`, schema-checked (`validGitInfo`, `:53-58`) | TTL 5000 ms (`:10`) |
-| `~/.claude/bajzi/glm-share.json` | `refreshGlm` (`status-parts.js:183-201`), a detached child running `worker --usage 24h --json` (override `BAJZI_WORKER_CMD`) | `glmShare` (`:173-181`), only at level ≥ 1 (`statusline.js:77-81`) | `{"ts": <ms>, "pct": 64}` | TTL 5 min (`:11`); a failed refresh keeps the old `pct` |
+| `~/.claude/bajzi/glm-share.json` | `refreshGlm` (`status-parts.js:183-201`), a detached child running `worker --usage 24h --json` (override `BAJZI_WORKER_CMD`) | `glmShare` (`:173-181`), only at level ≥ 1 (`statusline.js:82-86`) | `{"ts": <ms>, "pct": 64}` | TTL 5 min (`:11`); a failed refresh keeps the old `pct` |
 | `~/.claude/bajzi/glm-share.json.lock` | `takeLock` (`status-parts.js:156-171`, `wx`) | same | the lock's own ms timestamp | expires after 60 s (`:12`); deleted by a successful refresh (`:201`) |
 | `~/.claude/bajzi/hook-errors.log` | `logError` (`hook-io.js:77-100`) via `runHook` (`:124-140`), from every node hook | the owner | `<ISO> <hook> <message ≤300 chars, one line>` | cap 262144 bytes (`:10`): on overflow keeps the last 128 KiB from a line start (`:86-91`) |
 | `~/.claude/bajzi/sessions/<session_id>.event.json` (`BAJZI_STATUS_DIR` overrides the dir) | `session-signal.js` `handle` (`writeJson`: `wx` temp file, then rename) | the claude-orchestrator workbench; `handle` itself for the idle and resume rules | the status record contract (§6.5) | written whole per event; pruned at SessionStart when the mtime is > 7 days old |
