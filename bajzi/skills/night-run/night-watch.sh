@@ -211,43 +211,13 @@ now_iso(){ date -u +%FT%TZ; }
 say(){ printf '%s %s\n' "$(now_iso)" "$*"; }
 
 # ---------------------------------------------------------- single watcher ---
-# Two watchers on one NIGHT_DIR would double every restart. A stale pid file is
-# not a reason to refuse: only a LIVE night-watch.sh is.
-# BOTH halves are required. "cmdline CONTAINS night-watch.sh" is not a watcher:
-# a renamed sleep, an editor or a grep matched it and blocked every new watcher
-# on the machine. So: some argv element's BASENAME must be exactly night-watch.sh
-# AND the process must name the same config (or the same NIGHT_DIR) as we do.
-is_our_watcher(){ # pid -> 0 when pid is a live night-watch.sh watching THIS run
-  local pid=$1 a named=0 same=0
-  [ -r "/proc/$pid/cmdline" ] || return 1
-  local argv=()
-  mapfile -d '' -t argv <"/proc/$pid/cmdline" 2>/dev/null || return 1
-  [ "${#argv[@]}" -gt 0 ] || return 1
-  for a in "${argv[@]}"; do
-    [ "${a##*/}" = "$PROG" ] && named=1
-    case "$a" in "$CONFIG"|"$CONFIG_ABS"|"$NIGHT_DIR") same=1;; esac
-  done
-  # Started from NIGHT_CONFIG instead of --config: the env carries the same fact.
-  if [ "$named" -eq 1 ] && [ "$same" -eq 0 ] && [ -r "/proc/$pid/environ" ]; then
-    while IFS= read -r -d '' a; do
-      case "$a" in
-        NIGHT_CONFIG="$CONFIG"|NIGHT_CONFIG="$CONFIG_ABS"|NIGHT_DIR="$NIGHT_DIR") same=1; break;;
-      esac
-    done <"/proc/$pid/environ"
-  fi
-  [ "$named" -eq 1 ] && [ "$same" -eq 1 ]
-}
-if [ -f "$PIDFILE" ]; then
-  other=$(head -1 "$PIDFILE" 2>/dev/null | tr -dc '0-9')
-  if [ -n "$other" ] && [ "$other" != "$$" ]; then
-    if is_our_watcher "$other"; then
-      say "another $PROG is already watching $NIGHT_DIR (pid $other) — exiting."
-      exit 0
-    fi
-    say "$PIDFILE holds pid $other, which is not a live $PROG for this run — taking it over."
-  fi
-fi
-printf '%s\n' "$$" >"$PIDFILE" 2>/dev/null || say "WARNING: could not write $PIDFILE"
+# Two watchers on one NIGHT_DIR would double every restart. The live-and-ours check (argv basename
+# night-watch.sh AND the same config or NIGHT_DIR; a stale pid file is taken over) lives in
+# tick-lib.sh, shared with supervise.sh.
+TICK_LIB=$(cd "$(dirname "$0")" 2>/dev/null && pwd)/tick-lib.sh
+# shellcheck source=tick-lib.sh
+. "$TICK_LIB" || { echo "$PROG: cannot source $TICK_LIB" >&2; exit 2; }
+claim_pidfile "$PIDFILE"
 
 # The current sleep slice runs as a CHILD, so a TERM can be acted on at once
 # instead of up to 60 s later; on_signal kills that child (the only process this
@@ -428,63 +398,12 @@ TRIAGE_BRIEF=$NIGHT_DIR/WATCHER-BRIEF.md
 TRIAGE_LOG=$NIGHT_DIR/triage.log
 TRIAGE_DIR=$NIGHT_DIR/triage        # per tick: <epoch>-<pid>.jsonl (raw stream), .err, .pid
 TRIAGE_SEEN=0
-tick_say(){ say "$*"; say "$*" >>"$TRIAGE_LOG" 2>/dev/null; }
-
-# THE TICK'S INIT RECORD, CHECKED AS THE STREAM ARRIVES — FAIL CLOSED. The tick may commit a fix
-# (WATCHER-BRIEF duty 4), so a tick on the wrong model or permission mode must not get to act:
-# the first stream line with "type":"system" and "subtype":"init" (NOT line 1 — the hook lines
-# come first) must say permissionMode=bypassPermissions and a model starting with <want>. On a
-# mismatch the claude process is killed at once and nothing it said reaches triage.log; a stream
-# with no init record, or an init field that cannot be read, is a mismatch too. bash `read`, not
-# awk: mawk buffers a pipe until 4 KB or EOF, so it would see the init only after the damage.
-# Returns 0 after a good init, 2 after a MISCONFIGURED verdict (already logged).
-triage_scan(){ # want raw pidfile < the tick's stream-json on stdin
-  local want=$1 raw=$2 pidf=$3 line model perm res tp i err=${3%.pid}.err
-  err_note(){ printf 'stderr in %s: %s' "$err" "$(head -c 300 "$err" 2>/dev/null | tr '
-' ' ')"; }
-  local re_sys='"type"[[:space:]]*:[[:space:]]*"system"' re_init='"subtype"[[:space:]]*:[[:space:]]*"init"'
-  local re_model='"model"[[:space:]]*:[[:space:]]*"([^"]*)"'
-  local re_perm='"permissionMode"[[:space:]]*:[[:space:]]*"([^"]*)"'
-  local re_res='"result"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"'
-  while IFS= read -r line || [ -n "$line" ]; do
-    printf '%s\n' "$line" >>"$raw"
-    [[ $line =~ $re_sys && $line =~ $re_init ]] || continue
-    model="?"; perm="?"
-    [[ $line =~ $re_model ]] && model=${BASH_REMATCH[1]}
-    [[ $line =~ $re_perm ]] && perm=${BASH_REMATCH[1]}
-    if [ "$perm" != bypassPermissions ] || [ "${model#"$want"}" = "$model" ]; then
-      # TERM, then wait for the process to be really gone (timeout --kill-after sends KILL if the
-      # tick ignores TERM). "tick killed" is logged only once it is confirmed dead.
-      tp=$(tr -dc '0-9' <"$pidf" 2>/dev/null)
-      if [ -z "$tp" ]; then
-        tick_say "TICK MISCONFIGURED model=$model permissionMode=$perm, wanted model=$want* permissionMode=bypassPermissions — NO pid recorded, tick NOT killed, output ignored ($raw)"
-        return 2
-      fi
-      kill "$tp" 2>/dev/null
-      for i in $(seq 1 100); do kill -0 "$tp" 2>/dev/null || break; sleep 0.1; done
-      if kill -0 "$tp" 2>/dev/null; then
-        tick_say "TICK MISCONFIGURED model=$model permissionMode=$perm, wanted model=$want* permissionMode=bypassPermissions — tick pid $tp STILL ALIVE after TERM, NOT confirmed killed, output ignored ($raw)"
-      else
-        tick_say "TICK MISCONFIGURED model=$model permissionMode=$perm, wanted model=$want* permissionMode=bypassPermissions — tick killed, output ignored ($raw)"
-      fi
-      return 2
-    fi
-    cat >>"$raw"                       # the rest of the stream, until the tick ends
-    # The final result line's text, JSON-decoded: \" first, then printf %b for \n \t \\ \uXXXX.
-    res=$(grep -E '"type"[[:space:]]*:[[:space:]]*"result"' "$raw" | tail -n 1)
-    if [[ $res =~ $re_res ]]; then
-      res=${BASH_REMATCH[1]}; res=${res//\\\"/\"}
-      printf '%b\n' "$res" >>"$TRIAGE_LOG"
-    else
-      tick_say "TICK FAILED no result line in $raw ($(err_note))"
-      return 0
-    fi
-    tick_say "TICK CONFIG OK model=$model permissionMode=$perm"
-    return 0
-  done
-  tick_say "TICK MISCONFIGURED no init record in the stream — output ignored ($raw; $(err_note))"
-  return 2
-}
+# The tick's launch, its init-record check (fail closed: wrong model or permission mode, or no init
+# record = TICK MISCONFIGURED, tick killed, nothing reaches triage.log) and the confirmed kill live in
+# tick-lib.sh, shared with supervise.sh. TICK_LABEL prefixes every verdict line.
+TICK_LABEL=TICK
+TICK_LOG=$TRIAGE_LOG
+TICK_RESULT_LOG=$TRIAGE_LOG
 
 triage_check(){
   [ "$WATCH_TRIAGE" = "1" ] || return 0
@@ -504,31 +423,16 @@ triage_check(){
 $new" -v fa="$facts" '{ gsub(/\{\{EVENT\}\}/, ev); gsub(/\{\{FACTS\}\}/, fa); print }' "$TRIAGE_BRIEF")
   say "TRIAGE tick: $(printf '%s' "$new" | tr '\n' ';')"
   # Never unsandboxed: cwd = BASE and the project's settings (its deny list) passed explicitly, both
-  # checked before claude starts; then triage_scan checks the init record. Fail closed throughout.
+  # checked before claude starts; then tick_scan (tick-lib.sh) checks the init record. Fail closed throughout.
   local settings=$BASE/.claude/settings.local.json want raw
-  # Supported: the family aliases sonnet|opus|haiku (init id starts claude-<alias>) and full claude-* ids.
-  # Anything else (opusplan, sonnet[1m], default, provider ids) cannot be matched to the init id: refuse.
-  case "$WATCH_TRIAGE_MODEL" in
-    sonnet|opus|haiku) want=claude-$WATCH_TRIAGE_MODEL;;
-    claude-*) want=$WATCH_TRIAGE_MODEL;;
-    *) tick_say "TICK MISCONFIGURED unsupported WATCH_TRIAGE_MODEL=$WATCH_TRIAGE_MODEL (use sonnet|opus|haiku or a full claude-* id)"; return 0;;
-  esac
+  tick_want WATCH_TRIAGE_MODEL "$WATCH_TRIAGE_MODEL" || return 0
+  want=$TICK_WANT
   mkdir -p "$TRIAGE_DIR" 2>/dev/null
   raw=$TRIAGE_DIR/$(date +%s)-$$.jsonl
   ( [ -d "$BASE" ] || { tick_say "TICK MISCONFIGURED BASE is not a directory: $BASE — claude not launched"; exit 0; }
     [ -f "$settings" ] || { tick_say "TICK MISCONFIGURED settings file missing: $settings — claude not launched"; exit 0; }
-    # The middle element records ITS pid, then execs timeout under it: that is the pid
-    # triage_scan kills, and timeout passes the signal on to claude (--kill-after: KILL if ignored).
-    # No pid file, no claude. A failed cd launches nothing, so the scan finds no init record:
-    # still MISCONFIGURED.
-    printf '%s' "$prompt" \
-      | { printf '%s\n' "$BASHPID" >"${raw%.jsonl}.pid" || { echo "cannot write ${raw%.jsonl}.pid - claude not launched" >&2; exit 1; }
-          cd "$BASE" && exec timeout --kill-after=3 600 claude -p --model "$WATCH_TRIAGE_MODEL" --permission-mode bypassPermissions \
-            --settings "$settings" --output-format stream-json --verbose; } 2>"${raw%.jsonl}.err" \
-      | triage_scan "$want" "$raw" "${raw%.jsonl}.pid"
-    rc=("${PIPESTATUS[@]}")
-    # a MISCONFIGURED verdict (scan rc 2) is already logged; any other non-zero exit is a failed tick
-    [ "${rc[1]}" -eq 0 ] || [ "${rc[2]}" -eq 2 ] || tick_say "TICK FAILED exit ${rc[1]} (stderr in ${raw%.jsonl}.err)"
+    tick_launch "$BASE" 600 "$want" "$raw" "$prompt" \
+      --model "$WATCH_TRIAGE_MODEL" --permission-mode bypassPermissions --settings "$settings"
   ) 9>&- &
 }
 

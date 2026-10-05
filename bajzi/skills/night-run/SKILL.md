@@ -522,6 +522,16 @@ Then write into `~/night-runs/<project>/`:
     no story session is running; never reset, checkout, push or touch main.
   - never: runner scripts, hooks, settings, `.git/**`, review-queue ledger, a session under 45 min.
   ```
+- `SUPERVISE-PROMPT.md`, rendered from `templates/SUPERVISE-PROMPT.md.tmpl` into
+  `<NIGHT_DIR>/SUPERVISE-PROMPT.md` on EVERY plan (the 30-minute supervisor, PHASE E, reads it per
+  tick). Literal `str.replace`, like `launch.sh`: `{{PROJECT}}`, `{{NIGHT_DIR}}`, `{{BASE}}`,
+  `{{REPO}}`, `{{BASE_BRANCH}}`, `{{REQUIRED_CHECK}}`, `{{DISK_FLOOR_GB}}` from `config.env`;
+  `{{WATCH_MAX_RESTARTS}}` = config `WATCH_MAX_RESTARTS` (2 when unset); `{{STATE_FILE}}` =
+  `<NIGHT_DIR>/night-watch-state.md` (the triage tick's state file, the same value as in
+  WATCHER-BRIEF.md). Then `/usr/bin/grep -o '{{[A-Za-z_0-9]\+}}' "<NIGHT_DIR>/SUPERVISE-PROMPT.md"`
+  must print nothing: an unrendered placeholder is a PHASE C failure (BLOCKER at the gate), exactly
+  as for the other templates — and `supervise.sh` refuses such a prompt at every tick
+  (`SUPERVISE MISCONFIGURED ... missing or unrendered`), so the supervisor would do nothing all night.
 - `BRIEF.md`, rendered from `templates/BRIEF.md.tmpl` in three steps, in this order.
 
   **1. Substitute these THIRTEEN placeholders, and only these thirteen.**
@@ -1019,6 +1029,27 @@ result line or a non-zero exit logs `TICK FAILED`. It appends one line per tick 
 `night-watch-state.md`. The last tick, on the queue end, writes `night-watch-summary.md` with a Lessons
 section. It never polls: the 2026-09-25 lesson was a watcher that logged "no status file" at 03:34 and
 waited for morning; the brief now tells it to diagnose and act.
+
+**The 30-minute supervisor watches the LIVE story.** Triage wakes only on a terminal row, so a story
+stuck in its first 20 minutes would be noticed only when its budget ends. With `SUPERVISE=1` (the
+default; `0` disables) `run.sh` spawns `supervise.sh` next to the watchdog (same detached spawn:
+setsid, no run-lock fd, stdin `/dev/null`, output in `logs/supervise.out`). It SLEEPS FIRST for
+`SUPERVISE_INTERVAL` (1800 s), then per iteration re-reads `started_epoch` from `run.meta` and exits —
+one line in `~/night-runs/<project>/supervisor.log` — on `SUPERVISE-STOP`, on `STOP`, or when `finished`
+holds an epoch >= `started_epoch`; otherwise it runs ONE fresh headless tick with `SUPERVISE-PROMPT.md`:
+model = entry [0] of the reviewer allow-list read at that tick, `--permission-mode bypassPermissions`,
+cwd = the night dir, `SUPERVISE_TICK_TIMEOUT` (1500 s, must be < the interval) hard cap, provider env
+(`ANTHROPIC_*`, router selectors) scrubbed so it can never run on GLM, and the same fail-closed
+stream-json init check as triage (`SUPERVISE MISCONFIGURED` in `supervisor.log`, tick killed, no result).
+Each tick's result text and `<ISO> tick exit=<rc>` go to `logs/supervisor-ticks.log`; the tick itself
+appends `<ISO> OK|FIXED|PROBLEM <story id> <sentence>` to `supervisor.log`. ONE supervisor per run
+(`supervise.pid`): a tier-0 restart that re-runs `run.sh` spawns a second one, which exits at once.
+Ownership: the supervisor owns allowlist edits (both `settings.local.json` copies) and code/harness
+fixes via a PR merged only on a green `REQUIRED_CHECK` pull_request run; the triage tick never edits
+settings. It relaunches (`launch.sh`, at most 2 per run) only when tier 0 cannot, and changes nothing
+while a triage tick is alive or holds an open `FIXING`. **Stop the supervisor alone:**
+`touch ~/night-runs/<project>/SUPERVISE-STOP` (checked after each sleep). The file is not dated: it
+also stops the NEXT night's supervisor, so `rm` it before that launch.
 
 ## PHASE F — Morning follow-through (`report` mode)
 
