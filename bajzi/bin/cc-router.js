@@ -30,7 +30,7 @@ let args = process.argv.slice(2);
 const insideClaude = !!process.env.CLAUDECODE;   // nested launch; read BEFORE the env scrub below deletes it
 
 function die(msg, code) { process.stderr.write('[' + entry + '] ' + msg + '\n'); process.exit(code); }
-function readConf() { try { return Object.assign({}, DEFAULTS, JSON.parse(fs.readFileSync(CONF_FILE, 'utf8'))); } catch (_) { return Object.assign({}, DEFAULTS); } }
+function readConf(raw) { let o = null; try { o = JSON.parse(fs.readFileSync(CONF_FILE, 'utf8')); } catch (_) {} if (!o || typeof o !== 'object' || Array.isArray(o)) o = {}; return raw ? o : Object.assign({}, DEFAULTS, o); }   // raw: the file only, no defaults
 function writeConf(c) { fs.mkdirSync(path.dirname(CONF_FILE), { recursive: true }); fs.writeFileSync(CONF_FILE, JSON.stringify(c, null, 2) + '\n'); }
 function models() { const c = readConf(); return { orch: process.env.GLM_ORCHESTRATOR_MODEL || c.glm_orchestrator_model, big: process.env.GLM_MODEL || c.glm_model, fast: process.env.GLM_FAST_MODEL || c.glm_fast_model }; }
 function glmMain(m) { return insideClaude ? m.big : m.orch; }   // the opus/sonnet aliases and the default main model
@@ -263,7 +263,7 @@ function workerAdmin() {
   const KEY = { 'set-model': 'glm_model', 'set-fast-model': 'glm_fast_model', 'set-orchestrator-model': 'glm_orchestrator_model' }[a0];
   if (KEY) {
     if (!okModel(args[1])) die('usage: worker --' + a0 + ' <model-id>   e.g. worker --' + a0 + ' glm-5.4', 64);
-    const c = readConf(); c[KEY] = args[1]; writeConf(c);
+    const raw = readConf(true); raw[KEY] = args[1]; writeConf(raw); const c = readConf();   // write only the set key; defaults stay code-side
     console.log('glm_orchestrator_model = ' + c.glm_orchestrator_model + '   glm_model = ' + c.glm_model + '   glm_fast_model = ' + c.glm_fast_model); return true;
   }
   if (a0 === 'usage') return cmdUsage(args.slice(1));

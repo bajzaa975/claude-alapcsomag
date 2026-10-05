@@ -11,9 +11,10 @@ arguments. Three keys in `cc-router.json`: `glm_orchestrator_model` (default `gl
 - Top-level launch (not from inside Claude Code): main session and `--model sonnet|opus` -> `glm_orchestrator_model`; sub-agents -> `glm_model`; `haiku` -> `glm_fast_model`.
 - Nested launch (`CLAUDECODE` set, e.g. a `glm -p` worker): main session, `sonnet|opus` and sub-agents -> `glm_model`; `haiku` -> `glm_fast_model`.
 
-A `cc-router.json` written by an older `--set-model`/`--set-fast-model` may still pin
-`glm_model: "glm-5.3"`; if `worker --status` shows `glm model       glm-5.3`, run
-`worker --set-model glm-5.3-flash`.
+`--set-*` writes only its own key; unset keys follow the code defaults. A `cc-router.json`
+written by an older `--set-model`/`--set-fast-model` pins every key (`glm_model: "glm-5.3"`,
+`glm_fast_model: "glm-4.7"`); if `worker --status` shows `glm-5.3` as glm model or `glm-4.7` as
+glm fast model, delete that key from the file to get the default.
 
 Admin commands (run via `worker`): `--level 0|1|2|3 [--global]` (0 claude, 1 light, 2 glm,
 3 tight), `--set claude|light|glm|tight [--global]`, `--status`, `--set-orchestrator-model <id>`,

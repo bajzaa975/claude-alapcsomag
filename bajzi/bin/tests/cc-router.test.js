@@ -381,13 +381,21 @@ test('worker --set-orchestrator-model writes the key and --status shows it; a ba
   assert.match(bad.stderr, /usage: worker --set-orchestrator-model <model-id>/);
   assert.match(run('worker', ['--router-help']).stdout, /--set-orchestrator-model <id>/);
 });
+test('a single worker --set-model writes only glm_model; the other two keys stay code defaults', () => {
+  const a = run('worker', ['--set-model', 'glm-a']);
+  assert.strictEqual(a.code, 0, a.stderr);
+  const conf = path.join(a.dir, 'cc-router.json');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(conf, 'utf8')), { glm_model: 'glm-a' });
+  const s = run('worker', ['--status'], { CC_ROUTER_CONFIG: conf });
+  assert.match(s.stdout, /^orchestrator    glm-5\.3$/m);
+  assert.match(s.stdout, /^glm fast model  glm-5\.3-flash$/m);
+});
 test('worker --set-model / --set-fast-model write their own key and leave the orchestrator default', () => {
   const a = run('worker', ['--set-model', 'glm-a']);
   assert.strictEqual(a.code, 0, a.stderr);
   const conf = path.join(a.dir, 'cc-router.json');
   assert.strictEqual(run('worker', ['--set-fast-model', 'glm-b'], { CC_ROUTER_CONFIG: conf }).code, 0);
-  const c = JSON.parse(fs.readFileSync(conf, 'utf8'));
-  assert.deepStrictEqual([c.glm_orchestrator_model, c.glm_model, c.glm_fast_model], ['glm-5.3', 'glm-a', 'glm-b']);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(conf, 'utf8')), { glm_model: 'glm-a', glm_fast_model: 'glm-b' });
   const s = run('worker', ['--status'], { CC_ROUTER_CONFIG: conf });
   assert.match(s.stdout, /^glm model       glm-a$/m);
   assert.match(s.stdout, /^glm fast model  glm-b$/m);
