@@ -9,3 +9,4 @@ bajzi/skills/**/*.js text eol=lf
 # Launchers ship byte-for-byte (bash ones LF, .cmd twins CRLF): no eol conversion at all.
 bajzi/bin/launchers/** -text
 bajzi/gate/**/*.js text eol=lf
+*.tmpl text eol=lf
