@@ -158,7 +158,11 @@ Sources, in precedence order:
 4. The previous `REPORT-<date>.md` — PARKED and BLOCKED entries, with the reason
    that parked them, as retry candidates.
 
-Then subtract everything `docs/NIGHT-RULES.md` forbids. Explicitly NOT a source:
+Nothing `docs/NIGHT-RULES.md` restricts, and nothing waiting on an outside answer
+(advisor, accountant, lawyer, owner), is subtracted silently: before the queue is
+drafted the skill lists every such candidate in ONE table (story, restriction,
+source line, recommendation) and asks the owner ONCE. Items gated only by an
+advisor's confirmation are built, with the spec default as config. Explicitly NOT a source:
 TODO/FIXME scanning and lint debt — it maps to no milestone and burns a slot.
 
 ### PHASE C — Plan
@@ -173,13 +177,15 @@ TODO/FIXME scanning and lint debt — it maps to no milestone and burns a slot.
       S = 1 h    M = 2 h    L = 3 h    unsized = treated as M
 
   `PER_STORY_TIMEOUT` remains the hard per-story cap. Queue until the budget is
-  spent, then list what did not fit as deferred WITH the reason; never drop an
-  item silently.
+  spent (`hours:` for one night, or the multi-day deadline the owner chose at the
+  gate), then list what did not fit as deferred WITH the reason; never drop an
+  item silently, and defer for a restriction only with the owner's recorded answer.
 - Write `queue.txt`; render `BRIEF.md` from the template plus NIGHT-RULES.
 
 ### PHASE D — Approval gate
 
-One screen, the only question the skill asks:
+One screen; with the PHASE B restriction table it is one of the skill's two
+questions:
 
 - the ordered queue, each item with its size and one line of why it is in;
 - what the run may merge into the base branch unattended, and the reminder that
