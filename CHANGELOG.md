@@ -2,6 +2,24 @@
 
 Newest first. Details per change: `docs/bajzi-package-spec.md` §11.
 
+## 1.16.0
+Saver hard routing (owner, 2026-10-06): the L2 split (Claude orchestrates, GLM writes the code) is enforced
+mechanically instead of by injected text. Measured before: machine L3 + day-run on, `worker --usage` 84% Claude / 16% GLM;
+a VM night at L2 100% Claude, 0 GLM requests.
+- **Saver guard** (`hooks/node/saver-guard.js`, PreToolUse): at L2/L3 on a Claude session, Edit/Write outside
+  `runtime/`, writer agents and obvious shell writes are denied; Claude cannot change its own level (`! worker --level`
+  is the owner's). Targets are judged by real path; project containment before any tmp allow. Peak window: writes
+  allowed and logged (`cause=peak`).
+- **`split` launcher** (Linux tier): Claude main session + OS sandbox (`--settings`: denyWrite = project root; excluded
+  only `glm`, `git add`, `git commit` (+rtk forms) and the exact findings CLI), pinned L2 via `CC_WORKER_MODE=glm`,
+  bwrap namespace probe. Verified live on the VM: every shell write, fetch/switch-from-tmp, `--upload-pack`, gh alias,
+  global git config and symlink writes blocked; `glm -p` writes and `git add`/`commit` work. Windows: guard tier.
+- **Skills**: `/bajzi:implement`, `/bajzi:fix`, `/bajzi:debt` run the brief through `glm -p --permission-mode
+  bypassPermissions` on a `saver-guard:` deny (acceptEdits measured unable to run tests).
+- **Night run at L2/L3**: config.env `CLAUDE_BIN="glm"`, GLM delegation table in BRIEF, PHASE D gates (glm -p, CLAUDE_BIN,
+  no peak overlap), `gh pr merge` denied, sprints end parked with a review-queue item; L0/L1 restores the owner's values.
+- Messages: SessionStart and `worker --level` say a level does not switch a running session's provider.
+
 ## 1.15.2
 Night-run test fix (pre-existing since 1.15.0): `quota.sh` and `lock-race.sh` left a `supervise.sh` running and failed
 their "no processes left behind" check on Linux.
