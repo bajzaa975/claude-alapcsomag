@@ -785,8 +785,8 @@ test('F3: BAJZI_SANDBOX=1: runtime/ or a memory dir linked into the POSIX tmp ro
   splitDeny(c, path.join(cfg2, 'projects', 'p', 'memory', 'x.md'), 'projects link into posixTmp');
 });
 
-// F1 (round 6): win32 name variants of a control file (trailing dot/space, ::$DATA, raw \?\ and \.\ prefixes) are protected.
-test('F1: win32: trailing space/dot, ::$DATA and raw-prefix variants of a control file are protected', t => {
+// F1 (round 6): win32 name variants of a control file (trailing dot/space, ::$DATA) are protected.
+test('F1: win32: trailing space/dot and ::$DATA variants of a control file are protected', t => {
   if (process.platform !== 'win32') return t.skip('Windows name rules');
   const c = ctx({ CC_WORKER_MODE: 'glm' });
   const claude = path.join(c.home, '.claude');
@@ -794,10 +794,76 @@ test('F1: win32: trailing space/dot, ::$DATA and raw-prefix variants of a contro
   fs.mkdirSync(claude, { recursive: true });
   for (const base of [path.join(claude, 'settings.json'), path.join(claude, 'bajzi-mode'), path.join(c.cwd, 'runtime', 'bajzi-mode')]) {
     for (const v of [`${base} `, `${base}.`, `${base}::$DATA`, `${base}. .`]) protectedEverywhere(c, v);
-    for (const v of [`\\\\?\\${base}`, `\\\\.\\${base}`]) {
-      const d = call(c, 'Write', { file_path: v, content: 'x' });
-      isDeny(d, `raw ${v}`);
-    }
   }
   assert.strictEqual(edit(c, path.join(claude, 'notes.json')), null, 'an ordinary file stays allowed');
+});
+
+// F4 (round 6): the control files EXIST, so the realPath line resolves them and only the raw-prefix rule can give UNRESOLVED_REASON.
+test('F4: win32: raw \\\\?\\ and \\\\.\\ variants of an existing control file are UNRESOLVED (plain, risk agent, peak)', t => {
+  if (process.platform !== 'win32') return t.skip('Windows name rules');
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  const claude = path.join(c.home, '.claude');
+  const peak = Object.assign({}, c, { opts: Object.assign({}, c.opts, { now: PEAK }) });
+  for (const base of [path.join(claude, 'settings.json'), path.join(claude, 'bajzi-mode'), path.join(c.cwd, 'runtime', 'bajzi-mode')]) {
+    put(base, 'x');
+    for (const v of [`\\\\?\\${base}`, `\\\\.\\${base}`]) {
+      for (const [cc, extra, tag] of [[c, {}, 'plain'], [c, { agent_type: 'bajzi:implementer-risk' }, 'risk agent'], [peak, {}, 'peak']]) {
+        const d = call(cc, 'Write', { file_path: v, content: 'x' }, extra);
+        isDeny(d, `${tag} ${v}`);
+        assert.match(d.reason, /cannot resolve the real path of this file/, `${tag} ${v}`);
+      }
+    }
+  }
+});
+
+// Split denies are logged `cause=scratch` iff every path form is in a shell-writable root and none is in the project; every other deny stays `cause=blocked`.
+const lastCause = c => (logOf(c).match(/\tcause=(\w+)\ttool=\w+\n$/) || [])[1];
+
+test('BAJZI_SANDBOX=1: a pure tmp Write is still denied but logged cause=scratch (risk agent and peak too)', () => {
+  for (const now of [NOON, PEAK]) {
+    const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }, now);
+    const f = path.join(c.tmp, 'scratch', 'notes.md');
+    for (const [tool, extra] of [['Write', {}], ['Edit', { agent_type: 'bajzi:implementer-risk' }]]) {
+      const d = call(c, tool, { file_path: f, content: 'x', old_string: 'a', new_string: 'b' }, extra);
+      isDeny(d, `${tool} ${now.toISOString()}`);
+      assert.match(d.reason, SPLIT_RE);
+      assert.strictEqual(lastCause(c), 'scratch', `${tool} ${now.toISOString()}`);
+    }
+    assert.match(logOf(c), new RegExp(`^${now.toISOString().replace(/\.\d{3}Z$/, 'Z')}\tlevel=glm\tcause=scratch\ttool=Write\n[^\n]*\tcause=scratch\ttool=Edit\n$`));
+  }
+});
+
+test('BAJZI_SANDBOX=1: a tmp-side link into the project, runtime/ or home, `lh/../.gitconfig`, .git/.githooks and a control file log cause=blocked', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  for (const d of [path.join(c.cwd, 'src'), path.join(c.cwd, 'runtime'), path.join(c.home, '.config')]) fs.mkdirSync(d, { recursive: true });
+  if (!link(t, path.join(c.cwd, 'src'), path.join(c.tmp, 'ls'), true) || !link(t, path.join(c.cwd, 'runtime'), path.join(c.tmp, 'lr'), true)
+    || !link(t, c.home, path.join(c.tmp, 'lg'), true) || !link(t, path.join(c.home, '.config'), path.join(c.tmp, 'lh'), true)) return;
+  for (const f of [`${c.tmp}/ls/x.js`, `${c.tmp}/lr/x.md`, `${c.tmp}/lg/.gitconfig`, `${c.tmp}/lh/../.gitconfig`,
+    path.join(c.cwd, '.git', 'hooks', 'x'), path.join(c.cwd, '.githooks', 'pre-commit'), path.join(c.home, '.claude', 'worker-mode'), path.join(c.cwd, 'src', 'x.js')]) {
+    isDeny(call(c, 'Write', { file_path: f, content: 'x' }), f);
+    assert.strictEqual(lastCause(c), 'blocked', f);
+  }
+  assert.ok(!/cause=scratch/.test(logOf(c)), logOf(c));
+});
+
+test('BAJZI_SANDBOX=1: a project lying under the tmpdir logs cause=blocked inside it; a tmp file outside it is scratch', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  c.tmp = tmpDir('bajzi-sgb-');
+  c.cwd = path.join(c.tmp, 'proj');
+  fs.mkdirSync(c.cwd);
+  c.opts.tmpdir = c.tmp;
+  for (const f of [path.join(c.cwd, 'src', 'x.js'), path.join(c.cwd, 'runtime', 'x.md')]) {
+    const d = call(c, 'Write', { file_path: f, content: 'x' });
+    isDeny(d, f);
+    assert.match(d.reason, SPLIT_RE, f);
+    assert.strictEqual(lastCause(c), 'blocked', f);
+  }
+  isDeny(call(c, 'Write', { file_path: path.join(c.tmp, 'other', 'x'), content: 'x' }), 'tmp outside the project');
+  assert.strictEqual(lastCause(c), 'scratch');
+});
+
+test('Windows/guard tier (no BAJZI_SANDBOX): a tmp Write is allowed and logs nothing', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  assert.strictEqual(call(c, 'Write', { file_path: path.join(c.tmp, 'scratch', 'notes.md'), content: 'x' }), null);
+  assert.strictEqual(logOf(c), '');
 });

@@ -537,6 +537,13 @@ out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJ
 expect_msg "11q4 Linux, GLM provider: no split hint" "$out" 'saver L3' "$SPL"
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=light BAJZI_UNAME=Linux)"
 expect_msg "11q4 Linux, L1: no split hint" "$out" 'saver L1' "$SPL"
+# 11q5: a sandboxed split session (BAJZI_SANDBOX=1, the saver guard's tmp rule) gets the scratch line in the saver block (model context), never in the systemMessage.
+SCR='Split session: write scratch/temp files with the Bash tool'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_SANDBOX=1)"
+expect "11q5 BAJZI_SANDBOX=1: scratch line in the saver block" "$out" "$SCR"
+expect_msg "11q5 BAJZI_SANDBOX=1: scratch line not in the systemMessage" "$out" "L2 $MM" "$SCR"
+expect "11q5 no BAJZI_SANDBOX: no scratch line" "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm)" 'SAVER LEVEL L2' "$SCR"
+expect "11q5 BAJZI_SPLIT=1 alone (no sandbox): no scratch line" "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_SPLIT=1)" 'SAVER LEVEL L2' "$SCR"
 # 11q3: the injected L3 block on a Claude session must not forbid the Claude fallback at a peak exit 75.
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
 expect "11q3 L3 on Claude: peak line allows the Claude fallback" "$out" 'ORIGINAL Agent call' 'There is no Claude fallback at L3'

@@ -259,8 +259,8 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
           (s.levelDirs.includes(dir) && base.endsWith('.level')) || (s.settingsDirs.includes(dir) && /^settings.*\.json$/.test(base));
       }));
     };
-    const blocked = reason => {
-      logLine(proj, now, word, 'blocked', tool);
+    const blocked = (reason, cause = 'blocked') => {
+      logLine(proj, now, word, cause, tool);
       return { kind: 'deny', rule: RULE, reason };
     };
 
@@ -276,7 +276,8 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
         const a = abs(raw);
         const fm = forms(a);
         const ok = splitAllowed(a);
-        if ((!ok && !fm.every(inProj)) || fm.some(shellWritable) || [path.join(proj, '.git'), path.join(proj, '.githooks')].some(d => fm.some(k => names(d).some(n => k === n || k.startsWith(`${n}/`))))) return blocked(SPLIT_REASON);
+        // Same deny either way; the log tells a harmless scratch file (every form in a shell-writable root, none in the project) from a code write.
+        if ((!ok && !fm.every(inProj)) || fm.some(shellWritable) || [path.join(proj, '.git'), path.join(proj, '.githooks')].some(d => fm.some(k => names(d).some(n => k === n || k.startsWith(`${n}/`))))) return blocked(SPLIT_REASON, fm.every(shellWritable) && !fm.some(inProj) ? 'scratch' : 'blocked');
         write = !ok && !(typeof input.agent_type === 'string' && RISK_AGENT.test(input.agent_type));
       } else write = !allowed(raw) && !(typeof input.agent_type === 'string' && RISK_AGENT.test(input.agent_type));
     } else if (isAgent) {

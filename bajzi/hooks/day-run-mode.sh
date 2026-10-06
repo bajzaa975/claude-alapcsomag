@@ -60,7 +60,7 @@
 # this session's level file <status dir>/<session_id>.level (BAJZI_STATUS_DIR /
 # BAJZI_HOME pick the dir; the id is the payload's session_id, lib-saver-level.sh),
 # the rules files above, those three env vars, BAJZI_SESSION_LEVEL, BAJZI_SANDBOX + uname -s (the
-# Linux `split` hint on an L2/L3 Claude session) and -- under the day-run table on an
+# Linux `split` hint and the split scratch line on an L2/L3 Claude session) and -- under the day-run table on an
 # Anthropic session -- the reviewer allow-list, $HOME/.claude/bajzi/config.json.
 #
 # SHARED RESOLVER: the gate, the provider check, the mode-file read and the level
@@ -175,6 +175,9 @@ if [ "$nonanth" = "no" ] && { [ "$level" = "glm" ] || [ "$level" = "tight" ]; };
     [ -n "$saver_block" ] && saver_block="$mm
 $saver_block"
     warn="$warn $mm"
+    # Sandboxed split session: the saver guard keeps the Edit tools out of tmp. Model context only, never the warn.
+    [ -n "$saver_block" ] && [ "${BAJZI_SANDBOX:-}" = "1" ] && saver_block="$saver_block
+Split session: write scratch/temp files with the Bash tool; Write/Edit reach only <project>/runtime/ and ~/.claude/projects/*/memory/ here."
     # Linux: the strict tier (Claude Code's OS sandbox) exists only in a session started with `split`,
     # which sets BAJZI_SANDBOX=1. BAJZI_UNAME: test seam for uname -s.
     # BAJZI_SPLIT=1 without BAJZI_SANDBOX: already a split session, the sandbox did not start: never "restart with split".

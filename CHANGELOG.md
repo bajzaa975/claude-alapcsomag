@@ -16,6 +16,9 @@ a VM night at L2 100% Claude, 0 GLM requests.
   bwrap namespace probe; the Edit tools write only `runtime/` and memory (no tmp: the sandboxed shell writes it, so a
   link swap could race the check). Verified live on the VM: every shell write, fetch/switch-from-tmp, `--upload-pack`, gh alias,
   global git config and symlink writes blocked; `glm -p` writes and `git add`/`commit` work. Windows: guard tier.
+- **Split scratch** (`saver-split-scratch`): a split session's refused Edit/Write of a pure tmp file (every path form
+  shell-writable, none in the project) is logged `cause=scratch`, not `cause=blocked`, so code-write denies = `cause=blocked`
+  lines only; the SessionStart saver block tells a sandboxed split session to write scratch files with the Bash tool.
 - **Skills**: `/bajzi:implement`, `/bajzi:fix`, `/bajzi:debt` run the brief through `glm -p --permission-mode
   bypassPermissions` on a `saver-guard:` deny (acceptEdits measured unable to run tests).
 - **Night run at L2/L3**: config.env `CLAUDE_BIN="glm"`, GLM delegation table in BRIEF, PHASE D gates (glm -p, CLAUDE_BIN,
