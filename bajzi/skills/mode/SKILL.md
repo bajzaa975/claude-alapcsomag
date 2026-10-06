@@ -123,7 +123,7 @@ peak-window ban applies at every level that uses GLM (L1-L3), enforced by the sh
 - An L2 split session (Claude orchestrates, GLM writes the code) starts with `split`. On Linux
   (bubblewrap + socat installed) it is OS-enforced: Bash runs in Claude Code's sandbox with the
   project read-only; only the excluded commands (`glm`, `git add`, `git commit`, the findings CLI)
-  write there. The Edit/Write tools reach only `runtime/`, the temp dir and `~/.claude/projects/*/memory/`.
+  write there. The Edit/Write tools reach only `runtime/` and `~/.claude/projects/*/memory/` (scratch files: write them with the shell).
   Elsewhere the saver-guard tier applies. A `split` session's level is fixed at L2; to work on
   Claude only, start plain `claude` at L0. Known limits of the sandboxed tier: with the project
   read-only, `git switch`/`checkout <branch>`, branch creation, `merge`, `pull`, `fetch`, `push`,

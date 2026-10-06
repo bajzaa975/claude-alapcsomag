@@ -8,11 +8,13 @@ mechanically instead of by injected text. Measured before: machine L3 + day-run 
 a VM night at L2 100% Claude, 0 GLM requests.
 - **Saver guard** (`hooks/node/saver-guard.js`, PreToolUse): at L2/L3 on a Claude session, Edit/Write outside
   `runtime/`, writer agents and obvious shell writes are denied; Claude cannot change its own level (`! worker --level`
-  is the owner's). Targets are judged by real path; project containment before any tmp allow. Peak window: writes
+  is the owner's). Targets are judged by real path (a link is followed before a later `..`); the most specific root wins
+  (project vs tmp/memory); control files are matched on the literal and the real path. Peak window: writes
   allowed and logged (`cause=peak`).
 - **`split` launcher** (Linux tier): Claude main session + OS sandbox (`--settings`: denyWrite = project root; excluded
   only `glm`, `git add`, `git commit` (+rtk forms) and the exact findings CLI), pinned L2 via `CC_WORKER_MODE=glm`,
-  bwrap namespace probe. Verified live on the VM: every shell write, fetch/switch-from-tmp, `--upload-pack`, gh alias,
+  bwrap namespace probe; the Edit tools write only `runtime/` and memory (no tmp: the sandboxed shell writes it, so a
+  link swap could race the check). Verified live on the VM: every shell write, fetch/switch-from-tmp, `--upload-pack`, gh alias,
   global git config and symlink writes blocked; `glm -p` writes and `git add`/`commit` work. Windows: guard tier.
 - **Skills**: `/bajzi:implement`, `/bajzi:fix`, `/bajzi:debt` run the brief through `glm -p --permission-mode
   bypassPermissions` on a `saver-guard:` deny (acceptEdits measured unable to run tests).

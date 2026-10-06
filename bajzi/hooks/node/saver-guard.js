@@ -39,33 +39,53 @@ const SINKS =/^(?:\/dev\/null|&[\d-]|\$null)$/i;
 
 const blockedReason = n => `saver-guard: this session is at L${n} but runs on Claude (started with plain claude). Writing code is GLM's job here: run it as glm -p with the brief on stdin (Bash run_in_background), or relaunch the session with worker. Risk slices: bajzi:implementer-risk. Owner override: type ! worker --level 0 in the prompt.`;
 const PROTECTED_REASON = 'saver-guard: this file controls the saver guard or the saver level; only the owner may change it (type it as a ! command in the prompt, which bypasses hooks).';
-const SPLIT_REASON = 'saver-guard: in a split session the Edit tools write only <project>/runtime/, the temp dir and ~/.claude/projects/*/memory/ outside the project, and never <project>/.git or <project>/.githooks; any other file (hooks, git config, settings) is changed by the owner only (type it as a ! command in the prompt).';
+const SPLIT_REASON = 'saver-guard: in a split session write scratch files with the shell; the Edit tools write only <project>/runtime/ and ~/.claude/projects/*/memory/ outside the project, and never <project>/.git or <project>/.githooks; any other file (hooks, git config, settings) is changed by the owner only (type it as a ! command in the prompt).';
 const HOME_VAR = /^(?:~|\$\{HOME\}|\$HOME|\$env:(?:HOME|USERPROFILE))(?=$|[/\\])/i;
 const TMP_VAR = /^(?:\$\{(?:TMPDIR|TEMP|TMP)\}|\$(?:TMPDIR|TEMP|TMP)|\$env:(?:TMPDIR|TEMP|TMP))(?=$|[/\\])/i;
 const UNRESOLVED_REASON = 'saver-guard: cannot resolve the real path of this file (dangling or looping symlink, or no access); refusing the write.';
 const LEVEL_REASON = 'saver-guard: only the owner may change the saver level. Ask the owner to type ! worker --level <n> in the prompt (it bypasses hooks).';
 
-// The real path of `a`: realpath of the nearest existing ancestor plus the missing tail. A dangling
-// symlink or any other realpath error throws.
+// The real path of `a`, resolved the OS way: the components of the RAW path left to right, so a link is
+// followed before a later `..` (`<tmp>/lh/../x` with lh -> <home>/.config is <home>/x, never <tmp>/x). The
+// part that does not exist yet stays as a tail (a `..` there collapses). A dangling or looping symlink or
+// any other realpath error throws.
+const SEG = process.platform === 'win32' ? /[\\/]+/ : /\/+/;
 function realPath(a) {
+  if (!path.isAbsolute(a)) a = path.resolve(a);
+  const root = path.parse(a).root;
+  let cur = fs.realpathSync(root);
   const tail = [];
-  for (let cur = a; ; cur = path.dirname(cur)) {
-    try {
-      return path.join(fs.realpathSync(cur), ...tail);
-    } catch (e) {
-      if (e.code !== 'ENOENT' || fs.lstatSync(cur, { throwIfNoEntry: false }) || path.dirname(cur) === cur) throw e;
+  for (const seg of a.slice(root.length).split(SEG)) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') {
+      if (tail.length) tail.pop(); else cur = path.dirname(cur);
+    } else if (tail.length) {
+      tail.push(seg);
+    } else {
+      const next = path.join(cur, seg);
+      try {
+        cur = fs.realpathSync(next);
+      } catch (e) {
+        if (e.code !== 'ENOENT' || fs.lstatSync(next, { throwIfNoEntry: false })) throw e;
+        tail.push(seg);
+      }
     }
-    tail.unshift(path.basename(cur));
   }
+  return path.join(cur, ...tail);
 }
-// Path key as writer-guard.js: `/` separators, no trailing slash, lower-case on win32; of the real path,
-// so a symlink cannot hide its target and a symlinked allowed dir still matches (an unresolvable path keeps its lexical form).
-function key(p) {
-  let r = p;
-  try { r = realPath(p); } catch { /* keep the lexical path */ }
+// Path key as writer-guard.js: `/` separators, no trailing slash, lower-case on win32.
+const norm = r => {
   const s = r.replace(/\\/g, '/').replace(/\/+$/, '');
   return process.platform === 'win32' ? s.toLowerCase() : s;
+};
+// The key of the real path, so a symlink cannot hide its target and a symlinked allowed dir still matches (an unresolvable path keeps its lexical form).
+function key(p) {
+  let r = path.resolve(p);
+  try { r = realPath(p); } catch { /* keep the lexical path */ }
+  return norm(r);
 }
+// The key of the literal path: normalised (`..` collapsed), no link followed.
+const lex = p => norm(path.resolve(p));
 function under(p, dir) {
   return key(p).startsWith(`${key(dir)}/`);
 }
@@ -167,33 +187,51 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     // BAJZI_SANDBOX=1 (a Linux `split` session): the Edit tools are the only unsandboxed write path, so they get the narrow list.
     // Anything wider (~/.claude/hooks, ~/.gitconfig) lets a Write turn the excluded `git commit` into an unsandboxed hook run.
     const sandbox = env.BAJZI_SANDBOX === '1';
-    const dirs = sandbox ? [path.join(proj, 'runtime'), tmpdir] : [path.join(proj, 'runtime'), path.join(home, '.claude'), tmpdir];
+    // ponytail: in a split session the Edit tools write only runtime/ and memory, places the sandboxed shell cannot write, so no link can be
+    // planted and no check-then-write race exists. The tmpdir is NOT in that list (the sandboxed shell writes it). The Windows tier (no sandbox)
+    // keeps tmpdir allowed: an accepted limit there.
+    const dirs = sandbox ? [path.join(proj, 'runtime')] : [path.join(proj, 'runtime'), path.join(home, '.claude'), tmpdir];
     const memory = String(env.CLAUDE_CONFIG_DIR || '') ? path.join(env.CLAUDE_CONFIG_DIR, 'projects') : path.join(home, '.claude', 'projects');
+    // Absolute but NOT collapsed: realPath resolves the raw components (a link before a later `..`), as the OS does.
     const abs = p => {
       let q = p;
       for (const [re, dir] of [[HOME_VAR, home], [TMP_VAR, tmpdir]]) q = q.replace(re, () => dir);
       if (process.platform === 'win32') q = q.replace(/^\/tmp(?=$|\/)/, () => tmpdir).replace(/^\/([a-zA-Z])(?=$|\/)/, '$1:');   // Git-Bash /tmp and /c/Users; on POSIX /tmp is itself
-      return path.resolve(cwd, q);
+      return path.isAbsolute(q) ? q : `${cwd}/${q}`;
     };
-    // Inside the project only runtime/ is allowed; the tmpdir/home/memory allows are for targets outside it.
+    // The most specific root wins: the longest prefix among the project and the allowed dirs (a tie goes to the project, listed first), so
+    // inside the project only runtime/ is allowed, while memory/~/.claude/tmpdir stay allowed when they lie inside a $HOME or ~/.claude project.
     const allowed = p => {
-      const a = abs(p);
-      if (under(a, proj)) return under(a, path.join(proj, 'runtime'));
-      return dirs.some(d => under(a, d)) || (sandbox && under(a, memory) && /^[^/]+\/memory\/./.test(key(a).slice(key(memory).length + 1)));
+      const k = key(abs(p));
+      const mem = key(memory);
+      let best = -1;
+      let ok = false;
+      for (const [d, yes] of [[proj, false], ...dirs.map(d => [d, true]), ...(sandbox ? [[memory, /^[^/]+\/memory\/./.test(k.slice(mem.length + 1))]] : [])]) {
+        const dk = key(d);
+        if (k.startsWith(`${dk}/`) && dk.length > best) { best = dk.length; ok = yes; }
+      }
+      return ok;
     };
-    // Files that switch the hooks off or lower the level: denied even inside the allowed dirs.
+    // Files that switch the hooks off or lower the level: denied even inside the allowed dirs. Matched on the literal path AND the
+    // real path (either = protected), so a link in the canonical place, or a linked dir above it, does not hide the name.
     const claude = path.join(home, '.claude');
-    const files = [path.join(proj, 'runtime', 'bajzi-mode'), path.join(cwd, 'runtime', 'bajzi-mode'), env.CC_WORKER_MODE_FILE || '',
-      ...['bajzi-mode', 'worker-mode', 'cc-router.json'].map(f => path.join(claude, f))].filter(Boolean).map(key);
-    const levelDirs = [path.join(env.BAJZI_HOME || home, '.claude', 'bajzi', 'sessions'), path.join(claude, 'bajzi', 'sessions'), env.BAJZI_STATUS_DIR || ''].filter(Boolean).map(key);
-    const settingsDirs = [claude, path.join(proj, '.claude')].map(key);
+    const sets = [lex, key].map(f => ({
+      f,
+      files: [path.join(proj, 'runtime', 'bajzi-mode'), path.join(cwd, 'runtime', 'bajzi-mode'), env.CC_WORKER_MODE_FILE || '',
+        ...['bajzi-mode', 'worker-mode', 'cc-router.json'].map(n => path.join(claude, n))].filter(Boolean).map(f),
+      levelDirs: [path.join(env.BAJZI_HOME || home, '.claude', 'bajzi', 'sessions'), path.join(claude, 'bajzi', 'sessions'), env.BAJZI_STATUS_DIR || ''].filter(Boolean).map(f),
+      settingsDirs: [claude, path.join(proj, '.claude')].map(f),
+      plugins: f(path.join(claude, 'plugins')),
+    }));
     const protectedPath = p => {
       const a = abs(p);
-      const k = key(a);
-      const dir = path.dirname(k);
-      const base = path.basename(k);
-      return files.includes(k) || under(a, path.join(claude, 'plugins')) ||
-        (levelDirs.includes(dir) && base.endsWith('.level')) || (settingsDirs.includes(dir) && /^settings.*\.json$/.test(base));
+      return sets.some(s => {
+        const k = s.f(a);
+        const dir = path.dirname(k);
+        const base = path.basename(k);
+        return s.files.includes(k) || k.startsWith(`${s.plugins}/`) ||
+          (s.levelDirs.includes(dir) && base.endsWith('.level')) || (s.settingsDirs.includes(dir) && /^settings.*\.json$/.test(base));
+      });
     };
     const blocked = reason => {
       logLine(proj, now, word, 'blocked', tool);
@@ -206,8 +244,8 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       if (typeof raw !== 'string' || !raw) return null;
       try { realPath(abs(raw)); } catch { return blocked(UNRESOLVED_REASON); }   // fail closed for this check only
       if (protectedPath(raw)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
-      // Outside the project, and the project's .git/.githooks (the excluded `git commit` runs hooks and git config unsandboxed): no risk-agent or peak relaxation.
-      if (sandbox && ((!allowed(raw) && !under(abs(raw), proj)) || [path.join(proj, '.git'), path.join(proj, '.githooks')].some(d => key(abs(raw)) === key(d) || under(abs(raw), d)))) return blocked(SPLIT_REASON);
+      // Outside the project, a tmpdir nested inside it (the shell writes it), and the project's .git/.githooks (the excluded `git commit` runs hooks and git config unsandboxed): no risk-agent or peak relaxation.
+      if (sandbox && ((!allowed(raw) && !under(abs(raw), proj)) || (under(abs(raw), tmpdir) && key(tmpdir).length > key(proj).length) || [path.join(proj, '.git'), path.join(proj, '.githooks')].some(d => key(abs(raw)) === key(d) || under(abs(raw), d)))) return blocked(SPLIT_REASON);
       write = !allowed(raw) && !(typeof input.agent_type === 'string' && RISK_AGENT.test(input.agent_type));
     } else if (isAgent) {
       const t = typeof ti.subagent_type === 'string' ? ti.subagent_type : '';

@@ -405,13 +405,13 @@ test('only BAJZI_SANDBOX exactly "1" skips the shell scan', () => {
   }
 });
 
-test('BAJZI_SANDBOX=1: the Edit tools write only <project>/runtime/, the tmpdir and ~/.claude/projects/*/memory/', () => {
+test('BAJZI_SANDBOX=1: the Edit tools write only <project>/runtime/ and ~/.claude/projects/*/memory/', () => {
   const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
   const w = f => call(c, 'Write', { file_path: f, content: 'x' });
   for (const f of [path.join(c.home, '.claude', 'bajzi', 'sandbox', 'split-abc.json'), path.join(c.home, '.claude', 'hooks', 'x.sh'), path.join(c.home, '.gitconfig'),
     path.join(c.home, '.config', 'git', 'config'), path.join(c.home, '.claude', 'projects', 'p', 'notmemory.md'), path.join(c.home, '.claude', 'projects', 'memory', 'm.md'),
     path.join(c.home, '.claude', 'projects', 'p', 'memory', '..', 'x.md'), path.join(c.cwd, 'src', 'x.js'), '~/.gitconfig']) isDeny(w(f), f);
-  for (const f of [path.join(c.cwd, 'runtime', 'x.md'), 'runtime/x.md', path.join(c.tmp, 'x'), path.join(c.home, '.claude', 'projects', 'p', 'memory', 'm.md'), '~/.claude/projects/p/memory/m.md']) {
+  for (const f of [path.join(c.cwd, 'runtime', 'x.md'), 'runtime/x.md', path.join(c.home, '.claude', 'projects', 'p', 'memory', 'm.md'), '~/.claude/projects/p/memory/m.md']) {
     assert.strictEqual(w(f), null, f);
   }
   const d = edit(c, path.join(c.home, '.claude', 'hooks', 'x.sh'));
@@ -466,33 +466,62 @@ function link(t, target, file, dir = false) {
   }
 }
 
-test('F3: BAJZI_SANDBOX=1: a file symlink in the tmpdir does not carry a Write out of it', t => {
+test('F3: BAJZI_SANDBOX=1: a file symlink in runtime/ does not carry a Write out of it', t => {
   const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
   const w = f => call(c, 'Write', { file_path: f, content: 'x' });
+  const rt = path.join(c.cwd, 'runtime');
   put(path.join(c.home, '.gitconfig'), 'x');
   put(path.join(c.cwd, 'src', 'x.js'), 'x');
-  put(path.join(c.tmp, 'plain.js'), 'x');
-  assert.strictEqual(w(path.join(c.tmp, 'plain.js')), null);
-  assert.strictEqual(w(path.join(c.tmp, 'new.js')), null);
-  if (!link(t, path.join(c.home, '.gitconfig'), path.join(c.tmp, 'gc')) || !link(t, path.join(c.cwd, 'src', 'x.js'), path.join(c.tmp, 'sx'))) return;
-  isDeny(w(path.join(c.tmp, 'gc')), 'link to ~/.gitconfig');
-  isDeny(w(path.join(c.tmp, 'sx')), 'link to a project source file');
+  put(path.join(rt, 'plain.js'), 'x');
+  assert.strictEqual(w(path.join(rt, 'plain.js')), null);
+  assert.strictEqual(w(path.join(rt, 'new.js')), null);
+  if (!link(t, path.join(c.home, '.gitconfig'), path.join(rt, 'gc')) || !link(t, path.join(c.cwd, 'src', 'x.js'), path.join(rt, 'sx'))) return;
+  isDeny(w(path.join(rt, 'gc')), 'link to ~/.gitconfig');
+  isDeny(w(path.join(rt, 'sx')), 'link to a project source file');
   // Judged by its real path: the risk agent may write project code directly, so through a link too.
-  assert.strictEqual(edit(c, path.join(c.tmp, 'sx'), { agent_type: 'bajzi:implementer-risk' }), null, 'risk agent, link to a project source file');
-  isDeny(edit(c, path.join(c.tmp, 'gc'), { agent_type: 'bajzi:implementer-risk' }), 'risk agent, link to ~/.gitconfig');
-  assert.strictEqual(w(path.join(c.tmp, 'plain.js')), null);
+  assert.strictEqual(edit(c, path.join(rt, 'sx'), { agent_type: 'bajzi:implementer-risk' }), null, 'risk agent, link to a project source file');
+  isDeny(edit(c, path.join(rt, 'gc'), { agent_type: 'bajzi:implementer-risk' }), 'risk agent, link to ~/.gitconfig');
+  assert.strictEqual(w(path.join(rt, 'plain.js')), null);
 });
 
-test('F3: BAJZI_SANDBOX=1: a symlinked directory in the tmpdir does not carry a Write into the project', t => {
+test('F3: BAJZI_SANDBOX=1: a symlinked directory in runtime/ does not carry a Write into the project', t => {
   const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
   const w = f => call(c, 'Write', { file_path: f, content: 'x' });
+  const rt = path.join(c.cwd, 'runtime');
   fs.mkdirSync(path.join(c.cwd, 'src'));
+  fs.mkdirSync(rt);
   fs.mkdirSync(path.join(c.home, '.claude', 'hooks'), { recursive: true });
-  if (!link(t, path.join(c.cwd, 'src'), path.join(c.tmp, 'ls'), true) || !link(t, path.join(c.home, '.claude', 'hooks'), path.join(c.tmp, 'lh'), true)) return;
-  isDeny(w(path.join(c.tmp, 'ls', 'new.js')), 'new file under a linked project dir');
-  isDeny(w(path.join(c.tmp, 'ls', 'sub', 'new.js')), 'two missing levels under a linked project dir');
-  isDeny(w(path.join(c.tmp, 'lh', 'x.sh')), 'linked ~/.claude/hooks');
-  assert.strictEqual(w(path.join(c.tmp, 'sub', 'new.js')), null);
+  if (!link(t, path.join(c.cwd, 'src'), path.join(rt, 'ls'), true) || !link(t, path.join(c.home, '.claude', 'hooks'), path.join(rt, 'lh'), true)) return;
+  isDeny(w(path.join(rt, 'ls', 'new.js')), 'new file under a linked project dir');
+  isDeny(w(path.join(rt, 'ls', 'sub', 'new.js')), 'two missing levels under a linked project dir');
+  isDeny(w(path.join(rt, 'lh', 'x.sh')), 'linked ~/.claude/hooks');
+  assert.strictEqual(w(path.join(rt, 'sub', 'new.js')), null);
+});
+
+test('F3 (round 4): a link is followed before a later `..` (the raw path, as the OS resolves it)', t => {
+  for (const env of [{ CC_WORKER_MODE: 'glm' }, { CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }]) {
+    const c = ctx(env);
+    const host = env.BAJZI_SANDBOX ? path.join(c.cwd, 'runtime') : c.tmp;   // a dir the Edit tools may write
+    fs.mkdirSync(path.join(host, 'real'), { recursive: true });
+    fs.mkdirSync(path.join(c.home, '.config'), { recursive: true });
+    if (!link(t, path.join(c.home, '.config'), path.join(host, 'lh'), true)) return;
+    // Template strings, not path.join: path.join would collapse the `..` before the check sees it.
+    // host/lh/.. is <home> (the link's parent), not host.
+    const w = f => call(c, 'Write', { file_path: f, content: 'x' });
+    isDeny(w(`${host}/lh/../.gitconfig`), `${JSON.stringify(env)}: lh/../.gitconfig`);
+    if (env.BAJZI_SANDBOX) isDeny(edit(c, `${host}/lh/../.gitconfig`, { agent_type: 'bajzi:implementer-risk' }), 'risk agent');   // a plain session lets it write anywhere
+    // a `..` after a real dir still collapses; a relative form resolves against cwd the same way
+    assert.strictEqual(w(`${host}/real/../ok.md`), null, 'real/..');
+    isDeny(w(`${host}/lh/../../ok.md`), 'lh/../..');
+  }
+});
+
+test('F3 (round 4): the shell-write check resolves the raw path the same way (plain session)', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  fs.mkdirSync(path.join(c.home, '.config'), { recursive: true });
+  if (!link(t, path.join(c.home, '.config'), path.join(c.tmp, 'lh'), true)) return;
+  isDeny(bash(c, `echo x > ${c.tmp}/lh/../.gitconfig`), 'redirect through lh/..');
+  isDeny(bash(c, `echo x > ${c.tmp}/lh/ok.txt`), 'redirect into the linked dir');
 });
 
 test('F3: without BAJZI_SANDBOX a tmpdir or ~/.claude link to project code or a control file is still denied', t => {
@@ -511,24 +540,32 @@ test('F3: without BAJZI_SANDBOX a tmpdir or ~/.claude link to project code or a 
 test('F3: a dangling or looping symlink target is a deny (a realpath error fails closed)', t => {
   for (const env of [{ CC_WORKER_MODE: 'glm' }, { CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }]) {
     const c = ctx(env);
-    if (!link(t, path.join(c.cwd, 'src', 'gone.js'), path.join(c.tmp, 'dangling')) || !link(t, path.join(c.tmp, 'b'), path.join(c.tmp, 'a'))
-      || !link(t, path.join(c.tmp, 'a'), path.join(c.tmp, 'b'))) return;
-    isDeny(edit(c, path.join(c.tmp, 'dangling')), 'dangling');
-    isDeny(edit(c, path.join(c.tmp, 'a')), 'loop');
-    assert.strictEqual(edit(c, path.join(c.tmp, 'ok.js')), null);
+    const host = env.BAJZI_SANDBOX ? path.join(c.cwd, 'runtime') : c.tmp;   // a dir the Edit tools may write
+    fs.mkdirSync(host, { recursive: true });
+    if (!link(t, path.join(c.cwd, 'src', 'gone.js'), path.join(host, 'dangling')) || !link(t, path.join(host, 'b'), path.join(host, 'a'))
+      || !link(t, path.join(host, 'a'), path.join(host, 'b'))) return;
+    isDeny(edit(c, path.join(host, 'dangling')), 'dangling');
+    isDeny(edit(c, path.join(host, 'a')), 'loop');
+    assert.strictEqual(edit(c, path.join(host, 'ok.js')), null);
   }
 });
 
-test('F3: a tmpdir that is itself a link still matches, by either name', t => {
+test('F3: a tmpdir that is itself a link still matches, by either name (plain session)', t => {
   const real = tmpDir('bajzi-sgr-');
   const lnk = path.join(tmpDir('bajzi-sgl-'), 'tmp');
   if (!link(t, real, lnk, true)) return;
-  for (const env of [{ CC_WORKER_MODE: 'glm' }, { CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }]) {
-    const c = ctx(env);
-    c.opts.tmpdir = lnk;
-    for (const f of [path.join(lnk, 'x.js'), path.join(real, 'x.js'), path.join(real, 'sub', 'x.js')]) assert.strictEqual(edit(c, f), null, f);
-    isDeny(edit(c, path.join(c.cwd, 'src', 'x.js')), 'src');
-  }
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  c.opts.tmpdir = lnk;
+  for (const f of [path.join(lnk, 'x.js'), path.join(real, 'x.js'), path.join(real, 'sub', 'x.js')]) assert.strictEqual(edit(c, f), null, f);
+  isDeny(edit(c, path.join(c.cwd, 'src', 'x.js')), 'src');
+});
+
+test('F3: a runtime/ that is itself a link still matches, by either name (split session)', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  const real = tmpDir('bajzi-sgr-');
+  if (!link(t, real, path.join(c.cwd, 'runtime'), true)) return;
+  for (const f of [path.join(c.cwd, 'runtime', 'x.md'), path.join(real, 'x.md')]) assert.strictEqual(edit(c, f), null, f);
+  isDeny(edit(c, path.join(c.cwd, 'src', 'x.js')), 'src');
 });
 
 test('a project root under the tmpdir: inside it only runtime/ is allowed, the tmp allow is for targets outside it', () => {
@@ -541,7 +578,9 @@ test('a project root under the tmpdir: inside it only runtime/ is allowed, the t
     isDeny(call(c, 'Write', { file_path: path.join(c.cwd, 'src', 'x.js'), content: 'x' }), 'Write src');
     isDeny(edit(c, 'src/x.js'), 'Edit src');
     assert.strictEqual(call(c, 'Write', { file_path: path.join(c.cwd, 'runtime', 'x.md'), content: 'x' }), null, 'Write runtime');
-    assert.strictEqual(call(c, 'Write', { file_path: path.join(c.tmp, 'other', 'x'), content: 'x' }), null, 'outside the project');
+    // outside the project: the tmp allow holds in a plain session only (F10: a split session's shell can write the tmpdir)
+    const o = call(c, 'Write', { file_path: path.join(c.tmp, 'other', 'x'), content: 'x' });
+    if (sandbox.BAJZI_SANDBOX) isDeny(o, 'outside the project, split'); else assert.strictEqual(o, null, 'outside the project');
     if (!sandbox.BAJZI_SANDBOX) {
       isDeny(bash(c, 'echo x > src/x.js'), 'shell src');
       isDeny(bash(c, `echo x > ${path.join(c.cwd, 'src', 'x.js')}`), 'shell abs src');
@@ -549,4 +588,114 @@ test('a project root under the tmpdir: inside it only runtime/ is allowed, the t
       assert.strictEqual(bash(c, `echo x > ${path.join(c.tmp, 'other', 'x')}`), null, 'shell outside the project');
     }
   }
+});
+
+// F8 (round 4): the protected-name checks run on the literal (normalised) path AND the real path, so a link in the
+// canonical place does not hide the name.
+const isProtected = (d, msg) => { isDeny(d, msg); assert.match(d.reason, /this file controls the saver guard or the saver level/, msg); };
+const protectedEverywhere = (c, file) => {   // plain call, risk agent, peak window, split session
+  const w = (cc, extra) => call(cc, 'Write', { file_path: file, content: 'x' }, extra);
+  isProtected(w(c), `plain ${file}`);
+  isProtected(w(c, { agent_type: 'bajzi:implementer-risk' }), `risk agent ${file}`);
+  const peak = Object.assign({}, c, { opts: Object.assign({}, c.opts, { now: PEAK }) });
+  isProtected(w(peak), `peak ${file}`);
+  const split = Object.assign({}, c, { opts: Object.assign({}, c.opts, { env: Object.assign({}, c.opts.env, { BAJZI_SANDBOX: '1' }) }) });
+  isProtected(w(split), `split ${file}`);
+};
+
+// The canonical name as a link: to outside ~/.claude, to ~/.claude/profiles/x.json, a project one, a .level file. `asDir` links a directory
+// (a junction on win32, so it runs there; the guard only looks at the name and the real path), else a file link (skips where the OS refuses).
+function f8Links(t, asDir) {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  const claude = path.join(c.home, '.claude');
+  const sess = path.join(claude, 'bajzi', 'sessions');
+  const mk = f => (asDir ? fs.mkdirSync(f, { recursive: true }) : put(f, '{}'));
+  const pairs = [[path.join(c.tmp, 'outside.json'), path.join(claude, 'settings.json')], [path.join(claude, 'profiles', 'x.json'), path.join(claude, 'settings.local.json')],
+    [path.join(c.tmp, 'p.json'), path.join(c.cwd, '.claude', 'settings.json')], [path.join(c.tmp, 's1.level'), path.join(sess, 's1.level')]];
+  fs.mkdirSync(sess, { recursive: true });
+  fs.mkdirSync(path.join(c.cwd, '.claude'), { recursive: true });
+  for (const [target] of pairs) mk(target);
+  if (!pairs.every(([target, file]) => link(t, target, file, asDir))) return;
+  for (const [, file] of pairs) protectedEverywhere(c, file);
+}
+test('F8: a canonical settings*.json / .level name that is itself a link (to a directory) is still protected', t => f8Links(t, true));
+test('F8: a canonical settings*.json / .level file that is itself a file link is still protected', t => f8Links(t, false));
+
+test('F8: a linked plugin dir is still protected; a linked ~/.claude is too', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  const claude = path.join(c.home, '.claude');
+  fs.mkdirSync(path.join(claude, 'plugins'), { recursive: true });
+  fs.mkdirSync(path.join(c.tmp, 'pl'));
+  if (!link(t, path.join(c.tmp, 'pl'), path.join(claude, 'plugins', 'cache'), true)) return;
+  protectedEverywhere(c, path.join(claude, 'plugins', 'cache', 'x.js'));
+  protectedEverywhere(c, path.join(claude, 'plugins', 'new.js'));
+  const h = ctx({ CC_WORKER_MODE: 'glm' });   // the whole ~/.claude is a link (dotfiles setup): matched by its real path too
+  const real = tmpDir('bajzi-sgd-');
+  if (!link(t, real, path.join(h.home, '.claude'), true)) return;
+  put(path.join(real, 'settings.json'), '{}');
+  protectedEverywhere(h, path.join(h.home, '.claude', 'settings.json'));
+  protectedEverywhere(h, path.join(real, 'settings.json'));
+});
+
+test('F8: an ordinary file in ~/.claude stays allowed; a settings-like name elsewhere is not protected', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  assert.strictEqual(edit(c, path.join(c.home, '.claude', 'notes.json')), null);
+  assert.strictEqual(edit(c, path.join(c.home, '.claude', 'sub', 'settings.json')), null);
+  assert.strictEqual(edit(c, path.join(c.tmp, 'settings.json')), null);
+});
+
+// F9 (round 4): the most specific root wins, so an allowed dir inside the project root stays allowed.
+test('F9: project root = home: memory, ~/.claude and the tmpdir under it stay allowed; other home files do not', () => {
+  for (const sandbox of [false, true]) {
+    const c = ctx(Object.assign({ CC_WORKER_MODE: 'glm' }, sandbox ? { BAJZI_SANDBOX: '1' } : {}));
+    c.cwd = c.home;
+    c.tmp = path.join(c.home, 'tmpd');
+    fs.mkdirSync(c.tmp);
+    c.opts.tmpdir = c.tmp;
+    const w = f => call(c, 'Write', { file_path: f, content: 'x' });
+    const tag = sandbox ? 'split' : 'plain';
+    assert.strictEqual(w(path.join(c.home, '.claude', 'projects', 'p', 'memory', 'm.md')), null, `${tag} memory`);
+    assert.strictEqual(w(path.join(c.home, 'runtime', 'x.md')), null, `${tag} runtime`);
+    isDeny(w(path.join(c.home, 'src', 'x.js')), `${tag} src`);
+    isProtected(w(path.join(c.home, '.claude', 'settings.json')), `${tag} settings`);
+    if (sandbox) {
+      isDeny(w(path.join(c.tmp, 'x')), 'split tmpdir');
+      isDeny(edit(c, path.join(c.tmp, 'x'), { agent_type: 'bajzi:implementer-risk' }), 'split tmpdir, risk agent');
+      isDeny(call(Object.assign({}, c, { opts: Object.assign({}, c.opts, { now: PEAK }) }), 'Write', { file_path: path.join(c.tmp, 'x'), content: 'x' }), 'split tmpdir, peak');
+    } else {
+      assert.strictEqual(w(path.join(c.home, '.claude', 'x')), null, 'plain ~/.claude');
+      assert.strictEqual(w(path.join(c.tmp, 'x')), null, 'plain tmpdir');
+      assert.strictEqual(bash(c, 'echo x > ~/.claude/x'), null, 'shell ~/.claude');
+      assert.strictEqual(bash(c, `echo x > ${path.join(c.tmp, 'x')}`), null, 'shell tmpdir');
+      assert.strictEqual(bash(c, 'echo x > runtime/x.md'), null, 'shell runtime');
+      isDeny(bash(c, 'echo x > src/x.js'), 'shell src');
+      isDeny(bash(c, `echo x > ${path.join(c.home, 'src', 'x.js')}`), 'shell abs src');
+    }
+  }
+});
+
+test('F9: project root = ~/.claude (no sandbox): only runtime/ inside it, a tie goes to the project', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  c.cwd = path.join(c.home, '.claude');
+  fs.mkdirSync(c.cwd, { recursive: true });
+  assert.strictEqual(edit(c, 'runtime/x.md'), null);
+  isDeny(edit(c, 'hooks/x.sh'), 'a tie goes to the project');
+  assert.strictEqual(edit(c, path.join(c.tmp, 'x')), null, 'tmpdir outside it');
+});
+
+// F10 (round 4): a split session's sandboxed shell can write the tmpdir, so an Edit/Write there could be raced with a link swap.
+test('F10: BAJZI_SANDBOX=1: any Write/Edit under the tmpdir is denied, risk agent and peak window too; a plain session keeps it', () => {
+  for (const now of [NOON, PEAK]) {
+    const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }, now);
+    for (const f of [path.join(c.tmp, 'x'), path.join(c.tmp, 'sub', 'x.js'), path.join(c.tmp, 'x.md')]) {
+      const d = call(c, 'Write', { file_path: f, content: 'x' });
+      isDeny(d, `Write ${f} ${now.toISOString()}`);
+      assert.match(d.reason, /write scratch files with the shell; the Edit tools write only/);
+      isDeny(edit(c, f), `Edit ${f}`);
+      isDeny(edit(c, f, { agent_type: 'bajzi:implementer-risk' }), `risk agent ${f}`);
+      isDeny(call(c, 'NotebookEdit', { notebook_path: f }), `NotebookEdit ${f}`);
+    }
+  }
+  const p = ctx({ CC_WORKER_MODE: 'glm' });   // ponytail in the guard: the Windows tier (no sandbox) keeps the tmpdir allowed
+  assert.strictEqual(edit(p, path.join(p.tmp, 'x')), null, 'plain session');
 });
