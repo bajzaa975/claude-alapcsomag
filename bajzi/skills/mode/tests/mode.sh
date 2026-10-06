@@ -377,7 +377,7 @@ if printf '%s' "$out" | grep -q 'DAY-RUN MODE' \
 else
     fail "10f missing SAVER-RULES.md" "$out"
 fi
-if ! printf '%s' "$out" | grep -qi 'saver'; then
+if ! printf '%s' "$out" | grep -qiE 'saver (L[0-9]|level|off)'; then
     pass "10f systemMessage is the plain day-run one"
 else
     fail "10f systemMessage claims a saver level" \
@@ -505,6 +505,16 @@ expect "11q L3 on Claude: mismatch line in the saver block" "$out" "L3 $MM"
 expect_msg "11q L3 on Claude: mismatch line in the systemMessage" "$out" "L3 $MM"
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
 expect "11q GLM provider: no mismatch line" "$out" 'SAVER LEVEL L3' "$MM"
+# 11q2: launcher missing -> no saver block at L2, but the gate is open: the mismatch line still shows.
+printf 'glm
+' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_SAVER_LAUNCHER=bajzi-no-such-launcher-xyz)"
+expect_msg "11q2 L2 on Claude, launcher missing: mismatch line in the systemMessage" "$out" "L2 $MM"
+# 11q3: the injected L3 block on a Claude session must not forbid the Claude fallback at a peak exit 75.
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
+expect "11q3 L3 on Claude: peak line allows the Claude fallback" "$out" 'ORIGINAL Agent call' 'There is no Claude fallback at L3'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
+expect "11q3 L3 on a GLM session: no Claude to fall back to" "$out" 'no Claude to fall back to'
 rm -f "$FAKE_HOME/.claude/worker-mode"
 
 # --- case 12: routing-violation counter (PostToolUse on Agent) ---
@@ -1124,6 +1134,10 @@ clic log review bajzi:reviewer b.txt allow; rc=$?
 clic log review bajzi:reviewer b.txt deny; rc=$?
 [ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && tail -1 "$DL" | grep -qE $'\tSKILL-REVIEW\tbajzi:reviewer\t8\tdeny$' \
     && pass "16g4b gate open: deny -> SKILL- line still written" || fail "16g4b" "rc=$rc $(tail -1 "$DL")"
+# 16g4c: a GLM dispatch (glm:<agent>) is logged even with the gate open: the hook never sees the Bash call.
+n0="$(wc -l < "$DL")"
+clic log implement glm:implementer b.txt allow; rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && tail -1 "$DL" | grep -qE $'	SKILL-IMPLEMENT	glm:implementer	8	allow$'     && pass "16g4c gate open: glm: allow -> SKILL- line written" || fail "16g4c" "rc=$rc $(tail -1 "$DL")"
 # 16g5: the gate check cannot run (no hooks/lib-saver-level.sh next to lib/) -> fail toward a duplicate line.
 mkdir -p "$TMP/nohooks"; cp -r "$BAJZI_DIR/lib" "$TMP/nohooks/lib"; n0="$(wc -l < "$DL")"
 (cd "$CAD" && env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$TMP/home-closed" node "$TMP/nohooks/lib/findings-cli.js" log review bajzi:reviewer b.txt allow); rc=$?

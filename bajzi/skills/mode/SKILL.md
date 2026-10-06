@@ -108,9 +108,9 @@ Fixed rules, all levels: risk-bearing slices never start on GLM below L3; GLM ne
 code as a substitute for a reviewer-allow-list review - where no such review is available the review is queued, never downgraded; the GLM
 peak-window ban applies at every level that uses GLM (L1-L3), enforced by the shim.
 
-- `worker --level N` sets the level (0=claude, 1=light, 2=glm, 3=tight). Run from inside a
-  session (Bash/PowerShell tool) it sets THIS session's level only - other running sessions keep
-  theirs; `worker --level N --global`, or the same command from a plain shell, sets the machine
+- `worker --level N` sets the level (0=claude, 1=light, 2=glm, 3=tight). Typed by the owner
+  as `! worker --level N` in the prompt it sets THIS session's level only - other running sessions keep
+  theirs (Claude's own Bash/PowerShell call of it is denied by the saver guard at L2/L3); `worker --level N --global`, or the same command from a plain shell, sets the machine
   default (`~/.claude/worker-mode`), which every session without its own level follows.
   `worker --status` prints the level and where it came from (env / session / machine default /
   none), the GLM models and the state files; `worker --usage <since> --until <t>`

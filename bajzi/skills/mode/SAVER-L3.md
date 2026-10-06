@@ -11,6 +11,6 @@ tier, the slice, changed files, the cited lines/functions, your own findings for
 The runner owns the status: never write DONE for work whose review is queued; write BUILT.
 The repo gate must still exit 0 before a slice is marked BUILT.
 ESCALATION LADDER: glm r1 -> glm r2 -> append the slice to the queue file with status PARKED and move on. There is no Opus rung at L3.
-PEAK: if `glm` exits 75, finish the current step only, write the handoff, mark the sprint BUILT (or PARKED), and stop. There is no Claude fallback at L3.
+PEAK: if `glm` exits 75 on a Claude session (the L3 mismatch line is above), dispatch the ORIGINAL Agent call again: the peak window is the counted Claude fallback. On a session that itself runs on GLM there is no Claude to fall back to: finish the current step only, write the handoff, mark the sprint BUILT (or PARKED), and stop.
 Dispatch first line: model: glm -- saver L3.   DAY-RUN.log: model=glm.
 After superpowers:writing-plans never ask the execution method; use superpowers:subagent-driven-development + the bajzi review loop.

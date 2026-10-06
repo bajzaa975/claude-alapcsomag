@@ -6,7 +6,7 @@ description: Parked review debt (runtime/findings/debt.md) - --check the cap bef
 # /bajzi:debt --check | --drain | --calibrate
 
 `FC` = `node "${CLAUDE_PLUGIN_ROOT}/lib/findings-cli.js"` (run from the repo root); the dispatch steps: `${CLAUDE_PLUGIN_ROOT}/skills/lib/dispatch.md`.
-A dispatch the guard denies -> print the reason and its rule id, STOP (dispatch.md step 3).
+A dispatch the guard denies -> print the reason and its rule id, STOP (dispatch.md step 3), except `saver-guard:` (L2/L3 on Claude: run it on GLM, dispatch.md step 3).
 
 **--check** — `FC check`. Exit 4 = `DEBT CAP HIT` (> 15 entries, or > 3 in one file, or an
 unparseable `debt.md`): the next slice/sprint does not start. Print the output; that is all.

@@ -167,10 +167,11 @@ case "$level" in
 esac
 saver_block=""
 [ -n "$saver_file" ] && [ -f "$mdir/$saver_file" ] && saver_block=$(head -40 "$mdir/$saver_file" 2>/dev/null)
-if [ -n "$saver_block" ] && [ "$nonanth" = "no" ] && { [ "$level" = "glm" ] || [ "$level" = "tight" ]; }; then
-    # Level/provider mismatch: the saver guard blocks code writing on a Claude session at L2/L3.
+if [ "$nonanth" = "no" ] && { [ "$level" = "glm" ] || [ "$level" = "tight" ]; }; then
+    # Level/provider mismatch: the saver guard blocks code writing on a Claude session at L2/L3,
+    # whether or not a saver block was injected (the L2 block needs the launcher on PATH).
     mm="L$([ "$level" = "glm" ] && echo 2 || echo 3) but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker"
-    saver_block="$mm
+    [ -n "$saver_block" ] && saver_block="$mm
 $saver_block"
     warn="$warn $mm"
 fi

@@ -24,10 +24,11 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
    a Claude session blocks writer agents). Run the same brief on GLM: write the agent's own
    `${CLAUDE_PLUGIN_ROOT}/agents/<agent>.md` body without its frontmatter, a line `---`, then the brief
    file verbatim, to ONE file `runtime/briefs/<slice>-<class>.glm.txt`. From the repo root run
-   `glm -p --permission-mode acceptEdits < runtime/briefs/<slice>-<class>.glm.txt` with the Bash tool,
+   `glm -p --permission-mode bypassPermissions < runtime/briefs/<slice>-<class>.glm.txt` with the Bash tool,
    foreground (timeout 600000), or run_in_background when it may exceed 10 minutes. (`glm` passes its
-   args straight to `claude`, `bin/cc-router.js` spawn; headless `claude -p` denies Edit/Write without
-   the flag.) Save its stdout as the agent's final message where the table says, then
+   args straight to `claude`, `bin/cc-router.js` spawn. Measured: with `acceptEdits` a headless worker
+   edits files but its compound Bash call, the slice's `test:` command, is refused; `bypassPermissions`
+   ran both. User/project deny rules still apply under it. No per-command `--allowedTools`: test commands vary.) Save its stdout as the agent's final message where the table says, then
    `FC log <class> glm:<agent> runtime/briefs/<slice>-<class>.glm.txt allow`. `glm` exit 75 (Z.ai peak)
    -> dispatch the ORIGINAL Agent call again; the guard allows writes in the peak window. Any other
    non-zero exit -> print it and STOP. Tier 1 slices use `bajzi:implementer-risk`, which the guard
