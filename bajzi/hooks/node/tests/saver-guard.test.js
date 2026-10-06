@@ -579,7 +579,8 @@ test('a project root under the tmpdir: inside it only runtime/ is allowed, the t
     c.opts.tmpdir = c.tmp;
     isDeny(call(c, 'Write', { file_path: path.join(c.cwd, 'src', 'x.js'), content: 'x' }), 'Write src');
     isDeny(edit(c, 'src/x.js'), 'Edit src');
-    assert.strictEqual(call(c, 'Write', { file_path: path.join(c.cwd, 'runtime', 'x.md'), content: 'x' }), null, 'Write runtime');
+    const wr = call(c, 'Write', { file_path: path.join(c.cwd, 'runtime', 'x.md'), content: 'x' });
+    if (sandbox.BAJZI_SANDBOX) { isDeny(wr, 'Write runtime, split: the dirs between the tmpdir and the project stay shell-writable'); assert.match(wr.reason, /write scratch files with the shell; the Edit tools write only/); } else assert.strictEqual(wr, null, 'Write runtime');
     // outside the project: the tmp allow holds in a plain session only (F10: a split session's shell can write the tmpdir)
     const o = call(c, 'Write', { file_path: path.join(c.tmp, 'other', 'x'), content: 'x' });
     if (sandbox.BAJZI_SANDBOX) isDeny(o, 'outside the project, split'); else assert.strictEqual(o, null, 'outside the project');
@@ -761,4 +762,42 @@ test('F2: a link plus `..` that lands in project source by text but in the tmpdi
   c.opts.tmpdir = T;
   isDeny(edit(c, `${T}/j/../../proj/src/x.js`), 'text-collapsed P/src/x.js');
   assert.strictEqual(edit(c, `${T}/j/x.md`), null, 'a plain write through the link inside tmp');
+});
+
+// F3 (round 6): posixTmp is its own fixture dir X (outside the project and the injected tmpdir), so only the posixTmp branch of shellWritable can deny.
+test('F3: BAJZI_SANDBOX=1: runtime/ or a memory dir linked into the POSIX tmp root is denied (decides the posixTmp branch)', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  const X = tmpDir('bajzi-sgx-');
+  c.opts.posixTmp = X;
+  fs.mkdirSync(path.join(X, 'rt'));
+  if (!link(t, path.join(X, 'rt'), path.join(c.cwd, 'runtime'), true)) return;
+  splitDeny(c, path.join(c.cwd, 'runtime', 'x.md'), 'runtime link into posixTmp');
+  const cfg = tmpDir('bajzi-sgm-');
+  c.opts.env.CLAUDE_CONFIG_DIR = cfg;
+  fs.mkdirSync(path.join(cfg, 'projects', 'p'), { recursive: true });
+  fs.mkdirSync(path.join(X, 'mem'));
+  if (!link(t, path.join(X, 'mem'), path.join(cfg, 'projects', 'p', 'memory'), true)) return;
+  splitDeny(c, path.join(cfg, 'projects', 'p', 'memory', 'x.md'), 'memory link into posixTmp');
+  const cfg2 = tmpDir('bajzi-sgn-');   // the whole projects dir linked: the real forms stay under its real name
+  c.opts.env.CLAUDE_CONFIG_DIR = cfg2;
+  fs.mkdirSync(path.join(X, 'prj', 'p', 'memory'), { recursive: true });
+  if (!link(t, path.join(X, 'prj'), path.join(cfg2, 'projects'), true)) return;
+  splitDeny(c, path.join(cfg2, 'projects', 'p', 'memory', 'x.md'), 'projects link into posixTmp');
+});
+
+// F1 (round 6): win32 name variants of a control file (trailing dot/space, ::$DATA, raw \?\ and \.\ prefixes) are protected.
+test('F1: win32: trailing space/dot, ::$DATA and raw-prefix variants of a control file are protected', t => {
+  if (process.platform !== 'win32') return t.skip('Windows name rules');
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  const claude = path.join(c.home, '.claude');
+  fs.mkdirSync(path.join(c.cwd, 'runtime'), { recursive: true });
+  fs.mkdirSync(claude, { recursive: true });
+  for (const base of [path.join(claude, 'settings.json'), path.join(claude, 'bajzi-mode'), path.join(c.cwd, 'runtime', 'bajzi-mode')]) {
+    for (const v of [`${base} `, `${base}.`, `${base}::$DATA`, `${base}. .`]) protectedEverywhere(c, v);
+    for (const v of [`\\\\?\\${base}`, `\\\\.\\${base}`]) {
+      const d = call(c, 'Write', { file_path: v, content: 'x' });
+      isDeny(d, `raw ${v}`);
+    }
+  }
+  assert.strictEqual(edit(c, path.join(claude, 'notes.json')), null, 'an ordinary file stays allowed');
 });

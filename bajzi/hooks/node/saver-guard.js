@@ -218,12 +218,8 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     // shell-writable root (a link there can be re-pointed between check and write).
     const memOk = r => /^[^/]+\/memory\/./.test(r);
     const inDir = (k, n, mem) => k.startsWith(`${n}/`) && (!mem || memOk(k.slice(n.length + 1)));
-    const projKey = key(proj);
     const inProj = k => names(proj).some(n => k.startsWith(`${n}/`));
-    const shellWritable = k => [tmpdir, posixTmp].filter(Boolean).some(r => {
-      const ns = names(r);
-      return ns.some(n => k === n || k.startsWith(`${n}/`)) && !(inProj(k) && ns.some(n => projKey.startsWith(`${n}/`)));   // the project inside the root is covered by the sandbox denyWrite
-    });
+    const shellWritable = k => [tmpdir, posixTmp].filter(Boolean).some(r => names(r).some(n => k === n || k.startsWith(`${n}/`)));   // no project exception: the dirs between the root and the project stay shell-writable
     const splitAllowed = a => {
       const [l, ...real] = forms(a);
       return !forms(a).some(shellWritable) && [[path.join(proj, 'runtime'), false], [memory, true]].some(([d, mem]) => inDir(l, lex(d), mem) && real.every(k => inDir(k, key(d), mem)));
@@ -240,7 +236,22 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       plugins: f(path.join(claude, 'plugins')),
     }));
     const protectedPath = p => {
-      const fs3 = forms(abs(p));
+      let fs3 = forms(abs(p));
+      if (process.platform === 'win32') {   // name variants the OS resolves to the same file: trailing dots/spaces, `:stream`, 8.3 short names (only adds forms, so only adds denies)
+        const r = path.resolve(abs(p));
+        const v = r.slice(0, 2) + r.slice(2).replace(/:[^\\/]*/g, '').replace(/[. ]+(?=[\\/]|$)/g, '');
+        let d = v;
+        const tail = [];
+        let nat = v;
+        for (;;) {
+          try { nat = path.join(fs.realpathSync.native(d), ...tail); break; } catch { /* up one level */ }
+          const up = path.dirname(d);
+          if (up === d) break;
+          tail.unshift(path.basename(d));
+          d = up;
+        }
+        fs3 = [...fs3, ...forms(v), norm(nat)];
+      }
       return sets.some(s => fs3.some(k => {
         const dir = path.dirname(k);
         const base = path.basename(k);
@@ -257,6 +268,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     if (isEdit) {
       const raw = tool === 'NotebookEdit' ? ti.notebook_path : ti.file_path;
       if (typeof raw !== 'string' || !raw) return null;
+      if (process.platform === 'win32' && /^[\\/]{2}[?.][\\/]/.test(raw)) return blocked(UNRESOLVED_REASON);   // raw \\?\ and \\.\ paths skip the Win32 name rules
       try { realPath(abs(raw)); realPath(path.resolve(abs(raw))); } catch { return blocked(UNRESOLVED_REASON); }   // fail closed for this check only
       if (protectedPath(raw)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
       // Outside the project, a tmpdir nested inside it (the shell writes it), and the project's .git/.githooks (the excluded `git commit` runs hooks and git config unsandboxed): no risk-agent or peak relaxation.
