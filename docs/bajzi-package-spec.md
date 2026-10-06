@@ -419,6 +419,8 @@ Claude Code writes it first, and bash's `${x#*pat}` is quadratic on a large `too
 `CLAUDE_CODE_SESSION_ID`). **Day-run on/off (`~/.claude/bajzi-mode`) stays machine-wide** — not
 part of this fix. Session level files are not pruned (one short file per session that set a level).
 
+**L2/L3 on Claude (saver-glm-dispatch).** Only the owner changes the level, by typing `! worker --level <n>` in the prompt (the saver guard denies Claude's own `worker --level/--set`); the level does not switch the provider of a running session (a GLM session starts with `worker` or `glm`). At L2 the escalation ladder of the GLM-rung classes is `glm r1 -> fresh glm r2 -> opus (bajzi:implementer-risk) r3 -> ORCH r4 -> park`: no sonnet rung, because the saver guard blocks Claude writer agents (and Claude's own Edit/Write) there; the peak window still falls back to the Claude model (guard allows it inside the window). `SAVER-RULES.md` says so in one line.
+
 **Who picks the model, per task class** — the day-run routing table
 (`bajzi/skills/mode/DAY-RUN-RULES.md`, injected verbatim) is the base; each level's own file
 (`SAVER-L1.md`/`SAVER-RULES.md`/`SAVER-L3.md`) states what it changes:
@@ -546,7 +548,7 @@ file paths, plus the session level file when a session id is set), `--mode`,
 `SAFE_ID`-valid `CLAUDE_CODE_SESSION_ID` and no `--global` it writes ONLY the session level file
 and prints `level L<n> for this session (<id>); other sessions unchanged. Use --level N --global
 for the machine default.`; otherwise `~/.claude/worker-mode`, printing that running sessions that
-set their own level keep it; an unsafe id counts as no id; both writes are atomic: a `wx` temp
+set their own level keep it; both messages end with ` The level does not switch the provider of a session that is already running: a GLM session starts with worker (or glm).`; an unsafe id counts as no id; both writes are atomic: a `wx` temp
 file in the same dir, then rename),
 `--set-orchestrator-model`/`--set-model`/`--set-fast-model`, `--log [n]`, `--usage [since] [--until] [--json]`,
 `--router-help`. Anything not recognised falls through unchanged to `claude`.
@@ -709,6 +711,8 @@ invalid list, or no `node`, appends the stated fallback "REVIEWER = Opus (no ver
 Opus the account serves), never GLM" instead and adds "reviewer allow-list invalid, run
 /bajzi:setup." to the systemMessage. A non-Anthropic session never gets the line (it queues its
 reviews, `SAVER-L3.md`). Tests: `mode.sh` case 15.
+
+**Level/provider mismatch line** (saver-glm-dispatch): with the gate open, level L2 or L3 and an Anthropic provider, the hook puts `L<n> but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker` into the systemMessage and as the first line of the injected saver block. Absent on a non-Anthropic provider. Tests: `mode.sh` case 11j.
 
 **routing-counter.sh**: counts (never blocks) a sub-agent dispatch that bypasses its saver rung —
 haiku dispatched at L1-L3, or sonnet dispatched at L2-L3 — unless a GLM peak refusal was logged
@@ -1613,7 +1617,7 @@ routing, round and cap decision (the scope checks, the gate and the range ends s
 and dispatches through the shared template `bajzi/skills/lib/dispatch.md`: write the brief to
 `runtime/briefs/<slice>-<class>.txt`, dispatch `bajzi:<agent>` with that text, log one line
 (`findings-cli.js log`), save the agent's final message verbatim. A guard deny stops the skill
-with the rule id; it never retries with a trimmed brief. Reviewer briefs come from
+with the rule id; it never retries with a trimmed brief. Exception: a refusal whose reason starts `saver-guard:` (L2/L3 on Claude) is not a stop: the skill writes the agent body (no frontmatter), `---` and the brief to `runtime/briefs/<slice>-<class>.glm.txt` and runs `glm -p --permission-mode acceptEdits < <file>` (headless `claude -p` denies edits without the flag; `cc-router.js` passes args straight to `claude`), logs `glm:<agent>`, and on exit 75 re-dispatches the original Agent call (the guard allows writes in the peak window); other non-zero exits STOP. Tier 1 slices use `bajzi:implementer-risk`, which the guard allows. Reviewer briefs come from
 `findings-cli.js brief`: the full `git diff` goes to `runtime/briefs/<slice>-r<n>.diff` and the
 brief carries PATHS (diff, round-1 file, fixer report, `debt.md`), resolved SHAs and the graph
 marker line, so it stays far under the guard's R3 cap whatever the diff size; the reviewer has
@@ -1929,18 +1933,22 @@ on a sub-agent's call). `check(input, {env, home, now, tmpdir})` defaults to `pr
   touched.
 
 **Rules** (paths compared like the writer guard, §6.15: `/` separators, lower-case on win32,
-"under" = prefix plus `/`; allowed dirs = `<cwd>/runtime/`, `<home>/.claude/`, `tmpdir`):
+"under" = prefix plus `/`; allowed dirs = `<project>/runtime/`, `<home>/.claude/`, `tmpdir`; `<project>` = env `CLAUDE_PROJECT_DIR`, else `cwd`, like `writer-guard.js`, so a `cd` into a subdirectory moves neither the allowed `runtime/` nor the log; a path may be written `~`, `$HOME`, `$env:USERPROFILE`, `$TMPDIR`/`$TEMP`/`$TMP`/`$env:TEMP`, Git-Bash `/tmp` (= tmpdir) or, on win32, `/c/...`):
+0. **Protected control files** are denied for every write (Edit tools, a shell redirect/`tee`/`sed -i`/PowerShell target) even inside the allowed dirs, for a risk sub-agent too, and also in the peak window: `<project>/runtime/bajzi-mode`, `<cwd>/runtime/bajzi-mode`, `~/.claude/{bajzi-mode,worker-mode,cc-router.json}` (and `CC_WORKER_MODE_FILE`), `~/.claude/settings*.json`, `<project>/.claude/settings*.json`, `*.level` in `~/.claude/bajzi/sessions/` (and `BAJZI_STATUS_DIR`), and everything under `~/.claude/plugins/`. Editing any of them could switch the hooks off or lower the level. Reason: "this file controls the saver guard or the saver level; only the owner may change it".
 1. `Edit`/`Write`/`MultiEdit`/`NotebookEdit` (`file_path`, `notebook_path` for NotebookEdit,
    resolved against `cwd`): deny unless the target is under an allowed dir, or the call comes
    from a sub-agent whose `agent_type` matches `/(^|:)implementer-risk$/i`.
 2. `Agent`/`Task`: deny unless `subagent_type` is `Explore`, `Plan` or `claude-code-guide`
    (case-sensitive), or `bajzi:reviewer` / `bajzi:implementer-risk` (case-insensitive). A missing
    type is `general-purpose`, so it is denied with every other writing agent.
-3. `Bash`/`PowerShell` `command`: deny `worker` (or `worker.cmd`) followed later in the command by
-   `--level` or `--set`. The owner changes the level with `! worker --level <n>`, which bypasses
+3. `Bash`/`PowerShell` `command`: deny `worker` (or `worker.cmd`) or `cc-router[.js]` followed in the
+   same command segment by `--level` or `--set` (not `--set-model` and the like). The test runs on the
+   command with heredoc bodies skipped and quoted text inert, so `grep "worker --level" docs` or a
+   commit message mentioning it passes; when a shell/eval wrapper word (`bash`, `sh`, `pwsh`, `cmd`,
+   `eval`...) is present, the raw text is tested too. The owner changes the level with `! worker --level <n>`, which bypasses
    hooks. Also deny obvious file writes outside the allowed dirs: `sed -i`/`--in-place` and
-   `perl -i` (whatever the target), `tee <file>`, a `>`/`>>`/`&>`/`2>` redirect whose target is not
-   `/dev/null`, `&1`/`&2`, `$null` or an allowed dir, and PowerShell `Set-Content`, `Add-Content`,
+   `perl -i` (judged by their file operands; `perl -Mstrict` is not `-i`), `tee <file>`, a `>`/`>>`/`&>`/`2>` redirect whose target is not
+   `/dev/null`, `&1`/`&2`, `$null` or an allowed dir (a `>` needs no space before it: `echo hi>src/a.js`), and PowerShell `Set-Content`, `Add-Content`,
    `Out-File` and `New-Item ... -ItemType File` (target = the `-Path`/`-LiteralPath`/`-FilePath`
    value, else the first argument; no clear target = deny). A heredoc body is skipped (only its
    header line is scanned, so `cat <<EOF > src/x.js` is still a write) and quoted text is made
@@ -1948,7 +1956,7 @@ on a sub-agent's call). `check(input, {env, home, now, tmpdir})` defaults to `pr
    `worker --status`/`--usage` pass.
 4. **Peak window** (owner choice: Claude fallback, counted): when `lib/peak.js:peakStatus(now)`
    says the Z.ai peak is open, the write denies of rules 1-3 become allows. The `worker
-   --level/--set` deny never relaxes.
+   --level/--set` deny and the protected-file deny never relax.
 
 **Outputs**: rule `saver-guard`, so the reason is prefixed `[bajzi:saver-guard]`. Write deny:
 "saver-guard: this session is at L<n> but runs on Claude (started with plain claude). Writing code
@@ -1957,7 +1965,7 @@ the session with worker. Risk slices: bajzi:implementer-risk. Owner override: ty
 --level 0 in the prompt." Level deny: "saver-guard: only the owner may change the saver level. Ask
 the owner to type ! worker --level <n> in the prompt (it bypasses hooks)." Every deny appends
 `<ISO-UTC>\tlevel=<word>\tcause=blocked\ttool=<tool_name>`, and every peak allow the same line
-with `cause=peak`, to `<cwd>/runtime/routing-violations.log` (§6.3; `runtime/` created as needed).
+with `cause=peak`, to `<project>/runtime/routing-violations.log` (§6.3; `runtime/` created as needed).
 
 **Failure behaviour**: fails open. `check` catches every internal error and returns null, as it
 does for input that is not an object or lacks a `cwd`, a `tool_input` or a target. A log write
@@ -1967,7 +1975,7 @@ saver guard from hiding another check's deny.
 **Accepted limits**:
 - The Bash/PowerShell write test is a token heuristic, not a sandbox (the `ponytail:` comment in
   `saver-guard.js`): a creative write (`python -c`, `cp`, `git apply`, a cmdlet alias) still
-  passes, and a `worker --level` inside a commit message is denied.
+  passes, and a `worker --level` quoted inside a `bash -c`/`eval` wrapper is denied.
 - A plain `claude` launch at L2/L3 is still possible. The guard is what makes it useless for
   writing code.
 

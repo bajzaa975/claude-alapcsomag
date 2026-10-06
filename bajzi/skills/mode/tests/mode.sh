@@ -492,6 +492,21 @@ rm -f "$FAKE_HOME/.claude/worker-mode"
 expect "11p CC_WORKER_MODE=TIGHT -> L3" \
   "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=TIGHT)" 'SAVER LEVEL L3' 'treated as L0'
 
+# 11q: level/provider mismatch line (L2/L3 on Claude); absent on a GLM provider.
+MM='but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker'
+printf 'day-run
+' > "$FAKE_HOME/.claude/bajzi-mode"; printf 'glm
+' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11q L2 on Claude: mismatch line in the saver block" "$out" "L2 $MM"
+expect_msg "11q L2 on Claude: mismatch line in the systemMessage" "$out" "L2 $MM"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
+expect "11q L3 on Claude: mismatch line in the saver block" "$out" "L3 $MM"
+expect_msg "11q L3 on Claude: mismatch line in the systemMessage" "$out" "L3 $MM"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
+expect "11q GLM provider: no mismatch line" "$out" 'SAVER LEVEL L3' "$MM"
+rm -f "$FAKE_HOME/.claude/worker-mode"
+
 # --- case 12: routing-violation counter (PostToolUse on Agent) ---
 #
 # Same gate and level as the SessionStart hook (both source hooks/lib-saver-level.sh).

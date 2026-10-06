@@ -59,6 +59,7 @@ function resolveMode() {
 }
 function readMode() { return resolveMode().mode; }
 // --level/--set: the session file when inside a session, else (or with --global) worker-mode. Atomic: tmp + rename.
+const NOSWITCH = ' The level does not switch the provider of a session that is already running: a GLM session starts with worker (or glm).';
 function writeLevel(name) {
   const target = args.includes('--global') || !SESSION_FILE ? MODE_FILE : SESSION_FILE;
   const tmp = target + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
@@ -72,8 +73,8 @@ function writeLevel(name) {
     die('cannot write ' + target + ': ' + e.message, 73);
   }
   const n = LEVEL_OF[name];
-  if (target === SESSION_FILE) console.log('worker mode = ' + name + '   level L' + n + ' for this session (' + SID + '); other sessions unchanged. Use --level N --global for the machine default.');
-  else console.log('worker mode = ' + name + '   level L' + n + ' (' + name + '), machine default (' + MODE_FILE + '); running sessions that set their own level keep it.');
+  if (target === SESSION_FILE) console.log('worker mode = ' + name + '   level L' + n + ' for this session (' + SID + '); other sessions unchanged. Use --level N --global for the machine default.' + NOSWITCH);
+  else console.log('worker mode = ' + name + '   level L' + n + ' (' + name + '), machine default (' + MODE_FILE + '); running sessions that set their own level keep it.' + NOSWITCH);
 }
 function secret(name) {   // 1. process env  2. Windows: User env in the registry (covers already-open apps)  3. ~/.claude/cc-router.env
   if (process.env[name]) return process.env[name];

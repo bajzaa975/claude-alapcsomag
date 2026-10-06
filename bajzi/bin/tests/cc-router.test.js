@@ -215,6 +215,14 @@ test('--level inside a session writes ONLY the session level file; worker-mode u
   assert.ok(r.stdout.includes('level L3 for this session (' + SID + '); other sessions unchanged. Use --level N --global for the machine default.'), r.stdout);
   assert.deepStrictEqual(fs.readdirSync(path.join(r.dir, 'sessions')), [SID + '.level']);   // no tmp file left behind
 });
+test('--level and --set say the level does not switch the provider of a running session', () => {
+  const NS = 'The level does not switch the provider of a session that is already running: a GLM session starts with worker (or glm).';
+  for (const [a, e] of [[['--level', '3'], { CLAUDE_CODE_SESSION_ID: SID }], [['--set', 'glm', '--global'], { CLAUDE_CODE_SESSION_ID: SID }], [['--level', '1'], {}]]) {
+    const r = run('worker', a, e);
+    assert.strictEqual(r.code, 0, r.stderr);
+    assert.ok(r.stdout.includes(NS), r.stdout);
+  }
+});
 test('--level N --global inside a session writes worker-mode, not the session file', () => {
   const r = run('worker', ['--level', '2', '--global'], { CLAUDE_CODE_SESSION_ID: SID });
   assert.strictEqual(r.code, 0, r.stderr);

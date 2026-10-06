@@ -117,6 +117,9 @@ peak-window ban applies at every level that uses GLM (L1-L3), enforced by the sh
   reports the Anthropic/GLM weighted-token split since a time. Those commands come from the
   owner's `worker` wrapper (`bin/cc-router.js`), not from this plugin - this skill only
   READS the level files and never writes them. Day-run on/off stays machine-wide.
+- Only the owner changes the level, by typing `! worker --level <n>` in the prompt (the saver guard
+  denies Claude's own `worker --level/--set` calls at L2/L3). The level does not switch the provider of
+  a running session: a GLM session starts with `worker` (or `glm`).
 - The hook injects saver text when day-run is on OR `$CC_WORKER_MODE` names a level
   (a runner-forced level) OR the provider is non-Anthropic; in plain normal mode with none of
   those it emits `{}` and saver mode has no effect at all. A non-Anthropic provider forces L3
