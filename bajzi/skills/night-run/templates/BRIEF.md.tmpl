@@ -43,6 +43,62 @@
                          inlined verbatim into section 6
     QUEUE_TABLE          rendered queue table, inlined into section 8
     RUN_DATE             ISO date of the night this brief was rendered
+    DELEGATION_TABLE     the six table rows of section 2 "What must ALWAYS be
+                         delegated", from the variant below (L0/L1 or L2/L3)
+    DELEGATION_MODELS    the model sentence of section 7, same variant
+
+  DELEGATION VARIANT L2/L3 (saver level glm/tight: every model of the night is
+  GLM, so the rows name glm -p, never a Claude tier). Copy the text between the
+  two fences verbatim, then substitute the other placeholders in it.
+
+  DELEGATION_TABLE:
+  ```
+| locate code, explore layout   | `glm -p --model haiku` | paths plus <= 10 lines, no file contents   |
+| implement a slice, TDD        | `glm -p`     | files changed, test counts, <= 15 lines    |
+| run a test suite              | `glm -p --model haiku` | pass/fail counts, failing test names only  |
+| review a diff                 | none, queued | see the paragraph below                    |
+| fix review findings           | `glm -p`     | what changed, <= 10 lines                  |
+| write a document > 100 lines  | `glm -p`     | the path plus <= 5 lines                   |
+
+At this level every model of the night is GLM, so there is no independent Opus
+reviewer and this paragraph overrides sections 4 and 5. Do NOT dispatch review
+sub-agents and never call anything a review. For every review the story owes,
+APPEND the evidence (tier, the story, changed files, the cited lines/functions,
+your own findings, the gate result) to the queue file named in
+$SAVER_QUEUE_FILE or, when unset, `runtime/review-queue/<sprint>.md` (the story
+id is the sprint). Each story ends `BUILT`, never DONE, once its gate is green
+and its review is queued; a red gate ends it PARKED. Merging: nothing is merged
+unattended, leave the green PR open. If `glm` exits 75 (Z.ai peak window),
+finish the current step, write the handoff, mark the story BUILT or PARKED and
+stop; there is no Claude fallback.
+  ```
+
+  DELEGATION_MODELS:
+  ```
+`{{MODEL}}` for implementation, TDD, fixes and any judgment call the story
+  hinges on; documents over 100 lines also via `glm -p`; `glm -p --model haiku`
+  for exploration, single-fact lookups, log grepping, and running or
+  summarising tests.
+  ```
+
+  DELEGATION VARIANT L0/L1 (the default, unchanged text):
+
+  DELEGATION_TABLE:
+  ```
+| locate code, explore layout   | Haiku        | paths plus <= 10 lines, no file contents   |
+| implement a slice, TDD        | `{{MODEL}}`  | files changed, test counts, <= 15 lines    |
+| run a test suite              | Haiku        | pass/fail counts, failing test names only  |
+| review a diff                 | `{{REVIEWER_MODEL}}`, always | the section 4 verdict, <= 20 lines |
+| fix review findings           | `{{MODEL}}`  | what changed, <= 10 lines                  |
+| write a document > 100 lines  | Sonnet       | the path plus <= 5 lines                   |
+  ```
+
+  DELEGATION_MODELS:
+  ```
+`{{MODEL}}` for implementation, TDD, fixes and any judgment call the story
+  hinges on; Sonnet for documents over 100 lines; Haiku for exploration,
+  single-fact lookups, log grepping, and running or summarising tests.
+  ```
 
   Renderer: substitute every placeholder, then strip this comment. Detecting an
   unsubstituted placeholder is the SKILL's job in PHASE C, before any session is
@@ -190,12 +246,7 @@ check something" IS the failure mode this section prevents: delegate it.
 
 | work                          | model        | must return                                |
 |-------------------------------|--------------|--------------------------------------------|
-| locate code, explore layout   | Haiku        | paths plus <= 10 lines, no file contents   |
-| implement a slice, TDD        | `{{MODEL}}`  | files changed, test counts, <= 15 lines    |
-| run a test suite              | Haiku        | pass/fail counts, failing test names only  |
-| review a diff                 | `{{REVIEWER_MODEL}}`, always | the section 4 verdict, <= 20 lines |
-| fix review findings           | `{{MODEL}}`  | what changed, <= 10 lines                  |
-| write a document > 100 lines  | Sonnet       | the path plus <= 5 lines                   |
+{{DELEGATION_TABLE}}
 
 Every dispatch prompt you write ends with an explicit line budget and this exact
 sentence:
@@ -711,9 +762,7 @@ step — finish it, leave the green PR open and report `reason=merge-forbidden`
 - **The reviewer is ALWAYS `{{REVIEWER_MODEL}}`**, on every round, regardless of `{{MODEL}}`
   (section 4.1). Pass the model explicitly.
 - **Every other sub-agent's model is your choice**, per the table in section 2:
-  `{{MODEL}}` for implementation, TDD, fixes and any judgment call the story
-  hinges on; Sonnet for documents over 100 lines; Haiku for exploration,
-  single-fact lookups, log grepping, and running or summarising tests. Spend
+  {{DELEGATION_MODELS}} Spend
   model capability where judgment is needed and not elsewhere.
 - State the model and the reason in the first line of every dispatch prompt.
 

@@ -75,7 +75,7 @@ opens nothing. Anywhere below that a path is meant, it is spelled `<BASE>`; `<RE
 only where the `owner/name` value is wanted. There is no third spelling.
 
 0. **`config.env` — resolve and validate it BEFORE anything reads it.** It is the single
-   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the thirteen
+   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the fifteen
    PHASE C placeholders, and `BASE` in particular is the directory the allowlist is
    installed into and every story session starts from — an invented value points the whole
    night at the wrong tree.
@@ -499,6 +499,27 @@ section-3 and section-7 rulings, the rules check) reads the `night/base-<stamp>`
 step 3 created from a fresh `origin/<BASE_BRANCH>`, never the tree BASE happened to hold. If
 that step did not run or was a BLOCKER, render nothing from BASE.
 
+**Saver level L2/L3: a GLM night.** Re-use the level PHASE A step 8 resolved with
+`saver_resolve` (`SAVER_LEVEL`). At L2/L3 (`glm`/`tight`, the level PHASE A step 8 resolved) every
+story must run on GLM, or `run.sh` starts `claude` and the whole night bills Anthropic (measured:
+a night at L2 launched with plain `claude` showed `worker --usage` anthropic 100%, glm 0 requests).
+Edit `<NIGHT_DIR>/config.env` before anything reads it below, replacing an existing line, never
+adding a second:
+
+```
+CLAUDE_BIN="glm"
+MODEL="opus"   # cc-router maps the opus alias to glm_orchestrator_model; the reviewer allow-list id is not reachable on GLM
+WATCH_TRIAGE="0"
+SUPERVISE="0"
+# off: triage and supervisor run on Claude only (supervise.sh scrubs the router env), a GLM night runs without them
+```
+
+`CLAUDE_BIN="glm"` and `MODEL="opus"` are the L2/L3 render, `WATCH_TRIAGE="0"` and `SUPERVISE="0"` its two off switches: `MODEL="opus"` replaces the allow-list
+entry (the reviewer allow-list id is not reachable on GLM; `{{REVIEWER_MODEL}}` in BRIEF.md is
+unchanged and the review is queued instead, below). The BRIEF.md render below takes the GLM
+delegation variant at L2/L3. At L0/L1 config.env is left exactly as it is and BRIEF.md takes the
+Claude-tier variant: byte-identical to before.
+
 Then write into `~/night-runs/<project>/`:
 
 - `launch.sh`, rendered from `templates/launch.sh.tmpl` into `<NIGHT_DIR>/launch.sh` on EVERY
@@ -588,12 +609,16 @@ Then write into `~/night-runs/<project>/`:
   (`SUPERVISE MISCONFIGURED ... missing or unrendered`), so the supervisor would do nothing all night.
 - `BRIEF.md`, rendered from `templates/BRIEF.md.tmpl` in three steps, in this order.
 
-  **1. Substitute these THIRTEEN placeholders, and only these thirteen.**
+  **1. Substitute these FIFTEEN placeholders, and only these fifteen.**
   `{{PROJECT}} {{REPO}} {{BASE}} {{BASE_BRANCH}} {{BRANCH_PREFIX}} {{NIGHT_DIR}} {{MODEL}}
   {{REQUIRED_CHECK}} {{PER_STORY_TIMEOUT}}` come from the same-named `config.env` fields;
   `{{NIGHT_RULES}}` is the full body of the project's `docs/NIGHT-RULES.md`, verbatim;
   `{{RUN_DATE}}` is `date +%F` of the night being planned;
   `{{REVIEWER_MODEL}}` is entry [0] of the reviewer allow-list (the `--first` read above);
+  `{{DELEGATION_TABLE}}` and `{{DELEGATION_MODELS}}` are the two blocks of the `DELEGATION
+  VARIANT` section in the template's opening comment (GLM variant at L2/L3, Claude-tier variant at
+  L0/L1; the level is the one PHASE A step 8 resolved): copy the text between the fences verbatim,
+  and substitute these two FIRST, so the `{{MODEL}}` inside them is filled by the same pass;
   `{{QUEUE_TABLE}}` is the ordered queue as a markdown table whose header row is exactly
   `| id | size | needs | criteria |` —
   **escape every `|` inside a cell as `\|`**. Criteria routinely contain pipes
@@ -615,7 +640,7 @@ Then write into `~/night-runs/<project>/`:
   src  = open(brief).read()
   assert src.count('{{NIGHT_RULES}}') == 1, 'expected exactly one {{NIGHT_RULES}}'
   src = src.replace('{{NIGHT_RULES}}', body)  # str.replace: BOTH sides literal
-  # ... the other twelve single-line values exactly the same way, e.g.
+  # ... the other fourteen single-line values exactly the same way, e.g.
   # src = src.replace('{{PROJECT}}', project)
   open(brief, 'w').write(src)
   PY
@@ -674,7 +699,7 @@ Then write into `~/night-runs/<project>/`:
   re-inject a live placeholder, and must be deleted from the project's file.
 
 `config.env` is NOT rendered here — PHASE A step 0 created and validated it, because steps
-3-5 and the thirteen placeholders above read it. If it is still missing at this point, step 0
+3-5 and the fifteen placeholders above read it. If it is still missing at this point, step 0
 was skipped: go back and do it, do not improvise values. Render only
 `settings.local.json`, from `templates/settings.local.json.tmpl`, for PHASE E to install.
 The JSON template is NOT copy-ready and its own `_comment_placeholders` says what it needs:
@@ -1009,6 +1034,18 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    deadline or to the queue goes back to PHASE C: rewrite `WATCH_MAX_RESTARTS`, re-render everything PHASE C renders (`queue.txt`,
    `BRIEF.md`, `launch.sh`, `WATCHER-BRIEF.md`, `SUPERVISE-PROMPT.md`, the settings
    post-render step, `supervise.settings.json`) with its checks, then show the whole gate again before PHASE E.
+9. **At L2/L3 only (the level of PHASE A step 8), the GLM night checks.** Each is a
+   BLOCKER, shown with its fix, and the gate shows no approval question until all pass:
+   - `grep -c 'glm -p' <NIGHT_DIR>/BRIEF.md` prints more than 0 (the GLM delegation rows were
+     rendered, not the Claude-tier ones);
+   - `grep -qx 'CLAUDE_BIN="glm"' <NIGHT_DIR>/config.env` succeeds (the runner starts every story on GLM);
+   - BLOCKER when the planned deadline is past 06:00 UTC: the Z.ai peak window 06:00-10:00 UTC refuses GLM
+     with exit 75 and the night stops dead. Print the deadline in UTC and in local time (same two
+     `date` commands as item 8).
+   There is no Opus reviewer on a GLM night: say that every story ends `BUILT` with its review
+   queued in `runtime/review-queue/<sprint>.md` (the existing SAVER-L3 mechanism, spec �6.1), never
+   DONE, and that nothing is merged unattended; this replaces the "Opus review-and-fix loop" line
+   of item 2 at L2/L3. Triage and the supervisor are off (`WATCH_TRIAGE="0"`, `SUPERVISE="0"`).
 The owner approves or edits once. Then go to PHASE E.
 
 ## PHASE E — Launch (the owner's step)

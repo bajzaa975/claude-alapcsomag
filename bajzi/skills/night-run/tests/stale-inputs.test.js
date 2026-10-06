@@ -191,3 +191,61 @@ test('SUPERVISE-PROMPT relaunches with the same runner-only LAUNCH_LINE as WATCH
   has(flat(r(sup)).split('- **Relaunch**')[1].split('ONLY when ALL hold')[0], line);
   has(r(watch), line);
 });
+
+// ---------- nr-glm-night: nights at L2/L3 run on GLM ----------
+const BRIEF = read('templates', 'BRIEF.md.tmpl');
+
+test('PHASE C config.env render at L2/L3: CLAUDE_BIN glm, MODEL opus, triage and supervisor off', () => {
+  const c = flat(phase('## PHASE C', '## PHASE D'));
+  has(c, 'At L2/L3 (`glm`/`tight`, the level PHASE A step 8 resolved)');
+  has(c, '`CLAUDE_BIN="glm"`');
+  has(c, '`MODEL="opus"`');
+  has(c, 'cc-router maps the opus alias to glm_orchestrator_model');
+  has(c, '`WATCH_TRIAGE="0"`');
+  has(c, '`SUPERVISE="0"`');
+  has(c, '# off: triage and supervisor run on Claude only (supervise.sh scrubs the router env), a GLM night runs without them');
+  has(c, 'At L0/L1 config.env is left exactly as it is');
+});
+
+test('PHASE C BRIEF render: GLM delegation variant at L2/L3, Claude-tier variant at L0/L1', () => {
+  const c = flat(phase('## PHASE C', '## PHASE D'));
+  has(c, '`{{DELEGATION_TABLE}}` and `{{DELEGATION_MODELS}}`');
+  has(c, 'GLM variant at L2/L3, Claude-tier variant at L0/L1');
+});
+
+test('PHASE D gate at L2/L3: two BLOCKER greps and the 06:00 UTC deadline check', () => {
+  const d = flat(phase('## PHASE D', '## PHASE E'));
+  has(d, "`grep -c 'glm -p' <NIGHT_DIR>/BRIEF.md`");
+  has(d, "`grep -qx 'CLAUDE_BIN=\"glm\"' <NIGHT_DIR>/config.env`");
+  has(d, 'BLOCKER');
+  has(d, 'planned deadline is past 06:00 UTC');
+  has(d, 'exit 75');
+  has(d, 'the deadline in UTC and in local time');
+});
+
+test('BRIEF.md.tmpl: GLM variant names glm -p, L0/L1 variant keeps Haiku/Sonnet, body uses the placeholders', () => {
+  const head = BRIEF.slice(0, BRIEF.indexOf('\n-->'));
+  const g = flat(head.split('DELEGATION VARIANT L2/L3')[1].split('DELEGATION VARIANT L0/L1')[0]);
+  const l = flat(head.split('DELEGATION VARIANT L0/L1')[1]);
+  has(g, 'glm -p --model haiku');
+  has(g, '| implement a slice, TDD | `glm -p`');
+  has(g, '`BUILT`');
+  has(g, 'runtime/review-queue/<sprint>.md');
+  has(g, 'never DONE');
+  has(g, 'nothing is merged unattended');
+  assert.ok(!/Haiku|Sonnet/.test(g), 'GLM variant names no Claude tier');
+  has(l, '| locate code, explore layout | Haiku');
+  has(l, '| write a document > 100 lines | Sonnet');
+  has(l, 'Sonnet for documents over 100 lines; Haiku for exploration');
+  const body = BRIEF.slice(BRIEF.indexOf('\n-->'));
+  assert.strictEqual(body.split('{{DELEGATION_TABLE}}').length, 2);
+  assert.strictEqual(body.split('{{DELEGATION_MODELS}}').length, 2);
+  assert.ok(!/\| Haiku /.test(body), 'no hard-coded Haiku row left in the body');
+});
+
+test('config.env.tmpl documents CLAUDE_BIN next to MODEL', () => {
+  const i = CONFIG.indexOf('MODEL="<reviewer allow-list entry [0]>"');
+  const near = flat(CONFIG.slice(i, i + 900));
+  has(near, '# CLAUDE_BIN="claude"');
+  has(near, 'glm at L2/L3, rendered by PHASE C');
+});
