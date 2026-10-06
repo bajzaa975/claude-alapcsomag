@@ -34,16 +34,6 @@ const TEE = /(?:^|[;&|(])\s*tee((?:[ \t]+[^\s;&|<>()]+)*)/g;
 const PS_WRITE = new RegExp(String.raw`${SEP}(Set-Content|Add-Content|Out-File|New-Item)(?=\s|$)([^;|\n]*)`, 'gi');
 const PS_PATH_OPT = /^-(?:Path|LiteralPath|FilePath)$/i;
 const HEREDOC = /(?<!<)<<-?(?!<)[ \t]*(['"]?)([A-Za-z_]\w*)\1[^\n]*[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g;   // terminated only: an unterminated <<WORD strips nothing
-// Any command naming a control file is denied unless it is a read-only pipeline (raw text, so no
-// heredoc or quote trick hides the name).
-// Only the real control files: a look-alike (settings.local.json.tmpl, docs/worker-mode.md, x.level.js) is ordinary work.
-const CONTROL = /bajzi-mode(?![\w.-])|worker-mode(?![\w.-])|cc-router\.json(?![\w.])|\.claude[\\/]settings(?:\.local)?\.json(?![\w.])|\.claude[\\/]plugins|sessions[\\/][^\s'"\\/]*\.level(?![\w.-])/i;
-const RO_WORD = /^(?:cat|head|tail|grep|rg|ls|stat|wc|file)$/i;
-const RO_FORBID = />|\btee\b|(?:^|\s)-[a-zA-Z]*i\b|--in-place|\b(?:rm|mv|cp|ln)\b|\b(?:New-Item|Set-Content|Add-Content|Out-File|Remove-Item|Move-Item|Copy-Item)\b/i;
-const readOnly = raw => !RO_FORBID.test(raw) && raw.split(/&&|\|\||[;&|\n]/).every(seg => {
-  const w = seg.trim().replace(/^\(\s*/, '').split(/\s+/);
-  return !w[0] || RO_WORD.test(w[0]) || (/^git$/i.test(w[0]) && /^(?:log|show|diff|status|grep)$/.test(w[1] || ''));
-});
 const SINKS =/^(?:\/dev\/null|&[\d-]|\$null)$/i;
 
 const blockedReason = n => `saver-guard: this session is at L${n} but runs on Claude (started with plain claude). Writing code is GLM's job here: run it as glm -p with the brief on stdin (Bash run_in_background), or relaunch the session with worker. Risk slices: bajzi:implementer-risk. Owner override: type ! worker --level 0 in the prompt.`;
@@ -193,7 +183,6 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       write = !(BUILTIN_AGENTS.has(t) || BAJZI_AGENTS.has(t.toLowerCase()));
     } else {
       if (typeof ti.command !== 'string') return null;
-      if (CONTROL.test(ti.command) && !readOnly(ti.command)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
       const cmd = ti.command.replace(/\\\r?\n/g, ' ');   // bash joins a backslash-newline
       // Quoted and heredoc text is data, unless a shell/eval wrapper may run it.
       const bare = stripHeredoc(cmd);

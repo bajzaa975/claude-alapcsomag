@@ -326,14 +326,15 @@ test('F13: the day-run gate reads <project>/runtime/bajzi-mode, never the hook c
   isDeny(edit(at(path.join(proj, 'runtime', 'x')), path.join(proj, 'src', 'x.js')), 'cwd = runtime/x');
 });
 
-test('F14/F15: raw text naming a control file is denied unless read-only, also in peak', () => {
+test('F14/F15: a control file as a write target is denied, also in peak; reading one passes', () => {
+  const isProtected = (d, msg) => { isDeny(d, msg); assert.match(d.reason, /this file controls the saver guard or the saver level/, msg); };
   for (const now of [NOON, PEAK]) {
     const c = ctx({}, now);
     put(path.join(c.home, '.claude', 'worker-mode'), 'tight\n');
     put(path.join(c.cwd, 'runtime', 'bajzi-mode'), 'day-run\n');
-    for (const cmd of ['rm runtime/bajzi-mode', 'rm ~/.claude/bajzi/sessions/s1.level', 'mv runtime/x ~/.claude/worker-mode', 'echo x | cp a ~/.claude/settings.json',
-      'cat ~/.claude/worker-mode > x', 'cat ~/.claude/worker-mode; rm y']) isDeny(bash(c, cmd), cmd);
-    for (const cmd of ['Remove-Item ~/.claude/bajzi-mode', 'New-Item ~/.claude/worker-mode -Value claude -Force', 'Move-Item a ~/.claude/cc-router.json']) isDeny(bash(c, cmd, 'PowerShell'), cmd);
+    for (const cmd of ['echo claude > ~/.claude/worker-mode', 'sed -i s/day-run/off/ runtime/bajzi-mode']) isProtected(bash(c, cmd), cmd);
+    for (const cmd of ['Set-Content ~/.claude/bajzi-mode off', 'New-Item ~/.claude/worker-mode -Value claude -Force']) isProtected(bash(c, cmd, 'PowerShell'), cmd);
+    isProtected(edit(c, '~/.claude/bajzi/sessions/s1.level'), 'Edit s1.level');
     for (const cmd of ['cat ~/.claude/worker-mode', 'git log -p -- runtime/bajzi-mode | head -5', 'grep day runtime/bajzi-mode && ls ~/.claude/bajzi/sessions/s1.level']) {
       assert.strictEqual(bash(c, cmd), null, cmd);
     }
@@ -343,12 +344,31 @@ test('F14/F15: raw text naming a control file is denied unless read-only, also i
   for (const cmd of ['New-Item -ItemType Directory foo', 'New-Item -Type Directory foo']) assert.strictEqual(bash(c, cmd, 'PowerShell'), null, cmd);
 });
 
-test('control-file rule names only the real control files, not look-alikes', () => {
+test('control-file look-alikes are ordinary work', () => {
   const c = ctx({ CC_WORKER_MODE: 'glm' });
   for (const cmd of ['git add bajzi/skills/night-run/templates/settings.local.json.tmpl', 'git commit -m "parse settings.json"',
     'echo x > runtime/app-settings.json', 'git add docs/worker-mode.md', 'git add hooks/bajzi-mode.sh', 'rm src/x.level.js']) {
     assert.strictEqual(bash(c, cmd), null, cmd);
   }
-  for (const cmd of ['rm .claude/settings.local.json', 'cp a ~/.claude/settings.json', 'rm runtime/bajzi-mode', 'rm ~/.claude/worker-mode',
-    'rm ~/.claude/bajzi/sessions/s1.level', 'rm ~/.claude/cc-router.json']) isDeny(bash(c, cmd), cmd);
+});
+
+test('plugin scripts, mode/level file reads and a message or brief naming a control file pass', () => {
+  const c = ctx({ CC_WORKER_MODE: 'tight' });
+  const plug = `${c.home}/.claude/plugins/cache/m/bajzi/1.0`;
+  for (const cmd of [`node "${plug}/lib/findings-cli.js" list`, `bash "${plug}/skills/night-run/run.sh" --help`,
+    "head -1 runtime/bajzi-mode | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'", 'cat ~/.claude/worker-mode 2>/dev/null',
+    'grep -i day runtime/bajzi-mode', 'git commit -m "worker-mode: read from project root"', "glm -p <<'EOF'\nfix the bajzi-mode reader\nEOF"]) {
+    assert.strictEqual(bash(c, cmd), null, cmd);
+  }
+  assert.strictEqual(logOf(c), '');
+});
+
+test('windows tier accepted limits: delete/move/copy of a control file is not seen (Linux sandbox closes it)', () => {
+  const c = ctx({ CC_WORKER_MODE: 'tight' });
+  for (const cmd of ['rm runtime/bajzi-mode', 'rm ~/.claude/worker-mode', 'rm ~/.claude/cc-router.json', 'rm ~/.claude/bajzi/sessions/s1.level',
+    'rm .claude/settings.local.json', 'mv runtime/x ~/.claude/worker-mode', 'cp a ~/.claude/settings.json', 'echo x | cp a ~/.claude/settings.json']) {
+    assert.strictEqual(bash(c, cmd), null, cmd);
+  }
+  for (const cmd of ['Remove-Item ~/.claude/bajzi-mode', 'Move-Item a ~/.claude/cc-router.json']) assert.strictEqual(bash(c, cmd, 'PowerShell'), null, cmd);
+  assert.strictEqual(logOf(c), '');
 });

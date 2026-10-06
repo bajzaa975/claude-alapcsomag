@@ -1947,7 +1947,6 @@ on a sub-agent's call). `check(input, {env, home, now, tmpdir})` defaults to `pr
 
 **Rules** (paths compared like the writer guard, §6.15: `/` separators, lower-case on win32,
 "under" = prefix plus `/`; allowed dirs = `<project>/runtime/`, `<home>/.claude/`, `tmpdir`; `<project>` = env `CLAUDE_PROJECT_DIR`, else `cwd`, like `writer-guard.js`, so a `cd` into a subdirectory moves neither the allowed `runtime/` nor the log; a path may be written `~`, `$HOME`, `$env:USERPROFILE`, `$TMPDIR`/`$TEMP`/`$TMP`/`$env:TEMP`, Git-Bash `/tmp` (= tmpdir) or, on win32, `/c/...`):
-0. **Control files, raw-text rule** (Bash/PowerShell): a command whose raw text (before heredoc stripping and quote handling) names a real control file (`bajzi-mode`, `worker-mode`, `cc-router.json` as whole names, `.claude/settings.json` / `.claude/settings.local.json`, `.claude/plugins`, or a `sessions/<id>.level` file; a look-alike such as `settings.local.json.tmpl`, `docs/worker-mode.md` or `x.level.js` does not count) is denied unless it is a read-only pipeline: every segment starts with `cat`/`head`/`tail`/`grep`/`rg`/`ls`/`stat`/`wc`/`file` or `git log|show|diff|status|grep`, and the text holds no `>`, `tee`, `-i`, `rm`, `mv`, `cp`, `ln`, `New-Item`, `Set-Content`, `Add-Content`, `Out-File`, `Remove-Item`, `Move-Item` or `Copy-Item`. Never relaxes in peak. This closes delete/move/copy/create of a control file as a class (a brief that merely mentions such a control-file path is denied too; test "control-file rule names only the real control files, not look-alikes").
 0b. **Protected control files** are denied for every write (Edit tools, a shell redirect/`tee`/`sed -i`/PowerShell target) even inside the allowed dirs, for a risk sub-agent too, and also in the peak window: `<project>/runtime/bajzi-mode`, `<cwd>/runtime/bajzi-mode`, `~/.claude/{bajzi-mode,worker-mode,cc-router.json}` (and `CC_WORKER_MODE_FILE`), `~/.claude/settings*.json`, `<project>/.claude/settings*.json`, `*.level` in `~/.claude/bajzi/sessions/` (and `BAJZI_STATUS_DIR`), and everything under `~/.claude/plugins/`. Editing any of them could switch the hooks off or lower the level. Reason: "this file controls the saver guard or the saver level; only the owner may change it".
 1. `Edit`/`Write`/`MultiEdit`/`NotebookEdit` (`file_path`, `notebook_path` for NotebookEdit,
    resolved against `cwd`): deny unless the target is under an allowed dir, or the call comes
@@ -1988,9 +1987,21 @@ saver guard from hiding another check's deny.
 **Accepted limits**:
 - The Bash/PowerShell write test is a token heuristic, not a sandbox (the `ponytail:` comment in
   `saver-guard.js`): a creative write (`python -c`, `cp`, `git apply`, a cmdlet alias) still
-  passes. Creative shell writes of SOURCE files remain a ceiling; control files and level changes are covered by the raw-text rule. A fake heredoc (`# <<A` ... `A`) can still hide a later line.
+  passes. A fake heredoc (`# <<A` ... `A`) can still hide a later line.
 - A plain `claude` launch at L2/L3 is still possible. The guard is what makes it useless for
   writing code.
+
+**Accepted limits (Windows/compromise tier)** (owner decision 2026-10-06): matching shell text
+does not converge, so there is no rule that denies a command merely for naming a control file.
+Running a plugin script under `~/.claude/plugins`, reading a mode/level file in any form, and a
+commit message or `glm` brief that mentions `worker-mode`/`bajzi-mode` all pass. A control file is
+denied only as the resolved target of a shell write (rule 0b). Known gaps: delete/move/copy of a
+control file (`rm`, `mv`, `cp`, `Remove-Item`, `Move-Item`; pinned by the test "windows tier
+accepted limits: delete/move/copy of a control file is not seen (Linux sandbox closes it)");
+reaching a control file through `cd` or a variable (review F17); creative writes (`python -c`,
+`node -e`, `cp`, `git apply`, a script written to `runtime/` and then run). The Linux tier (an OS
+sandbox, the next slice) closes these. Every gap still shows up in `worker --usage` as Claude
+tokens.
 
 **Tests**: `node --test bajzi/hooks/node/tests/saver-guard.test.js` (gate, levels, GLM provider,
 every rule, peak, the log lines, fail-open; injected env, home, tmpdir and clock) and one
