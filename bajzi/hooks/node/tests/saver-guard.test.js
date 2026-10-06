@@ -249,7 +249,7 @@ test('F5: the project root is CLAUDE_PROJECT_DIR; runtime/ and the log live ther
 
 test('F6: variable and MSYS forms of an allowed dir resolve', () => {
   const c = ctx({ CC_WORKER_MODE: 'glm' });
-  for (const cmd of ['echo x > /tmp/a', 'echo x > "$HOME/.claude/a"', 'echo x > $HOME/.claude/a', 'echo x > ${HOME}/.claude/a', 'echo x > $TMPDIR/x', 'echo x > ${TMPDIR}/x']) {
+  for (const cmd of ['echo x > "$HOME/.claude/a"', 'echo x > $HOME/.claude/a', 'echo x > ${HOME}/.claude/a', 'echo x > $TMPDIR/x', 'echo x > ${TMPDIR}/x']) {
     assert.strictEqual(bash(c, cmd), null, cmd);
   }
   for (const cmd of ['"x" | Out-File $env:TEMP\\a', 'Set-Content $env:TMP\\a 1', 'Out-File $env:USERPROFILE\\.claude\\a']) {
@@ -260,6 +260,7 @@ test('F6: variable and MSYS forms of an allowed dir resolve', () => {
   if (process.platform === 'win32') {
     const d = c.tmp.replace(/\\/g, '/').replace(/^([a-zA-Z]):/, (_, l) => `/${l.toLowerCase()}`);
     assert.strictEqual(bash(c, `echo x > ${d}/a`), null, d);
+    assert.strictEqual(bash(c, 'echo x > /tmp/a'), null, 'Git-Bash /tmp');
     isDeny(bash(c, 'echo x > /c/zzz-not-allowed/a'), '/c/ elsewhere');
   }
 });
@@ -525,5 +526,25 @@ test('F3: a tmpdir that is itself a link still matches, by either name', t => {
     c.opts.tmpdir = lnk;
     for (const f of [path.join(lnk, 'x.js'), path.join(real, 'x.js'), path.join(real, 'sub', 'x.js')]) assert.strictEqual(edit(c, f), null, f);
     isDeny(edit(c, path.join(c.cwd, 'src', 'x.js')), 'src');
+  }
+});
+
+test('a project root under the tmpdir: inside it only runtime/ is allowed, the tmp allow is for targets outside it', () => {
+  for (const sandbox of [{}, { BAJZI_SANDBOX: '1' }]) {
+    const c = ctx(Object.assign({ CC_WORKER_MODE: 'glm' }, sandbox));
+    c.tmp = tmpDir('bajzi-sgb-');   // the injected tmpdir is the project's parent
+    c.cwd = path.join(c.tmp, 'proj');
+    fs.mkdirSync(c.cwd);
+    c.opts.tmpdir = c.tmp;
+    isDeny(call(c, 'Write', { file_path: path.join(c.cwd, 'src', 'x.js'), content: 'x' }), 'Write src');
+    isDeny(edit(c, 'src/x.js'), 'Edit src');
+    assert.strictEqual(call(c, 'Write', { file_path: path.join(c.cwd, 'runtime', 'x.md'), content: 'x' }), null, 'Write runtime');
+    assert.strictEqual(call(c, 'Write', { file_path: path.join(c.tmp, 'other', 'x'), content: 'x' }), null, 'outside the project');
+    if (!sandbox.BAJZI_SANDBOX) {
+      isDeny(bash(c, 'echo x > src/x.js'), 'shell src');
+      isDeny(bash(c, `echo x > ${path.join(c.cwd, 'src', 'x.js')}`), 'shell abs src');
+      assert.strictEqual(bash(c, 'echo x > runtime/x.md'), null, 'shell runtime');
+      assert.strictEqual(bash(c, `echo x > ${path.join(c.tmp, 'other', 'x')}`), null, 'shell outside the project');
+    }
   }
 });

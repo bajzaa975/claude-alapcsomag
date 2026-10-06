@@ -171,11 +171,16 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     const memory = String(env.CLAUDE_CONFIG_DIR || '') ? path.join(env.CLAUDE_CONFIG_DIR, 'projects') : path.join(home, '.claude', 'projects');
     const abs = p => {
       let q = p;
-      for (const [re, dir] of [[HOME_VAR, home], [TMP_VAR, tmpdir], [/^\/tmp(?=$|\/)/, tmpdir]]) q = q.replace(re, () => dir);
-      if (process.platform === 'win32') q = q.replace(/^\/([a-zA-Z])(?=$|\/)/, '$1:');   // Git-Bash /c/Users
+      for (const [re, dir] of [[HOME_VAR, home], [TMP_VAR, tmpdir]]) q = q.replace(re, () => dir);
+      if (process.platform === 'win32') q = q.replace(/^\/tmp(?=$|\/)/, () => tmpdir).replace(/^\/([a-zA-Z])(?=$|\/)/, '$1:');   // Git-Bash /tmp and /c/Users; on POSIX /tmp is itself
       return path.resolve(cwd, q);
     };
-    const allowed = p => dirs.some(d => under(abs(p), d)) || (sandbox && under(abs(p), memory) && /^[^/]+\/memory\/./.test(key(abs(p)).slice(key(memory).length + 1)));
+    // Inside the project only runtime/ is allowed; the tmpdir/home/memory allows are for targets outside it.
+    const allowed = p => {
+      const a = abs(p);
+      if (under(a, proj)) return under(a, path.join(proj, 'runtime'));
+      return dirs.some(d => under(a, d)) || (sandbox && under(a, memory) && /^[^/]+\/memory\/./.test(key(a).slice(key(memory).length + 1)));
+    };
     // Files that switch the hooks off or lower the level: denied even inside the allowed dirs.
     const claude = path.join(home, '.claude');
     const files = [path.join(proj, 'runtime', 'bajzi-mode'), path.join(cwd, 'runtime', 'bajzi-mode'), env.CC_WORKER_MODE_FILE || '',
