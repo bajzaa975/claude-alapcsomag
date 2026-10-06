@@ -181,6 +181,7 @@ nr_plan(){ # <fake_dir> <line>...
 
 # A config.env the runner accepts. WATCH_INTERVAL=0 on purpose: a test must
 # never spawn a watchdog that could restart a runner behind the test's back.
+# SUPERVISE=0 for the same reason: these suites test the runner, not the supervisor (tests/supervise.sh covers it), and a spawned supervisor would outlive the test; extra KEY=VALUE args are appended after the heredoc, so a caller can still pass SUPERVISE="1" — a later line in a sourced env file wins.
 nr_config(){ # <path> <night_dir> <base> <fake_claude> [extra KEY=VALUE]...
   local cfg=$1 nd=$2 base=$3 fake=$4; shift 4
   cat >"$cfg" <<CFG
@@ -199,6 +200,7 @@ GIT_USER_EMAIL="fixture@example.invalid"
 CI_WAIT_MINUTES="1"
 CLAUDE_BIN="$fake"
 WATCH_INTERVAL="0"
+SUPERVISE="0"
 CFG
   local kv; for kv in "$@"; do printf '%s\n' "$kv" >>"$cfg"; done
 }

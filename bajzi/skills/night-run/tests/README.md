@@ -50,7 +50,7 @@ That is how the "before" numbers below were measured.
 
 | file | what it is |
 |---|---|
-| `lib.sh` | fixtures, sourced by both tests: a git-initialised `BASE` with `.claude/settings.local.json`, a `NIGHT_DIR` with `queue.txt` + `BRIEF.md`, a `config.env` the runner accepts, the fake claude, and the stray-process sweep |
+| `lib.sh` | fixtures, sourced by both tests: a git-initialised `BASE` with `.claude/settings.local.json`, a `NIGHT_DIR` with `queue.txt` + `BRIEF.md`, a `config.env` the runner accepts, the fake claude, and the stray-process sweep. `nr_config` writes `SUPERVISE="0"`, so the runner suites never spawn the supervisor |
 | `lock-race.sh` | the run lock and per-story session liveness |
 | `quota.sh` | what happens when the model says "You've hit your session limit" |
 | `watch.sh` | `night-watch.sh` alone: its statuses, its marker dating, its restart budget, its single-instance guard and its mode gate. Standalone — it sources nothing, fakes `run.sh` with stubs that record their argv (one of them also behaving like the real runner at queue start), and shadows `update-monitor` with a stub on `PATH` |
