@@ -17,7 +17,7 @@
 # Everything lives under one mktemp -d, removed on exit by the trap.
 
 set -uo pipefail
-unset ANTHROPIC_BASE_URL CC_WORKER_MODE CC_ROUTER_WORKER   # the test process may itself run in a GLM/night-run env
+unset ANTHROPIC_BASE_URL CC_WORKER_MODE CC_ROUTER_WORKER BAJZI_SANDBOX BAJZI_UNAME   # the test process may itself run in a GLM/night-run/split env
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -516,6 +516,22 @@ expect_msg "11q2b day-run off, L2 on Claude, launcher missing: mismatch line" "$
 expect_msg "11q2b day-run off: no 'saver off', names worker --level 0" "$out" 'worker --level 0' 'saver off:'
 printf 'day-run
 ' > "$FAKE_HOME/.claude/bajzi-mode"
+# 11q4: on Linux (BAJZI_UNAME forces it; Git Bash says MINGW) an L2/L3 Claude session that is not a
+# sandboxed `split` session (no BAJZI_SANDBOX=1) is told the strict tier needs the split launcher.
+SPL='strict tier needs the split launcher: restart this session with: split'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux)"
+expect_msg "11q4 Linux, L2 on Claude: split hint in the systemMessage" "$out" "$SPL"
+expect "11q4 Linux, L2 on Claude: valid JSON" "$out" 'SAVER LEVEL L2'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight BAJZI_UNAME=Linux)"
+expect_msg "11q4 Linux, L3 on Claude: split hint" "$out" "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux BAJZI_SANDBOX=1)"
+expect_msg "11q4 Linux split session (BAJZI_SANDBOX=1): no split hint" "$out" "L2 $MM" "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=MINGW64_NT-10.0)"
+expect_msg "11q4 not Linux: no split hint" "$out" "L2 $MM" "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux "$ZAI")"
+expect_msg "11q4 Linux, GLM provider: no split hint" "$out" 'saver L3' "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=light BAJZI_UNAME=Linux)"
+expect_msg "11q4 Linux, L1: no split hint" "$out" 'saver L1' "$SPL"
 # 11q3: the injected L3 block on a Claude session must not forbid the Claude fallback at a peak exit 75.
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
 expect "11q3 L3 on Claude: peak line allows the Claude fallback" "$out" 'ORIGINAL Agent call' 'There is no Claude fallback at L3'

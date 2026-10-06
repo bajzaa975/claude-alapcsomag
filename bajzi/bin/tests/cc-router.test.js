@@ -9,7 +9,7 @@ const FAKE = path.join(__dirname, 'fake-claude.js');
 
 // CC_CLAUDE_BIN = node itself, CC_CLAUDE_PREFIX_ARGS = [fake-claude.js]: the "claude" the router
 // spawns is `node fake-claude.js <args...>`, which prints its env and argv and exits 0.
-function run(entry, args, extraEnv = {}) {
+function run(entry, args, extraEnv = {}, opts = {}) {   // opts.cwd: the router's working directory
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-'));
   const env = Object.assign({}, process.env, {
     CC_ROUTER_ENTRY: entry, CC_WORKER_MODE_FILE: path.join(dir, 'worker-mode'),
@@ -22,8 +22,11 @@ function run(entry, args, extraEnv = {}) {
   // The test process may run inside Claude Code: its session id must never reach the router unless a test sets it.
   for (const k of ['CC_WORKER_MODE', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'BAJZI_HOME', 'BAJZI_SESSION_LEVEL',
     'GLM_MODEL', 'GLM_FAST_MODEL', 'GLM_ORCHESTRATOR_MODEL']) delete env[k];
-  for (const [k, v] of Object.entries(extraEnv)) { if (v === '' || v === undefined) delete env[k]; else env[k] = v; }
-  const r = spawnSync(process.execPath, [ROUTER, ...args], { env, encoding: 'utf8' });
+  for (const [k, v] of Object.entries(extraEnv)) {
+    for (const o of Object.keys(env)) if (o !== k && o.toUpperCase() === k.toUpperCase()) delete env[o];   // win32 copies PATH as Path
+    if (v === '' || v === undefined) delete env[k]; else env[k] = v;
+  }
+  const r = spawnSync(process.execPath, [ROUTER, ...args], { env, encoding: 'utf8', cwd: opts.cwd });
   const line = (r.stdout || '').split('\n').find(l => l.startsWith('FAKE_CLAUDE '));
   const parsed = line ? JSON.parse(line.slice(12)) : null;
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '', dir,
@@ -439,4 +442,156 @@ test('worker --usage counts glm-5.3-flash and glm-5.3 both in the GLM share', ()
   assert.strictEqual(j.glm_share_pct, 100);
   assert.strictEqual(j.models['glm-5.3-flash'].reqs, 1);
   assert.strictEqual(j.models['glm-5.3'].reqs, 1);
+});
+
+// --- entry split: provider claude, CC_WORKER_MODE=glm + BAJZI_SPLIT=1; on Linux with bwrap + socat on PATH
+// an OS sandbox through a prepended --settings file (spec §6.2). Platform injected via CC_ROUTER_PLATFORM,
+// the tools via PATH, the home (settings file, installed_plugins.json) via HOME/USERPROFILE. ---
+const crypto = require('node:crypto');
+const SPLIT_FAKE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-fake-')), 'fake-split.js');
+fs.writeFileSync(SPLIT_FAKE, 'const out = {}; for (const k of ["CC_WORKER_MODE", "BAJZI_SPLIT", "BAJZI_SANDBOX", "BAJZI_SESSION_LEVEL", "ANTHROPIC_BASE_URL"]) if (process.env[k] !== undefined) out[k] = process.env[k];\n' +
+  'process.stdout.write("FAKE_CLAUDE " + JSON.stringify({ env: out, argv: process.argv.slice(2) }) + "\\n");\n');
+const EXCL = ['glm *', 'git add *', 'git commit *', 'git push *', 'git fetch *', 'git checkout -b *', 'git switch -c *', 'gh *'].flatMap(c => [c, 'rtk ' + c]);
+const NO_FC = 'split: bajzi plugin root not found - findings CLI stays sandboxed\n';
+const fcCli = root => { fs.mkdirSync(path.join(root, 'lib'), { recursive: true }); fs.writeFileSync(path.join(root, 'lib', 'findings-cli.js'), ''); return root; };
+const plugins = (home, obj) => { const p = path.join(home, '.claude', 'plugins'); fs.mkdirSync(p, { recursive: true }); fs.writeFileSync(path.join(p, 'installed_plugins.json'), typeof obj === 'string' ? obj : JSON.stringify(obj)); };
+// A fake home with one installed bajzi (its lib/findings-cli.js exists), fake tools on PATH, a non-git project dir.
+function splitCtx({ platform = 'linux', tools = ['bwrap', 'socat'], keepPath = true } = {}) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-home-'));
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-bin-'));
+  for (const t of tools) { fs.writeFileSync(path.join(bin, t), '#!/bin/sh\n'); fs.chmodSync(path.join(bin, t), 0o755); }
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-proj-'));
+  const plug = fcCli(path.join(home, '.claude', 'plugins', 'cache', 'mk', 'bajzi', '1.0.0'));
+  plugins(home, { version: 2, plugins: { 'bajzi@mk': [{ scope: 'user', installPath: plug, version: '1.0.0', lastUpdated: '2026-10-01T00:00:00.000Z' }] } });
+  const env = { HOME: home, USERPROFILE: home, CC_ROUTER_PLATFORM: platform, CC_CLAUDE_PREFIX_ARGS: JSON.stringify([SPLIT_FAKE]),
+    PATH: keepPath ? bin + path.delimiter + (process.env.PATH || '') : bin,   // keepPath: git stays reachable
+    GIT_CEILING_DIRECTORIES: path.dirname(cwd), BAJZI_SANDBOX: '', BAJZI_SPLIT: '' };
+  return { home, cwd, plug, env };
+}
+const sbFile = (home, root) => path.join(home, '.claude', 'bajzi', 'sandbox', 'split-' + crypto.createHash('sha1').update(root).digest('hex').slice(0, 12) + '.json');
+const fcPair = plug => ['node ' + plug + '/lib/findings-cli.js *', 'node "' + plug + '/lib/findings-cli.js" *'];
+const conf = (root, fc) => ({ sandbox: { enabled: true, allowUnsandboxedCommands: false, excludedCommands: EXCL.concat(fc),
+  filesystem: { allowWrite: [...new Set([os.tmpdir(), '/tmp'])], denyWrite: [root] } } });
+const readJson = p => JSON.parse(fs.readFileSync(p, 'utf8'));
+
+test('split on Linux with bwrap + socat: --settings <file> first, exact sandbox JSON, CC_WORKER_MODE=glm, BAJZI_SPLIT=1, BAJZI_SANDBOX=1', () => {
+  const c = splitCtx();
+  const r = run('split', ['-p', 'x'], Object.assign(c.env, { CC_WORKER_MODE: 'claude' }), { cwd: c.cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  const file = sbFile(c.home, c.cwd);
+  assert.deepStrictEqual(r.childArgv, ['--settings', file, '-p', 'x']);
+  const j = readJson(file);
+  assert.deepStrictEqual(j, conf(c.cwd, fcPair(c.plug)));
+  assert.ok(!j.sandbox.filesystem.denyWrite.some(p => p.includes('*')), 'no globs in denyWrite');
+  assert.deepStrictEqual(r.childEnv, { CC_WORKER_MODE: 'glm', BAJZI_SPLIT: '1', BAJZI_SANDBOX: '1' });   // inherited claude overridden; no z.ai URL
+  assert.strictEqual(r.stderr, '');
+  assert.match(lastLog(r), / entry=split provider=claude asked=- model=\(session default\) headless split sandbox=yes cwd=/);
+  assert.deepStrictEqual(fs.readdirSync(path.dirname(file)), [path.basename(file)]);   // no temp file left behind
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600);
+});
+test('split: the project root is the git toplevel of cwd; an existing settings file is replaced (mode 600)', () => {
+  const c = splitCtx();
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-repo-'));
+  assert.strictEqual(spawnSync('git', ['init', '-q', repo]).status, 0);
+  const sub = path.join(repo, 'src'); fs.mkdirSync(sub);
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: sub, encoding: 'utf8' }).stdout.trim();
+  const file = sbFile(c.home, top);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'junk', { mode: 0o644 });
+  const r = run('split', ['-p', 'x'], c.env, { cwd: sub });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(r.childArgv.slice(0, 2), ['--settings', file]);
+  assert.deepStrictEqual(readJson(file), conf(top, fcPair(c.plug)));
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600);
+});
+test('split on Linux without bwrap or without socat: no --settings, no BAJZI_SANDBOX (an inherited one dropped), one stderr line', () => {
+  for (const tools of [['socat'], ['bwrap'], []]) {
+    const c = splitCtx({ tools, keepPath: false });
+    const r = run('split', ['-p', 'x'], Object.assign(c.env, { BAJZI_SANDBOX: '1' }), { cwd: c.cwd });
+    assert.strictEqual(r.code, 0, r.stderr);
+    assert.deepStrictEqual(r.childArgv, ['-p', 'x'], tools.join());
+    assert.deepStrictEqual(r.childEnv, { CC_WORKER_MODE: 'glm', BAJZI_SPLIT: '1' });
+    assert.strictEqual(r.stderr, 'split: no OS sandbox (bubblewrap/socat missing) - Windows-tier guard only\n');
+    assert.ok(!fs.existsSync(path.join(c.home, '.claude', 'bajzi', 'sandbox')));
+    assert.match(lastLog(r), / entry=split provider=claude .* split sandbox=no cwd=/);
+  }
+});
+test('split on win32 or darwin (bwrap + socat on PATH): no sandbox, the platform named', () => {
+  for (const platform of ['win32', 'darwin']) {
+    const c = splitCtx({ platform });
+    const r = run('split', ['-p', 'x'], Object.assign(c.env, { BAJZI_SANDBOX: '1' }), { cwd: c.cwd });
+    assert.strictEqual(r.code, 0, r.stderr);
+    assert.deepStrictEqual(r.childArgv, ['-p', 'x']);
+    assert.deepStrictEqual(r.childEnv, { CC_WORKER_MODE: 'glm', BAJZI_SPLIT: '1' });
+    assert.strictEqual(r.stderr, 'split: no OS sandbox on ' + platform + ' - Windows-tier guard only\n');
+    assert.ok(!fs.existsSync(path.join(c.home, '.claude', 'bajzi', 'sandbox')));
+    assert.match(lastLog(r), / split sandbox=no cwd=/);
+  }
+});
+test('split refuses a caller --settings / --settings=<f> with exit 64 and starts nothing', () => {
+  for (const platform of ['linux', 'win32']) {
+    for (const a of [['--settings', 'mine.json'], ['--settings=mine.json']]) {
+      const c = splitCtx({ platform });
+      const r = run('split', ['-p', 'x', ...a], c.env, { cwd: c.cwd });
+      assert.strictEqual(r.code, 64, platform + ' ' + a.join(' '));
+      assert.match(r.stderr, /^\[split\] .*--settings/);
+      assert.strictEqual(r.childEnv, null);
+      assert.ok(!fs.existsSync(path.join(c.home, '.claude', 'bajzi')));
+    }
+  }
+});
+test('split is never refused in the Z.ai peak window: the main session is Claude', () => {
+  const c = splitCtx();
+  const r = run('split', ['-p', 'x'], Object.assign(c.env, peakEnv('2026-09-23T07:00:00Z')), { cwd: c.cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, undefined);
+  assert.strictEqual(r.childEnv.BAJZI_SANDBOX, '1');
+});
+test('split: an unwritable sandbox dir exits 73 and starts nothing (no unsandboxed fallback)', () => {
+  const c = splitCtx();
+  fs.mkdirSync(path.join(c.home, '.claude', 'bajzi'), { recursive: true });
+  fs.writeFileSync(path.join(c.home, '.claude', 'bajzi', 'sandbox'), 'a file, so mkdir fails');
+  const r = run('split', ['-p', 'x'], c.env, { cwd: c.cwd });
+  assert.strictEqual(r.code, 73);
+  assert.match(r.stderr, /cannot write/);
+  assert.strictEqual(r.childEnv, null);
+});
+test('split: the findings CLI pair comes from the newest bajzi@<marketplace> entry, never another plugin', () => {
+  const c = splitCtx();
+  const cache = path.join(c.home, '.claude', 'plugins', 'cache');
+  const [old, newest, mid, infra] = ['old/bajzi/0.9', 'mk/bajzi/2.0', 'mk/bajzi/1.5', 'mk/bajzi-infra/9.0'].map(p => fcCli(path.join(cache, p)));
+  plugins(c.home, { version: 2, plugins: {
+    'bajzi-infra@mk': [{ installPath: infra, lastUpdated: '2026-12-01T00:00:00.000Z' }],
+    'bajzi@mk': [{ installPath: mid, lastUpdated: '2026-09-01T00:00:00.000Z' }, { installPath: newest, lastUpdated: '2026-10-01T00:00:00.000Z' }],
+    'bajzi@old': [{ installPath: old, lastUpdated: '2026-01-01T00:00:00.000Z' }] } });   // newest is neither first nor last
+  const r = run('split', ['-p', 'x'], c.env, { cwd: c.cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(r.stderr, '');
+  assert.deepStrictEqual(readJson(sbFile(c.home, c.cwd)).sandbox.excludedCommands, EXCL.concat(fcPair(newest)));
+});
+test('split: an unusable bajzi root gives NO findings CLI entry and one stderr line; the sandbox still starts', () => {
+  const cases = {
+    'no installed_plugins.json': c => fs.rmSync(path.join(c.home, '.claude', 'plugins', 'installed_plugins.json')),
+    'bad JSON': c => plugins(c.home, '{not json'),
+    'no bajzi@ key': c => plugins(c.home, { version: 2, plugins: { 'bajzi-infra@mk': [{ installPath: c.plug }] } }),
+    'relative installPath': c => { fcCli(path.join(c.cwd, 'rel', 'bajzi')); plugins(c.home, { version: 2, plugins: { 'bajzi@mk': [{ installPath: 'rel/bajzi' }] } }); },
+    'a .. segment': c => { fs.mkdirSync(path.join(c.plug, '..', 'x')); plugins(c.home, { version: 2, plugins: { 'bajzi@mk': [{ installPath: path.join(path.dirname(c.plug), 'x') + '/../1.0.0' }] } }); },
+    'findings-cli.js missing': c => fs.rmSync(path.join(c.plug, 'lib', 'findings-cli.js')),
+    'the newest entry is unusable, an older one is not': c => plugins(c.home, { version: 2, plugins: { 'bajzi@mk': [
+      { installPath: c.plug, lastUpdated: '2026-01-01T00:00:00.000Z' }, { installPath: path.join(c.home, 'gone'), lastUpdated: '2026-10-01T00:00:00.000Z' }] } }),
+  };
+  if (process.platform !== 'win32') cases['a * in the root'] = c => {   // a literal * dir exists, so only the * rule refuses it
+    const star = fcCli(path.join(path.dirname(c.plug), '1.*'));
+    plugins(c.home, { version: 2, plugins: { 'bajzi@mk': [{ installPath: star }] } });
+  };
+  for (const [name, setup] of Object.entries(cases)) {
+    const c = splitCtx();
+    setup(c);
+    const r = run('split', ['-p', 'x'], c.env, { cwd: c.cwd });
+    assert.strictEqual(r.code, 0, name + ': ' + r.stderr);
+    assert.strictEqual(r.stderr, NO_FC, name);
+    assert.strictEqual(r.childArgv[0], '--settings', name);
+    assert.strictEqual(r.childEnv.BAJZI_SANDBOX, '1', name);
+    assert.deepStrictEqual(readJson(sbFile(c.home, c.cwd)), conf(c.cwd, []), name);
+  }
 });

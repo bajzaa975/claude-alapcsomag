@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs bajzi/bin/cc-router.js and the six launchers (bajzi/bin/launchers/) into ~/.local/bin,
+# Installs bajzi/bin/cc-router.js and the eight launchers (bajzi/bin/launchers/) into ~/.local/bin,
 # after running the cc-router tests. An identical file is left untouched; a different one is kept
 # as <name>.bak (one generation) before being replaced.
 set -euo pipefail
@@ -20,7 +20,7 @@ install_one() {  # $1 = source file, $2 = destination
   echo "installed: $2"
 }
 install_one "$here/cc-router.js" "$bin/cc-router.js"
-for f in worker glm ccr; do
+for f in worker glm ccr split; do
   install_one "$here/launchers/$f" "$bin/$f"; chmod +x "$bin/$f"
   install_one "$here/launchers/$f.cmd" "$bin/$f.cmd"
 done

@@ -7,7 +7,7 @@ const fs = require('node:fs'), os = require('node:os'), path = require('node:pat
 
 const BIN = path.join(__dirname, '..');
 const INSTALL = path.join(BIN, 'install.sh');
-const LAUNCHERS = ['worker', 'worker.cmd', 'glm', 'glm.cmd', 'ccr', 'ccr.cmd'];
+const LAUNCHERS = ['worker', 'worker.cmd', 'glm', 'glm.cmd', 'ccr', 'ccr.cmd', 'split', 'split.cmd'];
 const SRC = Object.fromEntries([
   ['cc-router.js', path.join(BIN, 'cc-router.js')],
   ...LAUNCHERS.map((f) => [f, path.join(BIN, 'launchers', f)]),
@@ -32,14 +32,14 @@ function install(home) {
 const bytes = (p) => fs.readFileSync(p);
 const baks = (dst) => fs.readdirSync(dst).filter((f) => f.endsWith('.bak')).sort();
 
-test('fresh install: all seven files byte-identical to the repo copies, no backups', () => {
+test('fresh install: all nine files byte-identical to the repo copies, no backups', () => {
   const { home, dst } = decoy();
   try {
     install(home);
     for (const [f, src] of Object.entries(SRC)) assert.ok(bytes(src).equals(bytes(path.join(dst, f))), f);
     assert.deepStrictEqual(baks(dst), []);
     if (process.platform !== 'win32') {  // win32 reports no exec bits
-      for (const f of ['worker', 'glm', 'ccr']) assert.ok(fs.statSync(path.join(dst, f)).mode & 0o111, f + ' not executable');
+      for (const f of ['worker', 'glm', 'ccr', 'split']) assert.ok(fs.statSync(path.join(dst, f)).mode & 0o111, f + ' not executable');
     }
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
@@ -50,7 +50,7 @@ test('second run changes nothing: same mtimes, no backup file', () => {
     install(home);
     const before = Object.keys(SRC).map((f) => fs.statSync(path.join(dst, f)).mtimeMs);
     const r = install(home);
-    assert.strictEqual((r.stdout.match(/^unchanged: /gm) || []).length, 7, r.stdout);
+    assert.strictEqual((r.stdout.match(/^unchanged: /gm) || []).length, 9, r.stdout);
     const after = Object.keys(SRC).map((f) => fs.statSync(path.join(dst, f)).mtimeMs);
     assert.deepStrictEqual(after, before);
     assert.deepStrictEqual(baks(dst), []);

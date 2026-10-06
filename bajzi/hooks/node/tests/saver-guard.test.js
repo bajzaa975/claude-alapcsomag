@@ -372,3 +372,34 @@ test('windows tier accepted limits: delete/move/copy of a control file is not se
   for (const cmd of ['Remove-Item ~/.claude/bajzi-mode', 'Move-Item a ~/.claude/cc-router.json']) assert.strictEqual(bash(c, cmd, 'PowerShell'), null, cmd);
   assert.strictEqual(logOf(c), '');
 });
+
+test('BAJZI_SANDBOX=1 (Linux split session): the OS sandbox judges shell writes; Edit tools, control files, agents and worker --level stay guarded', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  for (const cmd of ['echo hi > src/a.txt', 'sed -i s/a/b/ x.js', 'echo x | tee out.txt', 'echo claude > ~/.claude/worker-mode', 'sed -i s/day-run/off/ runtime/bajzi-mode']) {
+    assert.strictEqual(bash(c, cmd), null, cmd);
+  }
+  for (const cmd of ['Set-Content x.js 1', 'New-Item ~/.claude/worker-mode -Value claude']) assert.strictEqual(bash(c, cmd, 'PowerShell'), null, cmd);
+  assert.strictEqual(logOf(c), '');
+  for (const cmd of ['worker --level 0', 'bash -c "worker --level 0"', 'node bin/cc-router.js --set claude']) {
+    const d = bash(c, cmd);
+    isDeny(d, cmd);
+    assert.match(d.reason, /only the owner may change the saver level/);
+  }
+  isDeny(bash(c, 'worker --level 0', 'PowerShell'), 'PowerShell worker --level');
+  isDeny(edit(c, 'src/x.js'), 'Edit src');
+  const p = edit(c, '~/.claude/worker-mode');
+  isDeny(p, 'Edit control file');
+  assert.match(p.reason, /this file controls the saver guard or the saver level/);
+  isDeny(call(c, 'Write', { file_path: 'runtime/bajzi-mode', content: 'off' }), 'Write control file');
+  isDeny(agent(c, 'general-purpose'), 'writing agent');
+  assert.strictEqual(agent(c, 'bajzi:reviewer'), null);
+  assert.strictEqual(edit(c, 'runtime/x.md'), null);
+});
+
+test('only BAJZI_SANDBOX exactly "1" skips the shell scan', () => {
+  for (const v of ['0', '', 'yes', ' 1', 'true']) {
+    const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: v });
+    isDeny(bash(c, 'echo hi > src/a.txt'), `BAJZI_SANDBOX=${JSON.stringify(v)}`);
+    isDeny(bash(c, 'echo claude > ~/.claude/worker-mode'), `control file, BAJZI_SANDBOX=${JSON.stringify(v)}`);
+  }
+});

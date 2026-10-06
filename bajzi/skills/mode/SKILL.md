@@ -120,6 +120,11 @@ peak-window ban applies at every level that uses GLM (L1-L3), enforced by the sh
 - Only the owner changes the level, by typing `! worker --level <n>` in the prompt (the saver guard
   denies Claude's own `worker --level/--set` calls at L2/L3). The level does not switch the provider of
   a running session: a GLM session starts with `worker` (or `glm`).
+- An L2 split session (Claude orchestrates, GLM writes the code) starts with `split`. On Linux
+  (bubblewrap + socat installed) it is OS-enforced: Bash runs in Claude Code's sandbox with the
+  project read-only; only the excluded commands (`glm`, git add/commit/push/fetch/new branch, `gh`,
+  the findings CLI) write there. Elsewhere the saver-guard tier applies. A `split` session's
+  level is fixed at L2; to work on Claude only, start plain `claude` at L0.
 - The hook injects saver text when day-run is on OR `$CC_WORKER_MODE` names a level
   (a runner-forced level) OR the provider is non-Anthropic; in plain normal mode with none of
   those it emits `{}` and saver mode has no effect at all. A non-Anthropic provider forces L3

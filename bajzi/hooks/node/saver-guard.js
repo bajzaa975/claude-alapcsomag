@@ -4,7 +4,8 @@
 // (`glm -p`). Active only with the saver gate open (CC_WORKER_MODE set, or day-run on: the same
 // rule as lib-saver-level.sh:saver_resolve), level >= 2 and an Anthropic provider. Edit/Write
 // outside runtime/, ~/.claude/ and tmpdir, a writing sub-agent, and an obvious Bash/PowerShell file
-// write are denied; `worker --level/--set` is denied always (the owner uses `! worker --level N`).
+// write are denied (the last not with BAJZI_SANDBOX=1: a Linux `split` session, where the OS sandbox
+// judges shell writes); `worker --level/--set` is denied always (the owner uses `! worker --level N`).
 // Inside the Z.ai peak window the write denies become counted allows. Every deny and every peak
 // allow appends a line to <project>/runtime/routing-violations.log (project = CLAUDE_PROJECT_DIR, else cwd). Stdlib only; fails open.
 const fs = require('node:fs');
@@ -187,6 +188,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       // Quoted and heredoc text is data, unless a shell/eval wrapper may run it.
       const bare = stripHeredoc(cmd);
       if (WORKER_LEVEL.test(inert(bare)) || [...bare.matchAll(WRAP_ARG)].some(m => WORKER_LEVEL.test(m[1] ?? m[2]))) return blocked(LEVEL_REASON);   // never relaxes, not even in peak
+      if (env.BAJZI_SANDBOX === '1') return null;   // Linux `split` session: the OS sandbox judges shell writes, no heuristic false denies
       const w = shellWrites(cmd, allowed, protectedPath);
       if (w === 2) return blocked(PROTECTED_REASON);
       write = w === 1;

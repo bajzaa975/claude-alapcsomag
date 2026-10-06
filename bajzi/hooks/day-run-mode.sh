@@ -59,7 +59,8 @@
 # The hook reads NOTHING besides the two mode files, $HOME/.claude/worker-mode,
 # this session's level file <status dir>/<session_id>.level (BAJZI_STATUS_DIR /
 # BAJZI_HOME pick the dir; the id is the payload's session_id, lib-saver-level.sh),
-# the rules files above, those three env vars, BAJZI_SESSION_LEVEL and -- under the day-run table on an
+# the rules files above, those three env vars, BAJZI_SESSION_LEVEL, BAJZI_SANDBOX + uname -s (the
+# Linux `split` hint on an L2/L3 Claude session) and -- under the day-run table on an
 # Anthropic session -- the reviewer allow-list, $HOME/.claude/bajzi/config.json.
 #
 # SHARED RESOLVER: the gate, the provider check, the mode-file read and the level
@@ -174,6 +175,11 @@ if [ "$nonanth" = "no" ] && { [ "$level" = "glm" ] || [ "$level" = "tight" ]; };
     [ -n "$saver_block" ] && saver_block="$mm
 $saver_block"
     warn="$warn $mm"
+    # Linux: the strict tier (Claude Code's OS sandbox) exists only in a session started with `split`,
+    # which sets BAJZI_SANDBOX=1. BAJZI_UNAME: test seam for uname -s.
+    if [ "${BAJZI_UNAME:-$(uname -s 2>/dev/null)}" = "Linux" ] && [ "${BAJZI_SANDBOX:-}" != "1" ]; then
+        warn="$warn strict tier needs the split launcher: restart this session with: split"
+    fi
 fi
 if [ -n "$saver_block" ]; then
     if [ -n "$block" ]; then

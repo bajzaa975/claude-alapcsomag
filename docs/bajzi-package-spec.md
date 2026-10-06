@@ -73,9 +73,9 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Saver level resolution (which level a session runs at; per-session vs machine default, 1.14.1) | `bajzi/hooks/lib-saver-level.sh` `saver_resolve <cwd> [<session_id>]` (+ `saver_safe_id`, `saver_read_word`, `saver_session_id`), called by `day-run-mode.sh`, `dispatch-guard.sh`, `routing-counter.sh` with the payload's `session_id`; its node port `bajzi/hooks/node/lib/saver-level.js` `resolveLevel({env, home, sessionId})` (`statusline.js` `render`); the writer and the shim's own resolution `bajzi/bin/cc-router.js` `resolveMode`/`writeLevel`; `bajzi/skills/mode/SKILL.md` (the skill's read) | `bash bajzi/hooks/tests/saver-level-parity.sh`; `node --test bajzi/hooks/node/tests/saver-level.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/bin/tests/*.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (case 17) | 1 | Four resolvers (bash, node, cc-router, the skill's prose) must agree on the order `CC_WORKER_MODE` > `<status dir>/<session_id>.level` > `BAJZI_SESSION_LEVEL` > `~/.claude/worker-mode` > `claude` (non-Anthropic forces `tight`) and on the read (first line, BOM, whitespace, lowercase); the parity script runs bash and node on the same session fixtures. `cc-router.js` is installed alone, so it inlines `SAFE_ID` and the status dir (a test compares them with `session-status.js`). Day-run on/off (`bajzi-mode`) stays machine-wide. |
 | Saver-level routing table (task class → model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh` (rules read, `head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh:saver_resolve` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh` rules read) must stay above the file's real line count (currently 45; case 7 caps the file at 45 lines and 4352 bytes) or the tail silently drops with no error. The table says REVIEWER, never a model id: the hook appends the REVIEWER MODELS line (next row). |
 | Reviewer allow-list (who may review; the launch default) | `~/.claude/bajzi/config.json` `reviewer_models` (the owner, or `/bajzi:setup` from `manifest.json` `bajzi_config`); validators `bajzi/hooks/node/lib/reviewer-models.js:load` and claude-orchestrator `scripts/review_queue.py:_reviewer_models`; readers `bajzi/hooks/day-run-mode.sh` (REVIEWER MODELS line), `bajzi/hooks/routing-counter.sh` (reviewer served-model check via `reviewer-models.js:offListServed`), `bajzi/skills/setup/check.js:checkAll`, `bajzi/skills/night-run/SKILL.md` (`MODEL`, `{{REVIEWER_MODEL}}`), `nightrun-lib.ps1:Get-DrainLaunch`, `review_queue.py:_drain_verdict`; tripwire `nightrun-lib.ps1:Get-ReviewerConfigHash` | `node --test bajzi/hooks/node/tests/reviewer-models.test.js bajzi/skills/setup/tests/check.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (cases 12t, 15); `python -m pytest -q tests/test_review_queue_drain.py`; Pester `tests/ps/nightrun-drain.Tests.ps1`, `nightrun-guards.Tests.ps1` | 1 | Two validators (node, python) must agree on the id regex and the whole-list-invalid rule. Never add a default id to code: the manifest is the only default. A reviewer swap is a config edit; a manifest edit also changes the default every `/bajzi:setup` writes. |
-| GLM model mapping (top-level session → `glm_orchestrator_model`; nested launches and sub-agents → `glm_model`; `haiku` → `glm_fast_model`) | `bajzi/bin/cc-router.js:27` `DEFAULTS`, `:35` `models()` (env `GLM_ORCHESTRATOR_MODEL`/`GLM_MODEL`/`GLM_FAST_MODEL`), `:36` `glmMain()` (split on `insideClaude`, `:30`), `:94` `effective()`, `:330-337` glm env block, `:263-268` `--set-orchestrator-model`/`--set-model`/`--set-fast-model`; rules text `bajzi/skills/mode/SAVER-RULES.md`, `SAVER-L1.md`, `SAVER-L3.md`, `SKILL.md` | `node --test bajzi/bin/tests/*.test.js`; `bash bajzi/skills/mode/tests/mode.sh` | 1 | Defaults (owner decision 2026-10-03): orchestrator `glm-5.3`, `glm_model` and `glm_fast_model` both `glm-5.3-flash`; an explicit `cc-router.json` value wins. `-ClaudeBin glm` maps `CLAUDE_CODE_SUBAGENT_MODEL` too — the whole session incl. sub-agents runs on GLM (§6.2, §9.1). The old fixed rule "flash never writes code" is dropped (flash matched Sonnet in the owner's test, ~10x slower). |
-| Z.ai peak window | `cc-router.js:313` `peakOpen()`, refusal `:314-324` (exit 75); mirrored independently in claude-orchestrator `nightrun-lib.ps1:205` `Test-GlmPeakSoon`, `:214` `Get-GlmStartDecision`; display-only copy `bajzi/hooks/node/lib/peak.js` | `node --test bajzi/bin/tests/*.test.js`; `Invoke-Pester tests/ps/nightrun-lib.Tests.ps1` | 1 | Three implementations (shim, runner, status-line display). Changing the window means editing all three, or the shim and the runner disagree about when GLM is refused. |
-| `worker`/`glm`/`ccr` admin commands | `cc-router.js:250-293` `workerAdmin()` | `node --test bajzi/bin/tests/*.test.js` | 2 | The launcher **scripts** (`worker`, `glm`, `ccr` + `.cmd` twins in `~/.local/bin`) that set `CC_ROUTER_ENTRY` live in `bajzi/bin/launchers/` and are installed by `install.sh` (§8.1 step 4); edit the repo copy, never `~/.local/bin` by hand. |
+| GLM model mapping (top-level session → `glm_orchestrator_model`; nested launches and sub-agents → `glm_model`; `haiku` → `glm_fast_model`) | `bajzi/bin/cc-router.js:28` `DEFAULTS`, `:36` `models()` (env `GLM_ORCHESTRATOR_MODEL`/`GLM_MODEL`/`GLM_FAST_MODEL`), `:37` `glmMain()` (split on `insideClaude`, `:31`), `:96` `effective()`, `:334-341` glm env block, `:265-269` `--set-orchestrator-model`/`--set-model`/`--set-fast-model`; rules text `bajzi/skills/mode/SAVER-RULES.md`, `SAVER-L1.md`, `SAVER-L3.md`, `SKILL.md` | `node --test bajzi/bin/tests/*.test.js`; `bash bajzi/skills/mode/tests/mode.sh` | 1 | Defaults (owner decision 2026-10-03): orchestrator `glm-5.3`, `glm_model` and `glm_fast_model` both `glm-5.3-flash`; an explicit `cc-router.json` value wins. `-ClaudeBin glm` maps `CLAUDE_CODE_SUBAGENT_MODEL` too — the whole session incl. sub-agents runs on GLM (§6.2, §9.1). The old fixed rule "flash never writes code" is dropped (flash matched Sonnet in the owner's test, ~10x slower). |
+| Z.ai peak window | `cc-router.js:317` `peakOpen()`, refusal `:318-328` (exit 75); mirrored independently in claude-orchestrator `nightrun-lib.ps1:205` `Test-GlmPeakSoon`, `:214` `Get-GlmStartDecision`; display-only copy `bajzi/hooks/node/lib/peak.js` | `node --test bajzi/bin/tests/*.test.js`; `Invoke-Pester tests/ps/nightrun-lib.Tests.ps1` | 1 | Three implementations (shim, runner, status-line display). Changing the window means editing all three, or the shim and the runner disagree about when GLM is refused. |
+| `worker`/`glm`/`ccr` admin commands | `cc-router.js:252-295` `workerAdmin()` | `node --test bajzi/bin/tests/*.test.js` | 2 | The launcher **scripts** (`worker`, `glm`, `ccr` + `.cmd` twins in `~/.local/bin`) that set `CC_ROUTER_ENTRY` live in `bajzi/bin/launchers/` and are installed by `install.sh` (§8.1 step 4); edit the repo copy, never `~/.local/bin` by hand. |
 | Dispatch-guard rules (R1/R2/R3/R4; the plan's R1'/R2') | `bajzi/hooks/dispatch-guard.sh`: the `case "$sub_lc"` classification (subagent_type first, prompt-text fallback), the `case "$class"` rule block (R1 with the opt-out's `calib_extra`, R2 with `R2_RE`, `fixer_paths` and the `READONLY_RE` exemption for the built-in read-only agents; all on the backslash-normalised `prompt_lc`), the R3 test after it (the `-gt 24576` literal, also in the R3 deny text and `bajzi/lib/findings-cli.js` `BRIEF_MAX`), the agents-dir fail-open (`-d "$hookdir/../agents"`); wired in `bajzi/hooks/hooks.json` PreToolUse `Agent\|Task` | `bash bajzi/skills/mode/tests/mode.sh` (case 13; the skills' briefs 16i-16i6b) | 1 | Fails open by design ("a discipline guard, not a security boundary", header comment); never describe a rule as a security boundary. The agent names `bajzi:reviewer`/`bajzi:fixer`/`bajzi:implementer*` are matched literally: renaming an agent or the plugin changes the script, the skills' `dispatch.md` table and case 13 together. A new brief shape from `findings-cli.js brief` must still pass R1/R2 (case 16i is the check). Changing the R3 cap means the script, its deny text, `BRIEF_MAX` and the 13j cases together. |
 | Night-run launcher parameters | claude-orchestrator `scripts/nightrun.ps1:16-35` (param block), `scripts/nightrun-releaseB.ps1:54-72`, `scripts/nightrun-lib.ps1:41` `Assert-LaunchArgs`, `:4` `ConvertFrom-LevelSpec` | `pwsh -NoProfile -c "Invoke-Pester tests/ps -Output Minimal"` | 1 | `-MaxHours` is a hard **kill** wall (§6.11.8). `-Levels` and `-ClaudeBin` are mutually exclusive. `nightrun.ps1`'s own `-PermissionMode` default is `auto`; pass `bypassPermissions` explicitly. |
 | Usage-limit / transient detection, degrade | `nightrun-lib.ps1:122` `Get-LimitKind`, `:179` `Get-SessionOutcome`, `:197` `Test-DegradePossible`; `nightrun.ps1:236` `Step-Degrade` | Pester `tests/ps/nightrun-lib.Tests.ps1` | 1 | Only the CLI's own records are evidence (rate_limit_event status, result `api_error_status`, result string prose). A model that *quotes* "usage limit reached" must never degrade the night (§6.11.3). |
@@ -101,7 +101,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Releasing a new plugin version + reinstall | `bajzi/.claude-plugin/plugin.json` `version`, `.claude-plugin/marketplace.json` `plugins[0].version` | manual: §8.3 | 3 (but treat the pitfall as Tier-1-serious) | `claude plugin update` is a **no-op** unless **both** versions move in the same commit (`manifest.json` `known_pitfalls`, the "Unknown command" and "Releasing a new version" entries). |
 | Mods (cache-timer, nightrun-pane) | `cache-timer/`, `nightrun-pane/` (plugin-authoring format: `hooks/hooks.json` is `{ "modules": [...] }`), their `.claude-plugin/marketplace.json` entries, `bajzi/skills/setup/manifest.json` `plugins` | `claude plugin test cache-timer`, `claude plugin test nightrun-pane`; `claude plugin validate <dir>` | 3 | Mods load at session start. `$.ui.status` is plain text. cache-timer assumes a 60-minute cache (5 minutes during usage overage, not detectable). nightrun-pane reads only the claude-orchestrator `runtime/nightrun` layout, not bajzi night-run's `NIGHT_DIR`. A mod release bumps that mod's own `plugin.json` `version` + its marketplace entry in the same commit (bajzi versions untouched). |
 | claude.ai / Cowork variant (`bajzi-cowork`) | `tools/build-cowork.js` (`SKILLS` whitelist, `build`, `drift`), output `bajzi-cowork/` + its `.claude-plugin/marketplace.json` entry | `node --test tools/tests/cowork-variant.test.js` | 3 | Generated, never edited by hand: rerun `node tools/build-cowork.js` in every release commit (it restamps the version from `bajzi/.claude-plugin/plugin.json`), or the test fails. claude.ai-hosted marketplace sync rejects `bin/` executables (bajzi has `bin/` since 1.7.0, and claude.ai stayed on 1.5.15 with "Sync failed"), so the variant ships only skills that need nothing outside their own folder. A skill that starts using `bin/`, hooks, `gate/`, `lib/` or `agents/` must leave the whitelist. |
-| `cc-router.js` + launcher install | `bajzi/bin/install.sh` (`install.sh:install_one`), launchers in `bajzi/bin/launchers/` (`worker`, `glm`, `ccr` + `.cmd` twins) | runs `node --test bajzi/bin/tests/cc-router.test.js` itself as a gate; `node --test bajzi/bin/tests/install.test.js` covers the installer against a decoy `HOME` | 1 (writes `~/.local/bin`) | An identical destination is left untouched; a different one is kept as `<name>.bak` (one generation — a later differing install overwrites it) before the copy (§8.1, §8.4). A failed backup aborts the run with that destination untouched; the copy goes to `<name>.tmp.<pid>` and is `mv`-ed over, so no half-written launcher is ever live. `install.test.js` strips `NODE_TEST_CONTEXT`, which would otherwise make the gate's nested `node --test` skip its files and exit 0. `.gitattributes` marks `bajzi/bin/launchers/**` `-text`: the bash launchers are LF, the `.cmd` twins CRLF, and no checkout may convert either. A plugin update does not refresh the installed copies (§8.3). |
+| `cc-router.js` + launcher install | `bajzi/bin/install.sh` (`install.sh:install_one`), launchers in `bajzi/bin/launchers/` (`worker`, `glm`, `ccr`, `split` + `.cmd` twins) | runs `node --test bajzi/bin/tests/cc-router.test.js` itself as a gate; `node --test bajzi/bin/tests/install.test.js` covers the installer against a decoy `HOME` | 1 (writes `~/.local/bin`) | An identical destination is left untouched; a different one is kept as `<name>.bak` (one generation — a later differing install overwrites it) before the copy (§8.1, §8.4). A failed backup aborts the run with that destination untouched; the copy goes to `<name>.tmp.<pid>` and is `mv`-ed over, so no half-written launcher is ever live. `install.test.js` strips `NODE_TEST_CONTEXT`, which would otherwise make the gate's nested `node --test` skip its files and exit 0. `.gitattributes` marks `bajzi/bin/launchers/**` `-text`: the bash launchers are LF, the `.cmd` twins CRLF, and no checkout may convert either. A plugin update does not refresh the installed copies (§8.3). |
 | Agent contract (frontmatter shape, `model` alias-only, `tools` allow-list, body ≤ 60 lines, no `Agent`/`Task` tool, required Input/Output/Rules/Never headings) | `bajzi/agents/*.md` (shipped by the plugin, auto-discovered — no manifest registration needed at the Claude Code level), validated by `bajzi/tests/agents/agents.test.js:validateAgent` | `node --test bajzi/tests/agents/agents.test.js` | 2 | The contract is proven against `bajzi/tests/agents/fixtures/*.md` (one passing, one failing fixture per rule) so the suite does not pass vacuously, and re-applied to every `*.md` found **recursively** under `bajzi/agents/`. The harness lives outside `bajzi/agents/` on purpose: `--plugin-dir bajzi` registers every `*.md` under it, recursively, as a live agent, so any non-agent `.md` there (a fixture, a README) fails the suite. Per-agent `{model, tools}` are pinned exactly in `agents.test.js` `PINS` (plan §4.1: `reviewer`, `fixer`, `implementer`, `implementer-risk`, all four now shipped); any future agent fails until it gets an entry. `bajzi/skills/setup/manifest.json` `plugins[].why` for `bajzi@bajzi-plugins` names `agents` too (Invariant 5). |
 | Findings format, severity rubric, fixer/blind copies, D4 close policy, D6 debt cap | `docs/findings-format.md` (the contract), `bajzi/lib/findings.js:parse`/`validate`/`stripForFixer`/`stripSeverity`/`applyClosePolicy`/`mergeToDebt`/`debtCapHit` | `node --test bajzi/lib/tests/findings.test.js` | 1 | It decides what reaches the owner, what is parked in `debt.md` and what the fixer sees. Every emitting/routing function validates first and throws on an invalid file; `debtCapHit` fails closed (an unparseable `debt.md` is a hit). `applyClosePolicy` requires the round-1 file as its third argument: a finding new in round 2 was introduced by the fix and goes to the owner as rated (never debt), and a round-1 id absent from round 2 goes to the owner as unaccounted. `mergeToDebt` validates its arguments first and refuses (`DEBT CAP HIT`) a result over 24 KB. Keep `docs/findings-format.md` and the module in step: the doc's close-policy table mirrors `applyClosePolicy` branch for branch. |
 | `reviewer` / `fixer` agent bodies (role, output contract, severity-blind fixer) | `bajzi/agents/reviewer.md`, `bajzi/agents/fixer.md` (§6.12) | `node --test bajzi/tests/agents/agents.test.js`; live contract: `BAJZI_CONTRACT=1 TMP=D:/t3h/tmp node --test bajzi/tests/agents/contract.test.js` (calls `claude -p`, minutes, quota) | 1 | The body is the single source of the role; nothing else restates it. The reviewer has **no Write tool** (read-only, D1): its final message is the findings file and nothing else — no trailing `VERDICT:` line (the header `verdict:` carries it; an upper-case trailer would parse as a continuation of the last field and reach the fixer). The caller writes it to `runtime/findings/<slice>-r<n>.md`. The findings template and rubric are embedded in the reviewer body because the agent runs in the target repo, where `docs/findings-format.md` does not exist; the doc is canonical and `agents.test.js` asserts each doc rubric line appears verbatim in `reviewer.md`. The fixer's input is always a `stripForFixer` copy. The contract test must strip `NODE_TEST_CONTEXT` from the child env, or a nested `node --test` silently runs nothing. |
@@ -111,7 +111,8 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Public feature overview | `README.md` | `node --test bajzi/skills/project-setup/tests/release.test.js` (asserts the night-run bullet, the Safety fail-closed exceptions, that the Safety section names the writer guard and that every skill is in the Skills table) | 3 | Any user-visible feature add/removal updates the README Features section. |
 | Radar: the biweekly read-only setup review (digest, headless run, report/error files, SessionStart notice, schedule) | `bajzi/skills/radar/radar.js` (`digest`, `run`, `claudeArgs`, `realClaude`, `notice`, `seen`, `installTask`, `taskCommand`, `cronLine`, `LAUNCHER`), `bajzi/skills/radar/prompt.md` (what the session reviews, output contract), `bajzi/skills/radar/SKILL.md` (§6.14) | `node --test bajzi/skills/radar/tests/*.test.js` | 1 | `--tools` is the sandbox, not `--allowedTools`: with `--allowedTools` alone under `dontAsk` the session still has Bash and the owner's settings allow rules run it (smoke check, §6.14); `radar.test.js` pins the exact five, WebFetch allowed only for `WEB_HOSTS` (= the hosts of `prompt.md`'s URLs: a new pinned source host goes into both), and `--setting-sources ''` + `disableAllHooks` (no owner settings, plugins or hooks); `childEnv` strips the provider variables (`ANTHROPIC_*`, the cc-router scrub set) from the session and pre-steps. The digest emits counts and `LABEL`-whitelisted names only; a new digest field must not carry text. `notice` is a SessionStart hook: only `stat`s, silent and exit 0 on any error. Registering it in `hooks.json` also moves the node-command count in `release.test.js` and the `mode.sh` 13m2 list. |
 | Who may edit bajzi plugin files (writer guard: owner session, request inbox, installed copies) | `bajzi/hooks/node/writer-guard.js` `check`, `findTree`, `mainOf`, `notice` (runs from `pre-tool.js`, `CHECKS` row `writer-guard`); the rule text `shared/CLAUDE.md` "bajzi plugin changes" (§6.15) | `node --test bajzi/hooks/node/tests/writer-guard.test.js` | 1 | Covers only Edit/Write/MultiEdit/NotebookEdit; Bash/PowerShell writes are the known ceiling (§9.1). The installed-copy paths are checked before the repo walk, because the marketplace clone is itself a main checkout. The `notice` SessionStart entry is registered in `hooks.json` (§6.15). A tree with no main checkout (no owner can exist) gets a deny that points at no inbox; its `runtime/requests/` stays writable but is never reported. |
-| Saver guard (an L2/L3 session still on Claude may not write code; `worker --level/--set` is owner-only) | `bajzi/hooks/node/saver-guard.js` `check`, `shellWrites`, `dayRunOn` (runs from `pre-tool.js`, `CHECKS` row `saver-guard`); level from `lib/saver-level.js:resolveLevel`, peak from `lib/peak.js:peakStatus` (§6.16) | `node --test bajzi/hooks/node/tests/saver-guard.test.js` | 1 | The gate is the `saver_resolve` gate minus the non-Anthropic leg (a GLM session is never touched); keep the day-run read in sync with `lib-saver-level.sh`. The Bash/PowerShell write test is a token heuristic (`ponytail:` comment), not a sandbox. Peak allows and every deny are counted in `runtime/routing-violations.log`. |
+| Saver guard (an L2/L3 session still on Claude may not write code; `worker --level/--set` is owner-only) | `bajzi/hooks/node/saver-guard.js` `check`, `shellWrites`, `dayRunOn` (runs from `pre-tool.js`, `CHECKS` row `saver-guard`); level from `lib/saver-level.js:resolveLevel`, peak from `lib/peak.js:peakStatus` (§6.16) | `node --test bajzi/hooks/node/tests/saver-guard.test.js` | 1 | The gate is the `saver_resolve` gate minus the non-Anthropic leg (a GLM session is never touched); keep the day-run read in sync with `lib-saver-level.sh`. The Bash/PowerShell write test is a token heuristic (`ponytail:` comment), not a sandbox. Peak allows and every deny are counted in `runtime/routing-violations.log`. With `BAJZI_SANDBOX=1` (a Linux `split` session) the Bash/PowerShell write scan is skipped: the OS sandbox judges shell writes. |
+| `split` launcher (L2 split session: Claude orchestrates, GLM writes; on Linux an OS sandbox) | `bajzi/bin/cc-router.js` entry `split` (`onPath`, `projectRoot`, `bajziRoot`, `writeSandbox`), launchers `bajzi/bin/launchers/split` + `split.cmd`; `BAJZI_SANDBOX` read by `bajzi/hooks/node/saver-guard.js` (§6.16) and `bajzi/hooks/day-run-mode.sh` (§6.3) | `node --test bajzi/bin/tests/*.test.js`, `node --test bajzi/hooks/node/tests/saver-guard.test.js`, `bash bajzi/skills/mode/tests/mode.sh` (case 11q4) | 1 | Never fold it into `worker`: `worker` at L2 starts the whole session on GLM and the night runner relies on that (Invariant 7). The sandbox denies the whole project root, never a glob (a `<root>/*` denyWrite denied nothing). The findings-CLI exclusion is the exact installed path, never a leading wildcard (a planted `/tmp/x/lib/findings-cli.js` would match). `CC_ROUTER_PLATFORM` (cc-router) and `BAJZI_UNAME` (day-run-mode.sh) are test seams (§6.2). |
 
 ### Advisor pilot (1.10.1)
 
@@ -257,7 +258,7 @@ At install time, files move from the **versioned plugin cache**
 | `bajzi/hooks/node/statusline.js` + `lib/*.js` | `~/.claude/bajzi/statusline.js` + `~/.claude/bajzi/lib/` | `bajzi/skills/setup/install-statusline.js`, run by `/bajzi:setup` PHASE D step 9 (§8.2) |
 | `bajzi/bin/cc-router.js` | `~/.local/bin/cc-router.js` (a different previous copy → `cc-router.js.bak`) | `bash bajzi/bin/install.sh` (hand-run; tests gate the copy, §8.1 step 4) |
 | `bajzi/hooks/*.sh`, `bajzi/hooks/node/*.js` (guards) | **not copied** — run straight from the plugin cache via `${CLAUDE_PLUGIN_ROOT}` in `hooks.json` | the plugin loader itself (§8.2) |
-| `bajzi/bin/launchers/` — `worker` / `glm` / `ccr` launcher scripts (+ `.cmd` twins on Windows) | `~/.local/bin/` (a different previous copy → `<name>.bak`) | `bash bajzi/bin/install.sh`, same run as `cc-router.js` (§8.1 step 4) |
+| `bajzi/bin/launchers/` — `worker` / `glm` / `ccr` / `split` launcher scripts (+ `.cmd` twins on Windows) | `~/.local/bin/` (a different previous copy → `<name>.bak`) | `bash bajzi/bin/install.sh`, same run as `cc-router.js` (§8.1 step 4) |
 | `bajzi/gate/pre-commit.js` | `<repo>/.githooks/pre-commit`, per repo whose profile has `gate` | `/bajzi:project-setup` (`profile.js:apply`, §6.10, §6.13) |
 | `bajzi/skills/radar/radar.js` `LAUNCHER` | `~/.claude/bajzi/radar/launch.js` (it resolves the current plugin install at each launch) | `radar.js install-task` (`/bajzi:radar install`, §8.6) |
 
@@ -382,7 +383,7 @@ git push
 
 ### 6.1 Saver levels L0-L3 — functional
 
-**What each level means** (word ↔ number, `cc-router.js:24-25`, `lib-saver-level.sh` comment
+**What each level means** (word ↔ number, `cc-router.js:25-26`, `lib-saver-level.sh` comment
 block `:9-30`):
 
 | Level | Word | Meaning |
@@ -459,7 +460,7 @@ never DONE, until a real Opus session drains the queue (§6.11.5). (`/bajzi:nigh
 **Peak window**: Z.ai charges 3x during its daily peak, 14:00-18:00 UTC+8 = 06:00-10:00 UTC =
 **08:00-12:00 CEST** (summer) / **07:00-11:00 CET** (winter) — the local boundary moves with the
 March and October clock changes. `cc-router.js` refuses any GLM-bound launch inside that window
-with **exit 75** (`peakOpen`, `:313`; refusal block `:314-324`), overridable for one call with
+with **exit 75** (`peakOpen`, `:317`; refusal block `:318-328`), overridable for one call with
 `CC_GLM_PEAK_OK=1`. The night runner independently pre-checks the same window before starting or
 resuming a GLM sprint and kills a running GLM session if the window opens under it (§6.11.6) —
 two belts, per Invariant 8.
@@ -468,7 +469,7 @@ two belts, per Invariant 8.
 GLM**) is actually being hit — a plain switch with no measurement is not saver mode. It scans
 Claude Code's own local transcripts (zero LLM calls), buckets by model prefix (`claude*` →
 anthropic, `glm*`/`deepseek*` → glm), and weights `input*1 + cache_create*1.25 + cache_read*0.1 +
-output*5` (`cc-router.js:146`, `usageWeighted`) before reporting a share percentage. 51% is a
+output*5` (`cc-router.js:148`, `usageWeighted`) before reporting a share percentage. 51% is a
 failure of the mode, not a result (project CLAUDE.md).
 
 **Night-run preflight at L1-L3**: `/bajzi:night-run` PHASE A step 8 resolves the level with
@@ -486,12 +487,12 @@ prints the explicit env-name replacement; the owner edits the settings, never th
 
 ### 6.2 The `glm` / `worker` / `ccr` shims — technical
 
-`bajzi/bin/cc-router.js` (354 lines, `VERSION = '1.2.0'`),
+`bajzi/bin/cc-router.js` (425 lines, `VERSION = '1.2.0'`),
 installed at `~/.local/bin/cc-router.js` by `bash bajzi/bin/install.sh` (runs `node --test
 bajzi/bin/tests/cc-router.test.js` first and refuses to install on a red suite). There is
 **no daemon and no port** — `ccr start/stop/restart/status/ui/serve/web/version` are no-ops that
-print an explanation and exit 0 (`cc-router.js:307-308`). Thin launcher scripts next to it
-(`worker`, `glm`, `ccr` as bash scripts, plus `worker.cmd`/`glm.cmd`/`ccr.cmd` on Windows;
+print an explanation and exit 0 (`cc-router.js:308-309`). Thin launcher scripts next to it
+(`worker`, `glm`, `ccr`, `split` as bash scripts, plus `worker.cmd`/`glm.cmd`/`ccr.cmd`/`split.cmd` on Windows;
 tracked in `bajzi/bin/launchers/`, installed by the same `install.sh`, §8.1 step 4) set `CC_ROUTER_ENTRY` and
 exec this file.
 
@@ -509,16 +510,67 @@ exec this file.
 - **Entry `ccr`**: back-compat with the old `claude-code-router` launcher — only `ccr code
   [claude args]` is accepted (anything else exits 64); `--model deepseek-*` goes to DeepSeek
   (untested path), everything else to GLM.
+- **Entry `split`** (owner decision 2026-10-06): an L2 split session, Claude orchestrates and GLM
+  writes the code. Provider `claude` always: no level read and no peak refusal (the main session is on
+  the subscription). The child gets `CC_WORKER_MODE=glm` (opens the saver gate and pins L2 for the whole
+  process tree; no level file can lower it) and `BAJZI_SPLIT=1`; an inherited `BAJZI_SANDBOX` is dropped.
+  A caller `--settings` / `--settings=<f>` exits 64 on every platform. On Linux with `bwrap` and `socat`
+  executable on `PATH` (`onPath`) it writes the sandbox settings file (below), prepends `--settings
+  <file>` to the claude args and sets `BAJZI_SANDBOX=1`; a failed write exits 73 and starts nothing (no
+  unsandboxed fallback). Linux without bwrap/socat launches anyway with one stderr line `split: no OS
+  sandbox (bubblewrap/socat missing) - Windows-tier guard only`; any other platform the same with `split:
+  no OS sandbox on <platform> - Windows-tier guard only` (the saver guard's shell heuristics then apply,
+  §6.16). The launch log line carries `split sandbox=yes|no` before `cwd=`. It is a new entry, not
+  `worker`: `worker` at L2 (`GLM_MODES`) starts the WHOLE session on GLM, which the night runner relies on
+  (Invariant 7). `CC_ROUTER_PLATFORM` overrides `process.platform` (test seam).
 
-**Model mapping** (`glmMain()`, `:36`; `effective()`, `:94`, so the launch log names the model
+**Split sandbox settings** (`writeSandbox()`): `~/.claude/bajzi/sandbox/split-<first 12 hex of
+sha1(project root)>.json`, rewritten on every launch (`wx` temp file + rename, mode 600). Project root =
+`git rev-parse --show-toplevel` from cwd, else cwd. Content: `{"sandbox": {"enabled": true,
+"allowUnsandboxedCommands": false, "excludedCommands": [...], "filesystem": {"allowWrite":
+[<os.tmpdir()>, "/tmp"] (deduplicated), "denyWrite": [<project root>]}}}`. `excludedCommands`: `glm *`,
+`git add *`, `git commit *`, `git push *`, `git fetch *`, `git checkout -b *`, `git switch -c *`, `gh *`,
+each also with an `rtk ` prefix (the VM's rtk hook rewrites `git` to `rtk git`), plus the findings CLI
+pair `node <root>/lib/findings-cli.js *` and `node "<root>/lib/findings-cli.js" *`. `<root>` is the exact
+installed bajzi root (`bajziRoot()`): the `installPath` of the newest (`lastUpdated`, else `installedAt`)
+entry under a `bajzi@<marketplace>` key of `~/.claude/plugins/installed_plugins.json`. It must be
+absolute, with no `..` segment and no `*`, and `<root>/lib/findings-cli.js` must exist; otherwise there is
+no findings-CLI entry, one stderr line `split: bajzi plugin root not found - findings CLI stays
+sandboxed`, and the skills' `FC` calls (they write `runtime/`) are refused. Never a wildcard before the
+script path: `node */lib/findings-cli.js *` also matches a `findings-cli.js` planted under the writable
+`/tmp`.
+
+**Measured 2026-10-06 on the VM** (Ubuntu 24.04, Claude Code 2.1.291, bubblewrap + socat, an AppArmor
+profile for `/usr/bin/bwrap`; headless `claude -p --settings <json>`, the disk checked afterwards).
+VERIFIED:
+- Blocked (Read-only file system, nothing on disk): `echo > src/x`, `python3 -c open(...)`, `cp`,
+  `git apply`, a new root file, a new dir + file, and `dangerouslyDisableSandbox: true` (refused).
+- A chained command stays sandboxed as a whole: `git add x && echo > src/h.js` wrote nothing, and
+  `node --version && node "<path>/lib/findings-cli.js" log` stayed sandboxed. Chaining onto an
+  excluded command is therefore safe.
+- Allowed: the Write tool on `runtime/w.txt` (Edit/Write are not sandboxed; the saver guard governs
+  them, §6.16); `glm -p ...` writing `src/g.js`; a single `git add src/g.js`, `git commit -qm x` and
+  `git checkout -b <b>`, each in the plain and the `rtk` form.
+- `excludedCommands` is matched literally against the command text, a `*` works anywhere in it, and
+  the quoted and unquoted forms of a path need separate entries.
+- `denyWrite` beats a more specific `allowWrite` (`runtime/` inside the denied root was NOT writable),
+  and a glob `denyWrite: ["<root>/*"]` silently denied NOTHING: deny the whole root, never a glob.
+- The network is not restricted by this config (curl to api.github.com and example.com returned 200);
+  no network keys are set.
+
+UNVERIFIED: `git push *`, `git fetch *`, `git switch -c *`, `gh *` and their `rtk` forms; that a skill's
+`${CLAUDE_PLUGIN_ROOT}` expands to exactly the `installPath` the findings-CLI pair is built from; and
+whether an excluded command's own redirect (`git commit -m x > src/a.js`) writes outside the sandbox.
+
+**Model mapping** (`glmMain()`, `:37`; `effective()`, `:96`, so the launch log names the model
 actually served): three keys in `~/.claude/cc-router.json`, defaults `glm_orchestrator_model` =
-`glm-5.3`, `glm_model` = `glm_fast_model` = `glm-5.3-flash` (`DEFAULTS`, `:27`; owner decision
+`glm-5.3`, `glm_model` = `glm_fast_model` = `glm-5.3-flash` (`DEFAULTS`, `:28`; owner decision
 2026-10-03); an explicit file value wins over every default, and env `GLM_ORCHESTRATOR_MODEL` /
-`GLM_MODEL` / `GLM_FAST_MODEL` win over the file (`models()`, `:35`). Set them with `worker
+`GLM_MODEL` / `GLM_FAST_MODEL` win over the file (`models()`, `:36`). Set them with `worker
 --set-orchestrator-model` / `--set-model` / `--set-fast-model <id>`; `worker --status` prints
 `orchestrator`, `glm model` and `glm fast model` lines (with `(forced by <ENV>)` when forced).
 "Nested" = the shim was launched from inside Claude Code (`insideClaude`, `CLAUDECODE` set, read
-at `:30` before the env scrub; the same flag sets `CC_ROUTER_WORKER`). In GLM mode:
+at `:31` before the env scrub; the same flag sets `CC_ROUTER_WORKER`). In GLM mode:
 
 | Launch | `opus`/`sonnet` alias and the main model (no `--model`) | sub-agents (`CLAUDE_CODE_SUBAGENT_MODEL`) | `haiku` |
 |---|---|---|---|
@@ -528,16 +580,16 @@ at `:30` before the env scrub; the same flag sets `CC_ROUTER_WORKER`). In GLM mo
 Aliases match case-insensitively with a `[...]` suffix stripped. Any other `--model` id is passed through unchanged — which is why the night
 runner drops a pinned `claude-*` id before launching `glm` (`nightrun-lib.ps1:189`
 `Get-ModelArgs`). When GLM is chosen the shim sets, on the spawned `claude` process's env
-(`:330-337`): `ANTHROPIC_BASE_URL` (`https://api.z.ai/api/anthropic`), `ANTHROPIC_AUTH_TOKEN`
+(`:334-341`): `ANTHROPIC_BASE_URL` (`https://api.z.ai/api/anthropic`), `ANTHROPIC_AUTH_TOKEN`
 (from `ZAI_API_KEY`), `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`,
 `ANTHROPIC_DEFAULT_HAIKU_MODEL`, and critically **`CLAUDE_CODE_SUBAGENT_MODEL`** — which is why
 `-ClaudeBin glm` (or `worker` at L2/L3) puts **every sub-agent** on GLM too (Invariant 7). Before
 that, every inherited `ANTHROPIC_*`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDECODE`,
-`CC_ROUTER_ENTRY` and `CC_ROUTER_WORKER` variable is scrubbed (`:326-327`); `CC_ROUTER_WORKER=1`
+`CC_ROUTER_ENTRY` and `CC_ROUTER_WORKER` variable is scrubbed (`:330-331`); `CC_ROUTER_WORKER=1`
 is then set only if the shim itself was launched from inside Claude Code (`CLAUDECODE` set,
-`:347`).
+`:350`).
 
-**Secret resolution** (`secret()`, `:78`): process env → Windows `HKCU\Environment` (covers
+**Secret resolution** (`secret()`, `:80`): process env → Windows `HKCU\Environment` (covers
 already-open apps) → `~/.claude/cc-router.env` (KEY=VALUE lines, meant to be `chmod 600`). No key
 → exit 78.
 
@@ -554,7 +606,7 @@ file in the same dir, then rename),
 `--set-orchestrator-model`/`--set-model`/`--set-fast-model`, `--log [n]`, `--usage [since] [--until] [--json]`,
 `--router-help`. Anything not recognised falls through unchanged to `claude`.
 
-**Exit codes**: 64 usage error, 75 peak-window refusal, 78 missing API key, 127 cannot start the
+**Exit codes**: 64 usage error, 73 a level or `split` sandbox settings write failed, 75 peak-window refusal, 78 missing API key, 127 cannot start the
 `claude` binary; otherwise the child's own exit code.
 
 **Known trap** (restated because it has actually happened): `-ClaudeBin glm` on the night runner
@@ -725,7 +777,7 @@ Opus the account serves), never GLM" instead and adds "reviewer allow-list inval
 /bajzi:setup." to the systemMessage. A non-Anthropic session never gets the line (it queues its
 reviews, `SAVER-L3.md`). Tests: `mode.sh` case 15.
 
-**Level/provider mismatch line** (saver-glm-dispatch): with the gate open, level L2 or L3 and an Anthropic provider, the hook puts `L<n> but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker` into the systemMessage and as the first line of the injected saver block. Absent on a non-Anthropic provider. Present even when no saver block is injected (L2 with the launcher missing). Tests: `mode.sh` cases 11q, 11q2.
+**Level/provider mismatch line** (saver-glm-dispatch): with the gate open, level L2 or L3 and an Anthropic provider, the hook puts `L<n> but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker` into the systemMessage and as the first line of the injected saver block. Absent on a non-Anthropic provider. Present even when no saver block is injected (L2 with the launcher missing). On Linux (`uname -s`; `BAJZI_UNAME` overrides it, a test seam) without `BAJZI_SANDBOX=1` the systemMessage also says `strict tier needs the split launcher: restart this session with: split` (§6.2 entry `split`). Tests: `mode.sh` cases 11q, 11q2, 11q4.
 
 **routing-counter.sh**: counts (never blocks) a sub-agent dispatch that bypasses its saver rung —
 haiku dispatched at L1-L3, or sonnet dispatched at L2-L3 — unless a GLM peak refusal was logged
@@ -1966,6 +2018,10 @@ on a sub-agent's call). `check(input, {env, home, now, tmpdir})` defaults to `pr
    header line is scanned, so `cat <<EOF > src/x.js` is still a write) and quoted text is made
    inert, so a `glm -p <<'EOF'` brief or `git commit -m "a -> b"` holds no redirect. Reads, `git commit`, `glm` and
    `worker --status`/`--usage` pass.
+   **`BAJZI_SANDBOX=1`** (exactly `1`; set only by the `split` launcher when it started the session in
+   Claude Code's OS sandbox, §6.2): the obvious-write scan is skipped, a control file as a shell target
+   included; the OS judges shell writes, so Linux gets no heuristic false denies. The `worker`/`cc-router`
+   level-change deny, rules 0b and 1 for the Edit tools and rule 2 stay.
 4. **Peak window** (owner choice: Claude fallback, counted): when `lib/peak.js:peakStatus(now)`
    says the Z.ai peak is open, the write denies of rules 1-3 become allows. The `worker
    --level/--set` deny and the protected-file deny never relax.
@@ -1999,14 +2055,16 @@ denied only as the resolved target of a shell write (rule 0b). Known gaps: delet
 control file (`rm`, `mv`, `cp`, `Remove-Item`, `Move-Item`; pinned by the test "windows tier
 accepted limits: delete/move/copy of a control file is not seen (Linux sandbox closes it)");
 reaching a control file through `cd` or a variable (review F17); creative writes (`python -c`,
-`node -e`, `cp`, `git apply`, a script written to `runtime/` and then run). The Linux tier (an OS
-sandbox, the next slice) closes these. Every gap still shows up in `worker --usage` as Claude
+`node -e`, `cp`, `git apply`, a script written to `runtime/` and then run). The Linux tier (the `split`
+launcher's OS sandbox, §6.2) closes these for Bash, except inside an excluded command (`glm`, `git
+commit`, `gh`, the findings CLI), which runs outside the sandbox and, with `BAJZI_SANDBOX=1`, unscanned. Every gap still shows up in `worker --usage` as Claude
 tokens.
 
 **Tests**: `node --test bajzi/hooks/node/tests/saver-guard.test.js` (gate, levels, GLM provider,
 every rule, peak, the log lines, fail-open; injected env, home, tmpdir and clock) and one
 `tool-hooks.test.js` case: an Edit routed through `pre-tool.js` (deny, or a `cause=peak` line
-inside the peak window) plus the `worker --level 0` deny.
+inside the peak window) plus the `worker --level 0` deny. The `BAJZI_SANDBOX` tests: shell writes pass with
+exactly `1`, every other rule still denies; any other value keeps the scan.
 
 ## 7. Shared state files
 
@@ -2110,7 +2168,7 @@ in Git Bash).
    notice `"bajzi@synced" from claude.ai not loaded` is expected: the local install takes
    precedence.
 3. In a new Claude Code session, `/bajzi:setup` (§8.2). It asks before moving anything.
-4. Shims. `cc-router.js` and the six launchers (`worker`, `glm`, `ccr` and, for Windows, their
+4. Shims. `cc-router.js` and the eight launchers (`worker`, `glm`, `ccr`, `split` and, for Windows, their
    `.cmd` twins) all come from the repo: `bajzi/bin/cc-router.js` and `bajzi/bin/launchers/`.
    - Install them (Git Bash on Windows, bash on Linux). `install.sh` runs `node --test
      bajzi/bin/tests/cc-router.test.js` and refuses to copy on a red suite, creates
@@ -2473,7 +2531,7 @@ dedicated low-privilege Windows user; this is chosen before the pinned set is de
   save Claude subscription quota; billed separately, 3x during its daily peak window.
 - **Peak window** — 06:00-10:00 UTC / 14:00-18:00 UTC+8 / 08:00-12:00 CEST / 07:00-11:00 CET,
   Z.ai's 3x-cost window; GLM launches are refused (exit 75) or killed inside it.
-- **`worker` / `glm` / `ccr`** — the launcher scripts (`bajzi/bin/launchers/`, installed by
+- **`worker` / `glm` / `ccr` / `split`** — the launcher scripts (`bajzi/bin/launchers/`, installed by
   `install.sh`) that invoke `cc-router.js` with a different `CC_ROUTER_ENTRY` (§8.1 step 4).
 - **Day-run mode** — an opt-in working mode (`runtime/bajzi-mode` or `~/.claude/bajzi-mode` =
   `day-run`) that injects the routing/dispatch/context discipline table at every `SessionStart`.

@@ -1,11 +1,14 @@
 # bin/ — the cc-router shim
 
 `cc-router.js` is a per-process model router for Claude Code: no proxy, no daemon, no
-global settings. Thin launchers next to it (`worker`, `glm`, `ccr`) set `CC_ROUTER_ENTRY`
+global settings. Thin launchers next to it (`worker`, `glm`, `ccr`, `split`) set `CC_ROUTER_ENTRY`
 and run this file. `worker ...` follows the saver switch (`claude|light` = plain Claude
 subscription, `glm|tight` = Z.ai GLM); `glm ...` is always GLM; `ccr code ...` keeps the
 old claude-code-router launcher working (`--model deepseek-*` goes to DeepSeek, everything
-else to GLM). In GLM mode the Claude aliases are remapped so callers never change their
+else to GLM); `split ...` starts an L2 split session on the Claude subscription (Claude
+orchestrates, GLM writes: `CC_WORKER_MODE=glm`, `BAJZI_SPLIT=1`), on Linux with bubblewrap +
+socat inside Claude Code's OS sandbox (a `--settings` file under `~/.claude/bajzi/sandbox/`,
+`BAJZI_SANDBOX=1`). In GLM mode the Claude aliases are remapped so callers never change their
 arguments. Three keys in `cc-router.json`: `glm_orchestrator_model` (default `glm-5.3`),
 `glm_model` and `glm_fast_model` (both default `glm-5.3-flash`); an explicit value in the file wins.
 - Top-level launch (not from inside Claude Code): main session and `--model sonnet|opus` -> `glm_orchestrator_model`; sub-agents -> `glm_model`; `haiku` -> `glm_fast_model`.
@@ -33,8 +36,8 @@ the source.
 ## install.sh
 
 `bash bajzi/bin/install.sh` runs the shim's tests first (`node --test
-bajzi/bin/tests/cc-router.test.js`) and, only when they pass, copies `cc-router.js` and the six
-launchers in `launchers/` (`worker`, `glm`, `ccr` + `.cmd` twins) into `~/.local/bin`. An
+bajzi/bin/tests/cc-router.test.js`) and, only when they pass, copies `cc-router.js` and the eight
+launchers in `launchers/` (`worker`, `glm`, `ccr`, `split` + `.cmd` twins) into `~/.local/bin`. An
 identical destination is left untouched; a different one is kept as `<name>.bak` first. The
 launchers are tracked byte-for-byte (`.gitattributes`: `-text`), so edit them here, not in
 `~/.local/bin`. `tests/install.test.js` exercises the installer against a decoy `HOME`.
