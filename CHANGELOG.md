@@ -8,7 +8,7 @@ mechanically instead of by injected text. Measured before: machine L3 + day-run 
 a VM night at L2 100% Claude, 0 GLM requests.
 - **Saver guard** (`hooks/node/saver-guard.js`, PreToolUse): at L2/L3 on a Claude session, Edit/Write outside
   `runtime/`, writer agents and obvious shell writes are denied; Claude cannot change its own level (`! worker --level`
-  is the owner's). Targets are judged by real path (a link is followed before a later `..`); the most specific root wins
+  is the owner's). Targets are judged in every path form (text-collapsed and link-first real path; all must pass); the most specific root wins
   (project vs tmp/memory); control files are matched on the literal and the real path. Peak window: writes
   allowed and logged (`cause=peak`).
 - **`split` launcher** (Linux tier): Claude main session + OS sandbox (`--settings`: denyWrite = project root; excluded

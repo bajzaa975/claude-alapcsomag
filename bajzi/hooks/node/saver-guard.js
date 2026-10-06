@@ -45,10 +45,11 @@ const TMP_VAR = /^(?:\$\{(?:TMPDIR|TEMP|TMP)\}|\$(?:TMPDIR|TEMP|TMP)|\$env:(?:TM
 const UNRESOLVED_REASON = 'saver-guard: cannot resolve the real path of this file (dangling or looping symlink, or no access); refusing the write.';
 const LEVEL_REASON = 'saver-guard: only the owner may change the saver level. Ask the owner to type ! worker --level <n> in the prompt (it bypasses hooks).';
 
-// The real path of `a`, resolved the OS way: the components of the RAW path left to right, so a link is
-// followed before a later `..` (`<tmp>/lh/../x` with lh -> <home>/.config is <home>/x, never <tmp>/x). The
-// part that does not exist yet stays as a tail (a `..` there collapses). A dangling or looping symlink or
-// any other realpath error throws.
+// The real path of `a` the POSIX way: the components of the RAW path left to right, so a link is followed
+// before a later `..` (`<tmp>/lh/../x` with lh -> <home>/.config is <home>/x). win32 and path.resolve collapse
+// `..` by text first, so callers judge `forms()` (all three), never this one alone. The part that does not
+// exist yet stays as a tail (a `..` there collapses). A dangling or looping symlink or any other realpath
+// error throws.
 const SEG = process.platform === 'win32' ? /[\\/]+/ : /\/+/;
 function realPath(a) {
   if (!path.isAbsolute(a)) a = path.resolve(a);
@@ -86,9 +87,11 @@ function key(p) {
 }
 // The key of the literal path: normalised (`..` collapsed), no link followed.
 const lex = p => norm(path.resolve(p));
-function under(p, dir) {
-  return key(p).startsWith(`${key(dir)}/`);
-}
+// The three forms of an absolute target: lexical (text-collapsed, no link), text-collapsed then real, link-first real.
+// ponytail: three realpath calls per Edit/Write; cache them if the hook ever gets hot.
+const forms = a => [lex(a), key(path.resolve(a)), key(a)];
+// Both names of a dir (literal and real), so a linked dir matches by either.
+const names = d => [lex(d), key(d)];
 
 // The day-run mode file read of lib-saver-level.sh: the first existing of <project>/runtime/bajzi-mode,
 // <home>/.claude/bajzi-mode alone decides; head -1, every whitespace removed, ASCII lower-case.
@@ -164,7 +167,7 @@ function logLine(proj, now, word, cause, tool) {
 }
 
 // null (allow) or {kind:'deny', rule, reason}. Any internal error is null (fail open).
-function check(input, { env = process.env, home = os.homedir(), now = new Date(), tmpdir = os.tmpdir() } = {}) {
+function check(input, { env = process.env, home = os.homedir(), now = new Date(), tmpdir = os.tmpdir(), posixTmp = process.platform === 'win32' ? '' : '/tmp' } = {}) {
   try {
     if (!input || typeof input !== 'object') return null;
     const tool = input.tool_name;
@@ -201,16 +204,29 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     };
     // The most specific root wins: the longest prefix among the project and the allowed dirs (a tie goes to the project, listed first), so
     // inside the project only runtime/ is allowed, while memory/~/.claude/tmpdir stay allowed when they lie inside a $HOME or ~/.claude project.
-    const allowed = p => {
-      const k = key(abs(p));
-      const mem = key(memory);
+    // Every form of the target must be allowed (dirs match by either name).
+    const allowedK = k => {
       let best = -1;
       let ok = false;
-      for (const [d, yes] of [[proj, false], ...dirs.map(d => [d, true]), ...(sandbox ? [[memory, /^[^/]+\/memory\/./.test(k.slice(mem.length + 1))]] : [])]) {
-        const dk = key(d);
-        if (k.startsWith(`${dk}/`) && dk.length > best) { best = dk.length; ok = yes; }
+      for (const [d, yes] of [[proj, false], ...dirs.map(d => [d, true])]) {
+        for (const n of names(d)) if (k.startsWith(`${n}/`) && n.length > best) { best = n.length; ok = yes; }
       }
       return ok;
+    };
+    const allowed = p => forms(abs(p)).every(allowedK);
+    // Split session: the lexical form under the LITERAL runtime/ or memory dir, every real form under that dir's real name, and no form in a
+    // shell-writable root (a link there can be re-pointed between check and write).
+    const memOk = r => /^[^/]+\/memory\/./.test(r);
+    const inDir = (k, n, mem) => k.startsWith(`${n}/`) && (!mem || memOk(k.slice(n.length + 1)));
+    const projKey = key(proj);
+    const inProj = k => names(proj).some(n => k.startsWith(`${n}/`));
+    const shellWritable = k => [tmpdir, posixTmp].filter(Boolean).some(r => {
+      const ns = names(r);
+      return ns.some(n => k === n || k.startsWith(`${n}/`)) && !(inProj(k) && ns.some(n => projKey.startsWith(`${n}/`)));   // the project inside the root is covered by the sandbox denyWrite
+    });
+    const splitAllowed = a => {
+      const [l, ...real] = forms(a);
+      return !forms(a).some(shellWritable) && [[path.join(proj, 'runtime'), false], [memory, true]].some(([d, mem]) => inDir(l, lex(d), mem) && real.every(k => inDir(k, key(d), mem)));
     };
     // Files that switch the hooks off or lower the level: denied even inside the allowed dirs. Matched on the literal path AND the
     // real path (either = protected), so a link in the canonical place, or a linked dir above it, does not hide the name.
@@ -224,14 +240,13 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       plugins: f(path.join(claude, 'plugins')),
     }));
     const protectedPath = p => {
-      const a = abs(p);
-      return sets.some(s => {
-        const k = s.f(a);
+      const fs3 = forms(abs(p));
+      return sets.some(s => fs3.some(k => {
         const dir = path.dirname(k);
         const base = path.basename(k);
         return s.files.includes(k) || k.startsWith(`${s.plugins}/`) ||
           (s.levelDirs.includes(dir) && base.endsWith('.level')) || (s.settingsDirs.includes(dir) && /^settings.*\.json$/.test(base));
-      });
+      }));
     };
     const blocked = reason => {
       logLine(proj, now, word, 'blocked', tool);
@@ -242,11 +257,16 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     if (isEdit) {
       const raw = tool === 'NotebookEdit' ? ti.notebook_path : ti.file_path;
       if (typeof raw !== 'string' || !raw) return null;
-      try { realPath(abs(raw)); } catch { return blocked(UNRESOLVED_REASON); }   // fail closed for this check only
+      try { realPath(abs(raw)); realPath(path.resolve(abs(raw))); } catch { return blocked(UNRESOLVED_REASON); }   // fail closed for this check only
       if (protectedPath(raw)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
       // Outside the project, a tmpdir nested inside it (the shell writes it), and the project's .git/.githooks (the excluded `git commit` runs hooks and git config unsandboxed): no risk-agent or peak relaxation.
-      if (sandbox && ((!allowed(raw) && !under(abs(raw), proj)) || (under(abs(raw), tmpdir) && key(tmpdir).length > key(proj).length) || [path.join(proj, '.git'), path.join(proj, '.githooks')].some(d => key(abs(raw)) === key(d) || under(abs(raw), d)))) return blocked(SPLIT_REASON);
-      write = !allowed(raw) && !(typeof input.agent_type === 'string' && RISK_AGENT.test(input.agent_type));
+      if (sandbox) {
+        const a = abs(raw);
+        const fm = forms(a);
+        const ok = splitAllowed(a);
+        if ((!ok && !fm.every(inProj)) || fm.some(shellWritable) || [path.join(proj, '.git'), path.join(proj, '.githooks')].some(d => fm.some(k => names(d).some(n => k === n || k.startsWith(`${n}/`))))) return blocked(SPLIT_REASON);
+        write = !ok && !(typeof input.agent_type === 'string' && RISK_AGENT.test(input.agent_type));
+      } else write = !allowed(raw) && !(typeof input.agent_type === 'string' && RISK_AGENT.test(input.agent_type));
     } else if (isAgent) {
       const t = typeof ti.subagent_type === 'string' ? ti.subagent_type : '';
       write = !(BUILTIN_AGENTS.has(t) || BAJZI_AGENTS.has(t.toLowerCase()));

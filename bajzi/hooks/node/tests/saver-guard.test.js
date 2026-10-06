@@ -18,7 +18,7 @@ function ctx(env = {}, now = NOON) {
   const cwd = tmpDir('bajzi-sgc-');
   const home = tmpDir('bajzi-sgh-');
   const tmp = tmpDir('bajzi-sgt-');
-  return { cwd, home, tmp, opts: { env, home, now, tmpdir: tmp } };
+  return { cwd, home, tmp, opts: { env, home, now, tmpdir: tmp, posixTmp: '' } };   // posixTmp '': tests live under the real /tmp on Linux; the F1 test turns it on
 }
 const call = (c, tool_name, tool_input, extra = {}) =>
   check(Object.assign({ session_id: 's1', hook_event_name: 'PreToolUse', cwd: c.cwd, tool_name, tool_input }, extra), c.opts);
@@ -498,7 +498,7 @@ test('F3: BAJZI_SANDBOX=1: a symlinked directory in runtime/ does not carry a Wr
   assert.strictEqual(w(path.join(rt, 'sub', 'new.js')), null);
 });
 
-test('F3 (round 4): a link is followed before a later `..` (the raw path, as the OS resolves it)', t => {
+test('F3 (round 4, r5): a link before a later `..` is a deny: POSIX follows the link first, win32/path.resolve collapse `..` by text first', t => {
   for (const env of [{ CC_WORKER_MODE: 'glm' }, { CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }]) {
     const c = ctx(env);
     const host = env.BAJZI_SANDBOX ? path.join(c.cwd, 'runtime') : c.tmp;   // a dir the Edit tools may write
@@ -506,7 +506,7 @@ test('F3 (round 4): a link is followed before a later `..` (the raw path, as the
     fs.mkdirSync(path.join(c.home, '.config'), { recursive: true });
     if (!link(t, path.join(c.home, '.config'), path.join(host, 'lh'), true)) return;
     // Template strings, not path.join: path.join would collapse the `..` before the check sees it.
-    // host/lh/.. is <home> (the link's parent), not host.
+    // link-first host/lh/.. is <home>, text-first it is host's parent: one form is outside, so every platform denies.
     const w = f => call(c, 'Write', { file_path: f, content: 'x' });
     isDeny(w(`${host}/lh/../.gitconfig`), `${JSON.stringify(env)}: lh/../.gitconfig`);
     if (env.BAJZI_SANDBOX) isDeny(edit(c, `${host}/lh/../.gitconfig`, { agent_type: 'bajzi:implementer-risk' }), 'risk agent');   // a plain session lets it write anywhere
@@ -560,11 +560,13 @@ test('F3: a tmpdir that is itself a link still matches, by either name (plain se
   isDeny(edit(c, path.join(c.cwd, 'src', 'x.js')), 'src');
 });
 
-test('F3: a runtime/ that is itself a link still matches, by either name (split session)', t => {
-  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+test('F3: a runtime/ that is itself a link still matches, by either name (plain; split: the literal name, real one outside the shell-writable roots)', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
   const real = tmpDir('bajzi-sgr-');
   if (!link(t, real, path.join(c.cwd, 'runtime'), true)) return;
   for (const f of [path.join(c.cwd, 'runtime', 'x.md'), path.join(real, 'x.md')]) assert.strictEqual(edit(c, f), null, f);
+  const sp = Object.assign({}, c, { opts: Object.assign({}, c.opts, { env: { CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' } }) });
+  assert.strictEqual(edit(sp, path.join(c.cwd, 'runtime', 'x.md')), null, 'split literal name');
   isDeny(edit(c, path.join(c.cwd, 'src', 'x.js')), 'src');
 });
 
@@ -698,4 +700,65 @@ test('F10: BAJZI_SANDBOX=1: any Write/Edit under the tmpdir is denied, risk agen
   }
   const p = ctx({ CC_WORKER_MODE: 'glm' });   // ponytail in the guard: the Windows tier (no sandbox) keeps the tmpdir allowed
   assert.strictEqual(edit(p, path.join(p.tmp, 'x')), null, 'plain session');
+});
+
+// F1 (round 5): a split session judges the raw path too: a link in the shell-writable tmpdir (or POSIX /tmp) can be re-pointed between check and write.
+const SPLIT_RE = /write scratch files with the shell; the Edit tools write only/;
+const splitDeny = (c, f, msg) => {
+  for (const now of [NOON, PEAK]) {
+    const cc = Object.assign({}, c, { opts: Object.assign({}, c.opts, { now }) });
+    for (const extra of [{}, { agent_type: 'bajzi:implementer-risk' }]) {
+      const d = call(cc, 'Write', { file_path: f, content: 'x' }, extra);
+      isDeny(d, `${msg} ${now.toISOString()} ${JSON.stringify(extra)}`);
+      assert.match(d.reason, SPLIT_RE, msg);
+    }
+  }
+};
+
+test('F1: BAJZI_SANDBOX=1: a raw path through a link in the tmpdir that points into runtime/ is denied', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  fs.mkdirSync(path.join(c.cwd, 'runtime'));
+  if (!link(t, path.join(c.cwd, 'runtime'), path.join(c.tmp, 'lnk'), true)) return;
+  splitDeny(c, `${c.tmp}/lnk/x.md`, 'tmp link to runtime');
+  assert.strictEqual(call(c, 'Write', { file_path: path.join(c.cwd, 'runtime', 'x.md'), content: 'x' }), null, 'runtime itself stays allowed');
+});
+
+test('F1: BAJZI_SANDBOX=1 on POSIX: a raw /tmp path through a link to runtime/ is denied', t => {
+  if (process.platform === 'win32') return t.skip('no POSIX /tmp on win32');
+  let d;
+  try { d = fs.mkdtempSync('/tmp/bajzi-sgp-'); } catch { return t.skip('/tmp is not writable'); }
+  try {
+    const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+    c.opts.posixTmp = undefined;   // the real default (/tmp)
+    fs.mkdirSync(path.join(c.cwd, 'runtime'));
+    if (!link(t, path.join(c.cwd, 'runtime'), path.join(d, 'lnk'), true)) return;
+    splitDeny(c, `${d}/lnk/x.md`, '/tmp link to runtime');
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('F1: BAJZI_SANDBOX=1: a runtime/ that is itself a link into the tmpdir is denied (a plain session keeps it allowed)', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  const real = path.join(c.tmp, 'rt');
+  fs.mkdirSync(real);
+  if (!link(t, real, path.join(c.cwd, 'runtime'), true)) return;
+  splitDeny(c, path.join(c.cwd, 'runtime', 'x'), 'runtime link into tmp');
+  const plain = ctx({ CC_WORKER_MODE: 'glm' });
+  plain.cwd = c.cwd;
+  plain.tmp = c.tmp;
+  plain.opts.tmpdir = c.tmp;
+  assert.strictEqual(edit(plain, path.join(c.cwd, 'runtime', 'x')), null, 'plain session');
+});
+
+// F2 (round 5): win32 and path.resolve collapse `..` by text before any link is followed; POSIX follows the link first. The guard judges both.
+test('F2: a link plus `..` that lands in project source by text but in the tmpdir link-first is denied (plain session, junction on win32)', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  const B = tmpDir('bajzi-sgf2-');
+  const T = path.join(B, 'tmp');
+  const P = path.join(B, 'proj');
+  for (const d of [path.join(T, 'a', 'b'), path.join(T, 'proj', 'src'), path.join(P, 'src')]) fs.mkdirSync(d, { recursive: true });
+  if (!link(t, path.join(T, 'a', 'b'), path.join(T, 'j'), true)) return;
+  Object.assign(c, { cwd: P, tmp: T });
+  c.opts.tmpdir = T;
+  isDeny(edit(c, `${T}/j/../../proj/src/x.js`), 'text-collapsed P/src/x.js');
+  assert.strictEqual(edit(c, `${T}/j/x.md`), null, 'a plain write through the link inside tmp');
 });
