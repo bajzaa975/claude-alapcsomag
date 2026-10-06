@@ -192,3 +192,99 @@ test('fails open: a log write failure, no cwd, bad input, uncovered tools', () =
   assert.strictEqual(call(c, 'Read', { file_path: 'src/x.js' }), null);
   assert.strictEqual(call(c, 'Skill', { skill: 'x' }), null);
 });
+
+test('F1: control files stay denied inside the allowed dirs, also in peak and for the risk agent', () => {
+  for (const now of [NOON, PEAK]) {
+    const c = ctx({}, now);   // gate open by day-run (no CC_WORKER_MODE), level tight from the machine file
+    put(path.join(c.home, '.claude', 'worker-mode'), 'tight\n');
+    put(path.join(c.cwd, 'runtime', 'bajzi-mode'), 'day-run\n');
+    const h = p => path.join(c.home, '.claude', p);
+    for (const f of ['runtime/bajzi-mode', path.join(c.cwd, 'runtime', 'bajzi-mode'), h('bajzi-mode'), h('worker-mode'), h('bajzi/sessions/s1.level'),
+      h('cc-router.json'), h('settings.json'), h('settings.local.json'), h('plugins/x/y.js'), path.join(c.cwd, '.claude', 'settings.local.json')]) {
+      isDeny(edit(c, f), `Edit ${f}`);
+      isDeny(call(c, 'Write', { file_path: f, content: 'x' }, { agent_id: 'a1', agent_type: 'bajzi:implementer-risk' }), `risk Write ${f}`);
+    }
+    const sd = tmpDir('bajzi-sgs-');
+    const c2 = Object.assign({}, c, { opts: Object.assign({}, c.opts, { env: { BAJZI_STATUS_DIR: sd } }) });
+    isDeny(edit(c2, path.join(sd, 's2.level')), 'BAJZI_STATUS_DIR level file');
+    for (const cmd of ['echo off > runtime/bajzi-mode', 'echo claude > ~/.claude/worker-mode', `echo claude > ${h('bajzi/sessions/s1.level')}`,
+      'echo x | tee ~/.claude/settings.json', 'sed -i s/a/b/ ~/.claude/worker-mode']) {
+      isDeny(bash(c, cmd), cmd);
+    }
+    assert.strictEqual(edit(c, 'runtime/x.md'), null);
+    assert.strictEqual(edit(c, h('x')), null);
+    assert.strictEqual(edit(c, h('bajzi/sessions/s1.json')), null);
+    assert.strictEqual(bash(c, 'echo hi > runtime/a.txt'), null);
+  }
+});
+
+test('F2/F3/F4: worker --level is judged on the command, not on quoted or heredoc text', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  for (const cmd of ['grep -rn "worker --level" docs', "glm -p <<'EOF'\nrun worker --level 0 later\nEOF", "git commit -F - <<'EOF'\nmention worker --level 0\nEOF",
+    'git commit -m "worker --level 0"', 'worker --status && echo --level', 'worker --set-model x', 'worker --set-fast-model x', 'worker --set-orchestrator-model x',
+    'node bajzi/bin/cc-router.js --status', 'grep -n level bajzi/bin/cc-router.js']) {
+    assert.strictEqual(bash(c, cmd), null, cmd);
+  }
+  for (const now of [NOON, PEAK]) {
+    const p = ctx({ CC_WORKER_MODE: 'glm' }, now);
+    for (const cmd of ['node ~/.claude/plugins/cache/bajzi/1.0/bin/cc-router.js --level 0', 'node bin/cc-router.js --set claude', 'worker "--level" 0',
+      'bash -c "worker --level 0"', 'worker --set=claude']) {
+      isDeny(bash(p, cmd), cmd);
+    }
+  }
+});
+
+test('F5: the project root is CLAUDE_PROJECT_DIR; runtime/ and the log live there, not under cwd', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  const proj = tmpDir('bajzi-sgp-');
+  fs.mkdirSync(path.join(proj, 'src'));
+  const sub = { cwd: path.join(proj, 'src'), home: c.home, tmp: c.tmp, opts: { env: { CC_WORKER_MODE: 'glm', CLAUDE_PROJECT_DIR: proj }, home: c.home, now: NOON, tmpdir: c.tmp } };
+  assert.strictEqual(edit(sub, path.join(proj, 'runtime', 'x.md')), null);
+  assert.strictEqual(bash(sub, `echo hi > ${path.join(proj, 'runtime', 'a.txt')}`), null);
+  isDeny(edit(sub, 'x.js'), 'src write');
+  isDeny(edit(sub, 'runtime/x.md'), 'src/runtime is not the project runtime');
+  assert.ok(!fs.existsSync(path.join(proj, 'src', 'runtime')));
+  assert.match(fs.readFileSync(path.join(proj, 'runtime', 'routing-violations.log'), 'utf8'), /cause=blocked/);
+});
+
+test('F6: variable and MSYS forms of an allowed dir resolve', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  for (const cmd of ['echo x > /tmp/a', 'echo x > "$HOME/.claude/a"', 'echo x > $HOME/.claude/a', 'echo x > ${HOME}/.claude/a', 'echo x > $TMPDIR/x', 'echo x > ${TMPDIR}/x']) {
+    assert.strictEqual(bash(c, cmd), null, cmd);
+  }
+  for (const cmd of ['"x" | Out-File $env:TEMP\\a', 'Set-Content $env:TMP\\a 1', 'Out-File $env:USERPROFILE\\.claude\\a']) {
+    assert.strictEqual(bash(c, cmd, 'PowerShell'), null, cmd);
+  }
+  for (const cmd of ['echo x > /tmpx/a', 'echo x > $HOME/src/a', 'echo x > $UNKNOWN/a']) isDeny(bash(c, cmd), cmd);
+  isDeny(bash(c, 'echo x > $HOME/../a'), 'dotdot');
+  if (process.platform === 'win32') {
+    const d = c.tmp.replace(/\\/g, '/').replace(/^([a-zA-Z]):/, (_, l) => `/${l.toLowerCase()}`);
+    assert.strictEqual(bash(c, `echo x > ${d}/a`), null, d);
+    isDeny(bash(c, 'echo x > /c/zzz-not-allowed/a'), '/c/ elsewhere');
+  }
+});
+
+test('F7: sed -i / perl -i are judged by their target', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  for (const cmd of ['sed -i s/a/b/ runtime/x.md', 'perl -pi -e s/a/b/ ~/.claude/x', "sed -E -i.bak 's/a/b/' runtime/x.md", 'sed --in-place -e s/a/b/ runtime/x.md', `sed -i s/a/b/ ${c.tmp}/x`]) {
+    assert.strictEqual(bash(c, cmd), null, cmd);
+  }
+  for (const cmd of ['sed -i s/a/b/ src/x.js', 'perl -pi -e s/a/b/ src/x.js', 'sed -i s/a/b/ runtime/x.md src/x.js', 'sed -i s/a/b/', 'sed -i -e s/a/b/ src/x.js']) {
+    isDeny(bash(c, cmd), cmd);
+  }
+});
+
+test('F8: perl -M/-m flags are not in-place edits', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  for (const cmd of ["perl -Mstrict -ne 'print' x.txt", 'perl -MList::Util=sum -e 1', 'perl -Mwarnings -e 1', 'perl -ne print x.txt']) {
+    assert.strictEqual(bash(c, cmd), null, cmd);
+  }
+  isDeny(bash(c, 'perl -0777pi -e s/a/b/ x.js'), '-0777pi');
+  isDeny(bash(c, 'perl -i.bak -pe s/a/b/ x.js'), '-i.bak');
+});
+
+test('F9: a redirect without a space before > is seen', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  for (const cmd of ['echo hi>src/a.js', 'echo "x">src/a.js', 'cat <<EOF>src/x.js', 'echo hi>>src/a.js', 'echo hi 2>src/e']) isDeny(bash(c, cmd), cmd);
+  for (const cmd of ['echo hi>runtime/a.js', 'echo "a -> b"', 'node -e "x => x>1"', 'echo x>/dev/null', 'ls 2>&1']) assert.strictEqual(bash(c, cmd), null, cmd);
+});

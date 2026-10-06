@@ -20,11 +20,15 @@ const RISK_AGENT = /(^|:)implementer-risk$/i;
 const BUILTIN_AGENTS = new Set(['Explore', 'Plan', 'claude-code-guide']);   // case-sensitive
 const BAJZI_AGENTS = new Set(['bajzi:reviewer', 'bajzi:implementer-risk']);   // case-insensitive
 const WS = /[ \t\n\v\f\r]/g;
-const WORKER_LEVEL = /(?:^|[\s;&|(`'"/\\])worker(?:\.cmd)?(?=[\s;&|)`'"]|$)[\s\S]*?--(?:level|set)\b/i;
+const WORKER_LEVEL = /(?:^|[\s;&|(`'"/\\])(?:worker(?:\.cmd)?|cc-router(?:\.js)?)(?=[\s;&|)`'"]|$)[^;&|\n]*?--(?:level|set)(?![-\w])/i;
+const SHELL_WRAP = /(?:^|[\s;&|(])(?:eval|(?:ba|z|da|k)?sh|pwsh|powershell|cmd)(?:\.exe)?(?=\s)/i;   // quoted text may then run as a command
 const SEP = String.raw`(?:^|[\s;&|(])`;   // a command word starts the text or follows a space/separator
-const SED_I = new RegExp(String.raw`${SEP}sed(?=\s)[^;&|\n]*?\s(?:-[a-zA-Z]*i|--in-place)`);
-const PERL_I = new RegExp(String.raw`${SEP}perl(?=\s)[^;&|\n]*?\s-[a-zA-Z]*i`);
-const REDIRECT = /(?:^|[\s;&|(\d&])>>?\|?[ \t]*(&[\d-]|[^\s;&|<>()]+)?/g;
+const INPLACE = new RegExp(String.raw`${SEP}(sed|perl)(?=\s)([^;&|\n]*)`, 'g');
+const SED_I = /^(?:-[a-zA-Z]*i|--in-place)/;
+const PERL_I = /^-[0-9lanpsStTuUwWXcCfF]*i/;   // flags without an argument, then i: -Mstrict is not -i
+const SED_SCRIPT_OPT = /^(?:-[a-zA-Z]*e|--expression|-f|--file)$/;
+const PERL_SCRIPT_OPT = /^-[a-zA-Z]*[eE]$/;
+const REDIRECT = /(?<![-=])>>?\|?[ \t]*(&[\d-]|[^\s;&|<>()]+)?/g;
 const TEE = /(?:^|[;&|(])\s*tee((?:[ \t]+[^\s;&|<>()]+)*)/g;
 const PS_WRITE = new RegExp(String.raw`${SEP}(Set-Content|Add-Content|Out-File|New-Item)(?=\s|$)([^;|\n]*)`, 'gi');
 const PS_PATH_OPT = /^-(?:Path|LiteralPath|FilePath)$/i;
@@ -32,6 +36,9 @@ const HEREDOC = /(?<!<)<<-?(?!<)[ \t]*(['"]?)([A-Za-z_]\w*)\1[^\n]*(?:[\s\S]*?\n
 const SINKS =/^(?:\/dev\/null|&[\d-]|\$null)$/i;
 
 const blockedReason = n => `saver-guard: this session is at L${n} but runs on Claude (started with plain claude). Writing code is GLM's job here: run it as glm -p with the brief on stdin (Bash run_in_background), or relaunch the session with worker. Risk slices: bajzi:implementer-risk. Owner override: type ! worker --level 0 in the prompt.`;
+const PROTECTED_REASON = 'saver-guard: this file controls the saver guard or the saver level; only the owner may change it (type it as a ! command in the prompt, which bypasses hooks).';
+const HOME_VAR = /^(?:~|\$\{HOME\}|\$HOME|\$env:(?:HOME|USERPROFILE))(?=$|[/\\])/i;
+const TMP_VAR = /^(?:\$\{(?:TMPDIR|TEMP|TMP)\}|\$(?:TMPDIR|TEMP|TMP)|\$env:(?:TMPDIR|TEMP|TMP))(?=$|[/\\])/i;
 const LEVEL_REASON = 'saver-guard: only the owner may change the saver level. Ask the owner to type ! worker --level <n> in the prompt (it bypasses hooks).';
 
 // Path key as writer-guard.js: `/` separators, no trailing slash, lower-case on win32.
@@ -60,35 +67,54 @@ function dayRunOn(cwd, home) {
   return false;
 }
 
+// A heredoc body is data (a glm brief, a commit message), not shell: keep only its header line,
+// which still carries the command's own redirect (`cat <<EOF > src/x.js`).
+const stripHeredoc = cmd => cmd.replace(HEREDOC, m => m.split('\n')[0]);
+// Quoted text goes inert: its metacharacters go, its whitespace becomes `_` (so `-m "a -> b"`
+// holds no redirect, while a quoted redirect target still resolves to a path).
+const inert = cmd => cmd.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, q => q.slice(1, -1).replace(/[<>|;&]/g, '').replace(/\s/g, '_'));
+
 // ponytail: a token heuristic over the command text, not a sandbox. A creative write (python -c,
-// cp, git apply, an unknown cmdlet alias) still passes; sed -i/perl -i are denied whatever the
-// target. A real shell parser if Claude starts routing around it.
-function shellWrites(cmd, allowed) {
-  // A heredoc body is data (a glm brief, a commit message), not shell: keep only its header line,
-  // which still carries the command's own redirect (`cat <<EOF > src/x.js`).
-  cmd = cmd.replace(HEREDOC, m => m.split('\n')[0]);
-  // Quoted text goes inert: its metacharacters go, its whitespace becomes `_` (so `-m "a -> b"`
-  // holds no redirect, while a quoted redirect target still resolves to a path).
-  const s = cmd.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, q => q.slice(1, -1).replace(/[<>|;&]/g, '').replace(/\s/g, '_'));
-  if (SED_I.test(s) || PERL_I.test(s)) return true;
-  const ok = t => SINKS.test(t) || allowed(t);
-  for (const m of s.matchAll(REDIRECT)) if (m[1] && !ok(m[1])) return true;
-  for (const m of s.matchAll(TEE)) {
-    if (m[1].trim().split(/\s+/).some(t => t && !t.startsWith('-') && !ok(t))) return true;
+// cp, git apply, an unknown cmdlet alias) still passes. A real shell parser if Claude starts routing
+// around it. Returns 0 (no write), 1 (a write outside the allowed dirs) or 2 (a protected file).
+function shellWrites(cmd, allowed, protectedPath) {
+  const s = inert(stripHeredoc(cmd));
+  let hit = 0;
+  const target = t => {
+    if (SINKS.test(t)) return;
+    if (protectedPath(t)) hit = 2;
+    else if (hit < 1 && !allowed(t)) hit = 1;
+  };
+  for (const m of s.matchAll(INPLACE)) {
+    const sed = m[1] === 'sed';
+    const args = m[2].split(/\s+/).filter(Boolean);
+    if (!args.some(a => (sed ? SED_I : PERL_I).test(a))) continue;
+    const files = [];
+    let script = false;   // sed/perl take the script from the first operand unless -e/-f gave it
+    for (let i = 0; i < args.length; i++) {
+      if ((sed ? SED_SCRIPT_OPT : PERL_SCRIPT_OPT).test(args[i])) { script = true; i++; continue; }
+      if (!args[i].startsWith('-')) files.push(args[i]);
+    }
+    if (!script) files.shift();
+    if (!files.length) hit = Math.max(hit, 1);   // stdin or unclear: deny
+    files.forEach(target);
   }
+  for (const m of s.matchAll(REDIRECT)) if (m[1]) target(m[1]);
+  for (const m of s.matchAll(TEE)) m[1].trim().split(/\s+/).forEach(t => { if (t && !t.startsWith('-')) target(t); });
   for (const m of s.matchAll(PS_WRITE)) {
     const args = m[2].trim().split(/\s+/).filter(Boolean);
     if (/^New-Item$/i.test(m[1]) && !/(?:^|\s)-ItemType\s+File(?:\s|$)/i.test(m[2])) continue;
     const named = args.findIndex(a => PS_PATH_OPT.test(a));
-    const target = named >= 0 ? args[named + 1] : args[0];
-    if (!target || target.startsWith('-') || !ok(target)) return true;   // no clear target: deny
+    const t = named >= 0 ? args[named + 1] : args[0];
+    if (!t || t.startsWith('-')) hit = Math.max(hit, 1);   // no clear target: deny
+    else target(t);
   }
-  return false;
+  return hit;
 }
 
-function logLine(cwd, now, word, cause, tool) {
+function logLine(proj, now, word, cause, tool) {
   try {
-    const dir = path.join(cwd, 'runtime');
+    const dir = path.join(proj, 'runtime');
     fs.mkdirSync(dir, { recursive: true });
     const ts = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
     fs.appendFileSync(path.join(dir, 'routing-violations.log'), `${ts}\tlevel=${word}\tcause=${cause}\ttool=${tool}\n`);
@@ -117,13 +143,31 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     const { level, word } = resolveLevel({ env, home, sessionId: input.session_id });
     if (level < 2) return null;
 
-    const dirs = [path.join(cwd, 'runtime'), path.join(home, '.claude'), tmpdir];
-    const allowed = p => {
-      const abs = path.resolve(cwd, p.replace(/^~(?=$|[/\\])/, home));
-      return dirs.some(d => under(abs, d));
+    const proj = String(env.CLAUDE_PROJECT_DIR || '') || cwd;
+    const dirs = [path.join(proj, 'runtime'), path.join(home, '.claude'), tmpdir];
+    const abs = p => {
+      let q = p;
+      for (const [re, dir] of [[HOME_VAR, home], [TMP_VAR, tmpdir], [/^\/tmp(?=$|\/)/, tmpdir]]) q = q.replace(re, () => dir);
+      if (process.platform === 'win32') q = q.replace(/^\/([a-zA-Z])(?=$|\/)/, '$1:');   // Git-Bash /c/Users
+      return path.resolve(cwd, q);
+    };
+    const allowed = p => dirs.some(d => under(abs(p), d));
+    // Files that switch the hooks off or lower the level: denied even inside the allowed dirs.
+    const claude = path.join(home, '.claude');
+    const files = [path.join(proj, 'runtime', 'bajzi-mode'), path.join(cwd, 'runtime', 'bajzi-mode'), env.CC_WORKER_MODE_FILE || '',
+      ...['bajzi-mode', 'worker-mode', 'cc-router.json'].map(f => path.join(claude, f))].filter(Boolean).map(key);
+    const levelDirs = [path.join(env.BAJZI_HOME || home, '.claude', 'bajzi', 'sessions'), path.join(claude, 'bajzi', 'sessions'), env.BAJZI_STATUS_DIR || ''].filter(Boolean).map(key);
+    const settingsDirs = [claude, path.join(proj, '.claude')].map(key);
+    const protectedPath = p => {
+      const a = abs(p);
+      const k = key(a);
+      const dir = key(path.dirname(a));
+      const base = path.basename(k);
+      return files.includes(k) || under(a, path.join(claude, 'plugins')) ||
+        (levelDirs.includes(dir) && base.endsWith('.level')) || (settingsDirs.includes(dir) && /^settings.*\.json$/.test(base));
     };
     const blocked = reason => {
-      logLine(cwd, now, word, 'blocked', tool);
+      logLine(proj, now, word, 'blocked', tool);
       return { kind: 'deny', rule: RULE, reason };
     };
 
@@ -131,18 +175,24 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     if (isEdit) {
       const raw = tool === 'NotebookEdit' ? ti.notebook_path : ti.file_path;
       if (typeof raw !== 'string' || !raw) return null;
+      if (protectedPath(raw)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
       write = !allowed(raw) && !(typeof input.agent_type === 'string' && RISK_AGENT.test(input.agent_type));
     } else if (isAgent) {
       const t = typeof ti.subagent_type === 'string' ? ti.subagent_type : '';
       write = !(BUILTIN_AGENTS.has(t) || BAJZI_AGENTS.has(t.toLowerCase()));
     } else {
-      if (typeof ti.command !== 'string') return null;
-      if (WORKER_LEVEL.test(ti.command)) return blocked(LEVEL_REASON);   // never relaxes, not even in peak
-      write = shellWrites(ti.command, allowed);
+      const cmd = ti.command;
+      if (typeof cmd !== 'string') return null;
+      // Quoted and heredoc text is data, unless a shell/eval wrapper may run it.
+      const bare = stripHeredoc(cmd);
+      if (WORKER_LEVEL.test(inert(bare)) || (SHELL_WRAP.test(bare) && WORKER_LEVEL.test(cmd))) return blocked(LEVEL_REASON);   // never relaxes, not even in peak
+      const w = shellWrites(cmd, allowed, protectedPath);
+      if (w === 2) return blocked(PROTECTED_REASON);
+      write = w === 1;
     }
     if (!write) return null;
     if (peakStatus(now.getTime()).inPeak) {
-      logLine(cwd, now, word, 'peak', tool);
+      logLine(proj, now, word, 'peak', tool);
       return null;
     }
     return blocked(blockedReason(level));
