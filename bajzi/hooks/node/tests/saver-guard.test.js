@@ -288,3 +288,57 @@ test('F9: a redirect without a space before > is seen', () => {
   for (const cmd of ['echo hi>src/a.js', 'echo "x">src/a.js', 'cat <<EOF>src/x.js', 'echo hi>>src/a.js', 'echo hi 2>src/e']) isDeny(bash(c, cmd), cmd);
   for (const cmd of ['echo hi>runtime/a.js', 'echo "a -> b"', 'node -e "x => x>1"', 'echo x>/dev/null', 'ls 2>&1']) assert.strictEqual(bash(c, cmd), null, cmd);
 });
+
+test('F10: a quoted mention of worker --level next to a shell word is not a level change', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  for (const cmd of ['git commit -m "docs: worker --level" && bash tests/x.sh', 'glm -p "run bash x.sh; mention worker --level"']) {
+    assert.strictEqual(bash(c, cmd), null, cmd);
+  }
+  isDeny(bash(c, 'bash -c "worker --level 0"'), 'wrapped');
+});
+
+test('F11: an unterminated <<WORD swallows nothing', () => {
+  for (const now of [NOON, PEAK]) {
+    const c = ctx({ CC_WORKER_MODE: 'glm' }, now);
+    isDeny(bash(c, '# <<A\nworker --level 0'), 'comment heredoc');
+    isDeny(bash(c, 'echo "<<A"\necho claude > ~/.claude/worker-mode'), 'quoted heredoc');
+  }
+});
+
+test('F12: level/set without dashes and backslash continuations are level changes', () => {
+  for (const now of [NOON, PEAK]) {
+    const c = ctx({ CC_WORKER_MODE: 'glm' }, now);
+    for (const cmd of ['worker level 0', 'worker set claude', 'node bin/cc-router.js level 0', 'worker \\\n--level 0', 'worker \\\r\nlevel 0']) isDeny(bash(c, cmd), cmd);
+    assert.strictEqual(bash(c, 'grep -n level bajzi/bin/cc-router.js'), null);
+  }
+});
+
+test('F13: the day-run gate reads <project>/runtime/bajzi-mode, never the hook cwd', () => {
+  const c = ctx({});
+  const proj = tmpDir('bajzi-sgp-');
+  put(path.join(proj, 'runtime', 'bajzi-mode'), 'day-run\n');
+  put(path.join(c.home, '.claude', 'worker-mode'), 'tight\n');
+  put(path.join(proj, 'src', 'x'), '');
+  put(path.join(proj, 'runtime', 'x', 'x'), '');
+  const at = cwd => ({ cwd, home: c.home, tmp: c.tmp, opts: { env: { CLAUDE_PROJECT_DIR: proj }, home: c.home, now: NOON, tmpdir: c.tmp } });
+  isDeny(edit(at(path.join(proj, 'src')), 'x.js'), 'cwd = src');
+  put(path.join(proj, 'runtime', 'x', 'runtime', 'bajzi-mode'), 'off\n');
+  isDeny(edit(at(path.join(proj, 'runtime', 'x')), path.join(proj, 'src', 'x.js')), 'cwd = runtime/x');
+});
+
+test('F14/F15: raw text naming a control file is denied unless read-only, also in peak', () => {
+  for (const now of [NOON, PEAK]) {
+    const c = ctx({}, now);
+    put(path.join(c.home, '.claude', 'worker-mode'), 'tight\n');
+    put(path.join(c.cwd, 'runtime', 'bajzi-mode'), 'day-run\n');
+    for (const cmd of ['rm runtime/bajzi-mode', 'rm ~/.claude/bajzi/sessions/s1.level', 'mv runtime/x ~/.claude/worker-mode', 'echo x | cp a ~/.claude/settings.json',
+      'cat ~/.claude/worker-mode > x', 'cat ~/.claude/worker-mode; rm y']) isDeny(bash(c, cmd), cmd);
+    for (const cmd of ['Remove-Item ~/.claude/bajzi-mode', 'New-Item ~/.claude/worker-mode -Value claude -Force', 'Move-Item a ~/.claude/cc-router.json']) isDeny(bash(c, cmd, 'PowerShell'), cmd);
+    for (const cmd of ['cat ~/.claude/worker-mode', 'git log -p -- runtime/bajzi-mode | head -5', 'grep day runtime/bajzi-mode && ls ~/.claude/bajzi/sessions/s1.level']) {
+      assert.strictEqual(bash(c, cmd), null, cmd);
+    }
+  }
+  const c = ctx({ CC_WORKER_MODE: 'tight' });
+  for (const cmd of ['New-Item src/a.js -Value x', 'New-Item -Type File src/a.js', 'New-Item -ItemType File src/a.js']) isDeny(bash(c, cmd, 'PowerShell'), cmd);
+  for (const cmd of ['New-Item -ItemType Directory foo', 'New-Item -Type Directory foo']) assert.strictEqual(bash(c, cmd, 'PowerShell'), null, cmd);
+});

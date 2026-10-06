@@ -6,7 +6,7 @@
 // outside runtime/, ~/.claude/ and tmpdir, a writing sub-agent, and an obvious Bash/PowerShell file
 // write are denied; `worker --level/--set` is denied always (the owner uses `! worker --level N`).
 // Inside the Z.ai peak window the write denies become counted allows. Every deny and every peak
-// allow appends a line to <cwd>/runtime/routing-violations.log. Stdlib only; fails open.
+// allow appends a line to <project>/runtime/routing-violations.log (project = CLAUDE_PROJECT_DIR, else cwd). Stdlib only; fails open.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -20,9 +20,10 @@ const RISK_AGENT = /(^|:)implementer-risk$/i;
 const BUILTIN_AGENTS = new Set(['Explore', 'Plan', 'claude-code-guide']);   // case-sensitive
 const BAJZI_AGENTS = new Set(['bajzi:reviewer', 'bajzi:implementer-risk']);   // case-insensitive
 const WS = /[ \t\n\v\f\r]/g;
-const WORKER_LEVEL = /(?:^|[\s;&|(`'"/\\])(?:worker(?:\.cmd)?|cc-router(?:\.js)?)(?=[\s;&|)`'"]|$)[^;&|\n]*?--(?:level|set)(?![-\w])/i;
-const SHELL_WRAP = /(?:^|[\s;&|(])(?:eval|(?:ba|z|da|k)?sh|pwsh|powershell|cmd)(?:\.exe)?(?=\s)/i;   // quoted text may then run as a command
+const WORKER_LEVEL = /(?:^|[\s;&|(`'"/\\])(?:worker(?:\.cmd)?|cc-router(?:\.js)?)(?=[\s;&|)`'"]|$)[^;&|\n]*?(?<![\w-])(?:--?)?(?:level|set)(?![-\w])/i;
 const SEP = String.raw`(?:^|[\s;&|(])`;   // a command word starts the text or follows a space/separator
+// a shell/eval wrapper whose quoted argument is then run as a command
+const WRAP_ARG = new RegExp(String.raw`${SEP}(?:eval|(?:ba|z|da|k)?sh|pwsh|powershell|cmd)(?:\.exe)?(?:\s+[-/]\w+)*\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)')`, 'gi');
 const INPLACE = new RegExp(String.raw`${SEP}(sed|perl)(?=\s)([^;&|\n]*)`, 'g');
 const SED_I = /^(?:-[a-zA-Z]*i|--in-place)/;
 const PERL_I = /^-[0-9lanpsStTuUwWXcCfF]*i/;   // flags without an argument, then i: -Mstrict is not -i
@@ -32,7 +33,16 @@ const REDIRECT = /(?<![-=])>>?\|?[ \t]*(&[\d-]|[^\s;&|<>()]+)?/g;
 const TEE = /(?:^|[;&|(])\s*tee((?:[ \t]+[^\s;&|<>()]+)*)/g;
 const PS_WRITE = new RegExp(String.raw`${SEP}(Set-Content|Add-Content|Out-File|New-Item)(?=\s|$)([^;|\n]*)`, 'gi');
 const PS_PATH_OPT = /^-(?:Path|LiteralPath|FilePath)$/i;
-const HEREDOC = /(?<!<)<<-?(?!<)[ \t]*(['"]?)([A-Za-z_]\w*)\1[^\n]*(?:[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)|[\s\S]*$)/g;
+const HEREDOC = /(?<!<)<<-?(?!<)[ \t]*(['"]?)([A-Za-z_]\w*)\1[^\n]*[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g;   // terminated only: an unterminated <<WORD strips nothing
+// Any command naming a control file is denied unless it is a read-only pipeline (raw text, so no
+// heredoc or quote trick hides the name).
+const CONTROL = /bajzi-mode|worker-mode|cc-router\.json|settings[\w.-]*\.json|\.claude[\\/]plugins|\.level(?![-\w])/i;
+const RO_WORD = /^(?:cat|head|tail|grep|rg|ls|stat|wc|file)$/i;
+const RO_FORBID = />|\btee\b|(?:^|\s)-[a-zA-Z]*i\b|--in-place|\b(?:rm|mv|cp|ln)\b|\b(?:New-Item|Set-Content|Add-Content|Out-File|Remove-Item|Move-Item|Copy-Item)\b/i;
+const readOnly = raw => !RO_FORBID.test(raw) && raw.split(/&&|\|\||[;&|\n]/).every(seg => {
+  const w = seg.trim().replace(/^\(\s*/, '').split(/\s+/);
+  return !w[0] || RO_WORD.test(w[0]) || (/^git$/i.test(w[0]) && /^(?:log|show|diff|status|grep)$/.test(w[1] || ''));
+});
 const SINKS =/^(?:\/dev\/null|&[\d-]|\$null)$/i;
 
 const blockedReason = n => `saver-guard: this session is at L${n} but runs on Claude (started with plain claude). Writing code is GLM's job here: run it as glm -p with the brief on stdin (Bash run_in_background), or relaunch the session with worker. Risk slices: bajzi:implementer-risk. Owner override: type ! worker --level 0 in the prompt.`;
@@ -50,10 +60,10 @@ function under(p, dir) {
   return key(p).startsWith(`${key(dir)}/`);
 }
 
-// The day-run mode file read of lib-saver-level.sh: the first existing of <cwd>/runtime/bajzi-mode,
+// The day-run mode file read of lib-saver-level.sh: the first existing of <project>/runtime/bajzi-mode,
 // <home>/.claude/bajzi-mode alone decides; head -1, every whitespace removed, ASCII lower-case.
-function dayRunOn(cwd, home) {
-  for (const f of [path.join(cwd, 'runtime', 'bajzi-mode'), path.join(home, '.claude', 'bajzi-mode')]) {
+function dayRunOn(proj, home) {
+  for (const f of [path.join(proj, 'runtime', 'bajzi-mode'), path.join(home, '.claude', 'bajzi-mode')]) {
     let st;
     try { st = fs.statSync(f); } catch { continue; }
     if (!st.isFile()) continue;
@@ -103,7 +113,7 @@ function shellWrites(cmd, allowed, protectedPath) {
   for (const m of s.matchAll(TEE)) m[1].trim().split(/\s+/).forEach(t => { if (t && !t.startsWith('-')) target(t); });
   for (const m of s.matchAll(PS_WRITE)) {
     const args = m[2].trim().split(/\s+/).filter(Boolean);
-    if (/^New-Item$/i.test(m[1]) && !/(?:^|\s)-ItemType\s+File(?:\s|$)/i.test(m[2])) continue;
+    if (/^New-Item$/i.test(m[1]) && /(?:^|\s)-(?:ItemType|Type)\s+Directory(?:\s|$)/i.test(m[2])) continue;
     const named = args.findIndex(a => PS_PATH_OPT.test(a));
     const t = named >= 0 ? args[named + 1] : args[0];
     if (!t || t.startsWith('-')) hit = Math.max(hit, 1);   // no clear target: deny
@@ -138,12 +148,12 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
 
     const host = hostOf(env.ANTHROPIC_BASE_URL);
     if (host !== null && host !== 'anthropic.com' && !host.endsWith('.anthropic.com')) return null;
-    const gate = String(env.CC_WORKER_MODE || '').replace(WS, '') !== '' || dayRunOn(cwd, home);
+    const proj = String(env.CLAUDE_PROJECT_DIR || '') || cwd;
+    const gate = String(env.CC_WORKER_MODE || '').replace(WS, '') !== '' || dayRunOn(proj, home);
     if (!gate) return null;
     const { level, word } = resolveLevel({ env, home, sessionId: input.session_id });
     if (level < 2) return null;
 
-    const proj = String(env.CLAUDE_PROJECT_DIR || '') || cwd;
     const dirs = [path.join(proj, 'runtime'), path.join(home, '.claude'), tmpdir];
     const abs = p => {
       let q = p;
@@ -181,11 +191,12 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       const t = typeof ti.subagent_type === 'string' ? ti.subagent_type : '';
       write = !(BUILTIN_AGENTS.has(t) || BAJZI_AGENTS.has(t.toLowerCase()));
     } else {
-      const cmd = ti.command;
-      if (typeof cmd !== 'string') return null;
+      if (typeof ti.command !== 'string') return null;
+      if (CONTROL.test(ti.command) && !readOnly(ti.command)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
+      const cmd = ti.command.replace(/\\\r?\n/g, ' ');   // bash joins a backslash-newline
       // Quoted and heredoc text is data, unless a shell/eval wrapper may run it.
       const bare = stripHeredoc(cmd);
-      if (WORKER_LEVEL.test(inert(bare)) || (SHELL_WRAP.test(bare) && WORKER_LEVEL.test(cmd))) return blocked(LEVEL_REASON);   // never relaxes, not even in peak
+      if (WORKER_LEVEL.test(inert(bare)) || [...bare.matchAll(WRAP_ARG)].some(m => WORKER_LEVEL.test(m[1] ?? m[2]))) return blocked(LEVEL_REASON);   // never relaxes, not even in peak
       const w = shellWrites(cmd, allowed, protectedPath);
       if (w === 2) return blocked(PROTECTED_REASON);
       write = w === 1;

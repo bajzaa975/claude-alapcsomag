@@ -1937,7 +1937,7 @@ on a sub-agent's call). `check(input, {env, home, now, tmpdir})` defaults to `pr
 
 **Active only when all hold** (else null):
 - the gate is open: `CC_WORKER_MODE` is non-empty after whitespace removal, or day-run is on (the
-  first existing file of `<cwd>/runtime/bajzi-mode` and `<home>/.claude/bajzi-mode` decides; its
+  first existing file of `<project>/runtime/bajzi-mode` and `<home>/.claude/bajzi-mode` decides, never the hook's `cwd`; its
   first line, whitespace removed and lower-cased, reads `day-run`), the same rule as
   `lib-saver-level.sh:saver_resolve`. The level file alone never opens it;
 - `resolveLevel({env, home, sessionId})` (`lib/saver-level.js`) gives level 2 or 3;
@@ -1947,7 +1947,8 @@ on a sub-agent's call). `check(input, {env, home, now, tmpdir})` defaults to `pr
 
 **Rules** (paths compared like the writer guard, §6.15: `/` separators, lower-case on win32,
 "under" = prefix plus `/`; allowed dirs = `<project>/runtime/`, `<home>/.claude/`, `tmpdir`; `<project>` = env `CLAUDE_PROJECT_DIR`, else `cwd`, like `writer-guard.js`, so a `cd` into a subdirectory moves neither the allowed `runtime/` nor the log; a path may be written `~`, `$HOME`, `$env:USERPROFILE`, `$TMPDIR`/`$TEMP`/`$TMP`/`$env:TEMP`, Git-Bash `/tmp` (= tmpdir) or, on win32, `/c/...`):
-0. **Protected control files** are denied for every write (Edit tools, a shell redirect/`tee`/`sed -i`/PowerShell target) even inside the allowed dirs, for a risk sub-agent too, and also in the peak window: `<project>/runtime/bajzi-mode`, `<cwd>/runtime/bajzi-mode`, `~/.claude/{bajzi-mode,worker-mode,cc-router.json}` (and `CC_WORKER_MODE_FILE`), `~/.claude/settings*.json`, `<project>/.claude/settings*.json`, `*.level` in `~/.claude/bajzi/sessions/` (and `BAJZI_STATUS_DIR`), and everything under `~/.claude/plugins/`. Editing any of them could switch the hooks off or lower the level. Reason: "this file controls the saver guard or the saver level; only the owner may change it".
+0. **Control files, raw-text rule** (Bash/PowerShell): a command whose raw text (before heredoc stripping and quote handling) names `bajzi-mode`, `worker-mode`, `cc-router.json`, `settings*.json`, `.claude/plugins` or a `*.level` file is denied unless it is a read-only pipeline: every segment starts with `cat`/`head`/`tail`/`grep`/`rg`/`ls`/`stat`/`wc`/`file` or `git log|show|diff|status|grep`, and the text holds no `>`, `tee`, `-i`, `rm`, `mv`, `cp`, `ln`, `New-Item`, `Set-Content`, `Add-Content`, `Out-File`, `Remove-Item`, `Move-Item` or `Copy-Item`. Never relaxes in peak. This closes delete/move/copy/create of a control file as a class (a brief that merely mentions such a name is denied too).
+0b. **Protected control files** are denied for every write (Edit tools, a shell redirect/`tee`/`sed -i`/PowerShell target) even inside the allowed dirs, for a risk sub-agent too, and also in the peak window: `<project>/runtime/bajzi-mode`, `<cwd>/runtime/bajzi-mode`, `~/.claude/{bajzi-mode,worker-mode,cc-router.json}` (and `CC_WORKER_MODE_FILE`), `~/.claude/settings*.json`, `<project>/.claude/settings*.json`, `*.level` in `~/.claude/bajzi/sessions/` (and `BAJZI_STATUS_DIR`), and everything under `~/.claude/plugins/`. Editing any of them could switch the hooks off or lower the level. Reason: "this file controls the saver guard or the saver level; only the owner may change it".
 1. `Edit`/`Write`/`MultiEdit`/`NotebookEdit` (`file_path`, `notebook_path` for NotebookEdit,
    resolved against `cwd`): deny unless the target is under an allowed dir, or the call comes
    from a sub-agent whose `agent_type` matches `/(^|:)implementer-risk$/i`.
@@ -1955,14 +1956,13 @@ on a sub-agent's call). `check(input, {env, home, now, tmpdir})` defaults to `pr
    (case-sensitive), or `bajzi:reviewer` / `bajzi:implementer-risk` (case-insensitive). A missing
    type is `general-purpose`, so it is denied with every other writing agent.
 3. `Bash`/`PowerShell` `command`: deny `worker` (or `worker.cmd`) or `cc-router[.js]` followed in the
-   same command segment by `--level` or `--set` (not `--set-model` and the like). The test runs on the
+   same command segment by `level` or `set`, with or without leading dashes (`worker level 0`; not `--set-model` and the like); backslash-newline continuations are joined first. The test runs on the
    command with heredoc bodies skipped and quoted text inert, so `grep "worker --level" docs` or a
-   commit message mentioning it passes; when a shell/eval wrapper word (`bash`, `sh`, `pwsh`, `cmd`,
-   `eval`...) is present, the raw text is tested too. The owner changes the level with `! worker --level <n>`, which bypasses
+   commit message mentioning it passes; the quoted argument of a shell/eval wrapper (`bash -c "..."`, `sh`, `pwsh`, `cmd /c`, `eval`) is tested as a command. A `<<WORD` is a heredoc only when a later line is exactly the delimiter; unterminated, nothing is stripped. The owner changes the level with `! worker --level <n>`, which bypasses
    hooks. Also deny obvious file writes outside the allowed dirs: `sed -i`/`--in-place` and
    `perl -i` (judged by their file operands; `perl -Mstrict` is not `-i`), `tee <file>`, a `>`/`>>`/`&>`/`2>` redirect whose target is not
    `/dev/null`, `&1`/`&2`, `$null` or an allowed dir (a `>` needs no space before it: `echo hi>src/a.js`), and PowerShell `Set-Content`, `Add-Content`,
-   `Out-File` and `New-Item ... -ItemType File` (target = the `-Path`/`-LiteralPath`/`-FilePath`
+   `Out-File` and `New-Item` (a file write unless `-ItemType Directory` / `-Type Directory`) (target = the `-Path`/`-LiteralPath`/`-FilePath`
    value, else the first argument; no clear target = deny). A heredoc body is skipped (only its
    header line is scanned, so `cat <<EOF > src/x.js` is still a write) and quoted text is made
    inert, so a `glm -p <<'EOF'` brief or `git commit -m "a -> b"` holds no redirect. Reads, `git commit`, `glm` and
@@ -1988,7 +1988,7 @@ saver guard from hiding another check's deny.
 **Accepted limits**:
 - The Bash/PowerShell write test is a token heuristic, not a sandbox (the `ponytail:` comment in
   `saver-guard.js`): a creative write (`python -c`, `cp`, `git apply`, a cmdlet alias) still
-  passes, and a `worker --level` quoted inside a `bash -c`/`eval` wrapper is denied.
+  passes. Creative shell writes of SOURCE files remain a ceiling; control files and level changes are covered by the raw-text rule. A fake heredoc (`# <<A` ... `A`) can still hide a later line.
 - A plain `claude` launch at L2/L3 is still possible. The guard is what makes it useless for
   writing code.
 
