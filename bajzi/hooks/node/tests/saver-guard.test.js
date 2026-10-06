@@ -477,7 +477,9 @@ test('F3: BAJZI_SANDBOX=1: a file symlink in the tmpdir does not carry a Write o
   if (!link(t, path.join(c.home, '.gitconfig'), path.join(c.tmp, 'gc')) || !link(t, path.join(c.cwd, 'src', 'x.js'), path.join(c.tmp, 'sx'))) return;
   isDeny(w(path.join(c.tmp, 'gc')), 'link to ~/.gitconfig');
   isDeny(w(path.join(c.tmp, 'sx')), 'link to a project source file');
-  isDeny(edit(c, path.join(c.tmp, 'sx'), { agent_type: 'bajzi:implementer-risk' }), 'risk agent, link to a project source file');
+  // Judged by its real path: the risk agent may write project code directly, so through a link too.
+  assert.strictEqual(edit(c, path.join(c.tmp, 'sx'), { agent_type: 'bajzi:implementer-risk' }), null, 'risk agent, link to a project source file');
+  isDeny(edit(c, path.join(c.tmp, 'gc'), { agent_type: 'bajzi:implementer-risk' }), 'risk agent, link to ~/.gitconfig');
   assert.strictEqual(w(path.join(c.tmp, 'plain.js')), null);
 });
 
