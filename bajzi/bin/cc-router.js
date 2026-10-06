@@ -5,6 +5,7 @@
 //   glm ...        always GLM
 //   ccr code ...   compatibility with the old claude-code-router launcher: always non-Claude
 //                  (--model deepseek-* goes to DeepSeek, everything else to GLM)
+//   split ...      L2 split session: Claude orchestrates, GLM writes (CC_WORKER_MODE=glm); OS sandbox on Linux
 // In GLM mode the Claude aliases are remapped, so callers never change their arguments:
 //   top-level (not launched from inside Claude Code): --model sonnet|opus and the main session -> glm_orchestrator_model
 //   nested (CLAUDECODE set, e.g. a `glm -p` worker): --model sonnet|opus and the main session -> glm_model
@@ -13,7 +14,7 @@
 //   bajzi/sessions/<session_id>.level  the level of ONE session (--level/--set from inside it)
 'use strict';
 const VERSION = '1.2.0';
-const { spawn, execFileSync } = require('child_process');
+const { spawn, spawnSync, execFileSync } = require('child_process');
 const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
 
 const DIR = path.join(os.homedir(), '.claude');
@@ -59,6 +60,7 @@ function resolveMode() {
 }
 function readMode() { return resolveMode().mode; }
 // --level/--set: the session file when inside a session, else (or with --global) worker-mode. Atomic: tmp + rename.
+const NOSWITCH = ' The level does not switch the provider of a session that is already running: a GLM session starts with worker (or glm).';
 function writeLevel(name) {
   const target = args.includes('--global') || !SESSION_FILE ? MODE_FILE : SESSION_FILE;
   const tmp = target + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
@@ -72,8 +74,8 @@ function writeLevel(name) {
     die('cannot write ' + target + ': ' + e.message, 73);
   }
   const n = LEVEL_OF[name];
-  if (target === SESSION_FILE) console.log('worker mode = ' + name + '   level L' + n + ' for this session (' + SID + '); other sessions unchanged. Use --level N --global for the machine default.');
-  else console.log('worker mode = ' + name + '   level L' + n + ' (' + name + '), machine default (' + MODE_FILE + '); running sessions that set their own level keep it.');
+  if (target === SESSION_FILE) console.log('worker mode = ' + name + '   level L' + n + ' for this session (' + SID + '); other sessions unchanged. Use --level N --global for the machine default.' + NOSWITCH);
+  else console.log('worker mode = ' + name + '   level L' + n + ' (' + name + '), machine default (' + MODE_FILE + '); running sessions that set their own level keep it.' + NOSWITCH);
 }
 function secret(name) {   // 1. process env  2. Windows: User env in the registry (covers already-open apps)  3. ~/.claude/cc-router.env
   if (process.env[name]) return process.env[name];
@@ -97,13 +99,13 @@ function effective(provider, req) {
   const m = models(), r = (req || '').toLowerCase().replace(/\[.*$/, '');
   if (!r || r === 'sonnet' || r === 'opus') return glmMain(m); if (r === 'haiku') return m.fast; return req;
 }
-function logLaunch(provider, req) {
+function logLaunch(provider, req, extra) {
   try {
     fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
     try { if (fs.statSync(LOG_FILE).size > 2 * 1024 * 1024) fs.renameSync(LOG_FILE, LOG_FILE + '.1'); } catch (_) {}
     const headless = args.includes('-p') || args.includes('--print');
     fs.appendFileSync(LOG_FILE, [new Date().toISOString(), 'entry=' + entry, 'provider=' + provider, 'asked=' + (req || '-'),
-      'model=' + effective(provider, req), headless ? 'headless' : 'interactive', 'cwd=' + process.cwd()].join(' ') + '\n');
+      'model=' + effective(provider, req), headless ? 'headless' : 'interactive'].concat(extra || [], 'cwd=' + process.cwd()).join(' ') + '\n');
   } catch (_) {}
 }
 const okModel = s => /^[A-Za-z0-9._:\[\]-]{2,64}$/.test(s || '');
@@ -299,7 +301,6 @@ function claudeExe() {
 let PREFIX = [];   // test seam: prefix args for the fake claude; inert when unset; bad JSON or a non-array is ignored
 if (process.env.CC_CLAUDE_PREFIX_ARGS) { try { PREFIX = JSON.parse(process.env.CC_CLAUDE_PREFIX_ARGS); } catch (_) { PREFIX = []; } }
 if (!Array.isArray(PREFIX)) PREFIX = [];
-
 let provider, sessionMode = '';   // sessionMode: the level a session file chose; the child has a new session id and would not find it
 if (entry === 'ccr') {
   const sub = (args[0] || '').toLowerCase();
@@ -308,7 +309,10 @@ if (entry === 'ccr') {
     console.log('ccr shim (cc-router v' + VERSION + '): no router service is needed; "ccr code" routes per process. Nothing to ' + (sub || 'do') + '.'); process.exit(0);
   } else die('this is the cc-router shim; only "ccr code [claude args]" is supported (got: ' + (sub || 'nothing') + ')', 64);
 } else if (entry === 'glm') { provider = 'glm'; }
-else { if (workerAdmin()) process.exit(0); const rm = resolveMode(); provider = GLM_MODES.includes(rm.mode) ? 'glm' : 'claude'; if (rm.src.startsWith('session')) sessionMode = rm.mode; }
+else if (entry === 'split') {   // the main session stays on the Claude subscription: no level read, no peak refusal
+  if (args.some(a => a === '--settings' || a.startsWith('--settings='))) die('split passes its own --settings (the OS sandbox); drop yours, or start plain claude', 64);
+  provider = 'claude';
+} else { if (workerAdmin()) process.exit(0); const rm = resolveMode(); provider = GLM_MODES.includes(rm.mode) ? 'glm' : 'claude'; if (rm.src.startsWith('session')) sessionMode = rm.mode; }
 
 function peakOpen(now) { const h = now.getUTCHours(); return h >= 6 && h < 10; }   // 14:00-18:00 UTC+8, Z.ai 3x quota
 if (provider === 'glm' && process.env.CC_GLM_PEAK_OK !== '1') {
@@ -346,7 +350,92 @@ if (provider === 'glm') {
 if (sessionMode) env.BAJZI_SESSION_LEVEL = sessionMode;   // sets the level, never opens the saver gate
 if (insideClaude) env.CC_ROUTER_WORKER = '1';   // B2: tells a Claude-spawned `glm -p` worker from a main session
 
-logLaunch(provider, asked);
+const PLATFORM = process.env.CC_ROUTER_PLATFORM || process.platform;   // test seam: the platform the split entry sees
+
+// --- split entry helpers ---
+// Only what must write into the project: the GLM worker, the two git commands that record its work, the findings CLI. Every other git
+// or gh call is GLM's job in a split session: `fetch --upload-pack=`, `push --receive-pack=`, `fetch <tmp clone> + switch -c` and
+// `gh alias set --shell` each turn an excluded (unsandboxed) command into an arbitrary write or exec.
+const EXCLUDED = ['glm *', 'git add *', 'git commit *'];
+function onPath(name) {
+  return (process.env.PATH || '').split(path.delimiter).some(d => {
+    if (!d) return false;
+    const p = path.join(d, name);
+    try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch (_) { return false; }
+  });
+}
+let BWRAP = ['bwrap'];   // test seam: CC_BWRAP_CMD = JSON [cmd, ...leading args] replaces bwrap; a bad value is ignored
+try { const a = JSON.parse(process.env.CC_BWRAP_CMD); if (Array.isArray(a) && a.length && a.every(x => typeof x === 'string')) BWRAP = a; } catch (_) {}
+// '' when bwrap can create a namespace (stock Ubuntu 23.10+ refuses unprivileged ones without an AppArmor profile), else why not.
+function bwrapProbe() {
+  const r = spawnSync(BWRAP[0], BWRAP.slice(1).concat(['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', 'true']),
+    { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'ignore', 'pipe'] });
+  if (!r.error && r.status === 0) return '';
+  return ((r.stderr || '').split('\n').find(l => l.trim()) || (r.error ? r.error.message : r.signal ? 'killed by ' + r.signal : 'exit ' + r.status)).trim();
+}
+function projectRoot() {
+  try { const r = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); if (r) return r; } catch (_) {}
+  return process.cwd();
+}
+// The installed bajzi root: installPath of the newest `bajzi@<marketplace>` entry this session loads, from
+// installed_plugins.json under CLAUDE_CONFIG_DIR (else ~/.claude): a user-scope entry, or a project/local one whose
+// projectPath is this project. Absolute, no `..` segment, no `*`, and <root>/lib/findings-cli.js must exist; else ''.
+// An exact path only: a wildcard before the script would also match a findings-cli.js planted under the writable /tmp.
+function bajziRoot(root) {
+  let best = null;
+  const t = e => Date.parse(e.lastUpdated || e.installedAt) || 0;
+  const norm = p => { const q = path.resolve(String(p)); return process.platform === 'win32' ? q.toLowerCase() : q; };
+  const here = [root, process.cwd()].map(norm);
+  const loaded = e => !e.scope || e.scope === 'user' || (typeof e.projectPath === 'string' && here.includes(norm(e.projectPath)));
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || DIR, 'plugins', 'installed_plugins.json'), 'utf8'));
+    for (const [k, list] of Object.entries((j && j.plugins) || {})) {
+      if (!/^bajzi@/.test(k) || !Array.isArray(list)) continue;
+      for (const e of list) if (e && typeof e.installPath === 'string' && loaded(e) && (!best || t(e) > t(best))) best = e;
+    }
+  } catch (_) {}
+  const r = best ? best.installPath : '';
+  if (!r || !path.isAbsolute(r) || r.split(/[\\/]/).includes('..') || r.includes('*')) return '';
+  try { return fs.statSync(path.join(r, 'lib', 'findings-cli.js')).isFile() ? r : ''; } catch (_) { return ''; }
+}
+// ~/.claude/bajzi/sandbox/split-<sha1(root), 12 hex>.json, rewritten on every launch (tmp + rename, mode 600).
+// The whole root is denied: denyWrite beats a narrower allowWrite, and a glob there denied nothing (measured).
+function writeSandbox() {
+  const root = projectRoot(), plug = bajziRoot(root);
+  if (!plug) process.stderr.write('split: bajzi plugin root not found - findings CLI stays sandboxed\n');
+  const conf = { sandbox: { enabled: true, allowUnsandboxedCommands: false,
+    excludedCommands: EXCLUDED.flatMap(c => [c, 'rtk ' + c]).concat(plug ? ['node ' + plug + '/lib/findings-cli.js *', 'node "' + plug + '/lib/findings-cli.js" *'] : []),
+    filesystem: { allowWrite: [...new Set([os.tmpdir(), '/tmp'])], denyWrite: [root] } } };
+  const dir = path.join(DIR, 'bajzi', 'sandbox');
+  const file = path.join(dir, 'split-' + crypto.createHash('sha1').update(root).digest('hex').slice(0, 12) + '.json');
+  const tmp = file + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify(conf, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (_) {}
+    die('cannot write the sandbox settings ' + file + ': ' + e.message + ' (not starting without the sandbox)', 73);
+  }
+  return file;
+}
+
+// split (spec §6.2): CC_WORKER_MODE=glm opens the saver gate and pins L2 for the whole process tree. On Linux with
+// bwrap + socat the Bash tool also runs in Claude Code's OS sandbox: the project root is read-only, only the
+// excluded commands (glm, git add/commit/..., the findings CLI) write. BAJZI_SANDBOX=1 tells the saver guard so.
+let marker = '';
+if (entry === 'split') {
+  delete env.BAJZI_SANDBOX;   // only this launch may claim the sandbox
+  Object.assign(env, { CC_WORKER_MODE: 'glm', BAJZI_SPLIT: '1' });
+  let sandbox = PLATFORM === 'linux' && onPath('bwrap') && onPath('socat');
+  const why = sandbox ? bwrapProbe() : '';
+  if (why) { sandbox = false; process.stderr.write('split: bwrap cannot create a namespace (' + why + ') - on Ubuntu add an AppArmor profile for /usr/bin/bwrap; guard tier only\n'); }
+  else if (sandbox) { args = ['--settings', writeSandbox()].concat(args); env.BAJZI_SANDBOX = '1'; }
+  else process.stderr.write('split: no OS sandbox ' + (PLATFORM === 'linux' ? '(bubblewrap/socat missing)' : 'on ' + PLATFORM) + ' - Windows-tier guard only\n');
+  marker = 'split sandbox=' + (sandbox ? 'yes' : 'no');
+}
+
+logLaunch(provider, asked, marker);
 const exe = claudeExe();
 const child = spawn(exe, PREFIX.concat(args), { stdio: 'inherit', env });
 for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(s, () => { try { child.kill(s); } catch (_) {} });

@@ -14,7 +14,7 @@ You orchestrate; the agent writes the code. `FC` = `node "${CLAUDE_PLUGIN_ROOT}/
 3. `base=$(git rev-parse HEAD)`; no tracked file may be modified
    (`git status --porcelain --untracked-files=no` empty), else STOP.
 4. Dispatch per dispatch.md, class `implement`, brief = the slice file verbatim, nothing else.
-   A guard deny -> print the reason and its rule id, STOP.
+   A guard deny -> print the reason and its rule id, STOP; except `saver-guard:` (dispatch.md step 3: run it on GLM). You never write the code yourself.
 5. `SLICE <id> BLOCKED: ...` -> print it, STOP. `SLICE <id> DONE` -> every file in its list, and every
    path in `git status --porcelain --untracked-files=no`, must be in `files:`; else STOP, commit nothing.
 6. Run the `test:` command, unless it is `test: skip` (the slice says `test: none`: print

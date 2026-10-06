@@ -59,7 +59,8 @@
 # The hook reads NOTHING besides the two mode files, $HOME/.claude/worker-mode,
 # this session's level file <status dir>/<session_id>.level (BAJZI_STATUS_DIR /
 # BAJZI_HOME pick the dir; the id is the payload's session_id, lib-saver-level.sh),
-# the rules files above, those three env vars, BAJZI_SESSION_LEVEL and -- under the day-run table on an
+# the rules files above, those three env vars, BAJZI_SESSION_LEVEL, BAJZI_SANDBOX + uname -s (the
+# Linux `split` hint and the split scratch line on an L2/L3 Claude session) and -- under the day-run table on an
 # Anthropic session -- the reviewer allow-list, $HOME/.claude/bajzi/config.json.
 #
 # SHARED RESOLVER: the gate, the provider check, the mode-file read and the level
@@ -167,6 +168,27 @@ case "$level" in
 esac
 saver_block=""
 [ -n "$saver_file" ] && [ -f "$mdir/$saver_file" ] && saver_block=$(head -40 "$mdir/$saver_file" 2>/dev/null)
+if [ "$nonanth" = "no" ] && { [ "$level" = "glm" ] || [ "$level" = "tight" ]; }; then
+    # Level/provider mismatch: the saver guard blocks code writing on a Claude session at L2/L3,
+    # whether or not a saver block was injected (the L2 block needs the launcher on PATH).
+    mm="L$([ "$level" = "glm" ] && echo 2 || echo 3) but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker"
+    [ -n "$saver_block" ] && saver_block="$mm
+$saver_block"
+    warn="$warn $mm"
+    # Sandboxed split session: the saver guard keeps the Edit tools out of tmp. Model context only, never the warn.
+    [ -n "$saver_block" ] && [ "${BAJZI_SANDBOX:-}" = "1" ] && saver_block="$saver_block
+Split session: write scratch/temp files with the Bash tool; Write/Edit reach only <project>/runtime/ and ~/.claude/projects/*/memory/ here."
+    # Linux: the strict tier (Claude Code's OS sandbox) exists only in a session started with `split`,
+    # which sets BAJZI_SANDBOX=1. BAJZI_UNAME: test seam for uname -s.
+    # BAJZI_SPLIT=1 without BAJZI_SANDBOX: already a split session, the sandbox did not start: never "restart with split".
+    if [ "${BAJZI_UNAME:-$(uname -s 2>/dev/null)}" = "Linux" ] && [ "${BAJZI_SANDBOX:-}" != "1" ]; then
+        if [ "${BAJZI_SPLIT:-}" = "1" ]; then
+            warn="$warn this split session has no OS sandbox: bubblewrap or socat is missing, or bwrap cannot create a namespace (on Ubuntu add an AppArmor profile for /usr/bin/bwrap); guard tier only."
+        else
+            warn="$warn strict tier needs the split launcher: restart this session with: split"
+        fi
+    fi
+fi
 if [ -n "$saver_block" ]; then
     if [ -n "$block" ]; then
         block="$block
@@ -186,7 +208,9 @@ fi
 
 if [ -z "$block" ]; then
     if [ -n "$warn" ]; then
-        if [ "$dayrun" = "yes" ]; then emit "day-run mode active ($f).$warn" ""; else emit "saver off:$warn" ""; fi
+        if [ "$dayrun" = "yes" ]; then emit "day-run mode active ($f).$warn" ""
+        elif [ -n "${mm:-}" ]; then emit "saver level mismatch:$warn worker --level 0 to turn saver off." ""
+        else emit "saver off:$warn" ""; fi
         exit 0
     fi
     printf '{}'

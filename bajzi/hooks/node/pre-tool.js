@@ -12,6 +12,7 @@ const CHECKS = [
   ['context-guard', () => true, () => require('./context-guard')],
   ['secret-guard', t => /^(?:Read|Grep|Glob|Bash|PowerShell)$/.test(t), () => require('./secret-guard')],
   ['writer-guard', t => /^(?:Edit|Write|MultiEdit|NotebookEdit)$/.test(t), () => require('./writer-guard')],
+  ['saver-guard', t => /^(?:Edit|Write|MultiEdit|NotebookEdit|Agent|Task|Bash|PowerShell)$/.test(t), () => require('./saver-guard')],
 ];
 
 function main() {

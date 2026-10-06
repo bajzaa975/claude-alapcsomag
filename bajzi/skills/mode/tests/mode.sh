@@ -17,7 +17,7 @@
 # Everything lives under one mktemp -d, removed on exit by the trap.
 
 set -uo pipefail
-unset ANTHROPIC_BASE_URL CC_WORKER_MODE CC_ROUTER_WORKER   # the test process may itself run in a GLM/night-run env
+unset ANTHROPIC_BASE_URL CC_WORKER_MODE CC_ROUTER_WORKER BAJZI_SANDBOX BAJZI_UNAME   # the test process may itself run in a GLM/night-run/split env
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -377,7 +377,7 @@ if printf '%s' "$out" | grep -q 'DAY-RUN MODE' \
 else
     fail "10f missing SAVER-RULES.md" "$out"
 fi
-if ! printf '%s' "$out" | grep -qi 'saver'; then
+if ! printf '%s' "$out" | grep -qiE 'saver (L[0-9]|level|off)'; then
     pass "10f systemMessage is the plain day-run one"
 else
     fail "10f systemMessage claims a saver level" \
@@ -393,7 +393,7 @@ rm -f "$WM"
 # passes. Every output must also be valid JSON (the hook must never fail).
 run_hook_env() { # $1 = cwd, $2 = home, $3 = plugin root, then KEY=VALUE pairs
     local c="$1" h="$2" r="$3"; shift 3
-    printf '{"cwd":"%s"}' "$c" | env -u ANTHROPIC_BASE_URL -u CC_ROUTER_WORKER -u CC_WORKER_MODE \
+    printf '{"cwd":"%s"}' "$c" | env -u ANTHROPIC_BASE_URL -u CC_ROUTER_WORKER -u CC_WORKER_MODE -u BAJZI_SPLIT -u BAJZI_SANDBOX \
         HOME="$h" CLAUDE_PLUGIN_ROOT="$r" BAJZI_SAVER_LAUNCHER=bash "$@" bash "$HOOK_SH"
 }
 for f in SAVER-L1.md SAVER-L3.md GLM-WORKER.md; do ln -sf "$MODE_DIR/$f" "$FAKE_ROOT/skills/mode/$f"; done
@@ -491,6 +491,65 @@ rm -f "$FAKE_HOME/.claude/worker-mode"
 # 11p: the env level is normalised like the file.
 expect "11p CC_WORKER_MODE=TIGHT -> L3" \
   "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=TIGHT)" 'SAVER LEVEL L3' 'treated as L0'
+
+# 11q: level/provider mismatch line (L2/L3 on Claude); absent on a GLM provider.
+MM='but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker'
+printf 'day-run
+' > "$FAKE_HOME/.claude/bajzi-mode"; printf 'glm
+' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11q L2 on Claude: mismatch line in the saver block" "$out" "L2 $MM"
+expect_msg "11q L2 on Claude: mismatch line in the systemMessage" "$out" "L2 $MM"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
+expect "11q L3 on Claude: mismatch line in the saver block" "$out" "L3 $MM"
+expect_msg "11q L3 on Claude: mismatch line in the systemMessage" "$out" "L3 $MM"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
+expect "11q GLM provider: no mismatch line" "$out" 'SAVER LEVEL L3' "$MM"
+# 11q2: launcher missing -> no saver block at L2, but the gate is open: the mismatch line still shows.
+printf 'glm
+' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_SAVER_LAUNCHER=bajzi-no-such-launcher-xyz)"
+expect_msg "11q2 L2 on Claude, launcher missing: mismatch line in the systemMessage" "$out" "L2 $MM"
+rm -f "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_SAVER_LAUNCHER=bajzi-no-such-launcher-xyz)"
+expect_msg "11q2b day-run off, L2 on Claude, launcher missing: mismatch line" "$out" "L2 $MM"
+expect_msg "11q2b day-run off: no 'saver off', names worker --level 0" "$out" 'worker --level 0' 'saver off:'
+printf 'day-run
+' > "$FAKE_HOME/.claude/bajzi-mode"
+# 11q4: on Linux (BAJZI_UNAME forces it; Git Bash says MINGW) an L2/L3 Claude session that is not a
+# sandboxed `split` session (no BAJZI_SANDBOX=1) is told the strict tier needs the split launcher.
+SPL='strict tier needs the split launcher: restart this session with: split'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux)"
+expect_msg "11q4 Linux, L2 on Claude: split hint in the systemMessage" "$out" "$SPL"
+expect "11q4 Linux, L2 on Claude: valid JSON" "$out" 'SAVER LEVEL L2'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight BAJZI_UNAME=Linux)"
+expect_msg "11q4 Linux, L3 on Claude: split hint" "$out" "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux BAJZI_SANDBOX=1)"
+expect_msg "11q4 Linux split session (BAJZI_SANDBOX=1): no split hint" "$out" "L2 $MM" "$SPL"
+# A session already started with split (BAJZI_SPLIT=1) but without the sandbox (BAJZI_SANDBOX unset: bwrap/socat missing, or the bwrap probe failed)
+# is never told to restart with split; the hint names what is missing.
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux BAJZI_SPLIT=1)"
+expect_msg "11q4 Linux split session without the sandbox: no 'restart with split'" "$out" "L2 $MM" "$SPL"
+expect_msg "11q4 Linux split session without the sandbox: hint names bubblewrap/socat and the bwrap probe" "$out" 'split session has no OS sandbox: bubblewrap or socat is missing, or bwrap cannot create a namespace'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=MINGW64_NT-10.0)"
+expect_msg "11q4 not Linux: no split hint" "$out" "L2 $MM" "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux "$ZAI")"
+expect_msg "11q4 Linux, GLM provider: no split hint" "$out" 'saver L3' "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=light BAJZI_UNAME=Linux)"
+expect_msg "11q4 Linux, L1: no split hint" "$out" 'saver L1' "$SPL"
+# 11q5: a sandboxed split session (BAJZI_SANDBOX=1, the saver guard's tmp rule) gets the scratch line in the saver block (model context), never in the systemMessage.
+SCR='Split session: write scratch/temp files with the Bash tool'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_SANDBOX=1)"
+expect "11q5 BAJZI_SANDBOX=1: scratch line in the saver block" "$out" "$SCR"
+expect_msg "11q5 BAJZI_SANDBOX=1: scratch line not in the systemMessage" "$out" "L2 $MM" "$SCR"
+expect "11q5 no BAJZI_SANDBOX: no scratch line" "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm)" 'SAVER LEVEL L2' "$SCR"
+expect "11q5 BAJZI_SPLIT=1 alone (no sandbox): no scratch line" "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_SPLIT=1)" 'SAVER LEVEL L2' "$SCR"
+# 11q3: the injected L3 block on a Claude session must not forbid the Claude fallback at a peak exit 75.
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
+expect "11q3 L3 on Claude: peak line allows the Claude fallback" "$out" 'ORIGINAL Agent call' 'There is no Claude fallback at L3'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
+expect "11q3 L3 on a GLM session: no Claude to fall back to" "$out" 'no Claude to fall back to'
+rm -f "$FAKE_HOME/.claude/worker-mode"
 
 # --- case 12: routing-violation counter (PostToolUse on Agent) ---
 #
@@ -1109,6 +1168,10 @@ clic log review bajzi:reviewer b.txt allow; rc=$?
 clic log review bajzi:reviewer b.txt deny; rc=$?
 [ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && tail -1 "$DL" | grep -qE $'\tSKILL-REVIEW\tbajzi:reviewer\t8\tdeny$' \
     && pass "16g4b gate open: deny -> SKILL- line still written" || fail "16g4b" "rc=$rc $(tail -1 "$DL")"
+# 16g4c: a GLM dispatch (glm:<agent>) is logged even with the gate open: the hook never sees the Bash call.
+n0="$(wc -l < "$DL")"
+clic log implement glm:implementer b.txt allow; rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && tail -1 "$DL" | grep -qE $'	SKILL-IMPLEMENT	glm:implementer	8	allow$'     && pass "16g4c gate open: glm: allow -> SKILL- line written" || fail "16g4c" "rc=$rc $(tail -1 "$DL")"
 # 16g5: the gate check cannot run (no hooks/lib-saver-level.sh next to lib/) -> fail toward a duplicate line.
 mkdir -p "$TMP/nohooks"; cp -r "$BAJZI_DIR/lib" "$TMP/nohooks/lib"; n0="$(wc -l < "$DL")"
 (cd "$CAD" && env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$TMP/home-closed" node "$TMP/nohooks/lib/findings-cli.js" log review bajzi:reviewer b.txt allow); rc=$?

@@ -13,7 +13,7 @@ Every fix goes through `bajzi:fixer`; you never fix the findings yourself. `FC` 
 2. `FC slice "<slice-id>"` for `files:` and `test:`. Remember `base` = the left side of the r1
    file's `range:` line (a full SHA).
 3. Dispatch per dispatch.md, class `fix`, brief = the fixer brief on the `.fixer.md` file. A guard
-   deny -> print the reason and its rule id, STOP. Save the final message to
+   deny -> print the reason and its rule id, STOP; except `saver-guard:` (dispatch.md step 3: run it on GLM; never fix the findings yourself). Save the final message to
    `runtime/findings/<slice-id>-r1.report.md`.
 4. Run the `test:` command, unless it is `test: skip` (print "no test", run nothing; the gate in
    step 5 still runs). Red -> STOP and report; no commit, no round 2.

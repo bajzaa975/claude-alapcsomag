@@ -191,3 +191,197 @@ test('SUPERVISE-PROMPT relaunches with the same runner-only LAUNCH_LINE as WATCH
   has(flat(r(sup)).split('- **Relaunch**')[1].split('ONLY when ALL hold')[0], line);
   has(r(watch), line);
 });
+
+// ---------- nr-glm-night: nights at L2/L3 run on GLM ----------
+const BRIEF = read('templates', 'BRIEF.md.tmpl');
+
+test('PHASE C config.env render at L2/L3: CLAUDE_BIN glm, MODEL opus, triage and supervisor off', () => {
+  const c = flat(phase('## PHASE C', '## PHASE D'));
+  has(c, 'At L2/L3 (`glm`/`tight`, the level PHASE A step 8 resolved)');
+  has(c, '`CLAUDE_BIN="glm"`');
+  has(c, '`MODEL="opus"`');
+  has(c, 'cc-router maps the opus alias to glm_orchestrator_model');
+  has(c, '`WATCH_TRIAGE="0"`');
+  has(c, '`SUPERVISE="0"`');
+  has(c, '# off: triage and supervisor run on Claude only (supervise.sh scrubs the router env), a GLM night runs without them');
+});
+
+test('PHASE C BRIEF render: GLM delegation variant at L2/L3, Claude-tier variant at L0/L1', () => {
+  const c = flat(phase('## PHASE C', '## PHASE D'));
+  has(c, '`{{DELEGATION_TABLE}}` and `{{DELEGATION_MODELS}}`');
+  has(c, 'GLM variant at L2/L3, Claude-tier variant at L0/L1');
+});
+
+test('PHASE D gate at L2/L3: two BLOCKER greps and the 06:00 UTC deadline check', () => {
+  const d = flat(phase('## PHASE D', '## PHASE E'));
+  has(d, "`grep -c 'glm -p' <NIGHT_DIR>/BRIEF.md`");
+  has(d, "`grep -qx 'CLAUDE_BIN=\"glm\"' <NIGHT_DIR>/config.env`");
+  has(d, 'BLOCKER');
+  has(d, 'exit 75');
+  has(d, 'the deadline in UTC and in local time');
+});
+
+test('BRIEF.md.tmpl: GLM variant names glm -p, L0/L1 variant keeps Haiku/Sonnet, body uses the placeholders', () => {
+  const head = BRIEF.slice(0, BRIEF.indexOf('\n-->'));
+  const g = flat(head.split('DELEGATION VARIANT L2/L3')[1].split('DELEGATION VARIANT L0/L1')[0]);
+  const l = flat(head.split('DELEGATION VARIANT L0/L1')[1]);
+  has(g, 'glm -p --model haiku');
+  has(g, '| implement a slice, TDD | `glm -p`');
+  has(g, '{{BASE}}/runtime/review-queue/<id>.md');
+  has(g, 'nothing is merged unattended');
+  assert.ok(!/Haiku|Sonnet/.test(g), 'GLM variant names no Claude tier');
+  has(l, '| locate code, explore layout | Haiku');
+  has(l, '| write a document > 100 lines | Sonnet');
+  has(l, 'Sonnet for documents over 100 lines; Haiku for exploration');
+  const body = BRIEF.slice(BRIEF.indexOf('\n-->'));
+  assert.strictEqual(body.split('{{DELEGATION_TABLE}}').length, 2);
+  assert.strictEqual(body.split('{{DELEGATION_MODELS}}').length, 2);
+  assert.ok(!/\| Haiku /.test(body), 'no hard-coded Haiku row left in the body');
+});
+
+test('config.env.tmpl documents CLAUDE_BIN next to MODEL', () => {
+  const i = CONFIG.indexOf('MODEL="<reviewer allow-list entry [0]>"');
+  const near = flat(CONFIG.slice(i, i + 900));
+  has(near, '# CLAUDE_BIN="claude"');
+  has(near, 'glm at L2/L3, rendered by PHASE C');
+});
+
+// ---- nr-glm-night round 1 ----
+const variant = (name, level) => {   // the documented rule: lines strictly between the two fence lines, joined by \n, no trailing newline
+  const head = BRIEF.slice(0, BRIEF.indexOf('\n-->'));
+  const part = level === 'glm' ? head.split('DELEGATION VARIANT L2/L3')[1].split('DELEGATION VARIANT L0/L1')[0] : head.split('DELEGATION VARIANT L0/L1')[1];
+  const lines = part.split('\n');
+  const at = lines.findIndex((l) => l.trim() === `${name}:`);
+  assert.ok(at >= 0, name);
+  const o = at + 1, c = lines.findIndex((l, i) => i > o && /^\s*```\s*$/.test(l));
+  assert.ok(/^\s*```\s*$/.test(lines[o]) && c > o, 'fenced');
+  return lines.slice(o + 1, c).join('\n');
+};
+const GLM_TABLE = variant('DELEGATION_TABLE', 'glm');
+const GLM_MODELS = variant('DELEGATION_MODELS', 'glm');
+
+test('F1/F8 PHASE C sets the four config.env keys at EVERY level: replace an uncommented line or append, idempotent', () => {
+  const c = flat(phase('## PHASE C', '## PHASE D'));
+  has(c, 'setting four keys at EVERY level');
+  has(c, 'replace its uncommented line when there is one, or append one when there is none');
+  has(c, 'never a second line for a key, so a re-render is idempotent');
+  has(c, 'Write the `# off:` line and the two `# was-` lines once');
+  has(c, '`CLAUDE_BIN="claude"` and `MODEL="<reviewer allow-list entry [0]>"`');
+  has(c, 'ONLY when the `# off:` marker line is present');
+  has(c, 'delete the `WATCH_TRIAGE="0"` / `SUPERVISE="0"` lines and the `# off:` line');
+  has(c, "put back each `# was-` line that is not `none` as the owner's own line");
+  has(c, "saving the owner's previous lines BEFORE overwriting them");
+  has(c, "# was-WATCH_TRIAGE: <the owner's uncommented WATCH_TRIAGE line, or none>");
+  assert.ok(!c.includes('At L0/L1 config.env is left exactly as it is'));
+});
+
+test('F1 PHASE D at L0/L1 refuses a config.env that still holds CLAUDE_BIN="glm"', () => {
+  const d = flat(phase('## PHASE D', '## PHASE E'));
+  has(d, 'At L0/L1 only');
+  has(d, "BLOCKER when `grep -qx 'CLAUDE_BIN=\"glm\"' <NIGHT_DIR>/config.env` succeeds");
+});
+
+test('F2 GLM variant overrides section 7 too; L2/L3 settings deny gh pr merge and the gate checks it', () => {
+  has(flat(GLM_TABLE), 'overrides sections 4, 5 and 7');
+  const c = flat(phase('## PHASE C', '## PHASE D'));
+  has(c, '"Bash(gh pr merge:*)", "Bash(*gh pr merge*)"');
+  has(c, 'strip every `gh pr merge` allow rule');
+  const d = flat(phase('## PHASE D', '## PHASE E'));
+  has(d, '`Bash(*gh pr merge*)` is in `permissions.deny` of `<NIGHT_DIR>/settings.local.json`');
+  has(d, 'no `gh pr merge` rule is left in `permissions.allow`');
+});
+
+test('F3 GLM variant: absolute queue file under BASE with the rq header and status line; PHASE F lists open items', () => {
+  const g = flat(GLM_TABLE);
+  has(g, '{{BASE}}/runtime/review-queue/<id>.md');
+  has(g, 'never inside `{{NIGHT_DIR}}/wt/<id>/`');
+  for (const h of ['# Review queue: <id>', 'status: open', 'branch:', 'sprint: <id>', 'files:', '## Evidence']) has(g, h);
+  assert.ok(!g.includes('$SAVER_QUEUE_FILE'));
+  const f = flat(SKILL.slice(SKILL.indexOf('## PHASE F')));
+  has(f, "grep -lE '^status:[ \\t]*(open|pending)' <BASE>/runtime/review-queue/*.md");
+  has(f, 'no ledger line');
+});
+
+test('F4 GLM variant: the story ends with a RESULT line that is valid under the section 9 grammar', () => {
+  const body = BRIEF.slice(BRIEF.indexOf('\n-->'));
+  const gram = body.match(/^ {3}RESULT <id> <([a-z|]+)> PR#<n or -> review=<([a-z|]+)> rounds=<n> reason=<([a-z|-]+)>$/m);
+  assert.ok(gram, 'grammar line');
+  const [states, reviews, reasons] = gram.slice(1).map((x) => x.split('|'));
+  const m = flat(GLM_TABLE).match(/RESULT <id> (\S+) PR#<n or -> review=([a-z]+) rounds=0 reason=([a-z-]+)/);
+  assert.ok(m, 'GLM RESULT line');
+  const [, st, rv, rs] = m;
+  assert.ok(states.includes(st) && reviews.includes(rv) && (reasons.includes(rs) || rs === '-'), 'tokens in grammar');
+  assert.ok(!(['merged', 'open'].includes(st) && rv === 'parked'), 'no contradiction');
+  assert.ok(!(st === 'parked' && rs === '-'), 'parked carries a real reason');
+  assert.ok(!/BUILT/.test(GLM_TABLE), 'no BUILT token');
+});
+
+test('F5 PHASE D at L2/L3: launch-to-deadline interval must not overlap any 06:00-10:00 UTC window', () => {
+  const d = flat(phase('## PHASE D', '## PHASE E'));
+  has(d, 'launch-to-deadline interval overlaps any 06:00-10:00 UTC window');
+  has(d, 'on any day of a multi-day run');
+  const blk = phase('## PHASE D', '## PHASE E').match(/```bash\n\s*(L=\$\(date -u[\s\S]*?)```/);
+  assert.ok(blk, 'peak check script');
+  const run = (L, D) => spawnSync('bash', ['-c', blk[1].replace(/^L=.*$/m, `L=${L}; D=${D}`)], { encoding: 'utf8' });
+  const t = (s) => Date.parse(s) / 1000;
+  const r0 = run(t('2026-10-06T00:00:00Z'), t('2026-10-06T05:00:00Z'));
+  if (r0.error) return;
+  assert.strictEqual(r0.stdout, '', 'night before the window: clean');
+  assert.match(run(t('2026-10-06T22:00:00Z'), t('2026-10-07T07:00:00Z')).stdout, /BLOCKER/);
+  assert.match(run(t('2026-10-06T22:00:00Z'), t('2026-10-08T05:00:00Z')).stdout, /BLOCKER/);   // multi-day crossing a window
+  assert.match(run(t('2026-10-06T08:00:00Z'), t('2026-10-06T12:00:00Z')).stdout, /BLOCKER/);   // launch inside the window
+  assert.strictEqual(run(t('2026-10-06T10:00:00Z'), t('2026-10-07T05:59:00Z')).stdout, '');
+});
+
+test('S3-F12 GLM variant: a re-run resets an existing queue file status to open and rewrites branch and files', () => {
+  const g = flat(GLM_TABLE);
+  has(g, 'When it already exists (an earlier night), first reset its `status:` line to `status: open` and rewrite its `branch:` and `files:` lines for this run, then APPEND');
+});
+
+test('S3-F13 peak check parses the deadline as LOCAL time: TZ-independent result', () => {
+  const blk = phase('## PHASE D', '## PHASE E').match(/```bash\n\s*(L=\$\(date -u[\s\S]*?)```/);
+  assert.ok(blk, 'peak check script');
+  const t = (s) => Date.parse(s) / 1000;
+  const run = (L, dl) => spawnSync('bash', ['-c', blk[1].replace('L=$(date -u +%s)', `L=${L}`).replace('<deadline>', dl)], { encoding: 'utf8', env: { ...process.env, TZ: 'JST-9' } });
+  const r0 = run(t('2026-10-06T00:00:00Z'), '2026-10-06 14:00');   // 05:00Z: before the window
+  if (r0.error) return;
+  assert.strictEqual(r0.stdout, '', 'local 14:00 JST = 05:00Z is clean');
+  assert.match(run(t('2026-10-06T00:00:00Z'), '2026-10-06 16:00').stdout, /BLOCKER/);   // 07:00Z
+  const d = flat(phase('## PHASE D', '## PHASE E'));
+  has(d, 'append the local offset (`date +%z`, e.g. `2026-10-07 04:30 +0900`) to `<deadline>`');
+});
+
+test('F6 L0/L1 variant extracted by the documented rule reproduces the 1.15.2 text around both placeholders', () => {
+  has(flat(phase('## PHASE C', '## PHASE D')), "the lines strictly between the two fence lines, joined with a single newline, no trailing newline, and the closing fence's indent is not part of it");
+  const body = BRIEF.slice(BRIEF.indexOf('\n-->'))
+    .replace('{{DELEGATION_TABLE}}', variant('DELEGATION_TABLE', 'l0'))
+    .replace('{{DELEGATION_MODELS}}', variant('DELEGATION_MODELS', 'l0'));
+  has(body, [
+    '| work                          | model        | must return                                |',
+    '|-------------------------------|--------------|--------------------------------------------|',
+    '| locate code, explore layout   | Haiku        | paths plus <= 10 lines, no file contents   |',
+    '| implement a slice, TDD        | `{{MODEL}}`  | files changed, test counts, <= 15 lines    |',
+    '| run a test suite              | Haiku        | pass/fail counts, failing test names only  |',
+    '| review a diff                 | `{{REVIEWER_MODEL}}`, always | the section 4 verdict, <= 20 lines |',
+    '| fix review findings           | `{{MODEL}}`  | what changed, <= 10 lines                  |',
+    '| write a document > 100 lines  | Sonnet       | the path plus <= 5 lines                   |',
+    '',
+    'Every dispatch prompt you write ends with an explicit line budget'].join('\n'));
+  has(body, [
+    "- **Every other sub-agent's model is your choice**, per the table in section 2:",
+    '  `{{MODEL}}` for implementation, TDD, fixes and any judgment call the story',
+    '  hinges on; Sonnet for documents over 100 lines; Haiku for exploration,',
+    '  single-fact lookups, log grepping, and running or summarising tests. Spend',
+    '  model capability where judgment is needed and not elsewhere.'].join('\n'));
+});
+
+test('F7 GLM DELEGATION_MODELS names glm -p for implementation and fixes, not the orchestrator model', () => {
+  const m = flat(GLM_MODELS);
+  has(m, '`glm -p` for implementation, TDD, fixes');
+  assert.ok(!m.includes('{{MODEL}}'));
+});
+
+test('F10 BRIEF head comment admits the live tokens in the variant blocks', () => {
+  const head = flat(BRIEF.slice(0, BRIEF.indexOf('\n-->')));
+  has(head, 'except the variant blocks below, which hold live tokens');
+});

@@ -272,7 +272,8 @@ const cmds = {
     // telemetry, not an audit trail; upgrade = pair the skill's line with the hook's line in the log.
     // A deny is always written here: it cannot tell a guard refusal from a harness or user refusal.
     // The skill (dispatch.md step 3) skips this call for `dispatch-guard R<n>:` refusals, which the hook logged.
-    if (decision === 'allow') {
+    // A glm:<agent> dispatch runs through Bash, which the hook never sees: always write it.
+    if (decision === 'allow' && !sub.startsWith('glm:')) {
       let gate = '';
       try {
         gate = execFileSync('bash', ['-c', '. "$1" && saver_resolve "$2" && printf %s "$SAVER_GATE_OPEN"', 'bash',

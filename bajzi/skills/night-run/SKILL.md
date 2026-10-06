@@ -75,7 +75,7 @@ opens nothing. Anywhere below that a path is meant, it is spelled `<BASE>`; `<RE
 only where the `owner/name` value is wanted. There is no third spelling.
 
 0. **`config.env` — resolve and validate it BEFORE anything reads it.** It is the single
-   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the thirteen
+   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the fifteen
    PHASE C placeholders, and `BASE` in particular is the directory the allowlist is
    installed into and every story session starts from — an invented value points the whole
    night at the wrong tree.
@@ -499,6 +499,56 @@ section-3 and section-7 rulings, the rules check) reads the `night/base-<stamp>`
 step 3 created from a fresh `origin/<BASE_BRANCH>`, never the tree BASE happened to hold. If
 that step did not run or was a BLOCKER, render nothing from BASE.
 
+**Saver level L2/L3: a GLM night.** Re-use the level PHASE A step 8 resolved with
+`saver_resolve` (`SAVER_LEVEL`). At L2/L3 (`glm`/`tight`, the level PHASE A step 8 resolved) every
+story must run on GLM, or `run.sh` starts `claude` and the whole night bills Anthropic (measured:
+a night at L2 launched with plain `claude` showed `worker --usage` anthropic 100%, glm 0 requests).
+Edit `<NIGHT_DIR>/config.env` before anything reads it below, setting four keys at EVERY level, so
+a night at L0/L1 never inherits the GLM values an earlier L2/L3 plan left in the persistent file.
+For each key replace its uncommented line when there is one, or append one when there is none
+(config.env.tmpl carries `CLAUDE_BIN`, `WATCH_TRIAGE` and `SUPERVISE` only commented out); never a
+second line for a key, so a re-render is idempotent. L2/L3 values:
+
+```
+CLAUDE_BIN="glm"
+MODEL="opus"   # cc-router maps the opus alias to glm_orchestrator_model; the reviewer allow-list id is not reachable on GLM
+WATCH_TRIAGE="0"
+SUPERVISE="0"
+# off: triage and supervisor run on Claude only (supervise.sh scrubs the router env), a GLM night runs without them
+# was-WATCH_TRIAGE: <the owner's uncommented WATCH_TRIAGE line, or none>
+# was-SUPERVISE: <the owner's uncommented SUPERVISE line, or none>
+```
+
+Write the `# off:` line and the two `# was-` lines once, saving the owner's previous lines BEFORE overwriting them (skip all three when `# off:` is already there, so the first saved values survive a re-render). `CLAUDE_BIN="glm"` and `MODEL="opus"` are the L2/L3 render, `WATCH_TRIAGE="0"` and `SUPERVISE="0"` its two off switches: `MODEL="opus"` replaces the allow-list
+entry (the reviewer allow-list id is not reachable on GLM; `{{REVIEWER_MODEL}}` in BRIEF.md is
+unchanged and the review is queued instead, below).
+
+At L0/L1 set `CLAUDE_BIN="claude"` and `MODEL="<reviewer allow-list entry [0]>"` (the `--first` read
+PHASE A step 0 wrote), and for triage and supervisor, ONLY when the `# off:` marker line is present (the GLM render's), delete the `WATCH_TRIAGE="0"` / `SUPERVISE="0"` lines and the `# off:` line
+the L2/L3 render added, put back each `# was-` line that is not `none` as the owner's own line, then delete the `# was-` lines. Without the `# off:` marker leave both keys exactly as they are (they are the owner's own).
+
+The BRIEF.md render below takes the GLM delegation variant at L2/L3 and the Claude-tier variant at
+L0/L1 (byte-identical to 1.15.2).
+
+At L2/L3 the settings must also make the no-merge rule mechanical, because the runner's own story
+prompt still orders a squash-merge once review-green and CI-green. After the settings post-render
+step below, run this once per render (it is idempotent):
+
+```bash
+python3 - /home/ubuntu/night-runs/<project>/settings.local.json <<'GLMDENY'
+import json, sys
+f = sys.argv[1]
+s = json.load(open(f, encoding="utf-8"))
+p = s["permissions"]
+p["allow"] = [r for r in p["allow"] if "gh pr merge" not in r]
+p["deny"] += [r for r in ("Bash(gh pr merge:*)", "Bash(*gh pr merge*)") if r not in p["deny"]]
+json.dump(s, open(f, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+GLMDENY
+```
+
+That is: strip every `gh pr merge` allow rule and deny `"Bash(gh pr merge:*)", "Bash(*gh pr merge*)"`. Run it
+before `supervise.settings.json` is written; at L0/L1 do not run it.
+
 Then write into `~/night-runs/<project>/`:
 
 - `launch.sh`, rendered from `templates/launch.sh.tmpl` into `<NIGHT_DIR>/launch.sh` on EVERY
@@ -588,12 +638,17 @@ Then write into `~/night-runs/<project>/`:
   (`SUPERVISE MISCONFIGURED ... missing or unrendered`), so the supervisor would do nothing all night.
 - `BRIEF.md`, rendered from `templates/BRIEF.md.tmpl` in three steps, in this order.
 
-  **1. Substitute these THIRTEEN placeholders, and only these thirteen.**
+  **1. Substitute these FIFTEEN placeholders, and only these fifteen.**
   `{{PROJECT}} {{REPO}} {{BASE}} {{BASE_BRANCH}} {{BRANCH_PREFIX}} {{NIGHT_DIR}} {{MODEL}}
   {{REQUIRED_CHECK}} {{PER_STORY_TIMEOUT}}` come from the same-named `config.env` fields;
   `{{NIGHT_RULES}}` is the full body of the project's `docs/NIGHT-RULES.md`, verbatim;
   `{{RUN_DATE}}` is `date +%F` of the night being planned;
   `{{REVIEWER_MODEL}}` is entry [0] of the reviewer allow-list (the `--first` read above);
+  `{{DELEGATION_TABLE}}` and `{{DELEGATION_MODELS}}` are the two blocks of the `DELEGATION
+  VARIANT` section in the template's opening comment (GLM variant at L2/L3, Claude-tier variant at
+  L0/L1; the level is the one PHASE A step 8 resolved): the block is the lines strictly between the two fence lines, joined with a single newline, no trailing newline, and the closing fence's indent is not part of it
+  (the indent of continuation lines inside the block is part of it); copy it verbatim,
+  and substitute these two FIRST, so the `{{MODEL}}` inside them is filled by the same pass;
   `{{QUEUE_TABLE}}` is the ordered queue as a markdown table whose header row is exactly
   `| id | size | needs | criteria |` —
   **escape every `|` inside a cell as `\|`**. Criteria routinely contain pipes
@@ -615,7 +670,7 @@ Then write into `~/night-runs/<project>/`:
   src  = open(brief).read()
   assert src.count('{{NIGHT_RULES}}') == 1, 'expected exactly one {{NIGHT_RULES}}'
   src = src.replace('{{NIGHT_RULES}}', body)  # str.replace: BOTH sides literal
-  # ... the other twelve single-line values exactly the same way, e.g.
+  # ... the other fourteen single-line values exactly the same way, e.g.
   # src = src.replace('{{PROJECT}}', project)
   open(brief, 'w').write(src)
   PY
@@ -674,7 +729,7 @@ Then write into `~/night-runs/<project>/`:
   re-inject a live placeholder, and must be deleted from the project's file.
 
 `config.env` is NOT rendered here — PHASE A step 0 created and validated it, because steps
-3-5 and the thirteen placeholders above read it. If it is still missing at this point, step 0
+3-5 and the fifteen placeholders above read it. If it is still missing at this point, step 0
 was skipped: go back and do it, do not improvise values. Render only
 `settings.local.json`, from `templates/settings.local.json.tmpl`, for PHASE E to install.
 The JSON template is NOT copy-ready and its own `_comment_placeholders` says what it needs:
@@ -991,7 +1046,7 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    (`STALE RENDER: rendered <SHA>, origin now <SHA2>`): go back to the re-render rule, do not
    show an approval question.
 8. the deadline next to the plan's total estimate, as an absolute date+time in the run
-   machine's local zone AND in UTC (`date -d "<deadline>" '+%F %H:%M %Z'` and `date -u -d "<deadline>" '+%F %H:%M UTC'`).
+   machine's local zone AND in UTC (`date -d "<deadline>" '+%F %H:%M %Z'` and `date -u -d "<deadline>" '+%F %H:%M UTC'`; for the UTC command append the local offset (`date +%z`, e.g. `2026-10-07 04:30 +0900`) to `<deadline>`, because `date -u -d` reads a bare time as UTC).
    When the estimate does not fit one night, the owner chooses here between a one-night queue
    (the rest deferred with reason budget) and a multi-day deadline that covers it. Then the
    `WATCH_MAX_RESTARTS` value written for that run length, and ONCE, as a risk: a multi-day
@@ -1009,6 +1064,32 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    deadline or to the queue goes back to PHASE C: rewrite `WATCH_MAX_RESTARTS`, re-render everything PHASE C renders (`queue.txt`,
    `BRIEF.md`, `launch.sh`, `WATCHER-BRIEF.md`, `SUPERVISE-PROMPT.md`, the settings
    post-render step, `supervise.settings.json`) with its checks, then show the whole gate again before PHASE E.
+9. **At L0/L1 only (the level of PHASE A step 8), the stale-GLM check.** BLOCKER when `grep -qx 'CLAUDE_BIN="glm"' <NIGHT_DIR>/config.env` succeeds:
+   a GLM render of an earlier L2/L3 plan is still in the persistent file and the night would bill GLM
+   under a Claude-tier plan. Fix: re-run PHASE C, which sets the four keys back at this level.
+10. **At L2/L3 only (the level of PHASE A step 8), the GLM night checks.** Each is a
+   BLOCKER, shown with its fix, and the gate shows no approval question until all pass:
+   - `grep -c 'glm -p' <NIGHT_DIR>/BRIEF.md` prints more than 0 (the GLM delegation rows were
+     rendered, not the Claude-tier ones);
+   - `grep -qx 'CLAUDE_BIN="glm"' <NIGHT_DIR>/config.env` succeeds (the runner starts every story on GLM);
+   - `Bash(*gh pr merge*)` is in `permissions.deny` of `<NIGHT_DIR>/settings.local.json` and no `gh pr merge` rule is left in `permissions.allow`
+     (`grep -c 'Bash(\*gh pr merge\*)'` > 0; the runner's story prompt still orders a merge, only the permission layer stops it);
+   - BLOCKER when the planned launch-to-deadline interval overlaps any 06:00-10:00 UTC window, on any day of a multi-day run:
+     the Z.ai peak window refuses GLM with exit 75 and the night stops dead. Print the deadline in UTC and in local
+     time (same two `date` commands as item 8), then run (launch = now, or the owner's stated launch time as epoch `L`):
+
+     ```bash
+     L=$(date -u +%s); D=$(date -d "<deadline>" +%s)
+     for i in $(seq 0 $(( (D - L) / 86400 + 1 ))); do
+       day=$(date -u -d "@$((L + i * 86400))" +%F)
+       [ "$(date -u -d "$day 06:00" +%s)" -lt "$D" ] && [ "$(date -u -d "$day 10:00" +%s)" -gt "$L" ] && echo "BLOCKER: peak window $day 06:00-10:00 UTC overlaps the run"
+     done
+     ```
+
+   There is no Opus reviewer on a GLM night: say that every story ends `parked` with `review=parked` and its
+   evidence queued in `<BASE>/runtime/review-queue/<id>.md` (header and `status: open` line written by the story; no ledger
+   line, spec §6.1), never merged, and that nothing is merged unattended; this replaces the "Opus review-and-fix loop" line
+   of item 2 at L2/L3. Triage and the supervisor are off (`WATCH_TRIAGE="0"`, `SUPERVISE="0"`).
 The owner approves or edits once. Then go to PHASE E.
 
 ## PHASE E — Launch (the owner's step)
@@ -1201,6 +1282,13 @@ PRs that are BOTH review-green and CI-green under the NIGHT-RULES merge policy �
 night PARKED is re-reviewed, not waved through because it is morning; run the post-merge
 invariants after each merge; clean up worktrees per spec section 8, KEEPING anything dirty,
 unpushed or parked; refresh the deck and update the owner's single runbook list in place.
+
+**List the night's open review-queue items (a GLM night, L2/L3).** Every story of such a night leaves its
+review in `<BASE>/runtime/review-queue/<id>.md` and its PR open; `<BASE>` is the `config.env` value. Run
+`grep -lE '^status:[ \t]*(open|pending)' <BASE>/runtime/review-queue/*.md` and list every hit in the
+morning report with its PR as a review still owed. These items have no ledger line (the stories cannot
+run `rq create`), so the §6.11.5 drain and `rq list-open` never see them: review each PR as in the
+paragraph above, then set the file's `status:` to `clean`.
 
 **Read `~/night-runs/<project>/watch.log` before the rows.** One line per watcher tick; what
 matters is the STATUS TRANSITIONS — `QUOTA-WAIT`, `RESTARTED`, `DEAD`, `STALLED`, `DISK-LOW`,

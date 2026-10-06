@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { NODE_DIR, tmpDir, runScript } = require('./helpers');
 const { writeBridge } = require('../lib/bridge');
+const { peakStatus } = require('../lib/peak');
 
 const PRE = path.join(NODE_DIR, 'pre-tool.js');
 const POST = path.join(NODE_DIR, 'post-tool.js');
@@ -168,6 +169,27 @@ test('a writer guard that throws leaves the other checks\' result unchanged', ()
     assert.match(log(r), / writer-guard broken writer-guard\n$/);
     assert.strictEqual(run(pt, input).stdout, '');   // alone, it fails open
   }
+});
+
+test('pre-tool routes an Edit through the saver guard (L2 on Anthropic, gate open by CC_WORKER_MODE)', () => {
+  const cwd = tmpDir('bajzi-thsg-');
+  const env = { TMPDIR: tmpDir('bajzi-th-'), CC_WORKER_MODE: 'glm' };
+  const inPeak = peakStatus(Date.now()).inPeak;   // the subprocess reads the real clock
+  const r = runScript(PRE, JSON.stringify(Object.assign(pre('Edit', { file_path: 'src/x.js', old_string: 'a', new_string: 'b' }), { cwd })), env);
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.stderr, '');
+  const vlog = fs.readFileSync(path.join(cwd, 'runtime', 'routing-violations.log'), 'utf8');
+  if (inPeak) {
+    assert.strictEqual(r.stdout, '');
+    assert.match(vlog, /\tlevel=glm\tcause=peak\ttool=Edit\n$/);
+  } else {
+    assert.strictEqual(out(r).permissionDecision, 'deny');
+    assert.ok(out(r).permissionDecisionReason.startsWith('[bajzi:saver-guard] saver-guard: this session is at L2 '), out(r).permissionDecisionReason);
+    assert.match(vlog, /\tlevel=glm\tcause=blocked\ttool=Edit\n$/);
+  }
+  // worker --level never relaxes, so this deny holds at any hour.
+  const w = runScript(PRE, JSON.stringify(Object.assign(pre('Bash', { command: 'worker --level 0' }), { cwd })), env);
+  assert.match(out(w).permissionDecisionReason, /^\[bajzi:saver-guard\] saver-guard: only the owner may change the saver level/);
 });
 
 test('RF2: both entries survive bad stdin', () => {

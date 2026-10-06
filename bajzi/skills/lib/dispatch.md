@@ -20,6 +20,22 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
    to `runtime/dispatch-sizes.log`; the `SKILL-` prefix keeps it apart from the hook's own line.
    **Denied** (the reason starts `dispatch-guard R<n>:`) -> print the reason with its rule id and
    STOP the skill. Never retry with a trimmed or reworded brief; the owner decides.
+   **Exception, `saver-guard:`**: a refusal whose reason starts `saver-guard:` is NOT a stop (L2/L3 on
+   a Claude session blocks writer agents). Run the same brief on GLM: write the agent's own
+   `${CLAUDE_PLUGIN_ROOT}/agents/<agent>.md` body without its frontmatter, a line `---`, then the brief
+   file verbatim, to ONE file `runtime/briefs/<slice>-<class>.glm.txt`. From the repo root run
+   `glm -p --permission-mode bypassPermissions < runtime/briefs/<slice>-<class>.glm.txt` with the Bash tool,
+   foreground (timeout 600000), or run_in_background when it may exceed 10 minutes. (`glm` passes its
+   args straight to `claude`, `bin/cc-router.js` spawn. Measured: with `acceptEdits` a headless worker
+   edits files but its compound Bash call, the slice's `test:` command, is refused; `bypassPermissions`
+   ran both. User/project deny rules still apply under it. No per-command `--allowedTools`: test commands vary.) Save its stdout as the agent's final message where the table says, then
+   `FC log <class> glm:<agent> runtime/briefs/<slice>-<class>.glm.txt allow`. `glm` exit 75 (Z.ai peak)
+   -> dispatch the ORIGINAL Agent call again; the guard allows writes in the peak window. Any other
+   non-zero exit -> print it and STOP. Tier 1 slices use `bajzi:implementer-risk`, which the guard
+   allows, so they never take this path.
+   **Split session** (`BAJZI_SPLIT=1`, Linux sandbox): only `glm`, `git add`, `git commit` and the `FC` calls
+   write into the project. Branch creation, `git switch`/`checkout`/`merge`/`pull`/`fetch`/`push` and every
+   `gh` call run as `glm -p "<git/gh task>"` (same brief form), never directly.
 4. **Save the final message** verbatim where the row says (Write tool), before reading it.
 
 **Any `FC` exit code a skill step does not name -> print its output and the exit code, STOP.**

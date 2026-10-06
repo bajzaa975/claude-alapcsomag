@@ -108,15 +108,27 @@ Fixed rules, all levels: risk-bearing slices never start on GLM below L3; GLM ne
 code as a substitute for a reviewer-allow-list review - where no such review is available the review is queued, never downgraded; the GLM
 peak-window ban applies at every level that uses GLM (L1-L3), enforced by the shim.
 
-- `worker --level N` sets the level (0=claude, 1=light, 2=glm, 3=tight). Run from inside a
-  session (Bash/PowerShell tool) it sets THIS session's level only - other running sessions keep
-  theirs; `worker --level N --global`, or the same command from a plain shell, sets the machine
+- `worker --level N` sets the level (0=claude, 1=light, 2=glm, 3=tight). Typed by the owner
+  as `! worker --level N` in the prompt it sets THIS session's level only - other running sessions keep
+  theirs (Claude's own Bash/PowerShell call of it is denied by the saver guard at L2/L3); `worker --level N --global`, or the same command from a plain shell, sets the machine
   default (`~/.claude/worker-mode`), which every session without its own level follows.
   `worker --status` prints the level and where it came from (env / session / machine default /
   none), the GLM models and the state files; `worker --usage <since> --until <t>`
   reports the Anthropic/GLM weighted-token split since a time. Those commands come from the
   owner's `worker` wrapper (`bin/cc-router.js`), not from this plugin - this skill only
   READS the level files and never writes them. Day-run on/off stays machine-wide.
+- Only the owner changes the level, by typing `! worker --level <n>` in the prompt (the saver guard
+  denies Claude's own `worker --level/--set` calls at L2/L3). The level does not switch the provider of
+  a running session: a GLM session starts with `worker` (or `glm`).
+- An L2 split session (Claude orchestrates, GLM writes the code) starts with `split`. On Linux
+  (bubblewrap + socat installed) it is OS-enforced: Bash runs in Claude Code's sandbox with the
+  project read-only; only the excluded commands (`glm`, `git add`, `git commit`, the findings CLI)
+  write there. The Edit/Write tools reach only `runtime/` and `~/.claude/projects/*/memory/` (scratch files: write them with the shell; a refused pure tmp Write is logged `cause=scratch`, not a code-write deny).
+  Elsewhere the saver-guard tier applies. A `split` session's level is fixed at L2; to work on
+  Claude only, start plain `claude` at L0. Known limits of the sandboxed tier: with the project
+  read-only, `git switch`/`checkout <branch>`, branch creation, `merge`, `pull`, `fetch`, `push`,
+  `stash`, `rebase`, `worktree add`, every `gh` call and builds/tests that write into the project fail
+  when Claude runs them itself. Hand each to GLM: `glm -p "<git/gh task>"` (GLM tokens).
 - The hook injects saver text when day-run is on OR `$CC_WORKER_MODE` names a level
   (a runner-forced level) OR the provider is non-Anthropic; in plain normal mode with none of
   those it emits `{}` and saver mode has no effect at all. A non-Anthropic provider forces L3
