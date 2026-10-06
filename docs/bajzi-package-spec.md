@@ -454,7 +454,7 @@ At **L3**, GLM cannot reach an Opus review at all — so the review obligation i
 the session **queues** the review instead of performing it (`SAVER-L3.md:6-11`): it appends
 tier, slice, changed files, cited lines and its own findings under `## Evidence` in
 `$SAVER_QUEUE_FILE` = `runtime/review-queue/<sprint>.md`, and the sprint is marked **`BUILT`**,
-never DONE, until a real Opus session drains the queue (§6.11.5).
+never DONE, until a real Opus session drains the queue (§6.11.5). (`/bajzi:night-run` L2/L3 items are not in that ledger: see "Night-run GLM night" in §6.2.)
 
 **Peak window**: Z.ai charges 3x during its daily peak, 14:00-18:00 UTC+8 = 06:00-10:00 UTC =
 **08:00-12:00 CEST** (summer) / **07:00-11:00 CET** (winter) — the local boundary moves with the
@@ -482,7 +482,7 @@ across marketplaces; never changes the level); (c) a GLM smoke run exactly as th
 GLM (§6.2). At L0 the step runs nothing.
 Step 7, at every level, blocks on a user-level `Read`/`Edit` deny ending in `.env*`, `.env.*` or
 `.env.**`, with or without `**/` (it also denies the tracked `.env.example`) or a bracket class on an env name (measured inverted on 2.1.288) and
-prints the explicit env-name replacement; the owner edits the settings, never the skill.
+prints the explicit env-name replacement; the owner edits the settings, never the skill. At L2/L3 the night is a GLM night: PHASE C/D and PHASE F behaviour is in "Night-run GLM night" in §6.2 (L2/L3 stories queue their review in `<BASE>/runtime/review-queue/<id>.md`, not via the §6.11.5 drain).
 
 ### 6.2 The `glm` / `worker` / `ccr` shims — technical
 
@@ -566,16 +566,15 @@ regardless of `-Model` and verifies the served model id against the list itself.
 
 **Night-run GLM night (L2/L3)** (`/bajzi:night-run` PHASE C/D, the level PHASE A step 8 resolved; owner decision
 2026-10-06 after the innotel night of 2026-10-06 launched with plain `claude` at L2 and used GLM for 0 requests): at L2/L3
-PHASE C edits `<NIGHT_DIR>/config.env` to `CLAUDE_BIN="glm"` and `MODEL="opus"` (cc-router maps the opus alias to
+PHASE C sets four `<NIGHT_DIR>/config.env` keys at EVERY level (replace the uncommented line or append one; idempotent), at L2/L3 to `CLAUDE_BIN="glm"` and `MODEL="opus"` (cc-router maps the opus alias to
 `glm_orchestrator_model`; the reviewer allow-list id is not reachable on GLM) and to `WATCH_TRIAGE="0"` and `SUPERVISE="0"`
 (triage and supervisor run on Claude only, `supervise.sh` scrubs the router env, so a GLM night runs without them);
-`run.sh` itself is unchanged. The BRIEF.md render takes the GLM variant of the delegation table (`{{DELEGATION_TABLE}}`,
+at L0/L1 to `CLAUDE_BIN="claude"`, `MODEL=<reviewer allow-list entry [0]>` and with the `# off:` override lines removed (so a Claude-tier night never inherits GLM values); `run.sh` itself is unchanged. The BRIEF.md render takes the GLM variant of the delegation table (`{{DELEGATION_TABLE}}`,
 `{{DELEGATION_MODELS}}`): exploration and test runs `glm -p --model haiku`, implementation, fixes and documents > 100 lines
-`glm -p`, review none: every story ends `BUILT` with its review queued in `runtime/review-queue/<sprint>.md` (the §6.1
-SAVER-L3 mechanism, no second queue), never DONE, and nothing is merged unattended. The PHASE D gate adds, at L2/L3 only,
-three BLOCKERs: `grep -c 'glm -p' <NIGHT_DIR>/BRIEF.md` > 0, `grep -qx 'CLAUDE_BIN="glm"' <NIGHT_DIR>/config.env`, and a
-planned deadline past 06:00 UTC (the Z.ai peak window 06:00-10:00 UTC refuses GLM with exit 75 and the night stops dead);
-the deadline is printed in UTC and local time. L0/L1 behaviour and renders are unchanged.
+`glm -p`, review none: the GLM variant overrides BRIEF sections 4, 5 and 7; every story writes its evidence to the absolute `<BASE>/runtime/review-queue/<id>.md` (rq header plus `status: open`, outside any worktree, no ledger line, so the §6.11.5 drain does not see it; PHASE F lists the open items) and ends `RESULT <id> parked PR#<n> review=parked rounds=0 reason=review`, valid under the existing grammar (no `BUILT` token); nothing is merged unattended: PHASE C strips every `gh pr merge` allow rule from the rendered settings and denies `Bash(gh pr merge:*)` / `Bash(*gh pr merge*)`, because run.sh's own story prompt still orders a merge. The PHASE D gate adds, at L2/L3 only,
+four BLOCKERs: `grep -c 'glm -p' <NIGHT_DIR>/BRIEF.md` > 0, `grep -qx 'CLAUDE_BIN="glm"' <NIGHT_DIR>/config.env`, the merge deny present with no `gh pr merge` allow left, and a
+launch-to-deadline interval that overlaps any 06:00-10:00 UTC window on any day (the Z.ai peak window refuses GLM with exit 75 and the night stops dead);
+the deadline is printed in UTC and local time. At L0/L1 the gate blocks on `CLAUDE_BIN="glm"` in config.env. The L0/L1 BRIEF.md render is byte-identical to 1.15.2 (the variant block is the lines strictly between its fences, joined by newlines).
 
 **Night-run GLM smoke** (`/bajzi:night-run` PHASE A step 8 (c), L1-L3 only): a throwaway worktree
 `<NIGHT_DIR>/wt/SMOKE-GLM` from the freshly fetched `origin/<BASE_BRANCH>` on branch
@@ -726,7 +725,7 @@ Opus the account serves), never GLM" instead and adds "reviewer allow-list inval
 /bajzi:setup." to the systemMessage. A non-Anthropic session never gets the line (it queues its
 reviews, `SAVER-L3.md`). Tests: `mode.sh` case 15.
 
-**Level/provider mismatch line** (saver-glm-dispatch): with the gate open, level L2 or L3 and an Anthropic provider, the hook puts `L<n> but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker` into the systemMessage and as the first line of the injected saver block. Absent on a non-Anthropic provider. Tests: `mode.sh` case 11j.
+**Level/provider mismatch line** (saver-glm-dispatch): with the gate open, level L2 or L3 and an Anthropic provider, the hook puts `L<n> but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker` into the systemMessage and as the first line of the injected saver block. Absent on a non-Anthropic provider. Present even when no saver block is injected (L2 with the launcher missing). Tests: `mode.sh` cases 11q, 11q2.
 
 **routing-counter.sh**: counts (never blocks) a sub-agent dispatch that bypasses its saver rung —
 haiku dispatched at L1-L3, or sonnet dispatched at L2-L3 — unless a GLM peak refusal was logged
@@ -1631,7 +1630,7 @@ routing, round and cap decision (the scope checks, the gate and the range ends s
 and dispatches through the shared template `bajzi/skills/lib/dispatch.md`: write the brief to
 `runtime/briefs/<slice>-<class>.txt`, dispatch `bajzi:<agent>` with that text, log one line
 (`findings-cli.js log`), save the agent's final message verbatim. A guard deny stops the skill
-with the rule id; it never retries with a trimmed brief. Exception: a refusal whose reason starts `saver-guard:` (L2/L3 on Claude) is not a stop: the skill writes the agent body (no frontmatter), `---` and the brief to `runtime/briefs/<slice>-<class>.glm.txt` and runs `glm -p --permission-mode acceptEdits < <file>` (headless `claude -p` denies edits without the flag; `cc-router.js` passes args straight to `claude`), logs `glm:<agent>`, and on exit 75 re-dispatches the original Agent call (the guard allows writes in the peak window); other non-zero exits STOP. Tier 1 slices use `bajzi:implementer-risk`, which the guard allows. Reviewer briefs come from
+with the rule id; it never retries with a trimmed brief. Exception: a refusal whose reason starts `saver-guard:` (L2/L3 on Claude) is not a stop: the skill writes the agent body (no frontmatter), `---` and the brief to `runtime/briefs/<slice>-<class>.glm.txt` and runs `glm -p --permission-mode bypassPermissions < <file>` (`cc-router.js` passes args straight to `claude`; measured 2026-10-06: under `acceptEdits` a headless worker edits files but its compound Bash call, the slice's test command, is refused with "contains multiple operations", under `bypassPermissions` both succeed, user/project deny rules still apply; no per-command `--allowedTools` because slice test commands vary), logs `glm:<agent>` (`FC log` always writes a `glm:` allow line even with the dispatch guard's gate open, as the hook never sees the Bash call), and on exit 75 re-dispatches the original Agent call (the guard allows writes in the peak window, a counted Claude fallback at L2 and L3 alike; SAVER-L3.md keeps the no-fallback rule only for a session that itself runs on GLM); other non-zero exits STOP. Tier 1 slices use `bajzi:implementer-risk`, which the guard allows. Reviewer briefs come from
 `findings-cli.js brief`: the full `git diff` goes to `runtime/briefs/<slice>-r<n>.diff` and the
 brief carries PATHS (diff, round-1 file, fixer report, `debt.md`), resolved SHAs and the graph
 marker line, so it stays far under the guard's R3 cap whatever the diff size; the reviewer has
