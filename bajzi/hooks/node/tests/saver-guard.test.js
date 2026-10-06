@@ -342,3 +342,13 @@ test('F14/F15: raw text naming a control file is denied unless read-only, also i
   for (const cmd of ['New-Item src/a.js -Value x', 'New-Item -Type File src/a.js', 'New-Item -ItemType File src/a.js']) isDeny(bash(c, cmd, 'PowerShell'), cmd);
   for (const cmd of ['New-Item -ItemType Directory foo', 'New-Item -Type Directory foo']) assert.strictEqual(bash(c, cmd, 'PowerShell'), null, cmd);
 });
+
+test('control-file rule names only the real control files, not look-alikes', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  for (const cmd of ['git add bajzi/skills/night-run/templates/settings.local.json.tmpl', 'git commit -m "parse settings.json"',
+    'echo x > runtime/app-settings.json', 'git add docs/worker-mode.md', 'git add hooks/bajzi-mode.sh', 'rm src/x.level.js']) {
+    assert.strictEqual(bash(c, cmd), null, cmd);
+  }
+  for (const cmd of ['rm .claude/settings.local.json', 'cp a ~/.claude/settings.json', 'rm runtime/bajzi-mode', 'rm ~/.claude/worker-mode',
+    'rm ~/.claude/bajzi/sessions/s1.level', 'rm ~/.claude/cc-router.json']) isDeny(bash(c, cmd), cmd);
+});

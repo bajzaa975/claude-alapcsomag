@@ -36,7 +36,8 @@ const PS_PATH_OPT = /^-(?:Path|LiteralPath|FilePath)$/i;
 const HEREDOC = /(?<!<)<<-?(?!<)[ \t]*(['"]?)([A-Za-z_]\w*)\1[^\n]*[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g;   // terminated only: an unterminated <<WORD strips nothing
 // Any command naming a control file is denied unless it is a read-only pipeline (raw text, so no
 // heredoc or quote trick hides the name).
-const CONTROL = /bajzi-mode|worker-mode|cc-router\.json|settings[\w.-]*\.json|\.claude[\\/]plugins|\.level(?![-\w])/i;
+// Only the real control files: a look-alike (settings.local.json.tmpl, docs/worker-mode.md, x.level.js) is ordinary work.
+const CONTROL = /bajzi-mode(?![\w.-])|worker-mode(?![\w.-])|cc-router\.json(?![\w.])|\.claude[\\/]settings(?:\.local)?\.json(?![\w.])|\.claude[\\/]plugins|sessions[\\/][^\s'"\\/]*\.level(?![\w.-])/i;
 const RO_WORD = /^(?:cat|head|tail|grep|rg|ls|stat|wc|file)$/i;
 const RO_FORBID = />|\btee\b|(?:^|\s)-[a-zA-Z]*i\b|--in-place|\b(?:rm|mv|cp|ln)\b|\b(?:New-Item|Set-Content|Add-Content|Out-File|Remove-Item|Move-Item|Copy-Item)\b/i;
 const readOnly = raw => !RO_FORBID.test(raw) && raw.split(/&&|\|\||[;&|\n]/).every(seg => {
