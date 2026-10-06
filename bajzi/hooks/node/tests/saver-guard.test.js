@@ -451,3 +451,79 @@ test('BAJZI_SANDBOX=1: <project>/.git and <project>/.githooks are denied to the 
   const plain = ctx({ CC_WORKER_MODE: 'glm' }, PEAK);   // no sandbox: today's rules, the peak window allows it
   assert.strictEqual(call(plain, 'Write', { file_path: path.join(plain.cwd, '.git', 'config'), content: 'x' }), null);
 });
+
+// F3: Edit/Write targets are judged by real path. A test whose OS refuses symlinks (Windows without the
+// privilege) skips; a directory link is a junction on win32, which needs no privilege.
+function link(t, target, file, dir = false) {
+  try {
+    fs.symlinkSync(target, file, dir ? (process.platform === 'win32' ? 'junction' : 'dir') : 'file');
+    return true;
+  } catch (e) {
+    if (!['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP'].includes(e.code)) throw e;
+    t.skip(`symlinks not permitted: ${e.code}`);
+    return false;
+  }
+}
+
+test('F3: BAJZI_SANDBOX=1: a file symlink in the tmpdir does not carry a Write out of it', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  const w = f => call(c, 'Write', { file_path: f, content: 'x' });
+  put(path.join(c.home, '.gitconfig'), 'x');
+  put(path.join(c.cwd, 'src', 'x.js'), 'x');
+  put(path.join(c.tmp, 'plain.js'), 'x');
+  assert.strictEqual(w(path.join(c.tmp, 'plain.js')), null);
+  assert.strictEqual(w(path.join(c.tmp, 'new.js')), null);
+  if (!link(t, path.join(c.home, '.gitconfig'), path.join(c.tmp, 'gc')) || !link(t, path.join(c.cwd, 'src', 'x.js'), path.join(c.tmp, 'sx'))) return;
+  isDeny(w(path.join(c.tmp, 'gc')), 'link to ~/.gitconfig');
+  isDeny(w(path.join(c.tmp, 'sx')), 'link to a project source file');
+  isDeny(edit(c, path.join(c.tmp, 'sx'), { agent_type: 'bajzi:implementer-risk' }), 'risk agent, link to a project source file');
+  assert.strictEqual(w(path.join(c.tmp, 'plain.js')), null);
+});
+
+test('F3: BAJZI_SANDBOX=1: a symlinked directory in the tmpdir does not carry a Write into the project', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  const w = f => call(c, 'Write', { file_path: f, content: 'x' });
+  fs.mkdirSync(path.join(c.cwd, 'src'));
+  fs.mkdirSync(path.join(c.home, '.claude', 'hooks'), { recursive: true });
+  if (!link(t, path.join(c.cwd, 'src'), path.join(c.tmp, 'ls'), true) || !link(t, path.join(c.home, '.claude', 'hooks'), path.join(c.tmp, 'lh'), true)) return;
+  isDeny(w(path.join(c.tmp, 'ls', 'new.js')), 'new file under a linked project dir');
+  isDeny(w(path.join(c.tmp, 'ls', 'sub', 'new.js')), 'two missing levels under a linked project dir');
+  isDeny(w(path.join(c.tmp, 'lh', 'x.sh')), 'linked ~/.claude/hooks');
+  assert.strictEqual(w(path.join(c.tmp, 'sub', 'new.js')), null);
+});
+
+test('F3: without BAJZI_SANDBOX a tmpdir or ~/.claude link to project code or a control file is still denied', t => {
+  const c = ctx({ CC_WORKER_MODE: 'glm' });
+  put(path.join(c.cwd, 'src', 'x.js'), 'x');
+  put(path.join(c.home, '.claude', 'settings.json'), '{}');
+  if (!link(t, path.join(c.cwd, 'src', 'x.js'), path.join(c.tmp, 'sx')) || !link(t, path.join(c.home, '.claude', 'settings.json'), path.join(c.tmp, 'st'))
+    || !link(t, path.join(c.cwd, 'src', 'x.js'), path.join(c.home, '.claude', 'sx'))) return;
+  isDeny(edit(c, path.join(c.tmp, 'sx')), 'tmpdir link to src');
+  isDeny(edit(c, path.join(c.home, '.claude', 'sx')), '~/.claude link to src');
+  const d = edit(c, path.join(c.tmp, 'st'));
+  isDeny(d, 'tmpdir link to settings.json');
+  assert.match(d.reason, /this file controls the saver guard or the saver level/);
+});
+
+test('F3: a dangling or looping symlink target is a deny (a realpath error fails closed)', t => {
+  for (const env of [{ CC_WORKER_MODE: 'glm' }, { CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }]) {
+    const c = ctx(env);
+    if (!link(t, path.join(c.cwd, 'src', 'gone.js'), path.join(c.tmp, 'dangling')) || !link(t, path.join(c.tmp, 'b'), path.join(c.tmp, 'a'))
+      || !link(t, path.join(c.tmp, 'a'), path.join(c.tmp, 'b'))) return;
+    isDeny(edit(c, path.join(c.tmp, 'dangling')), 'dangling');
+    isDeny(edit(c, path.join(c.tmp, 'a')), 'loop');
+    assert.strictEqual(edit(c, path.join(c.tmp, 'ok.js')), null);
+  }
+});
+
+test('F3: a tmpdir that is itself a link still matches, by either name', t => {
+  const real = tmpDir('bajzi-sgr-');
+  const lnk = path.join(tmpDir('bajzi-sgl-'), 'tmp');
+  if (!link(t, real, lnk, true)) return;
+  for (const env of [{ CC_WORKER_MODE: 'glm' }, { CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }]) {
+    const c = ctx(env);
+    c.opts.tmpdir = lnk;
+    for (const f of [path.join(lnk, 'x.js'), path.join(real, 'x.js'), path.join(real, 'sub', 'x.js')]) assert.strictEqual(edit(c, f), null, f);
+    isDeny(edit(c, path.join(c.cwd, 'src', 'x.js')), 'src');
+  }
+});

@@ -42,11 +42,28 @@ const PROTECTED_REASON = 'saver-guard: this file controls the saver guard or the
 const SPLIT_REASON = 'saver-guard: in a split session the Edit tools write only <project>/runtime/, the temp dir and ~/.claude/projects/*/memory/ outside the project, and never <project>/.git or <project>/.githooks; any other file (hooks, git config, settings) is changed by the owner only (type it as a ! command in the prompt).';
 const HOME_VAR = /^(?:~|\$\{HOME\}|\$HOME|\$env:(?:HOME|USERPROFILE))(?=$|[/\\])/i;
 const TMP_VAR = /^(?:\$\{(?:TMPDIR|TEMP|TMP)\}|\$(?:TMPDIR|TEMP|TMP)|\$env:(?:TMPDIR|TEMP|TMP))(?=$|[/\\])/i;
+const UNRESOLVED_REASON = 'saver-guard: cannot resolve the real path of this file (dangling or looping symlink, or no access); refusing the write.';
 const LEVEL_REASON = 'saver-guard: only the owner may change the saver level. Ask the owner to type ! worker --level <n> in the prompt (it bypasses hooks).';
 
-// Path key as writer-guard.js: `/` separators, no trailing slash, lower-case on win32.
+// The real path of `a`: realpath of the nearest existing ancestor plus the missing tail. A dangling
+// symlink or any other realpath error throws.
+function realPath(a) {
+  const tail = [];
+  for (let cur = a; ; cur = path.dirname(cur)) {
+    try {
+      return path.join(fs.realpathSync(cur), ...tail);
+    } catch (e) {
+      if (e.code !== 'ENOENT' || fs.lstatSync(cur, { throwIfNoEntry: false }) || path.dirname(cur) === cur) throw e;
+    }
+    tail.unshift(path.basename(cur));
+  }
+}
+// Path key as writer-guard.js: `/` separators, no trailing slash, lower-case on win32; of the real path,
+// so a symlink cannot hide its target and a symlinked allowed dir still matches (an unresolvable path keeps its lexical form).
 function key(p) {
-  const s = p.replace(/\\/g, '/').replace(/\/+$/, '');
+  let r = p;
+  try { r = realPath(p); } catch { /* keep the lexical path */ }
+  const s = r.replace(/\\/g, '/').replace(/\/+$/, '');
   return process.platform === 'win32' ? s.toLowerCase() : s;
 }
 function under(p, dir) {
@@ -168,7 +185,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     const protectedPath = p => {
       const a = abs(p);
       const k = key(a);
-      const dir = key(path.dirname(a));
+      const dir = path.dirname(k);
       const base = path.basename(k);
       return files.includes(k) || under(a, path.join(claude, 'plugins')) ||
         (levelDirs.includes(dir) && base.endsWith('.level')) || (settingsDirs.includes(dir) && /^settings.*\.json$/.test(base));
@@ -182,6 +199,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     if (isEdit) {
       const raw = tool === 'NotebookEdit' ? ti.notebook_path : ti.file_path;
       if (typeof raw !== 'string' || !raw) return null;
+      try { realPath(abs(raw)); } catch { return blocked(UNRESOLVED_REASON); }   // fail closed for this check only
       if (protectedPath(raw)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
       // Outside the project, and the project's .git/.githooks (the excluded `git commit` runs hooks and git config unsandboxed): no risk-agent or peak relaxation.
       if (sandbox && ((!allowed(raw) && !under(abs(raw), proj)) || [path.join(proj, '.git'), path.join(proj, '.githooks')].some(d => key(abs(raw)) === key(d) || under(abs(raw), d)))) return blocked(SPLIT_REASON);
