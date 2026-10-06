@@ -2,6 +2,13 @@
 
 Newest first. Details per change: `docs/bajzi-package-spec.md` §11.
 
+## 1.15.2
+Night-run test fix (pre-existing since 1.15.0): `quota.sh` and `lock-race.sh` left a `supervise.sh` running and failed
+their "no processes left behind" check on Linux.
+- **Fix** (`test-supervisor-leak`): the shared fixture `tests/lib.sh` `nr_config` writes `SUPERVISE="0"`; a caller can
+  still pass `SUPERVISE="1"`. Implemented and fixed by a nested `glm -p` worker, reviewed by Opus (r2 CLEAN).
+- Spec §11: 1.15.1 marked released and installed.
+
 ## 1.15.1
 Health-gated night-run supervisor (owner, 2026-10-05): the 30-minute Opus supervisor keeps all its powers, but each tick
 now runs only when a zero-token shell pre-check trips.
