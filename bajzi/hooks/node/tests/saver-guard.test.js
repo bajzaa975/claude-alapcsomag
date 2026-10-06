@@ -403,3 +403,51 @@ test('only BAJZI_SANDBOX exactly "1" skips the shell scan', () => {
     isDeny(bash(c, 'echo claude > ~/.claude/worker-mode'), `control file, BAJZI_SANDBOX=${JSON.stringify(v)}`);
   }
 });
+
+test('BAJZI_SANDBOX=1: the Edit tools write only <project>/runtime/, the tmpdir and ~/.claude/projects/*/memory/', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' });
+  const w = f => call(c, 'Write', { file_path: f, content: 'x' });
+  for (const f of [path.join(c.home, '.claude', 'bajzi', 'sandbox', 'split-abc.json'), path.join(c.home, '.claude', 'hooks', 'x.sh'), path.join(c.home, '.gitconfig'),
+    path.join(c.home, '.config', 'git', 'config'), path.join(c.home, '.claude', 'projects', 'p', 'notmemory.md'), path.join(c.home, '.claude', 'projects', 'memory', 'm.md'),
+    path.join(c.home, '.claude', 'projects', 'p', 'memory', '..', 'x.md'), path.join(c.cwd, 'src', 'x.js'), '~/.gitconfig']) isDeny(w(f), f);
+  for (const f of [path.join(c.cwd, 'runtime', 'x.md'), 'runtime/x.md', path.join(c.tmp, 'x'), path.join(c.home, '.claude', 'projects', 'p', 'memory', 'm.md'), '~/.claude/projects/p/memory/m.md']) {
+    assert.strictEqual(w(f), null, f);
+  }
+  const d = edit(c, path.join(c.home, '.claude', 'hooks', 'x.sh'));
+  isDeny(d, 'Edit hooks');
+  for (const tool of ['MultiEdit', 'NotebookEdit']) isDeny(call(c, tool, tool === 'NotebookEdit' ? { notebook_path: path.join(c.home, '.gitconfig') } : { file_path: path.join(c.home, '.gitconfig') }), tool);
+  isDeny(edit(c, path.join(c.home, '.gitconfig'), { agent_type: 'bajzi:implementer-risk' }), 'implementer-risk outside the project');
+  assert.strictEqual(edit(c, 'src/x.js', { agent_type: 'bajzi:implementer-risk' }), null);
+});
+
+test('BAJZI_SANDBOX=1: CLAUDE_CONFIG_DIR moves the memory allow-list; a plain split-less session keeps the old ~/.claude rule', () => {
+  const cfg = tmpDir('bajzi-sgcfg-');
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1', CLAUDE_CONFIG_DIR: cfg });
+  const w = f => call(c, 'Write', { file_path: f, content: 'x' });
+  assert.strictEqual(w(path.join(cfg, 'projects', 'p', 'memory', 'm.md')), null);
+  isDeny(w(path.join(cfg, 'hooks', 'x.sh')), 'hooks under CLAUDE_CONFIG_DIR');
+  isDeny(w(path.join(c.home, '.claude', 'projects', 'p', 'memory', 'm.md')), 'the default ~/.claude is not the config dir here');
+  const plain = ctx({ CC_WORKER_MODE: 'glm' });
+  assert.strictEqual(call(plain, 'Write', { file_path: path.join(plain.home, '.claude', 'hooks', 'x.sh'), content: 'x' }), null);
+});
+
+test('BAJZI_SANDBOX=1: outside the project the Edit deny does not relax in the Z.ai peak window; inside it still does', () => {
+  const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }, PEAK);
+  isDeny(call(c, 'Write', { file_path: path.join(c.home, '.gitconfig'), content: 'x' }), 'peak, ~/.gitconfig');
+  isDeny(call(c, 'Write', { file_path: path.join(c.home, '.claude', 'hooks', 'x.sh'), content: 'x' }), 'peak, ~/.claude/hooks');
+  assert.strictEqual(call(c, 'Write', { file_path: path.join(c.cwd, 'src', 'x.js'), content: 'x' }), null);
+  assert.match(logOf(c), /cause=peak/);
+});
+
+test('BAJZI_SANDBOX=1: <project>/.git and <project>/.githooks are denied to the Edit tools: risk agent and peak window included', () => {
+  for (const now of [NOON, PEAK]) {
+    const c = ctx({ CC_WORKER_MODE: 'glm', BAJZI_SANDBOX: '1' }, now);
+    for (const f of ['.git/hooks/pre-commit', '.git/config', '.githooks/pre-commit', '.git']) {
+      const p = path.join(c.cwd, f);
+      isDeny(call(c, 'Write', { file_path: p, content: 'x' }), `${f} ${now.toISOString()}`);
+      isDeny(edit(c, p, { agent_type: 'bajzi:implementer-risk' }), `risk agent ${f} ${now.toISOString()}`);
+    }
+  }
+  const plain = ctx({ CC_WORKER_MODE: 'glm' }, PEAK);   // no sandbox: today's rules, the peak window allows it
+  assert.strictEqual(call(plain, 'Write', { file_path: path.join(plain.cwd, '.git', 'config'), content: 'x' }), null);
+});

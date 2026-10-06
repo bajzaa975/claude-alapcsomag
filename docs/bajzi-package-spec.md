@@ -111,8 +111,8 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Public feature overview | `README.md` | `node --test bajzi/skills/project-setup/tests/release.test.js` (asserts the night-run bullet, the Safety fail-closed exceptions, that the Safety section names the writer guard and that every skill is in the Skills table) | 3 | Any user-visible feature add/removal updates the README Features section. |
 | Radar: the biweekly read-only setup review (digest, headless run, report/error files, SessionStart notice, schedule) | `bajzi/skills/radar/radar.js` (`digest`, `run`, `claudeArgs`, `realClaude`, `notice`, `seen`, `installTask`, `taskCommand`, `cronLine`, `LAUNCHER`), `bajzi/skills/radar/prompt.md` (what the session reviews, output contract), `bajzi/skills/radar/SKILL.md` (§6.14) | `node --test bajzi/skills/radar/tests/*.test.js` | 1 | `--tools` is the sandbox, not `--allowedTools`: with `--allowedTools` alone under `dontAsk` the session still has Bash and the owner's settings allow rules run it (smoke check, §6.14); `radar.test.js` pins the exact five, WebFetch allowed only for `WEB_HOSTS` (= the hosts of `prompt.md`'s URLs: a new pinned source host goes into both), and `--setting-sources ''` + `disableAllHooks` (no owner settings, plugins or hooks); `childEnv` strips the provider variables (`ANTHROPIC_*`, the cc-router scrub set) from the session and pre-steps. The digest emits counts and `LABEL`-whitelisted names only; a new digest field must not carry text. `notice` is a SessionStart hook: only `stat`s, silent and exit 0 on any error. Registering it in `hooks.json` also moves the node-command count in `release.test.js` and the `mode.sh` 13m2 list. |
 | Who may edit bajzi plugin files (writer guard: owner session, request inbox, installed copies) | `bajzi/hooks/node/writer-guard.js` `check`, `findTree`, `mainOf`, `notice` (runs from `pre-tool.js`, `CHECKS` row `writer-guard`); the rule text `shared/CLAUDE.md` "bajzi plugin changes" (§6.15) | `node --test bajzi/hooks/node/tests/writer-guard.test.js` | 1 | Covers only Edit/Write/MultiEdit/NotebookEdit; Bash/PowerShell writes are the known ceiling (§9.1). The installed-copy paths are checked before the repo walk, because the marketplace clone is itself a main checkout. The `notice` SessionStart entry is registered in `hooks.json` (§6.15). A tree with no main checkout (no owner can exist) gets a deny that points at no inbox; its `runtime/requests/` stays writable but is never reported. |
-| Saver guard (an L2/L3 session still on Claude may not write code; `worker --level/--set` is owner-only) | `bajzi/hooks/node/saver-guard.js` `check`, `shellWrites`, `dayRunOn` (runs from `pre-tool.js`, `CHECKS` row `saver-guard`); level from `lib/saver-level.js:resolveLevel`, peak from `lib/peak.js:peakStatus` (§6.16) | `node --test bajzi/hooks/node/tests/saver-guard.test.js` | 1 | The gate is the `saver_resolve` gate minus the non-Anthropic leg (a GLM session is never touched); keep the day-run read in sync with `lib-saver-level.sh`. The Bash/PowerShell write test is a token heuristic (`ponytail:` comment), not a sandbox. Peak allows and every deny are counted in `runtime/routing-violations.log`. With `BAJZI_SANDBOX=1` (a Linux `split` session) the Bash/PowerShell write scan is skipped: the OS sandbox judges shell writes. |
-| `split` launcher (L2 split session: Claude orchestrates, GLM writes; on Linux an OS sandbox) | `bajzi/bin/cc-router.js` entry `split` (`onPath`, `projectRoot`, `bajziRoot`, `writeSandbox`), launchers `bajzi/bin/launchers/split` + `split.cmd`; `BAJZI_SANDBOX` read by `bajzi/hooks/node/saver-guard.js` (§6.16) and `bajzi/hooks/day-run-mode.sh` (§6.3) | `node --test bajzi/bin/tests/*.test.js`, `node --test bajzi/hooks/node/tests/saver-guard.test.js`, `bash bajzi/skills/mode/tests/mode.sh` (case 11q4) | 1 | Never fold it into `worker`: `worker` at L2 starts the whole session on GLM and the night runner relies on that (Invariant 7). The sandbox denies the whole project root, never a glob (a `<root>/*` denyWrite denied nothing). The findings-CLI exclusion is the exact installed path, never a leading wildcard (a planted `/tmp/x/lib/findings-cli.js` would match). `CC_ROUTER_PLATFORM` (cc-router) and `BAJZI_UNAME` (day-run-mode.sh) are test seams (§6.2). |
+| Saver guard (an L2/L3 session still on Claude may not write code; `worker --level/--set` is owner-only) | `bajzi/hooks/node/saver-guard.js` `check`, `shellWrites`, `dayRunOn` (runs from `pre-tool.js`, `CHECKS` row `saver-guard`); level from `lib/saver-level.js:resolveLevel`, peak from `lib/peak.js:peakStatus` (§6.16) | `node --test bajzi/hooks/node/tests/saver-guard.test.js` | 1 | The gate is the `saver_resolve` gate minus the non-Anthropic leg (a GLM session is never touched); keep the day-run read in sync with `lib-saver-level.sh`. The Bash/PowerShell write test is a token heuristic (`ponytail:` comment), not a sandbox. Peak allows and every deny are counted in `runtime/routing-violations.log`. With `BAJZI_SANDBOX=1` (a Linux `split` session) the Bash/PowerShell write scan is skipped (the OS sandbox judges shell writes) and the Edit tools are held to `<project>/runtime/`, tmpdir and `~/.claude/projects/*/memory/`. |
+| `split` launcher (L2 split session: Claude orchestrates, GLM writes; on Linux an OS sandbox) | `bajzi/bin/cc-router.js` entry `split` (`onPath`, `bwrapProbe`, `projectRoot`, `bajziRoot`, `writeSandbox`, `EXCLUDED`), launchers `bajzi/bin/launchers/split` + `split.cmd`; `BAJZI_SANDBOX` read by `bajzi/hooks/node/saver-guard.js` (§6.16) and `bajzi/hooks/day-run-mode.sh` (§6.3) | `node --test bajzi/bin/tests/*.test.js`, `node --test bajzi/hooks/node/tests/saver-guard.test.js`, `bash bajzi/skills/mode/tests/mode.sh` (case 11q4) | 1 | Never fold it into `worker`: `worker` at L2 starts the whole session on GLM and the night runner relies on that (Invariant 7). The sandbox denies the whole project root, never a glob (a `<root>/*` denyWrite denied nothing). The findings-CLI exclusion is the exact installed path, never a leading wildcard (a planted `/tmp/x/lib/findings-cli.js` would match). `excludedCommands` stays `glm`, `git add`, `git commit` + the findings CLI: any other (fetch, push, switch, checkout, `gh`) is an unsandboxed write/exec channel (§6.2). `CC_ROUTER_PLATFORM`, `CC_BWRAP_CMD` (cc-router) and `BAJZI_UNAME` (day-run-mode.sh) are test seams (§6.2). |
 
 ### Advisor pilot (1.10.1)
 
@@ -515,25 +515,39 @@ exec this file.
   the subscription). The child gets `CC_WORKER_MODE=glm` (opens the saver gate and pins L2 for the whole
   process tree; no level file can lower it) and `BAJZI_SPLIT=1`; an inherited `BAJZI_SANDBOX` is dropped.
   A caller `--settings` / `--settings=<f>` exits 64 on every platform. On Linux with `bwrap` and `socat`
-  executable on `PATH` (`onPath`) it writes the sandbox settings file (below), prepends `--settings
-  <file>` to the claude args and sets `BAJZI_SANDBOX=1`; a failed write exits 73 and starts nothing (no
-  unsandboxed fallback). Linux without bwrap/socat launches anyway with one stderr line `split: no OS
+  executable on `PATH` (`onPath`) AND a launch-time probe passing (`bwrapProbe()`: `bwrap --ro-bind / /
+  --dev /dev --proc /proc true`, 5 s timeout; stock Ubuntu 23.10+ refuses unprivileged user namespaces
+  without an AppArmor profile for `/usr/bin/bwrap`) it writes the sandbox settings file (below), prepends
+  `--settings <file>` to the claude args and sets `BAJZI_SANDBOX=1`; a failed write exits 73 and starts
+  nothing (no unsandboxed fallback). A failed probe launches anyway on the Windows tier (no `--settings`,
+  no `BAJZI_SANDBOX`) with one stderr line `split: bwrap cannot create a namespace (<first stderr line, else
+  the spawn error>) - on Ubuntu add an AppArmor profile for /usr/bin/bwrap; guard tier only`. Linux without
+  bwrap/socat launches anyway with one stderr line `split: no OS
   sandbox (bubblewrap/socat missing) - Windows-tier guard only`; any other platform the same with `split:
   no OS sandbox on <platform> - Windows-tier guard only` (the saver guard's shell heuristics then apply,
   §6.16). The launch log line carries `split sandbox=yes|no` before `cwd=`. It is a new entry, not
   `worker`: `worker` at L2 (`GLM_MODES`) starts the WHOLE session on GLM, which the night runner relies on
-  (Invariant 7). `CC_ROUTER_PLATFORM` overrides `process.platform` (test seam).
+  (Invariant 7). `CC_ROUTER_PLATFORM` overrides `process.platform` and `CC_BWRAP_CMD` (JSON `[cmd,
+  ...leading args]`, default `["bwrap"]`) replaces the probe's command (test seams; a fake bwrap on `PATH`
+  cannot run on win32).
 
 **Split sandbox settings** (`writeSandbox()`): `~/.claude/bajzi/sandbox/split-<first 12 hex of
 sha1(project root)>.json`, rewritten on every launch (`wx` temp file + rename, mode 600). Project root =
 `git rev-parse --show-toplevel` from cwd, else cwd. Content: `{"sandbox": {"enabled": true,
 "allowUnsandboxedCommands": false, "excludedCommands": [...], "filesystem": {"allowWrite":
-[<os.tmpdir()>, "/tmp"] (deduplicated), "denyWrite": [<project root>]}}}`. `excludedCommands`: `glm *`,
-`git add *`, `git commit *`, `git push *`, `git fetch *`, `git checkout -b *`, `git switch -c *`, `gh *`,
-each also with an `rtk ` prefix (the VM's rtk hook rewrites `git` to `rtk git`), plus the findings CLI
-pair `node <root>/lib/findings-cli.js *` and `node "<root>/lib/findings-cli.js" *`. `<root>` is the exact
-installed bajzi root (`bajziRoot()`): the `installPath` of the newest (`lastUpdated`, else `installedAt`)
-entry under a `bajzi@<marketplace>` key of `~/.claude/plugins/installed_plugins.json`. It must be
+[<os.tmpdir()>, "/tmp"] (deduplicated), "denyWrite": [<project root>]}}}`. `excludedCommands`: ONLY `glm *`,
+`git add *` and `git commit *`, each also with an `rtk ` prefix (the VM's rtk hook rewrites `git` to
+`rtk git`), plus the findings CLI
+pair `node <root>/lib/findings-cli.js *` and `node "<root>/lib/findings-cli.js" *`. An excluded command runs
+unsandboxed, so every extra entry is a hole (review saver-split r1): `git fetch --upload-pack=<cmd>` and
+`git push --receive-pack=<cmd>` run any command, `git fetch <tmp clone> HEAD` + `git switch -c x FETCH_HEAD`
+lands files written to `/tmp` in the working tree, `gh alias set --shell w '<cmd>'` + `gh w` runs any
+command. None of fetch/push/switch/checkout/merge/pull or `gh` is excluded; a split session hands them to
+GLM (`glm -p "<git/gh task>"`). `<root>` is the exact
+installed bajzi root (`bajziRoot(root)`): the `installPath` of the newest (`lastUpdated`, else `installedAt`)
+entry this session loads under a `bajzi@<marketplace>` key of `installed_plugins.json` in `CLAUDE_CONFIG_DIR`
+(else `~/.claude`): an entry with no scope or scope `user`, or a `project`/`local` entry whose `projectPath` is
+the project root or cwd (another project's entry is skipped). It must be
 absolute, with no `..` segment and no `*`, and `<root>/lib/findings-cli.js` must exist; otherwise there is
 no findings-CLI entry, one stderr line `split: bajzi plugin root not found - findings CLI stays
 sandboxed`, and the skills' `FC` calls (they write `runtime/`) are refused. Never a wildcard before the
@@ -549,8 +563,8 @@ VERIFIED:
   `node --version && node "<path>/lib/findings-cli.js" log` stayed sandboxed. Chaining onto an
   excluded command is therefore safe.
 - Allowed: the Write tool on `runtime/w.txt` (Edit/Write are not sandboxed; the saver guard governs
-  them, §6.16); `glm -p ...` writing `src/g.js`; a single `git add src/g.js`, `git commit -qm x` and
-  `git checkout -b <b>`, each in the plain and the `rtk` form.
+  them, §6.16); `glm -p ...` writing `src/g.js`; a single `git add src/g.js` and `git commit -qm x`
+  (and `git checkout -b <b>`, an exclusion since dropped, see above), each in the plain and the `rtk` form.
 - `excludedCommands` is matched literally against the command text, a `*` works anywhere in it, and
   the quoted and unquoted forms of a path need separate entries.
 - `denyWrite` beats a more specific `allowWrite` (`runtime/` inside the denied root was NOT writable),
@@ -558,9 +572,21 @@ VERIFIED:
 - The network is not restricted by this config (curl to api.github.com and example.com returned 200);
   no network keys are set.
 
-UNVERIFIED: `git push *`, `git fetch *`, `git switch -c *`, `gh *` and their `rtk` forms; that a skill's
-`${CLAUDE_PLUGIN_ROOT}` expands to exactly the `installPath` the findings-CLI pair is built from; and
-whether an excluded command's own redirect (`git commit -m x > src/a.js`) writes outside the sandbox.
+UNVERIFIED: that a skill's `${CLAUDE_PLUGIN_ROOT}` expands to exactly the `installPath` the findings-CLI
+pair is built from; and whether an excluded command's own redirect (`git commit -m x > src/a.js`) writes
+outside the sandbox.
+
+**Known limits of the sandboxed tier** (the whole project is read-only; only `glm`, `git add`, `git
+commit` and the findings CLI write into it). Claude's own Bash calls fail for: `git switch`/`checkout
+<existing branch>`, branch creation (`switch -c`, `checkout -b`, `branch`), `merge`, `pull`, `fetch`,
+`push`, `stash`, `rebase`, `worktree add`, every `gh` subcommand, and any build or test run that writes
+into the project (`npm install`, a compiler output dir, a test cache). Each goes to GLM:
+`glm -p "<git/gh task>"` (GLM tokens, which fits the goal; `mode/SKILL.md` and `lib/dispatch.md` say so).
+The Edit/Write tools (unsandboxed) are held to `<project>/runtime/`, the temp dir and
+`~/.claude/projects/*/memory/` by the saver guard (§6.16), so a Write cannot reach `~/.gitconfig`
+(`core.hooksPath` would make the excluded `git commit` run a hook unsandboxed), `~/.claude/hooks/` or
+`~/.claude/bajzi/sandbox/`, nor `<project>/.git/` or `<project>/.githooks/` (hooks and git config run
+unsandboxed under the excluded git commands), for a risk sub-agent and in the peak window too.
 
 **Model mapping** (`glmMain()`, `:37`; `effective()`, `:96`, so the launch log names the model
 actually served): three keys in `~/.claude/cc-router.json`, defaults `glm_orchestrator_model` =
@@ -777,7 +803,7 @@ Opus the account serves), never GLM" instead and adds "reviewer allow-list inval
 /bajzi:setup." to the systemMessage. A non-Anthropic session never gets the line (it queues its
 reviews, `SAVER-L3.md`). Tests: `mode.sh` case 15.
 
-**Level/provider mismatch line** (saver-glm-dispatch): with the gate open, level L2 or L3 and an Anthropic provider, the hook puts `L<n> but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker` into the systemMessage and as the first line of the injected saver block. Absent on a non-Anthropic provider. Present even when no saver block is injected (L2 with the launcher missing). On Linux (`uname -s`; `BAJZI_UNAME` overrides it, a test seam) without `BAJZI_SANDBOX=1` the systemMessage also says `strict tier needs the split launcher: restart this session with: split` (§6.2 entry `split`). Tests: `mode.sh` cases 11q, 11q2, 11q4.
+**Level/provider mismatch line** (saver-glm-dispatch): with the gate open, level L2 or L3 and an Anthropic provider, the hook puts `L<n> but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker` into the systemMessage and as the first line of the injected saver block. Absent on a non-Anthropic provider. Present even when no saver block is injected (L2 with the launcher missing). On Linux (`uname -s`; `BAJZI_UNAME` overrides it, a test seam) without `BAJZI_SANDBOX=1` the systemMessage also says `strict tier needs the split launcher: restart this session with: split` (§6.2 entry `split`); when `BAJZI_SPLIT=1` is set (the session already is a split one, the sandbox did not start) it says instead `this split session has no OS sandbox: bubblewrap or socat is missing, or bwrap cannot create a namespace (on Ubuntu add an AppArmor profile for /usr/bin/bwrap); guard tier only`, never "restart with split". Tests: `mode.sh` cases 11q, 11q2, 11q4.
 
 **routing-counter.sh**: counts (never blocks) a sub-agent dispatch that bypasses its saver rung —
 haiku dispatched at L1-L3, or sonnet dispatched at L2-L3 — unless a GLM peak refusal was logged
@@ -2021,7 +2047,13 @@ on a sub-agent's call). `check(input, {env, home, now, tmpdir})` defaults to `pr
    **`BAJZI_SANDBOX=1`** (exactly `1`; set only by the `split` launcher when it started the session in
    Claude Code's OS sandbox, §6.2): the obvious-write scan is skipped, a control file as a shell target
    included; the OS judges shell writes, so Linux gets no heuristic false denies. The `worker`/`cc-router`
-   level-change deny, rules 0b and 1 for the Edit tools and rule 2 stay.
+   level-change deny, rules 0b and 1 for the Edit tools and rule 2 stay. Rule 1's allowed dirs shrink to
+   `<project>/runtime/`, the `tmpdir` and `<CLAUDE_CONFIG_DIR, else ~/.claude>/projects/<x>/memory/<file>`:
+   the Edit tools are the one unsandboxed write path, and a wider list (`~/.gitconfig`, `~/.claude/hooks/`,
+   `~/.claude/bajzi/sandbox/`) turns the excluded `git commit` into an unsandboxed hook run. A target outside
+   `<project>` and outside that list, and any target under `<project>/.git` or `<project>/.githooks`, is denied
+   (reason `SPLIT_REASON`) for a risk sub-agent too and in the peak window too; elsewhere inside `<project>`
+   the risk-agent and peak relaxations stay.
 4. **Peak window** (owner choice: Claude fallback, counted): when `lib/peak.js:peakStatus(now)`
    says the Z.ai peak is open, the write denies of rules 1-3 become allows. The `worker
    --level/--set` deny and the protected-file deny never relax.
@@ -2056,15 +2088,16 @@ control file (`rm`, `mv`, `cp`, `Remove-Item`, `Move-Item`; pinned by the test "
 accepted limits: delete/move/copy of a control file is not seen (Linux sandbox closes it)");
 reaching a control file through `cd` or a variable (review F17); creative writes (`python -c`,
 `node -e`, `cp`, `git apply`, a script written to `runtime/` and then run). The Linux tier (the `split`
-launcher's OS sandbox, §6.2) closes these for Bash, except inside an excluded command (`glm`, `git
-commit`, `gh`, the findings CLI), which runs outside the sandbox and, with `BAJZI_SANDBOX=1`, unscanned. Every gap still shows up in `worker --usage` as Claude
+launcher's OS sandbox, §6.2) closes these for Bash, except inside an excluded command (`glm`, `git add`, `git
+commit`, the findings CLI), which runs outside the sandbox and, with `BAJZI_SANDBOX=1`, unscanned. Every gap still shows up in `worker --usage` as Claude
 tokens.
 
 **Tests**: `node --test bajzi/hooks/node/tests/saver-guard.test.js` (gate, levels, GLM provider,
 every rule, peak, the log lines, fail-open; injected env, home, tmpdir and clock) and one
 `tool-hooks.test.js` case: an Edit routed through `pre-tool.js` (deny, or a `cause=peak` line
 inside the peak window) plus the `worker --level 0` deny. The `BAJZI_SANDBOX` tests: shell writes pass with
-exactly `1`, every other rule still denies; any other value keeps the scan.
+exactly `1`, every other rule still denies; any other value keeps the scan; the Edit tools reach only the
+narrow list above (also under `CLAUDE_CONFIG_DIR`, also in the peak window outside the project).
 
 ## 7. Shared state files
 

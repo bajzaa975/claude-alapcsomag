@@ -451,7 +451,12 @@ const crypto = require('node:crypto');
 const SPLIT_FAKE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-fake-')), 'fake-split.js');
 fs.writeFileSync(SPLIT_FAKE, 'const out = {}; for (const k of ["CC_WORKER_MODE", "BAJZI_SPLIT", "BAJZI_SANDBOX", "BAJZI_SESSION_LEVEL", "ANTHROPIC_BASE_URL"]) if (process.env[k] !== undefined) out[k] = process.env[k];\n' +
   'process.stdout.write("FAKE_CLAUDE " + JSON.stringify({ env: out, argv: process.argv.slice(2) }) + "\\n");\n');
-const EXCL = ['glm *', 'git add *', 'git commit *', 'git push *', 'git fetch *', 'git checkout -b *', 'git switch -c *', 'gh *'].flatMap(c => [c, 'rtk ' + c]);
+const EXCL = ['glm *', 'git add *', 'git commit *'].flatMap(c => [c, 'rtk ' + c]);
+// The probe seam: CC_BWRAP_CMD = JSON [cmd, ...leading args] replaces `bwrap` (a fake bwrap on PATH cannot run on win32). The fake records its argv
+// to $BWRAP_LOG and fails with $BWRAP_FAIL as its stderr when that is set.
+const BWRAP_FAKE = path.join(path.dirname(SPLIT_FAKE), 'fake-bwrap.js');
+fs.writeFileSync(BWRAP_FAKE, 'if (process.env.BWRAP_LOG) require("fs").writeFileSync(process.env.BWRAP_LOG, JSON.stringify(process.argv.slice(2)));\n' +
+  'if (process.env.BWRAP_FAIL) { process.stderr.write(process.env.BWRAP_FAIL + "\\n"); process.exit(1); }\n');
 const NO_FC = 'split: bajzi plugin root not found - findings CLI stays sandboxed\n';
 const fcCli = root => { fs.mkdirSync(path.join(root, 'lib'), { recursive: true }); fs.writeFileSync(path.join(root, 'lib', 'findings-cli.js'), ''); return root; };
 const plugins = (home, obj) => { const p = path.join(home, '.claude', 'plugins'); fs.mkdirSync(p, { recursive: true }); fs.writeFileSync(path.join(p, 'installed_plugins.json'), typeof obj === 'string' ? obj : JSON.stringify(obj)); };
@@ -465,7 +470,8 @@ function splitCtx({ platform = 'linux', tools = ['bwrap', 'socat'], keepPath = t
   plugins(home, { version: 2, plugins: { 'bajzi@mk': [{ scope: 'user', installPath: plug, version: '1.0.0', lastUpdated: '2026-10-01T00:00:00.000Z' }] } });
   const env = { HOME: home, USERPROFILE: home, CC_ROUTER_PLATFORM: platform, CC_CLAUDE_PREFIX_ARGS: JSON.stringify([SPLIT_FAKE]),
     PATH: keepPath ? bin + path.delimiter + (process.env.PATH || '') : bin,   // keepPath: git stays reachable
-    GIT_CEILING_DIRECTORIES: path.dirname(cwd), BAJZI_SANDBOX: '', BAJZI_SPLIT: '' };
+    GIT_CEILING_DIRECTORIES: path.dirname(cwd), BAJZI_SANDBOX: '', BAJZI_SPLIT: '', CLAUDE_CONFIG_DIR: '', BWRAP_FAIL: '', BWRAP_LOG: '',
+    CC_BWRAP_CMD: JSON.stringify([process.execPath, BWRAP_FAKE]) };
   return { home, cwd, plug, env };
 }
 const sbFile = (home, root) => path.join(home, '.claude', 'bajzi', 'sandbox', 'split-' + crypto.createHash('sha1').update(root).digest('hex').slice(0, 12) + '.json');
@@ -594,4 +600,55 @@ test('split: an unusable bajzi root gives NO findings CLI entry and one stderr l
     assert.strictEqual(r.childEnv.BAJZI_SANDBOX, '1', name);
     assert.deepStrictEqual(readJson(sbFile(c.home, c.cwd)), conf(c.cwd, []), name);
   }
+});
+test('split: excludedCommands hold only glm, git add, git commit (plain and rtk) and the findings CLI pair: no fetch/push/switch/checkout/gh', () => {
+  const c = splitCtx();
+  const r = run('split', ['-p', 'x'], c.env, { cwd: c.cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  const ex = readJson(sbFile(c.home, c.cwd)).sandbox.excludedCommands;
+  assert.deepStrictEqual(ex, ['glm *', 'rtk glm *', 'git add *', 'rtk git add *', 'git commit *', 'rtk git commit *'].concat(fcPair(c.plug)));
+  for (const e of ex) assert.ok(!/^(?:rtk )?(?:gh|git (?:fetch|push|switch|checkout|merge|pull|clone))\b/.test(e), e);
+});
+test('split: a bwrap that cannot create a namespace -> no --settings, no BAJZI_SANDBOX, one stderr line naming the probe; the probe is the exact bwrap command', () => {
+  const c = splitCtx();
+  const log = path.join(c.home, 'bwrap-argv.json');
+  const r = run('split', ['-p', 'x'], Object.assign(c.env, { BAJZI_SANDBOX: '1', BWRAP_FAIL: 'bwrap: setting up uid map: Permission denied', BWRAP_LOG: log }), { cwd: c.cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(r.childArgv, ['-p', 'x']);
+  assert.deepStrictEqual(r.childEnv, { CC_WORKER_MODE: 'glm', BAJZI_SPLIT: '1' });
+  assert.strictEqual(r.stderr, 'split: bwrap cannot create a namespace (bwrap: setting up uid map: Permission denied) - on Ubuntu add an AppArmor profile for /usr/bin/bwrap; guard tier only\n');
+  assert.ok(!fs.existsSync(path.join(c.home, '.claude', 'bajzi', 'sandbox')));
+  assert.match(lastLog(r), / split sandbox=no cwd=/);
+  assert.deepStrictEqual(readJson(log), ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', 'true']);
+});
+test('split: a bwrap probe that cannot even start is a failed probe too', () => {
+  const c = splitCtx();
+  const r = run('split', ['-p', 'x'], Object.assign(c.env, { CC_BWRAP_CMD: JSON.stringify([path.join(c.home, 'no-such-bwrap')]) }), { cwd: c.cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(r.childEnv.BAJZI_SANDBOX, undefined);
+  assert.match(r.stderr, /^split: bwrap cannot create a namespace \(.+\) - on Ubuntu add an AppArmor profile for \/usr\/bin\/bwrap; guard tier only\n$/);
+});
+test('split: the bajzi root honours scope/projectPath and CLAUDE_CONFIG_DIR', () => {
+  const c = splitCtx();
+  const cache = path.join(c.home, '.claude', 'plugins', 'cache');
+  const [user, other, mine] = ['mk/bajzi/1.0', 'mk/bajzi/9.0', 'mk/bajzi/8.0'].map(p => fcCli(path.join(cache, p)));
+  const elsewhere = path.join(c.home, 'elsewhere');
+  plugins(c.home, { version: 2, plugins: { 'bajzi@mk': [
+    { scope: 'user', installPath: user, lastUpdated: '2026-01-01T00:00:00.000Z' },
+    { scope: 'project', projectPath: elsewhere, installPath: other, lastUpdated: '2026-10-01T00:00:00.000Z' },
+    { scope: 'local', projectPath: elsewhere, installPath: other, lastUpdated: '2026-10-02T00:00:00.000Z' }] } });
+  let r = run('split', ['-p', 'x'], c.env, { cwd: c.cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(readJson(sbFile(c.home, c.cwd)).sandbox.excludedCommands.slice(-2), fcPair(user));   // another project's entry is never loaded here
+  plugins(c.home, { version: 2, plugins: { 'bajzi@mk': [
+    { scope: 'user', installPath: user, lastUpdated: '2026-01-01T00:00:00.000Z' },
+    { scope: 'project', projectPath: c.cwd, installPath: mine, lastUpdated: '2026-10-01T00:00:00.000Z' }] } });
+  r = run('split', ['-p', 'x'], c.env, { cwd: c.cwd });
+  assert.deepStrictEqual(readJson(sbFile(c.home, c.cwd)).sandbox.excludedCommands.slice(-2), fcPair(mine));   // this project's entry is
+  const cfg = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-cfg-'));
+  const viaCfg = fcCli(path.join(cfg, 'plugins', 'cache', 'mk', 'bajzi', '3.0'));
+  fs.writeFileSync(path.join(cfg, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'bajzi@mk': [{ scope: 'user', installPath: viaCfg }] } }));
+  r = run('split', ['-p', 'x'], Object.assign(c.env, { CLAUDE_CONFIG_DIR: cfg }), { cwd: c.cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(readJson(sbFile(c.home, c.cwd)).sandbox.excludedCommands.slice(-2), fcPair(viaCfg));
 });

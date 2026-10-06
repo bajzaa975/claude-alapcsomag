@@ -177,8 +177,13 @@ $saver_block"
     warn="$warn $mm"
     # Linux: the strict tier (Claude Code's OS sandbox) exists only in a session started with `split`,
     # which sets BAJZI_SANDBOX=1. BAJZI_UNAME: test seam for uname -s.
+    # BAJZI_SPLIT=1 without BAJZI_SANDBOX: already a split session, the sandbox did not start: never "restart with split".
     if [ "${BAJZI_UNAME:-$(uname -s 2>/dev/null)}" = "Linux" ] && [ "${BAJZI_SANDBOX:-}" != "1" ]; then
-        warn="$warn strict tier needs the split launcher: restart this session with: split"
+        if [ "${BAJZI_SPLIT:-}" = "1" ]; then
+            warn="$warn this split session has no OS sandbox: bubblewrap or socat is missing, or bwrap cannot create a namespace (on Ubuntu add an AppArmor profile for /usr/bin/bwrap); guard tier only."
+        else
+            warn="$warn strict tier needs the split launcher: restart this session with: split"
+        fi
     fi
 fi
 if [ -n "$saver_block" ]; then

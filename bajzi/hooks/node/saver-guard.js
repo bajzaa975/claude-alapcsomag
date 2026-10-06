@@ -39,6 +39,7 @@ const SINKS =/^(?:\/dev\/null|&[\d-]|\$null)$/i;
 
 const blockedReason = n => `saver-guard: this session is at L${n} but runs on Claude (started with plain claude). Writing code is GLM's job here: run it as glm -p with the brief on stdin (Bash run_in_background), or relaunch the session with worker. Risk slices: bajzi:implementer-risk. Owner override: type ! worker --level 0 in the prompt.`;
 const PROTECTED_REASON = 'saver-guard: this file controls the saver guard or the saver level; only the owner may change it (type it as a ! command in the prompt, which bypasses hooks).';
+const SPLIT_REASON = 'saver-guard: in a split session the Edit tools write only <project>/runtime/, the temp dir and ~/.claude/projects/*/memory/ outside the project, and never <project>/.git or <project>/.githooks; any other file (hooks, git config, settings) is changed by the owner only (type it as a ! command in the prompt).';
 const HOME_VAR = /^(?:~|\$\{HOME\}|\$HOME|\$env:(?:HOME|USERPROFILE))(?=$|[/\\])/i;
 const TMP_VAR = /^(?:\$\{(?:TMPDIR|TEMP|TMP)\}|\$(?:TMPDIR|TEMP|TMP)|\$env:(?:TMPDIR|TEMP|TMP))(?=$|[/\\])/i;
 const LEVEL_REASON = 'saver-guard: only the owner may change the saver level. Ask the owner to type ! worker --level <n> in the prompt (it bypasses hooks).';
@@ -146,14 +147,18 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     const { level, word } = resolveLevel({ env, home, sessionId: input.session_id });
     if (level < 2) return null;
 
-    const dirs = [path.join(proj, 'runtime'), path.join(home, '.claude'), tmpdir];
+    // BAJZI_SANDBOX=1 (a Linux `split` session): the Edit tools are the only unsandboxed write path, so they get the narrow list.
+    // Anything wider (~/.claude/hooks, ~/.gitconfig) lets a Write turn the excluded `git commit` into an unsandboxed hook run.
+    const sandbox = env.BAJZI_SANDBOX === '1';
+    const dirs = sandbox ? [path.join(proj, 'runtime'), tmpdir] : [path.join(proj, 'runtime'), path.join(home, '.claude'), tmpdir];
+    const memory = String(env.CLAUDE_CONFIG_DIR || '') ? path.join(env.CLAUDE_CONFIG_DIR, 'projects') : path.join(home, '.claude', 'projects');
     const abs = p => {
       let q = p;
       for (const [re, dir] of [[HOME_VAR, home], [TMP_VAR, tmpdir], [/^\/tmp(?=$|\/)/, tmpdir]]) q = q.replace(re, () => dir);
       if (process.platform === 'win32') q = q.replace(/^\/([a-zA-Z])(?=$|\/)/, '$1:');   // Git-Bash /c/Users
       return path.resolve(cwd, q);
     };
-    const allowed = p => dirs.some(d => under(abs(p), d));
+    const allowed = p => dirs.some(d => under(abs(p), d)) || (sandbox && under(abs(p), memory) && /^[^/]+\/memory\/./.test(key(abs(p)).slice(key(memory).length + 1)));
     // Files that switch the hooks off or lower the level: denied even inside the allowed dirs.
     const claude = path.join(home, '.claude');
     const files = [path.join(proj, 'runtime', 'bajzi-mode'), path.join(cwd, 'runtime', 'bajzi-mode'), env.CC_WORKER_MODE_FILE || '',
@@ -178,6 +183,8 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       const raw = tool === 'NotebookEdit' ? ti.notebook_path : ti.file_path;
       if (typeof raw !== 'string' || !raw) return null;
       if (protectedPath(raw)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
+      // Outside the project, and the project's .git/.githooks (the excluded `git commit` runs hooks and git config unsandboxed): no risk-agent or peak relaxation.
+      if (sandbox && ((!allowed(raw) && !under(abs(raw), proj)) || [path.join(proj, '.git'), path.join(proj, '.githooks')].some(d => key(abs(raw)) === key(d) || under(abs(raw), d)))) return blocked(SPLIT_REASON);
       write = !allowed(raw) && !(typeof input.agent_type === 'string' && RISK_AGENT.test(input.agent_type));
     } else if (isAgent) {
       const t = typeof ti.subagent_type === 'string' ? ti.subagent_type : '';

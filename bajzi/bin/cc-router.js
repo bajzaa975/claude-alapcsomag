@@ -14,7 +14,7 @@
 //   bajzi/sessions/<session_id>.level  the level of ONE session (--level/--set from inside it)
 'use strict';
 const VERSION = '1.2.0';
-const { spawn, execFileSync } = require('child_process');
+const { spawn, spawnSync, execFileSync } = require('child_process');
 const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
 
 const DIR = path.join(os.homedir(), '.claude');
@@ -353,7 +353,10 @@ if (insideClaude) env.CC_ROUTER_WORKER = '1';   // B2: tells a Claude-spawned `g
 const PLATFORM = process.env.CC_ROUTER_PLATFORM || process.platform;   // test seam: the platform the split entry sees
 
 // --- split entry helpers ---
-const EXCLUDED = ['glm *', 'git add *', 'git commit *', 'git push *', 'git fetch *', 'git checkout -b *', 'git switch -c *', 'gh *'];
+// Only what must write into the project: the GLM worker, the two git commands that record its work, the findings CLI. Every other git
+// or gh call is GLM's job in a split session: `fetch --upload-pack=`, `push --receive-pack=`, `fetch <tmp clone> + switch -c` and
+// `gh alias set --shell` each turn an excluded (unsandboxed) command into an arbitrary write or exec.
+const EXCLUDED = ['glm *', 'git add *', 'git commit *'];
 function onPath(name) {
   return (process.env.PATH || '').split(path.delimiter).some(d => {
     if (!d) return false;
@@ -361,21 +364,34 @@ function onPath(name) {
     try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch (_) { return false; }
   });
 }
+let BWRAP = ['bwrap'];   // test seam: CC_BWRAP_CMD = JSON [cmd, ...leading args] replaces bwrap; a bad value is ignored
+try { const a = JSON.parse(process.env.CC_BWRAP_CMD); if (Array.isArray(a) && a.length && a.every(x => typeof x === 'string')) BWRAP = a; } catch (_) {}
+// '' when bwrap can create a namespace (stock Ubuntu 23.10+ refuses unprivileged ones without an AppArmor profile), else why not.
+function bwrapProbe() {
+  const r = spawnSync(BWRAP[0], BWRAP.slice(1).concat(['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', 'true']),
+    { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'ignore', 'pipe'] });
+  if (!r.error && r.status === 0) return '';
+  return ((r.stderr || '').split('\n').find(l => l.trim()) || (r.error ? r.error.message : r.signal ? 'killed by ' + r.signal : 'exit ' + r.status)).trim();
+}
 function projectRoot() {
   try { const r = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); if (r) return r; } catch (_) {}
   return process.cwd();
 }
-// The installed bajzi root: installPath of the newest `bajzi@<marketplace>` entry in installed_plugins.json. Absolute,
-// no `..` segment, no `*`, and <root>/lib/findings-cli.js must exist; else ''. An exact path only: a wildcard
-// before the script would also match a findings-cli.js planted under the writable /tmp.
-function bajziRoot() {
+// The installed bajzi root: installPath of the newest `bajzi@<marketplace>` entry this session loads, from
+// installed_plugins.json under CLAUDE_CONFIG_DIR (else ~/.claude): a user-scope entry, or a project/local one whose
+// projectPath is this project. Absolute, no `..` segment, no `*`, and <root>/lib/findings-cli.js must exist; else ''.
+// An exact path only: a wildcard before the script would also match a findings-cli.js planted under the writable /tmp.
+function bajziRoot(root) {
   let best = null;
   const t = e => Date.parse(e.lastUpdated || e.installedAt) || 0;
+  const norm = p => { const q = path.resolve(String(p)); return process.platform === 'win32' ? q.toLowerCase() : q; };
+  const here = [root, process.cwd()].map(norm);
+  const loaded = e => !e.scope || e.scope === 'user' || (typeof e.projectPath === 'string' && here.includes(norm(e.projectPath)));
   try {
-    const j = JSON.parse(fs.readFileSync(path.join(DIR, 'plugins', 'installed_plugins.json'), 'utf8'));
+    const j = JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || DIR, 'plugins', 'installed_plugins.json'), 'utf8'));
     for (const [k, list] of Object.entries((j && j.plugins) || {})) {
       if (!/^bajzi@/.test(k) || !Array.isArray(list)) continue;
-      for (const e of list) if (e && typeof e.installPath === 'string' && (!best || t(e) > t(best))) best = e;
+      for (const e of list) if (e && typeof e.installPath === 'string' && loaded(e) && (!best || t(e) > t(best))) best = e;
     }
   } catch (_) {}
   const r = best ? best.installPath : '';
@@ -385,7 +401,7 @@ function bajziRoot() {
 // ~/.claude/bajzi/sandbox/split-<sha1(root), 12 hex>.json, rewritten on every launch (tmp + rename, mode 600).
 // The whole root is denied: denyWrite beats a narrower allowWrite, and a glob there denied nothing (measured).
 function writeSandbox() {
-  const root = projectRoot(), plug = bajziRoot();
+  const root = projectRoot(), plug = bajziRoot(root);
   if (!plug) process.stderr.write('split: bajzi plugin root not found - findings CLI stays sandboxed\n');
   const conf = { sandbox: { enabled: true, allowUnsandboxedCommands: false,
     excludedCommands: EXCLUDED.flatMap(c => [c, 'rtk ' + c]).concat(plug ? ['node ' + plug + '/lib/findings-cli.js *', 'node "' + plug + '/lib/findings-cli.js" *'] : []),
@@ -411,8 +427,10 @@ let marker = '';
 if (entry === 'split') {
   delete env.BAJZI_SANDBOX;   // only this launch may claim the sandbox
   Object.assign(env, { CC_WORKER_MODE: 'glm', BAJZI_SPLIT: '1' });
-  const sandbox = PLATFORM === 'linux' && onPath('bwrap') && onPath('socat');
-  if (sandbox) { args = ['--settings', writeSandbox()].concat(args); env.BAJZI_SANDBOX = '1'; }
+  let sandbox = PLATFORM === 'linux' && onPath('bwrap') && onPath('socat');
+  const why = sandbox ? bwrapProbe() : '';
+  if (why) { sandbox = false; process.stderr.write('split: bwrap cannot create a namespace (' + why + ') - on Ubuntu add an AppArmor profile for /usr/bin/bwrap; guard tier only\n'); }
+  else if (sandbox) { args = ['--settings', writeSandbox()].concat(args); env.BAJZI_SANDBOX = '1'; }
   else process.stderr.write('split: no OS sandbox ' + (PLATFORM === 'linux' ? '(bubblewrap/socat missing)' : 'on ' + PLATFORM) + ' - Windows-tier guard only\n');
   marker = 'split sandbox=' + (sandbox ? 'yes' : 'no');
 }

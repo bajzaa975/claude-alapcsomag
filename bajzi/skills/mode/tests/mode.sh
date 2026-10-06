@@ -393,7 +393,7 @@ rm -f "$WM"
 # passes. Every output must also be valid JSON (the hook must never fail).
 run_hook_env() { # $1 = cwd, $2 = home, $3 = plugin root, then KEY=VALUE pairs
     local c="$1" h="$2" r="$3"; shift 3
-    printf '{"cwd":"%s"}' "$c" | env -u ANTHROPIC_BASE_URL -u CC_ROUTER_WORKER -u CC_WORKER_MODE \
+    printf '{"cwd":"%s"}' "$c" | env -u ANTHROPIC_BASE_URL -u CC_ROUTER_WORKER -u CC_WORKER_MODE -u BAJZI_SPLIT -u BAJZI_SANDBOX \
         HOME="$h" CLAUDE_PLUGIN_ROOT="$r" BAJZI_SAVER_LAUNCHER=bash "$@" bash "$HOOK_SH"
 }
 for f in SAVER-L1.md SAVER-L3.md GLM-WORKER.md; do ln -sf "$MODE_DIR/$f" "$FAKE_ROOT/skills/mode/$f"; done
@@ -526,6 +526,11 @@ out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight B
 expect_msg "11q4 Linux, L3 on Claude: split hint" "$out" "$SPL"
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux BAJZI_SANDBOX=1)"
 expect_msg "11q4 Linux split session (BAJZI_SANDBOX=1): no split hint" "$out" "L2 $MM" "$SPL"
+# A session already started with split (BAJZI_SPLIT=1) but without the sandbox (BAJZI_SANDBOX unset: bwrap/socat missing, or the bwrap probe failed)
+# is never told to restart with split; the hint names what is missing.
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux BAJZI_SPLIT=1)"
+expect_msg "11q4 Linux split session without the sandbox: no 'restart with split'" "$out" "L2 $MM" "$SPL"
+expect_msg "11q4 Linux split session without the sandbox: hint names bubblewrap/socat and the bwrap probe" "$out" 'split session has no OS sandbox: bubblewrap or socat is missing, or bwrap cannot create a namespace'
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=MINGW64_NT-10.0)"
 expect_msg "11q4 not Linux: no split hint" "$out" "L2 $MM" "$SPL"
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux "$ZAI")"

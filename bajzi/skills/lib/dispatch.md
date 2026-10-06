@@ -33,6 +33,9 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
    -> dispatch the ORIGINAL Agent call again; the guard allows writes in the peak window. Any other
    non-zero exit -> print it and STOP. Tier 1 slices use `bajzi:implementer-risk`, which the guard
    allows, so they never take this path.
+   **Split session** (`BAJZI_SPLIT=1`, Linux sandbox): only `glm`, `git add`, `git commit` and the `FC` calls
+   write into the project. Branch creation, `git switch`/`checkout`/`merge`/`pull`/`fetch`/`push` and every
+   `gh` call run as `glm -p "<git/gh task>"` (same brief form), never directly.
 4. **Save the final message** verbatim where the row says (Write tool), before reading it.
 
 **Any `FC` exit code a skill step does not name -> print its output and the exit code, STOP.**
