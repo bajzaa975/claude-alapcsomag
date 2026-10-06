@@ -63,7 +63,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 
 | I want to change… | File(s) : function | Tests | Tier | Gotcha |
 |---|---|---|---|---|
-| Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`, session-signal on every tool, never any output, §6.5); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
+| Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`, saver-guard on `Edit\|Write\|MultiEdit\|NotebookEdit\|Agent\|Task\|Bash\|PowerShell`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`, session-signal on every tool, never any output, §6.5); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js:20-22` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` (runs from `pre-tool.js`/`post-tool.js`) | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in the plan's Global Constraints and in `docs/superpowers/specs/2026-09-23-bajzi-env-unification-design.md` section 3.2 (`:110`) — keep all three in sync or the doc lies. |
 | What is allowed above 50% | `context-guard.js:36-153` `isHandoffPath`, `commandCheck`, `commandRule`, `mvRule`, `skillRule`, `exemptCheck` | same, tests `RF4:*`, `I1a/I1b/I1c:*`, `I-1: shell escapes...` | 1 | The `PLAIN_WORD` whitelist (`:67`) covers only `mkdir`/`mv`/`git mv` argument tokens. `isHandoffPath` itself is not anchored to the repo root — an accepted limit (§9.4). |
 | Status-line fields/order | `bajzi/hooks/node/statusline.js:59-93` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). `5h N%` / `7d N%` (`rate_limits.five_hour` / `.seven_day` `.used_percentage`, rounded) follow the context bar, plain text, omitted when absent or non-numeric. GLM share only rendered at level ≥ 1. |
@@ -110,6 +110,7 @@ only, e.g. docs). See ADR 0028 in claude-orchestrator for the tiering rationale.
 | Public feature overview | `README.md` | `node --test bajzi/skills/project-setup/tests/release.test.js` (asserts the night-run bullet, the Safety fail-closed exceptions, that the Safety section names the writer guard and that every skill is in the Skills table) | 3 | Any user-visible feature add/removal updates the README Features section. |
 | Radar: the biweekly read-only setup review (digest, headless run, report/error files, SessionStart notice, schedule) | `bajzi/skills/radar/radar.js` (`digest`, `run`, `claudeArgs`, `realClaude`, `notice`, `seen`, `installTask`, `taskCommand`, `cronLine`, `LAUNCHER`), `bajzi/skills/radar/prompt.md` (what the session reviews, output contract), `bajzi/skills/radar/SKILL.md` (§6.14) | `node --test bajzi/skills/radar/tests/*.test.js` | 1 | `--tools` is the sandbox, not `--allowedTools`: with `--allowedTools` alone under `dontAsk` the session still has Bash and the owner's settings allow rules run it (smoke check, §6.14); `radar.test.js` pins the exact five, WebFetch allowed only for `WEB_HOSTS` (= the hosts of `prompt.md`'s URLs: a new pinned source host goes into both), and `--setting-sources ''` + `disableAllHooks` (no owner settings, plugins or hooks); `childEnv` strips the provider variables (`ANTHROPIC_*`, the cc-router scrub set) from the session and pre-steps. The digest emits counts and `LABEL`-whitelisted names only; a new digest field must not carry text. `notice` is a SessionStart hook: only `stat`s, silent and exit 0 on any error. Registering it in `hooks.json` also moves the node-command count in `release.test.js` and the `mode.sh` 13m2 list. |
 | Who may edit bajzi plugin files (writer guard: owner session, request inbox, installed copies) | `bajzi/hooks/node/writer-guard.js` `check`, `findTree`, `mainOf`, `notice` (runs from `pre-tool.js`, `CHECKS` row `writer-guard`); the rule text `shared/CLAUDE.md` "bajzi plugin changes" (§6.15) | `node --test bajzi/hooks/node/tests/writer-guard.test.js` | 1 | Covers only Edit/Write/MultiEdit/NotebookEdit; Bash/PowerShell writes are the known ceiling (§9.1). The installed-copy paths are checked before the repo walk, because the marketplace clone is itself a main checkout. The `notice` SessionStart entry is registered in `hooks.json` (§6.15). A tree with no main checkout (no owner can exist) gets a deny that points at no inbox; its `runtime/requests/` stays writable but is never reported. |
+| Saver guard (an L2/L3 session still on Claude may not write code; `worker --level/--set` is owner-only) | `bajzi/hooks/node/saver-guard.js` `check`, `shellWrites`, `dayRunOn` (runs from `pre-tool.js`, `CHECKS` row `saver-guard`); level from `lib/saver-level.js:resolveLevel`, peak from `lib/peak.js:peakStatus` (§6.16) | `node --test bajzi/hooks/node/tests/saver-guard.test.js` | 1 | The gate is the `saver_resolve` gate minus the non-Anthropic leg (a GLM session is never touched); keep the day-run read in sync with `lib-saver-level.sh`. The Bash/PowerShell write test is a token heuristic (`ponytail:` comment), not a sandbox. Peak allows and every deny are counted in `runtime/routing-violations.log`. |
 
 ### Advisor pilot (1.10.1)
 
@@ -326,6 +327,7 @@ PreToolUse
       every tool                        -> context-guard.js  check (reads the bridge; >=50% deny)
       Read|Grep|Glob|Bash|PowerShell    -> secret-guard.js   check (secret-read deny)
       Edit|Write|MultiEdit|NotebookEdit -> writer-guard.js   check (bajzi-writer deny, §6.15)
+      ...|Agent|Task|Bash|PowerShell    -> saver-guard.js    check (L2/L3-on-Claude write deny, §6.16)
       both deny -> one envelope, both reasons joined by a newline, context block first
   matcher Agent|Task                    -> dispatch-guard.sh  (review/fix dispatch discipline)
 
@@ -388,6 +390,12 @@ block `:9-30`):
 | L1 | `light` | "Light": flash-class work (locate/map, tests/lint/build, long-file summaries) moves to the GLM fast model; everything else stays Claude. |
 | L2 | `glm` | "Balanced": the flash rung as L1, **plus** implement/fix/document-writing moves to GLM (`glm -p`, i.e. `glm_model`, default `glm-5.3-flash`). Risk slices, debugging and every review stay Claude/Opus. |
 | L3 | `tight` | The **whole session** runs on GLM — there is no Anthropic model reachable from it at all. The session itself (top-level) runs on `glm_orchestrator_model` (`glm-5.3`); its sub-agents and every `glm -p` dispatch on `glm_model`/`glm_fast_model` (`glm-5.3-flash`). |
+
+**L2/L3 on an Anthropic provider is write-blocked** by the saver guard (§6.16): a session at L2 or
+L3 started with plain `claude` (not `worker`) cannot edit code, dispatch a writing sub-agent or
+make an obvious shell file write while the saver gate is open, so the writing has to go through
+`glm -p`. Measured before it (2026-10-06): machine L3 + day-run gave 84% Claude / 16% GLM, a VM
+night at L2 100% Claude.
 
 **Which level a session runs at (per session, 1.14.1).** Every resolver uses one order:
 `CC_WORKER_MODE` (the runner's per-process override) > **this session's level file**
@@ -708,7 +716,10 @@ in the last 10 minutes (then falling back to Claude was correct). When the dispa
 explicit model, it resolves the `subagent_type`'s own agent-definition file and reads its
 frontmatter `model:` line (`routing-counter.sh:fm_model`), checked in a fixed, bounded set of directories
 (project agents, user agents, plugin cache, plugin marketplace) — never a recursive `find`.
-Violations are appended to `<cwd>/runtime/routing-violations.log` (§7.2).
+Violations are appended to `<cwd>/runtime/routing-violations.log` (§7.2). The saver guard
+(§6.16) writes to the same log, tab-separated: `<ISO-UTC>\tlevel=<word>\tcause=blocked\ttool=<tool>`
+for every deny and `cause=peak` for a write it let through in the Z.ai peak window, so one count
+covers both the bypasses and the counted Claude fallbacks.
 
 **Reviewer model check** (Invariant 3): a `bajzi:reviewer` dispatch whose **served** model is not on
 the reviewer allow-list adds one `level=<l> reviewer-model=<served> cause=<off-list|no-allowlist>` line
@@ -1890,6 +1901,81 @@ are not blocked; the global rule text covers intent. Also, when the host sets no
   - `pre-tool.js` loads the writer guard on exactly the four tools;
   - a throwing writer guard leaves the context block unchanged.
 
+### 6.16 Saver guard — technical
+
+`bajzi/hooks/node/saver-guard.js` makes the saver level mechanical (owner decision 2026-10-06). A
+session started with plain `claude` stays on Anthropic whatever the level says, and the level only
+changes injected text, so measured L2/L3 runs still wrote everything on Claude. The guard makes such
+a session unable to write code: the writing has to go through `glm -p`. It runs in-process in the
+combined `PreToolUse` entry `pre-tool.js` (`CHECKS` row `saver-guard`, after the writer guard;
+§5.3); run directly, it still works as its own hook. Stdlib only.
+
+**Trigger + matcher**: `PreToolUse` on `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Agent`,
+`Task`, `Bash` and `PowerShell`, through the `pre-tool.js` matcher. The `hooks.json` entry is the
+existing `.*` one, so no wiring changed. `check` returns null for any other tool.
+
+**Inputs**: stdin `tool_name`, `tool_input`, `cwd`, `session_id`, and `agent_type` (present only
+on a sub-agent's call). `check(input, {env, home, now, tmpdir})` defaults to `process.env`,
+`os.homedir()`, `new Date()` and `os.tmpdir()`; all are injectable for tests.
+
+**Active only when all hold** (else null):
+- the gate is open: `CC_WORKER_MODE` is non-empty after whitespace removal, or day-run is on (the
+  first existing file of `<cwd>/runtime/bajzi-mode` and `<home>/.claude/bajzi-mode` decides; its
+  first line, whitespace removed and lower-cased, reads `day-run`), the same rule as
+  `lib-saver-level.sh:saver_resolve`. The level file alone never opens it;
+- `resolveLevel({env, home, sessionId})` (`lib/saver-level.js`) gives level 2 or 3;
+- the provider is Anthropic: `ANTHROPIC_BASE_URL` unset, or its `hostOf` host is `anthropic.com`
+  or a subdomain. A GLM session (z.ai host, every nested `glm -p` worker included) is never
+  touched.
+
+**Rules** (paths compared like the writer guard, §6.15: `/` separators, lower-case on win32,
+"under" = prefix plus `/`; allowed dirs = `<cwd>/runtime/`, `<home>/.claude/`, `tmpdir`):
+1. `Edit`/`Write`/`MultiEdit`/`NotebookEdit` (`file_path`, `notebook_path` for NotebookEdit,
+   resolved against `cwd`): deny unless the target is under an allowed dir, or the call comes
+   from a sub-agent whose `agent_type` matches `/(^|:)implementer-risk$/i`.
+2. `Agent`/`Task`: deny unless `subagent_type` is `Explore`, `Plan` or `claude-code-guide`
+   (case-sensitive), or `bajzi:reviewer` / `bajzi:implementer-risk` (case-insensitive). A missing
+   type is `general-purpose`, so it is denied with every other writing agent.
+3. `Bash`/`PowerShell` `command`: deny `worker` (or `worker.cmd`) followed later in the command by
+   `--level` or `--set`. The owner changes the level with `! worker --level <n>`, which bypasses
+   hooks. Also deny obvious file writes outside the allowed dirs: `sed -i`/`--in-place` and
+   `perl -i` (whatever the target), `tee <file>`, a `>`/`>>`/`&>`/`2>` redirect whose target is not
+   `/dev/null`, `&1`/`&2`, `$null` or an allowed dir, and PowerShell `Set-Content`, `Add-Content`,
+   `Out-File` and `New-Item ... -ItemType File` (target = the `-Path`/`-LiteralPath`/`-FilePath`
+   value, else the first argument; no clear target = deny). A heredoc body is skipped (only its
+   header line is scanned, so `cat <<EOF > src/x.js` is still a write) and quoted text is made
+   inert, so a `glm -p <<'EOF'` brief or `git commit -m "a -> b"` holds no redirect. Reads, `git commit`, `glm` and
+   `worker --status`/`--usage` pass.
+4. **Peak window** (owner choice: Claude fallback, counted): when `lib/peak.js:peakStatus(now)`
+   says the Z.ai peak is open, the write denies of rules 1-3 become allows. The `worker
+   --level/--set` deny never relaxes.
+
+**Outputs**: rule `saver-guard`, so the reason is prefixed `[bajzi:saver-guard]`. Write deny:
+"saver-guard: this session is at L<n> but runs on Claude (started with plain claude). Writing code
+is GLM's job here: run it as glm -p with the brief on stdin (Bash run_in_background), or relaunch
+the session with worker. Risk slices: bajzi:implementer-risk. Owner override: type ! worker
+--level 0 in the prompt." Level deny: "saver-guard: only the owner may change the saver level. Ask
+the owner to type ! worker --level <n> in the prompt (it bypasses hooks)." Every deny appends
+`<ISO-UTC>\tlevel=<word>\tcause=blocked\ttool=<tool_name>`, and every peak allow the same line
+with `cause=peak`, to `<cwd>/runtime/routing-violations.log` (§6.3; `runtime/` created as needed).
+
+**Failure behaviour**: fails open. `check` catches every internal error and returns null, as it
+does for input that is not an object or lacks a `cwd`, a `tool_input` or a target. A log write
+failure is ignored and leaves the decision unchanged. `pre-tool.js`'s `runChecks` keeps a throwing
+saver guard from hiding another check's deny.
+
+**Accepted limits**:
+- The Bash/PowerShell write test is a token heuristic, not a sandbox (the `ponytail:` comment in
+  `saver-guard.js`): a creative write (`python -c`, `cp`, `git apply`, a cmdlet alias) still
+  passes, and a `worker --level` inside a commit message is denied.
+- A plain `claude` launch at L2/L3 is still possible. The guard is what makes it useless for
+  writing code.
+
+**Tests**: `node --test bajzi/hooks/node/tests/saver-guard.test.js` (gate, levels, GLM provider,
+every rule, peak, the log lines, fail-open; injected env, home, tmpdir and clock) and one
+`tool-hooks.test.js` case: an Edit routed through `pre-tool.js` (deny, or a `cause=peak` line
+inside the peak window) plus the `worker --level 0` deny.
+
 ## 7. Shared state files
 
 Every file two or more components meet through. "Writer" is the only code that creates or changes
@@ -1924,7 +2010,7 @@ root. Line numbers are pinned to the commits in §11.
 | `~/.claude/bajzi/sessions/<session_id>.level` (1.14.1) | `worker --level <n>` / `--set <word>` run inside that session without `--global` (`cc-router.js` `writeLevel`: `wx` temp file, then rename; only for a `SAFE_ID`-valid `CLAUDE_CODE_SESSION_ID`) | `lib-saver-level.sh` `saver_resolve` (`day-run-mode.sh`, `dispatch-guard.sh`, `routing-counter.sh`), `saver-level.js` `resolveLevel` (`statusline.js`), `cc-router.js` `resolveMode`, `/bajzi:mode status` | one word + LF, same words and read as `worker-mode`; an empty first line = no session level | never written by a launch; not pruned (`prune` deletes only the three record kinds) |
 | `~/.claude/bajzi/hook-samples.on`, `hook-samples.jsonl` | the owner creates `.on`; `session-signal.js` `sample` appends | the owner | one redacted hook input per line (shape only, §6.5; `SAMPLE_KEEP` id strings cut at 2048 chars) | on while `.on` exists; no cap; the owner deletes both |
 | `~/.claude/bajzi/statusline.js` + `lib/*.js` | `install-statusline.js:51-53` (`/bajzi:setup` PHASE D step 9) | Claude Code, through `settings.json` `statusLine`; `check.js:105-107` | copy of the plugin files | refreshed on every setup run; survives plugin updates on purpose (§5.1) |
-| `<cwd>/runtime/routing-violations.log` | `routing-counter.sh` (the two `routing-violations.log` appends: saver rung, reviewer model; gate open) | the owner | `<YYYY-MM-DDTHH:MM:SSZ> level=<n> model=<m>` or `... level=<n> reviewer-model=<served> cause=<off-list|no-allowlist>` (space-separated) | no cap |
+| `<cwd>/runtime/routing-violations.log` | `routing-counter.sh` (the two `routing-violations.log` appends: saver rung, reviewer model; gate open); `saver-guard.js` (every deny and every peak allow, §6.16) | the owner | `<YYYY-MM-DDTHH:MM:SSZ> level=<n> model=<m>` or `... level=<n> reviewer-model=<served> cause=<off-list|no-allowlist>` (space-separated); saver guard: `<YYYY-MM-DDTHH:MM:SSZ>\tlevel=<word>\tcause=<blocked|peak>\ttool=<tool>` (tab-separated) | no cap |
 | `<cwd>/runtime/dispatch-sizes.log` | `dispatch-guard.sh` (the R4 block, §6.4); `findings-cli.js:cmds.log` (class `SKILL-<CLASS>`, §6.12; an `allow` only when the hook's gate is closed or unresolvable, a `deny` always); `pre-commit.js:main` (class `GATE`, one line per commit-time verdict, not `--init`) | the owner; plan T9 counts dispatches and gate blocks from it | TSV `<ISO-UTC> <class> <subagent_type> <prompt chars> <decision>` (`dispatch-guard.sh` header, R4); the hook writes `allow\|deny:R1\|R2\|R3`, a `SKILL-` line a bare `allow\|deny`; a gate line is `<ISO-UTC> GATE pre-commit <exit 0\|1\|2> <pass\|block>` | no cap; a failed write never changes the decision or the gate verdict |
 | `<cwd>/runtime/findings/<slice>-r<n>.md`, `<slice>-r1.fixer.md`, `<slice>-r1.report.md` | `/bajzi:review` (the reviewer's message), `findings-cli.js:cmds.copy`, `/bajzi:fix` (the fixer's message) | `findings-cli.js` `validate`/`close` | `docs/findings-format.md` | one set per slice; never deleted by code |
 | `<cwd>/runtime/findings/debt.md`, `needs-owner.md` | `findings-cli.js` `close`/`drain`/`calibrate` (`toOwner` for `needs-owner.md`) | `findings-cli.js check`, `/bajzi:implement`, the owner | `docs/findings-format.md`; `needs-owner.md` = §6.12 | `debt.md` shrinks only through `--drain`; `needs-owner.md` is append-only, the owner clears it |
