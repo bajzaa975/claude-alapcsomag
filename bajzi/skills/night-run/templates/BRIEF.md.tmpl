@@ -72,7 +72,9 @@ changed files, the cited lines/functions, your own findings, the gate result)
 to the queue file `{{BASE}}/runtime/review-queue/<id>.md` (absolute path, `<id>`
 is your queue id; in `{{BASE}}`, never inside `{{NIGHT_DIR}}/wt/<id>/`, and
 never `git add` it). It is the one file besides section 1's deliverables you may
-write in `{{BASE}}`. When it does not exist yet, create it with exactly these
+write in `{{BASE}}`. When it already exists (an earlier night), first reset its
+`status:` line to `status: open` and rewrite its `branch:` and `files:` lines for this run, then
+APPEND under `## Evidence`. When it does not exist yet, create it with exactly these
 header lines, then APPEND under `## Evidence`:
 `# Review queue: <id>`, `status: open`, `branch: <your branch>`, `sprint: <id>`,
 `files: <changed files>`, `## Evidence`.

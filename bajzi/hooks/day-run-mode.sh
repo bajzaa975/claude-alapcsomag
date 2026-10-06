@@ -194,7 +194,9 @@ fi
 
 if [ -z "$block" ]; then
     if [ -n "$warn" ]; then
-        if [ "$dayrun" = "yes" ]; then emit "day-run mode active ($f).$warn" ""; else emit "saver off:$warn" ""; fi
+        if [ "$dayrun" = "yes" ]; then emit "day-run mode active ($f).$warn" ""
+        elif [ -n "${mm:-}" ]; then emit "saver level mismatch:$warn worker --level 0 to turn saver off." ""
+        else emit "saver off:$warn" ""; fi
         exit 0
     fi
     printf '{}'

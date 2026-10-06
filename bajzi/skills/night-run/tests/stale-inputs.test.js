@@ -265,9 +265,13 @@ test('F1/F8 PHASE C sets the four config.env keys at EVERY level: replace an unc
   has(c, 'setting four keys at EVERY level');
   has(c, 'replace its uncommented line when there is one, or append one when there is none');
   has(c, 'never a second line for a key, so a re-render is idempotent');
-  has(c, 'Write the `# off:` line once');
+  has(c, 'Write the `# off:` line and the two `# was-` lines once');
   has(c, '`CLAUDE_BIN="claude"` and `MODEL="<reviewer allow-list entry [0]>"`');
+  has(c, 'ONLY when the `# off:` marker line is present');
   has(c, 'delete the `WATCH_TRIAGE="0"` / `SUPERVISE="0"` lines and the `# off:` line');
+  has(c, "put back each `# was-` line that is not `none` as the owner's own line");
+  has(c, "saving the owner's previous lines BEFORE overwriting them");
+  has(c, "# was-WATCH_TRIAGE: <the owner's uncommented WATCH_TRIAGE line, or none>");
   assert.ok(!c.includes('At L0/L1 config.env is left exactly as it is'));
 });
 
@@ -327,6 +331,24 @@ test('F5 PHASE D at L2/L3: launch-to-deadline interval must not overlap any 06:0
   assert.match(run(t('2026-10-06T22:00:00Z'), t('2026-10-08T05:00:00Z')).stdout, /BLOCKER/);   // multi-day crossing a window
   assert.match(run(t('2026-10-06T08:00:00Z'), t('2026-10-06T12:00:00Z')).stdout, /BLOCKER/);   // launch inside the window
   assert.strictEqual(run(t('2026-10-06T10:00:00Z'), t('2026-10-07T05:59:00Z')).stdout, '');
+});
+
+test('S3-F12 GLM variant: a re-run resets an existing queue file status to open and rewrites branch and files', () => {
+  const g = flat(GLM_TABLE);
+  has(g, 'When it already exists (an earlier night), first reset its `status:` line to `status: open` and rewrite its `branch:` and `files:` lines for this run, then APPEND');
+});
+
+test('S3-F13 peak check parses the deadline as LOCAL time: TZ-independent result', () => {
+  const blk = phase('## PHASE D', '## PHASE E').match(/```bash\n\s*(L=\$\(date -u[\s\S]*?)```/);
+  assert.ok(blk, 'peak check script');
+  const t = (s) => Date.parse(s) / 1000;
+  const run = (L, dl) => spawnSync('bash', ['-c', blk[1].replace('L=$(date -u +%s)', `L=${L}`).replace('<deadline>', dl)], { encoding: 'utf8', env: { ...process.env, TZ: 'JST-9' } });
+  const r0 = run(t('2026-10-06T00:00:00Z'), '2026-10-06 14:00');   // 05:00Z: before the window
+  if (r0.error) return;
+  assert.strictEqual(r0.stdout, '', 'local 14:00 JST = 05:00Z is clean');
+  assert.match(run(t('2026-10-06T00:00:00Z'), '2026-10-06 16:00').stdout, /BLOCKER/);   // 07:00Z
+  const d = flat(phase('## PHASE D', '## PHASE E'));
+  has(d, 'append the local offset (`date +%z`, e.g. `2026-10-07 04:30 +0900`) to `<deadline>`');
 });
 
 test('F6 L0/L1 variant extracted by the documented rule reproduces the 1.15.2 text around both placeholders', () => {

@@ -565,16 +565,16 @@ GLM queue — the `-ReviewQueue` drain (§6.11.5) launches the reviewer allow-li
 regardless of `-Model` and verifies the served model id against the list itself.
 
 **Night-run GLM night (L2/L3)** (`/bajzi:night-run` PHASE C/D, the level PHASE A step 8 resolved; owner decision
-2026-10-06 after the innotel night of 2026-10-06 launched with plain `claude` at L2 and used GLM for 0 requests): at L2/L3
+2026-10-06 after the innotel night of 2026-10-06 launched with plain `claude` at L2 and used GLM for 0 requests):
 PHASE C sets four `<NIGHT_DIR>/config.env` keys at EVERY level (replace the uncommented line or append one; idempotent), at L2/L3 to `CLAUDE_BIN="glm"` and `MODEL="opus"` (cc-router maps the opus alias to
 `glm_orchestrator_model`; the reviewer allow-list id is not reachable on GLM) and to `WATCH_TRIAGE="0"` and `SUPERVISE="0"`
 (triage and supervisor run on Claude only, `supervise.sh` scrubs the router env, so a GLM night runs without them);
-at L0/L1 to `CLAUDE_BIN="claude"`, `MODEL=<reviewer allow-list entry [0]>` and with the `# off:` override lines removed (so a Claude-tier night never inherits GLM values); `run.sh` itself is unchanged. The BRIEF.md render takes the GLM variant of the delegation table (`{{DELEGATION_TABLE}}`,
+at L0/L1 to `CLAUDE_BIN="claude"`, `MODEL=<reviewer allow-list entry [0]>` and, only when the GLM render's `# off:` marker is present, with the `"0"` override lines and the marker removed and the owner's own triage/supervisor lines restored from the `# was-WATCH_TRIAGE:` / `# was-SUPERVISE:` lines the L2/L3 render saved before overwriting them (so a Claude-tier night never inherits GLM values and never loses the owner's); a story re-running on a later night resets an existing review-queue file's `status:` to open and rewrites its `branch:`/`files:` lines before appending; `run.sh` itself is unchanged. The BRIEF.md render takes the GLM variant of the delegation table (`{{DELEGATION_TABLE}}`,
 `{{DELEGATION_MODELS}}`): exploration and test runs `glm -p --model haiku`, implementation, fixes and documents > 100 lines
 `glm -p`, review none: the GLM variant overrides BRIEF sections 4, 5 and 7; every story writes its evidence to the absolute `<BASE>/runtime/review-queue/<id>.md` (rq header plus `status: open`, outside any worktree, no ledger line, so the §6.11.5 drain does not see it; PHASE F lists the open items) and ends `RESULT <id> parked PR#<n> review=parked rounds=0 reason=review`, valid under the existing grammar (no `BUILT` token); nothing is merged unattended: PHASE C strips every `gh pr merge` allow rule from the rendered settings and denies `Bash(gh pr merge:*)` / `Bash(*gh pr merge*)`, because run.sh's own story prompt still orders a merge. The PHASE D gate adds, at L2/L3 only,
 four BLOCKERs: `grep -c 'glm -p' <NIGHT_DIR>/BRIEF.md` > 0, `grep -qx 'CLAUDE_BIN="glm"' <NIGHT_DIR>/config.env`, the merge deny present with no `gh pr merge` allow left, and a
 launch-to-deadline interval that overlaps any 06:00-10:00 UTC window on any day (the Z.ai peak window refuses GLM with exit 75 and the night stops dead);
-the deadline is printed in UTC and local time. At L0/L1 the gate blocks on `CLAUDE_BIN="glm"` in config.env. The L0/L1 BRIEF.md render is byte-identical to 1.15.2 (the variant block is the lines strictly between its fences, joined by newlines).
+the deadline (read in the run machine's local zone; the UTC command gets the local offset appended) is printed in UTC and local time and the peak check parses it as local time. At L0/L1 the gate blocks on `CLAUDE_BIN="glm"` in config.env. The L0/L1 BRIEF.md render is byte-identical to 1.15.2 (the variant block is the lines strictly between its fences, joined by newlines).
 
 **Night-run GLM smoke** (`/bajzi:night-run` PHASE A step 8 (c), L1-L3 only): a throwaway worktree
 `<NIGHT_DIR>/wt/SMOKE-GLM` from the freshly fetched `origin/<BASE_BRANCH>` on branch

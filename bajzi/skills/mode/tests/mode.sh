@@ -510,6 +510,12 @@ printf 'glm
 ' > "$FAKE_HOME/.claude/worker-mode"
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_SAVER_LAUNCHER=bajzi-no-such-launcher-xyz)"
 expect_msg "11q2 L2 on Claude, launcher missing: mismatch line in the systemMessage" "$out" "L2 $MM"
+rm -f "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_SAVER_LAUNCHER=bajzi-no-such-launcher-xyz)"
+expect_msg "11q2b day-run off, L2 on Claude, launcher missing: mismatch line" "$out" "L2 $MM"
+expect_msg "11q2b day-run off: no 'saver off', names worker --level 0" "$out" 'worker --level 0' 'saver off:'
+printf 'day-run
+' > "$FAKE_HOME/.claude/bajzi-mode"
 # 11q3: the injected L3 block on a Claude session must not forbid the Claude fallback at a peak exit 75.
 out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
 expect "11q3 L3 on Claude: peak line allows the Claude fallback" "$out" 'ORIGINAL Agent call' 'There is no Claude fallback at L3'

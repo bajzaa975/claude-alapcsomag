@@ -515,15 +515,17 @@ MODEL="opus"   # cc-router maps the opus alias to glm_orchestrator_model; the re
 WATCH_TRIAGE="0"
 SUPERVISE="0"
 # off: triage and supervisor run on Claude only (supervise.sh scrubs the router env), a GLM night runs without them
+# was-WATCH_TRIAGE: <the owner's uncommented WATCH_TRIAGE line, or none>
+# was-SUPERVISE: <the owner's uncommented SUPERVISE line, or none>
 ```
 
-Write the `# off:` line once (skip it when it is already there). `CLAUDE_BIN="glm"` and `MODEL="opus"` are the L2/L3 render, `WATCH_TRIAGE="0"` and `SUPERVISE="0"` its two off switches: `MODEL="opus"` replaces the allow-list
+Write the `# off:` line and the two `# was-` lines once, saving the owner's previous lines BEFORE overwriting them (skip all three when `# off:` is already there, so the first saved values survive a re-render). `CLAUDE_BIN="glm"` and `MODEL="opus"` are the L2/L3 render, `WATCH_TRIAGE="0"` and `SUPERVISE="0"` its two off switches: `MODEL="opus"` replaces the allow-list
 entry (the reviewer allow-list id is not reachable on GLM; `{{REVIEWER_MODEL}}` in BRIEF.md is
 unchanged and the review is queued instead, below).
 
 At L0/L1 set `CLAUDE_BIN="claude"` and `MODEL="<reviewer allow-list entry [0]>"` (the `--first` read
-PHASE A step 0 wrote), and for triage and supervisor delete the `WATCH_TRIAGE="0"` / `SUPERVISE="0"` lines and the `# off:` line
-the L2/L3 render added, which puts both back to the owner's own (commented-out, run.sh default) setting.
+PHASE A step 0 wrote), and for triage and supervisor, ONLY when the `# off:` marker line is present (the GLM render's), delete the `WATCH_TRIAGE="0"` / `SUPERVISE="0"` lines and the `# off:` line
+the L2/L3 render added, put back each `# was-` line that is not `none` as the owner's own line, then delete the `# was-` lines. Without the `# off:` marker leave both keys exactly as they are (they are the owner's own).
 
 The BRIEF.md render below takes the GLM delegation variant at L2/L3 and the Claude-tier variant at
 L0/L1 (byte-identical to 1.15.2).
@@ -1044,7 +1046,7 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    (`STALE RENDER: rendered <SHA>, origin now <SHA2>`): go back to the re-render rule, do not
    show an approval question.
 8. the deadline next to the plan's total estimate, as an absolute date+time in the run
-   machine's local zone AND in UTC (`date -d "<deadline>" '+%F %H:%M %Z'` and `date -u -d "<deadline>" '+%F %H:%M UTC'`).
+   machine's local zone AND in UTC (`date -d "<deadline>" '+%F %H:%M %Z'` and `date -u -d "<deadline>" '+%F %H:%M UTC'`; for the UTC command append the local offset (`date +%z`, e.g. `2026-10-07 04:30 +0900`) to `<deadline>`, because `date -u -d` reads a bare time as UTC).
    When the estimate does not fit one night, the owner chooses here between a one-night queue
    (the rest deferred with reason budget) and a multi-day deadline that covers it. Then the
    `WATCH_MAX_RESTARTS` value written for that run length, and ONCE, as a risk: a multi-day
@@ -1077,7 +1079,7 @@ for hours while the owner sleeps, so the gate is not optional. Show:
      time (same two `date` commands as item 8), then run (launch = now, or the owner's stated launch time as epoch `L`):
 
      ```bash
-     L=$(date -u +%s); D=$(date -u -d "<deadline>" +%s)
+     L=$(date -u +%s); D=$(date -d "<deadline>" +%s)
      for i in $(seq 0 $(( (D - L) / 86400 + 1 ))); do
        day=$(date -u -d "@$((L + i * 86400))" +%F)
        [ "$(date -u -d "$day 06:00" +%s)" -lt "$D" ] && [ "$(date -u -d "$day 10:00" +%s)" -gt "$L" ] && echo "BLOCKER: peak window $day 06:00-10:00 UTC overlaps the run"
