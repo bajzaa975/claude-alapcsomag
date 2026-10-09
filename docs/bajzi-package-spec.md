@@ -615,13 +615,15 @@ runner drops a pinned `claude-*` id before launching `glm` (`nightrun-lib.ps1:18
 that, every inherited `ANTHROPIC_*`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDECODE`,
 `CC_ROUTER_ENTRY` and `CC_ROUTER_WORKER` variable is scrubbed (`:330-331`); `CC_ROUTER_WORKER=1`
 is then set only if the shim itself was launched from inside Claude Code (`CLAUDECODE` set,
-`:350`).
+`:356`).
 
 On top of the env, unless the caller passed `--settings` themselves, the shim prepends
 `--settings '{"modelOverrides":{...}}'` to the child args: Claude Code resolves a
 non-catalog id like `glm-5.3-flash` only through the `modelOverrides` setting, so without
 the map every GLM run prints `[claude-code:unrecognized_model]` to stderr. The map sends
-`claude-opus-4-1` to the orchestrator model, `claude-haiku-4-5` to the fast model and
+`claude-opus-4-1` to the launch's main model (the table above: `glm_orchestrator_model`
+top-level, `glm_model` nested — the same value as `ANTHROPIC_DEFAULT_OPUS_MODEL`),
+`claude-haiku-4-5` to the fast model and
 `claude-sonnet-4-5` to `glm_model`, dropping any entry whose GLM id is already mapped
 (the default `glm_model` = `glm_fast_model` leaves opus → `glm-5.3` and haiku →
 `glm-5.3-flash`).

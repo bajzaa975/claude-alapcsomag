@@ -70,10 +70,20 @@ test('worker in claude mode injects no --settings', () => {
   assert.strictEqual(r.code, 0, r.stderr);
   assert.deepStrictEqual(r.childArgv, ['-p', 'x']);
 });
-test('glm: GLM_FAST_MODEL lands in the haiku modelOverrides entry', () => {
+test('glm: GLM_FAST_MODEL lands in the haiku modelOverrides entry, all three entries present when distinct', () => {
   const r = run('glm', ['-p', 'x'], { GLM_FAST_MODEL: 'glm-9-flash' });
   assert.strictEqual(r.code, 0, r.stderr);
-  assert.strictEqual(JSON.parse(r.childArgv[1]).modelOverrides['claude-haiku-4-5'], 'glm-9-flash');
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-5.3', 'claude-haiku-4-5': 'glm-9-flash', 'claude-sonnet-4-5': 'glm-5.3-flash' });
+});
+test('glm: GLM_MODEL distinct from the fast model keeps all three entries (sonnet -> glm_model)', () => {
+  const r = run('glm', ['-p', 'x'], { GLM_MODEL: 'glm-9' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-5.3', 'claude-haiku-4-5': 'glm-5.3-flash', 'claude-sonnet-4-5': 'glm-9' });
+});
+test('glm: GLM_FAST_MODEL equal to the orchestrator model drops the later duplicate (haiku) entry', () => {
+  const r = run('glm', ['-p', 'x'], { GLM_FAST_MODEL: 'glm-5.3' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-5.3', 'claude-sonnet-4-5': 'glm-5.3-flash' });
 });
 test('baseline: worker in claude mode passes no z.ai URL', () => {
   const r = run('worker', ['-p', 'x']);
@@ -399,6 +409,12 @@ test('nested GLM launch (CLAUDECODE=1) -p --model opus: every alias and the sub-
   const n = runFull(['-p', 'x'], { CLAUDECODE: '1' });
   assert.strictEqual(n.childEnv.ANTHROPIC_MODEL, 'glm-5.3-flash');
   assert.match(lastLog(n), / asked=- model=glm-5\.3-flash /);
+});
+test('nested GLM launch (CLAUDECODE=1): the opus override follows glm_model, not the orchestrator', () => {
+  const r = runFull(['-p', 'x'], { CLAUDECODE: '1', GLM_MODEL: 'glm-9' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-9');
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-9', 'claude-haiku-4-5': 'glm-5.3-flash' });   // sonnet dropped: its model equals opus's
 });
 test('worker --set-orchestrator-model writes the key and --status shows it; a bad id is refused', () => {
   const r = run('worker', ['--set-orchestrator-model', 'glm-6']);

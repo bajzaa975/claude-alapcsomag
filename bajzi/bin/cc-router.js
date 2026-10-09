@@ -341,7 +341,7 @@ if (provider === 'glm') {
   if (!asked) env.ANTHROPIC_MODEL = glmMain(m);
   if (!args.some(a => a === '--settings' || a.startsWith('--settings='))) {   // Claude Code resolves a GLM id (and skips the [claude-code:unrecognized_model] stderr warning) only through the modelOverrides setting
     const ov = {};   // catalog id -> GLM id; values stay unique: when two roles share a model (default glm_model = glm_fast_model) the first key wins
-    for (const [k, v] of [['claude-opus-4-1', m.orch], ['claude-haiku-4-5', m.fast], ['claude-sonnet-4-5', m.big]]) if (!Object.values(ov).includes(v)) ov[k] = v;
+    for (const [k, v] of [['claude-opus-4-1', glmMain(m)], ['claude-haiku-4-5', m.fast], ['claude-sonnet-4-5', m.big]]) if (!Object.values(ov).includes(v)) ov[k] = v;   // opus follows the launch's main model (glmMain), like ANTHROPIC_DEFAULT_OPUS_MODEL
     args = ['--settings', JSON.stringify({ modelOverrides: ov })].concat(args);
   }
 } else if (provider === 'deepseek') {   // UNTESTED path: keeps old "ccr code --model deepseek-*" calls failing clearly or working
