@@ -617,6 +617,15 @@ that, every inherited `ANTHROPIC_*`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDECODE`,
 is then set only if the shim itself was launched from inside Claude Code (`CLAUDECODE` set,
 `:350`).
 
+On top of the env, unless the caller passed `--settings` themselves, the shim prepends
+`--settings '{"modelOverrides":{...}}'` to the child args: Claude Code resolves a
+non-catalog id like `glm-5.3-flash` only through the `modelOverrides` setting, so without
+the map every GLM run prints `[claude-code:unrecognized_model]` to stderr. The map sends
+`claude-opus-4-1` to the orchestrator model, `claude-haiku-4-5` to the fast model and
+`claude-sonnet-4-5` to `glm_model`, dropping any entry whose GLM id is already mapped
+(the default `glm_model` = `glm_fast_model` leaves opus → `glm-5.3` and haiku →
+`glm-5.3-flash`).
+
 **Secret resolution** (`secret()`, `:80`): process env → Windows `HKCU\Environment` (covers
 already-open apps) → `~/.claude/cc-router.env` (KEY=VALUE lines, meant to be `chmod 600`). No key
 → exit 78.

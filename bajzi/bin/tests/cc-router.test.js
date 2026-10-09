@@ -50,7 +50,30 @@ test('baseline: glm entry routes to z.ai and maps haiku to the fast model', () =
   assert.strictEqual(r.code, 0, r.stderr);
   assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic');
   assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.3-flash');   // DEFAULTS glm_fast_model
-  assert.deepStrictEqual(r.childArgv, ['-p', 'x', '--model', 'haiku']);      // caller args reach the child unchanged, in order
+  assert.deepStrictEqual(r.childArgv, ['--settings', JSON.stringify({ modelOverrides: { 'claude-opus-4-1': 'glm-5.3', 'claude-haiku-4-5': 'glm-5.3-flash' } }), '-p', 'x', '--model', 'haiku']);   // modelOverrides pair first; sonnet dropped, its default equals fast's
+});
+test('glm injects modelOverrides (opus -> orchestrator, haiku -> fast): the sdk warning resolves ids only through them', () => {
+  const r = run('glm', ['-p', 'x']);
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(r.childArgv[0], '--settings');
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-5.3', 'claude-haiku-4-5': 'glm-5.3-flash' });
+});
+test('glm: a caller --settings (both spellings) is passed through, nothing injected', () => {
+  for (const a of [['--settings', 'mine.json'], ['--settings=mine.json']]) {
+    const r = run('glm', ['-p', 'x', ...a]);
+    assert.strictEqual(r.code, 0, r.stderr);
+    assert.deepStrictEqual(r.childArgv, ['-p', 'x', ...a]);
+  }
+});
+test('worker in claude mode injects no --settings', () => {
+  const r = run('worker', ['-p', 'x']);
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(r.childArgv, ['-p', 'x']);
+});
+test('glm: GLM_FAST_MODEL lands in the haiku modelOverrides entry', () => {
+  const r = run('glm', ['-p', 'x'], { GLM_FAST_MODEL: 'glm-9-flash' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(JSON.parse(r.childArgv[1]).modelOverrides['claude-haiku-4-5'], 'glm-9-flash');
 });
 test('baseline: worker in claude mode passes no z.ai URL', () => {
   const r = run('worker', ['-p', 'x']);
