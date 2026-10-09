@@ -50,7 +50,40 @@ test('baseline: glm entry routes to z.ai and maps haiku to the fast model', () =
   assert.strictEqual(r.code, 0, r.stderr);
   assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic');
   assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.3-flash');   // DEFAULTS glm_fast_model
-  assert.deepStrictEqual(r.childArgv, ['-p', 'x', '--model', 'haiku']);      // caller args reach the child unchanged, in order
+  assert.deepStrictEqual(r.childArgv, ['--settings', JSON.stringify({ modelOverrides: { 'claude-opus-4-1': 'glm-5.3', 'claude-haiku-4-5': 'glm-5.3-flash' } }), '-p', 'x', '--model', 'haiku']);   // modelOverrides pair first; sonnet dropped, its default equals fast's
+});
+test('glm injects modelOverrides (opus -> orchestrator, haiku -> fast): the sdk warning resolves ids only through them', () => {
+  const r = run('glm', ['-p', 'x']);
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(r.childArgv[0], '--settings');
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-5.3', 'claude-haiku-4-5': 'glm-5.3-flash' });
+});
+test('glm: a caller --settings (both spellings) is passed through, nothing injected', () => {
+  for (const a of [['--settings', 'mine.json'], ['--settings=mine.json']]) {
+    const r = run('glm', ['-p', 'x', ...a]);
+    assert.strictEqual(r.code, 0, r.stderr);
+    assert.deepStrictEqual(r.childArgv, ['-p', 'x', ...a]);
+  }
+});
+test('worker in claude mode injects no --settings', () => {
+  const r = run('worker', ['-p', 'x']);
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(r.childArgv, ['-p', 'x']);
+});
+test('glm: GLM_FAST_MODEL lands in the haiku modelOverrides entry, all three entries present when distinct', () => {
+  const r = run('glm', ['-p', 'x'], { GLM_FAST_MODEL: 'glm-9-flash' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-5.3', 'claude-haiku-4-5': 'glm-9-flash', 'claude-sonnet-4-5': 'glm-5.3-flash' });
+});
+test('glm: GLM_MODEL distinct from the fast model keeps all three entries (sonnet -> glm_model)', () => {
+  const r = run('glm', ['-p', 'x'], { GLM_MODEL: 'glm-9' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-5.3', 'claude-haiku-4-5': 'glm-5.3-flash', 'claude-sonnet-4-5': 'glm-9' });
+});
+test('glm: GLM_FAST_MODEL equal to the orchestrator model drops the later duplicate (haiku) entry', () => {
+  const r = run('glm', ['-p', 'x'], { GLM_FAST_MODEL: 'glm-5.3' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-5.3', 'claude-sonnet-4-5': 'glm-5.3-flash' });
 });
 test('baseline: worker in claude mode passes no z.ai URL', () => {
   const r = run('worker', ['-p', 'x']);
@@ -376,6 +409,12 @@ test('nested GLM launch (CLAUDECODE=1) -p --model opus: every alias and the sub-
   const n = runFull(['-p', 'x'], { CLAUDECODE: '1' });
   assert.strictEqual(n.childEnv.ANTHROPIC_MODEL, 'glm-5.3-flash');
   assert.match(lastLog(n), / asked=- model=glm-5\.3-flash /);
+});
+test('nested GLM launch (CLAUDECODE=1): the opus override follows glm_model, not the orchestrator', () => {
+  const r = runFull(['-p', 'x'], { CLAUDECODE: '1', GLM_MODEL: 'glm-9' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-9');
+  assert.deepStrictEqual(JSON.parse(r.childArgv[1]).modelOverrides, { 'claude-opus-4-1': 'glm-9', 'claude-haiku-4-5': 'glm-5.3-flash' });   // sonnet dropped: its model equals opus's
 });
 test('worker --set-orchestrator-model writes the key and --status shows it; a bad id is refused', () => {
   const r = run('worker', ['--set-orchestrator-model', 'glm-6']);

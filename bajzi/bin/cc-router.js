@@ -339,6 +339,11 @@ if (provider === 'glm') {
     CLAUDE_CODE_SUBAGENT_MODEL: m.big, API_TIMEOUT_MS: '3000000', ENABLE_TOOL_SEARCH: 'false', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: '1' });   // GLM ids are not in Claude Code's model catalog; silences the yellow warning
   if (!asked) env.ANTHROPIC_MODEL = glmMain(m);
+  if (!args.some(a => a === '--settings' || a.startsWith('--settings='))) {   // Claude Code resolves a GLM id (and skips the [claude-code:unrecognized_model] stderr warning) only through the modelOverrides setting
+    const ov = {};   // catalog id -> GLM id; values stay unique: when two roles share a model (default glm_model = glm_fast_model) the first key wins
+    for (const [k, v] of [['claude-opus-4-1', glmMain(m)], ['claude-haiku-4-5', m.fast], ['claude-sonnet-4-5', m.big]]) if (!Object.values(ov).includes(v)) ov[k] = v;   // opus follows the launch's main model (glmMain), like ANTHROPIC_DEFAULT_OPUS_MODEL
+    args = ['--settings', JSON.stringify({ modelOverrides: ov })].concat(args);
+  }
 } else if (provider === 'deepseek') {   // UNTESTED path: keeps old "ccr code --model deepseek-*" calls failing clearly or working
   const key = secret('DEEPSEEK_API_KEY'); if (!key) die('DEEPSEEK_API_KEY not found (environment variable, or a line in ' + ENV_FILE + ').', 78);
   const m = asked || 'deepseek-v4-pro';
