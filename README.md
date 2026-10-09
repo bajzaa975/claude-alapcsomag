@@ -52,7 +52,7 @@ Full technical spec: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 - **Debt** (`/bajzi:debt`) — checks the parked-findings cap before the next slice, drains it in one
   fixer pass plus one review, calibrates severities with a blind re-rate.
 - **Autopilot** (`/bajzi:autopilot`) — an unsupervised work session with a decision log and a closing report.
-- **Night-run** (`/bajzi:night-run`) — plans an unattended overnight run and produces the launch block.
+- **Night-run** (`/bajzi:night-run`) — plans an unattended overnight run and launches it on the owner's go.
   The launch block starts the plugin's own bash runner `run.sh` (`setsid nohup`, in a bash terminal on
   the VM): one fresh headless session per sprint, never pushes, guard checks and a review queue that a
   later Opus session drains.

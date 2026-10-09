@@ -8,14 +8,14 @@
   "plugins": [
     {
       "name": "bajzi",
-      "version": "1.16.0",
+      "version": "1.16.1",
       "source": "./bajzi",
       "description": "Token-efficient working method: machine setup and drift check from a manifest, per-repo project profiles, methodology selector, autopilot mode, day-run mode skill, night-run overnight story runner, HANDOFF session handover, a status line, context/secret/injection/writer guards, SessionStart hooks and a PreToolUse noisy-output filter.",
       "category": "productivity"
     },
     {
       "name": "bajzi-cowork",
-      "version": "1.16.0",
+      "version": "1.16.1",
       "source": "./bajzi-cowork",
       "description": "claude.ai / Cowork-safe subset of bajzi (handoff, autopilot, modszertan skills only; no bin/, hooks or agents). Install this one in claude.ai / Cowork; use bajzi in Claude Code.",
       "category": "productivity"

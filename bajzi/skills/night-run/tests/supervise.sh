@@ -860,7 +860,7 @@ if [ -f "$T" ]; then
   # The relaunch line pins --date "<RUN_DATE>": a post-midnight relaunch continues the same night, so
   # the guard compares the line's --date with run_date, never today's date.
   yes "m relaunch only when the relaunch line's --date is the run's own run_date" "$T" "the \`--date\` value in the relaunch line above equals \`run_date\`"
-  no "m the supervisor never relaunches through launch.sh (the owner's bedtime command)" "$T" "bash {{NIGHT_DIR}}/launch.sh"
+  no "m the supervisor never relaunches through launch.sh (the PHASE E launch command)" "$T" "bash {{NIGHT_DIR}}/launch.sh"
   yes "m a post-midnight relaunch is allowed" "$T" "a relaunch after local midnight continues the same night"
   no "m no today's-date guard left (it blocked every post-midnight relaunch)" "$T" "\`date +%F\` equals \`run_date\`"
   no "m no 'launch.sh passes no --date' left" "$T" "passes no \`--date\`"

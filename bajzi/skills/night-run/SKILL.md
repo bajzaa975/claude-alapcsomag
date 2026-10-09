@@ -1,15 +1,14 @@
 ---
 name: night-run
-description: Plan an unattended multi-hour overnight autopilot run for one project — preflight, queue, rendered brief, approval gate, and the copy-pasteable launch block the owner runs at bedtime. Use it when the user says "night run", "/bajzi:night-run", "overnight autopilot", "plan tonight's run", "run the backlog overnight", "éjszakai futás", "night run terv".
+description: Plan an unattended multi-hour overnight autopilot run for one project — preflight, queue, rendered brief, approval gate, and the launch itself, which the session runs once the owner says go. Use it when the user says "night run", "/bajzi:night-run", "overnight autopilot", "plan tonight's run", "run the backlog overnight", "éjszakai futás", "night run terv".
 ---
 
-# Night run — you plan it, the owner launches it
+# Night run — you plan it, and you launch it when the owner says go
 
 The full design is in `docs/superpowers/specs/2026-09-18-night-run-design.md` of this
 plugin repo. READ IT when a detail here is not enough: this file is the procedure, the spec
 is the reasoning, and where they disagree the spec wins, EXCEPT the PHASE B-D planning rules
-(restrictions asked once, deadline and run length), where this file wins. You never start the runner (PHASE
-E) and you never edit `run.sh` or the templates per project — everything project-specific
+(restrictions asked once, deadline and run length), where this file wins; PHASE E too (the skill launches the runner itself on the owner's go), where this file wins. You start the runner only in PHASE E, after the owner's explicit go, and you never edit `run.sh` or the templates per project — everything project-specific
 goes into generated files under `~/night-runs/<project>/`.
 
 ## Arguments
@@ -487,7 +486,7 @@ PHASE A step 0 already created the run directory and `config.env`; re-assert the
 here (`mkdir -p` is idempotent) so this phase still works when step 0's output is out of
 sight. NOTHING ELSE creates it. `config.env` says `NIGHT_DIR` "must
 already exist", and `launch.sh` (PHASE E) opens `logs/console.log` for the runner's output
-in the OWNER'S shell, so `logs/` should be there before it runs (`launch.sh` also runs
+in the launching shell (your Bash tool call), so `logs/` should be there before it runs (`launch.sh` also runs
 `mkdir -p`, belt and braces):
 
 ```bash
@@ -612,7 +611,7 @@ Then write into `~/night-runs/<project>/`:
   `<night dir>/logs/runner.log`, `{{TERMINAL_LINE_REGEX}}` = `^\S+ (merged|open|parked|blocked|DEFERRED-\S+) `,
   `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the runner-only
   command (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000 setsid nohup bash "<RUN_SH>" --config "<NIGHT_DIR>/config.env" --deadline "<DEADLINE>" --date "<RUN_DATE>" </dev/null >> "<NIGHT_DIR>/logs/console.log" 2>&1 &`, the same RUN_SH
-  as launch.sh; never `launch.sh`, which is the owner's bedtime command and re-installs settings), `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
+  as launch.sh; never `launch.sh`, which is the PHASE E launch command and re-installs settings), `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
   `<night dir>/night-watch-summary.md`, `{{ESCALATION_MODEL}}` = entry [0] of the reviewer allow-list,
   `{{ALLOWLIST}}` = the four lines below verbatim. Leave `{{EVENT}}` and `{{FACTS}}` in place: the
   watchdog fills them per tick.
@@ -1090,18 +1089,26 @@ for hours while the owner sleeps, so the gate is not optional. Show:
    evidence queued in `<BASE>/runtime/review-queue/<id>.md` (header and `status: open` line written by the story; no ledger
    line, spec §6.1), never merged, and that nothing is merged unattended; this replaces the "Opus review-and-fix loop" line
    of item 2 at L2/L3. Triage and the supervisor are off (`WATCH_TRIAGE="0"`, `SUPERVISE="0"`).
-The owner approves or edits once. Then go to PHASE E.
+The owner approves or edits once. Then, on the owner's go, run PHASE E yourself.
 
-## PHASE E — Launch (the owner's step)
+## PHASE E — Launch (you run it, on the owner's go)
 
-You never launch the runner: a Claude session is denied by the auto-mode classifier
-(Interfere With Workloads). Emit the block below with EVERY `<...>` already filled in from
+You run step 1 and step 2 below yourself with the Bash tool, from the night machine's session,
+and report the step-2 result (exactly one runner pgid, the `runner.log` tail). The runner
+survives the session: `launch.sh` starts `run.sh` with `setsid nohup ... </dev/null &` (its own
+session; the 2026-09-18 nohup-only incident, run.sh:128-131). Fallback, only if the harness
+refuses the call (auto-mode classifier "Interfere With Workloads", or a permission prompt the
+owner declines): STOP, quote the refusal, and hand the owner the same one-line command
+(`bash <NIGHT_DIR>/launch.sh`) to run in a plain bash terminal; never work around a refusal (no
+other wrapper, no rewording, no `!`). `launch.sh` copies the rendered settings into
+`<BASE>/.claude/settings.local.json`, which can raise a permission prompt: that prompt is the
+owner's to answer. Fill in EVERY `<...>` from
 `config.env` — never ask the owner for a value you can resolve, say where you took it from
 instead. The commands that install the allowlist and start the runner are NOT typed here: they
 are in `<NIGHT_DIR>/launch.sh`, which PHASE C rendered in this plan from
 `templates/launch.sh.tmpl` (its `run.sh` is the one of the plugin copy running this skill).
 
-> **Where:** this VM, a plain **bash** terminal outside Claude Code — not the Claude prompt, not `!`.
+> **Where:** this VM — your Bash tool in this session (fallback above: a plain bash terminal)
 > **Working directory:** any (`launch.sh` does `cd <BASE>` itself; `<BASE>` is the `BASE` field of `config.env`)
 
 **Step 1 — launch.** One command:
@@ -1174,7 +1181,7 @@ past it, queue less and say so at the PHASE D gate — whatever does not fit is 
 > **Kill switch, any time:** `touch ~/night-runs/<project>/STOP`, checked between stories.
 
 **The watchdog starts itself.** `run.sh` spawns `night-watch.sh` (next to it) detached as soon
-as it holds the run lock — the owner launches nothing extra. It is pure bash and costs ZERO
+as it holds the run lock — nothing extra is launched. It is pure bash and costs ZERO
 model tokens, on purpose: a Claude-based watcher would spend the very quota it is there to
 watch. Every `WATCH_INTERVAL` seconds (900 by default; `WATCH_INTERVAL="0"` in `config.env`
 turns it off) it appends one status line to `~/night-runs/<project>/watch.log` — runner alive
@@ -1354,5 +1361,5 @@ watcher ignores it for exactly that reason).
 Table: what was queued (id · size · why) · what was deferred and why · PHASE A blockers ·
 the paths of the generated files (`config.env`, `queue.txt`, `BRIEF.md`,
 `settings.local.json`, `launch.sh`) · whether `<BASE>/.claude/settings.local.json` already exists, so the
-owner knows PHASE E will back it up rather than eat it. State plainly that nothing was
-launched and that the run starts only when the owner runs PHASE E.
+owner knows PHASE E will back it up rather than eat it. State plainly whether PHASE E ran
+(launched: runner pgid + deadline), is waiting for the owner's go, or hit the fallback (quote the refusal).
