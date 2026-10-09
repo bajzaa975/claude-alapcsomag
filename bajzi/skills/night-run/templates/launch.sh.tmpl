@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # launch.sh.tmpl - rendered by /bajzi:night-run PHASE C to <NIGHT_DIR>/launch.sh on EVERY plan,
-# overwriting the previous one. The owner runs it from a plain bash terminal (never from the
-# Claude Code prompt): `bash {{NIGHT_DIR}}/launch.sh`.
+# overwriting the previous one. The night-run session runs it in PHASE E on the owner's go
+# (fallback: the owner, from a plain bash terminal): `bash {{NIGHT_DIR}}/launch.sh`.
 #
 # Placeholders (all six are substituted at render time, none may survive):
 #   {{PROJECT}}    config.env PROJECT
@@ -34,6 +34,12 @@ cp "$ND/settings.local.json" "$DEST" || { echo "cannot install $ND/settings.loca
 ls -l "$BASE/.claude/"
 # Step 2: start the runner, detached (setsid: the launching session's process group dying must not kill it).
 export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000
+# Run from a Claude session's Bash tool this shell carries that session's provider env; the runner, its
+# stories and the triage ticks must not inherit it (same set supervise.sh scrubs: the provider env plus the session identity
+# - CLAUDE_CODE_SESSION_ID would make `worker` read the planning session's level file; explicit names, owner-set CLAUDE_CODE_* survive).
+for v in $(compgen -e); do
+  case "$v" in ANTHROPIC_*|CC_ROUTER_*|CC_WORKER_MODE|CLAUDE_CODE_SUBAGENT_MODEL|CLAUDECODE|CLAUDE_CODE_SESSION_ID|CLAUDE_CODE_BRIDGE_SESSION_ID|CLAUDE_CODE_MESSAGING_SOCKET|CLAUDE_CODE_MESSAGING_TOKEN|CLAUDE_CODE_CHILD_SESSION|CLAUDE_CODE_SESSION_ATTENDED|CLAUDE_CODE_ENTRYPOINT|CLAUDE_CODE_EXECPATH|CLAUDE_PID|CLAUDE_EFFORT|BAJZI_SESSION_LEVEL) unset "$v";; esac
+done
 setsid nohup bash "{{RUN_SH}}" --config "$ND/config.env" --deadline "{{DEADLINE}}" --date "{{RUN_DATE}}" >> "$ND/logs/console.log" 2>&1 </dev/null &
 echo "launched, waiting 10 s for the first log lines..."
 sleep 10

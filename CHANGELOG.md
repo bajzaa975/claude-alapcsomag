@@ -2,6 +2,17 @@
 
 Newest first. Details per change: `docs/bajzi-package-spec.md` §11.
 
+## 1.16.1
+Night run: the session launches it (owner, 2026-10-06). The owner's go stays the gate; the owner no longer pastes the
+launch block into a terminal.
+- **PHASE E** (`nr-claude-launches`): after the PHASE D approval and the owner's go, the night-run session runs
+  `bash <NIGHT_DIR>/launch.sh` and the one-runner check itself and reports the pgid. Fallback only on a harness refusal
+  (auto-mode classifier, declined permission prompt): stop, quote it, hand the owner the same command. `set-zai-key.sh`
+  stays owner-typed.
+- **launch.sh** strips the launching session's provider and session-identity env (`ANTHROPIC_*`, `CC_ROUTER_*`, `CC_WORKER_MODE`,
+  `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_BRIDGE_SESSION_ID`, `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_MESSAGING_TOKEN`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_SESSION_ATTENDED`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `BAJZI_SESSION_LEVEL`) before starting the runner; supervise.sh's tick scrub matches (test: `stale-inputs.test.js`, Linux).
+- SKILL.md precedence: PHASE E is exempt from "the design spec wins"; spec, README and template comments reworded.
+
 ## 1.16.0
 Saver hard routing (owner, 2026-10-06): the L2 split (Claude orchestrates, GLM writes the code) is enforced
 mechanically instead of by injected text. Measured before: machine L3 + day-run on, `worker --usage` 84% Claude / 16% GLM;

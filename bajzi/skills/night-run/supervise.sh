@@ -163,11 +163,12 @@ TICK_LOG=$SUP_LOG
 TICK_RESULT_LOG=$TICKS_LOG
 # Provider env scrubbed for the tick, the way cc-router.js does for its plain-Claude provider:
 # every ANTHROPIC_* (base URL, token, model overrides), the router/worker selectors and the
-# subagent model. The init-record check is the second belt.
+# subagent model, plus the launching session's identity (CLAUDE_CODE_SESSION_ID etc., BAJZI_SESSION_LEVEL; explicit
+# names, not a CLAUDE_CODE_* glob). The init-record check is the second belt.
 TICK_ENV=(env)
 for v in $(compgen -e); do
   case "$v" in
-    ANTHROPIC_*|CC_ROUTER_*|CC_WORKER_MODE|CLAUDE_CODE_SUBAGENT_MODEL|CLAUDECODE) TICK_ENV+=(-u "$v");;
+    ANTHROPIC_*|CC_ROUTER_*|CC_WORKER_MODE|CLAUDE_CODE_SUBAGENT_MODEL|CLAUDECODE|CLAUDE_CODE_SESSION_ID|CLAUDE_CODE_BRIDGE_SESSION_ID|CLAUDE_CODE_MESSAGING_SOCKET|CLAUDE_CODE_MESSAGING_TOKEN|CLAUDE_CODE_CHILD_SESSION|CLAUDE_CODE_SESSION_ATTENDED|CLAUDE_CODE_ENTRYPOINT|CLAUDE_CODE_EXECPATH|CLAUDE_PID|CLAUDE_EFFORT|BAJZI_SESSION_LEVEL) TICK_ENV+=(-u "$v");;
   esac
 done
 

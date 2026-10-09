@@ -57,7 +57,7 @@ Do nothing that changes state, and log it for the next tick instead, when EITHER
   pins `--date`; so does the relaunch line below, with the date it was rendered for). A live runner
   that has already walked past the story will not re-pick it in this pass.
 - **Relaunch** with exactly this runner-only line, the one the triage tick uses (never `launch.sh`,
-  the owner's bedtime command, which re-installs settings and writes another pre-night backup):
+  the PHASE E launch command, which re-installs settings and writes another pre-night backup):
   `{{LAUNCH_LINE}}`
   ONLY when ALL hold:
   1. the flock probe says NO-RUNNER;

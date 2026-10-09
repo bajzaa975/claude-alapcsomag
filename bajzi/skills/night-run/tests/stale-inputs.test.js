@@ -116,11 +116,50 @@ test('SKILL.md PHASE D: the gate prints the rendered SHA and refuses on a newer 
   has(d, 'launch.sh` was rendered in this plan');
 });
 
-test('SKILL.md PHASE E: the launch block is `bash <NIGHT_DIR>/launch.sh` from a plain terminal outside Claude Code', () => {
+test('SKILL.md PHASE E: the launch block is `bash <NIGHT_DIR>/launch.sh` from the session own Bash tool', () => {
   const e = flat(phase('## PHASE E', '## PHASE F'));
   has(e, '```bash bash <NIGHT_DIR>/launch.sh ```');
-  has(e, 'a plain **bash** terminal outside Claude Code — not the Claude prompt, not `!`');
+  has(e, '**Where:** this VM — your Bash tool in this session (fallback above: a plain bash terminal)');
+  has(e, 'never work around a refusal');
+  assert.ok(!flat(SKILL).includes('You never launch the runner'), 'old owner-launches rule is gone');
   assert.ok(!e.includes('setsid nohup bash <absolute path of run.sh>'), 'the inline launch line is gone');
+});
+
+const SESSION_VARS = ['CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_BRIDGE_SESSION_ID', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN',
+  'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'BAJZI_SESSION_LEVEL'];
+
+test('launch.sh: the runner and everything it spawns get no provider env from the launching session', (t) => {
+  const os = require('node:os');
+  const fwd = (x) => x.split(path.sep).join('/');
+  const nd = fwd(fs.mkdtempSync(path.join(os.tmpdir(), 'nr-launch-')));
+  const fake = `${nd}/run.sh`;
+  fs.writeFileSync(fake, `env > "${nd}/env.out"\n`);
+  fs.writeFileSync(`${nd}/settings.local.json`, '{}');
+  const out = render({ BASE: nd, NIGHT_DIR: nd, RUN_SH: fake });
+  const env = { ...process.env, CLAUDECODE: '1', ANTHROPIC_BASE_URL: 'x', ANTHROPIC_AUTH_TOKEN: 'y', CC_WORKER_MODE: '1', ...Object.fromEntries(SESSION_VARS.map((k) => [k, 'z'])), CLAUDE_CODE_OWNER_X: 'keep' };
+  const r = spawnSync('bash', [], { input: out, encoding: 'utf8', env, timeout: 30000 });
+  if (r.error || /flock|setsid/.test(r.stderr || '') && /not found/.test(r.stderr || '')) return t.skip('no bash/flock/setsid');
+  assert.ok(fs.existsSync(`${nd}/env.out`), `runner did not run: ${r.stdout}${r.stderr}`);
+  const got = fs.readFileSync(`${nd}/env.out`, 'utf8');
+  assert.ok(!new RegExp(`^(CLAUDECODE|ANTHROPIC_\\w+|CC_WORKER_MODE|${SESSION_VARS.join('|')})=`, 'm').test(got), got);
+  assert.ok(/^CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=/m.test(got), 'launch.sh own export survives');
+  assert.ok(/^CLAUDE_CODE_OWNER_X=keep/m.test(got), 'owner-set CLAUDE_CODE_* survives');
+});
+
+test('launch.sh.tmpl and supervise.sh scrub the identical case pattern', () => {
+  const pat = (s) => (s.match(/ANTHROPIC_\*\|[^)\s]*\)/) || [])[0];
+  const sup = read('supervise.sh');
+  assert.ok(pat(LAUNCH) && pat(LAUNCH).includes('CLAUDE_CODE_SESSION_ID'), 'launch pattern found');
+  assert.strictEqual(pat(LAUNCH), pat(sup));
+});
+
+test('precedence: SKILL.md exempts PHASE E from "the spec wins"', () => {
+  has(flat(SKILL), 'PHASE E too (the skill launches the runner itself on the owner\'s go), where this file wins');
+});
+
+test('package spec: PHASE E is no longer "a plain bash terminal outside Claude Code"', () => {
+  const pk = read('..', '..', '..', 'docs', 'bajzi-package-spec.md');
+  assert.ok(!pk.includes('plain bash terminal outside Claude Code'));
 });
 
 test('REQUIRED_CHECK: PHASE A checks the configured value against the workflow run names', () => {
