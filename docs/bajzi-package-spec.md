@@ -615,7 +615,7 @@ runner drops a pinned `claude-*` id before launching `glm` (`nightrun-lib.ps1:18
 that, every inherited `ANTHROPIC_*`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDECODE`,
 `CC_ROUTER_ENTRY` and `CC_ROUTER_WORKER` variable is scrubbed (`:330-331`); `CC_ROUTER_WORKER=1`
 is then set only if the shim itself was launched from inside Claude Code (`CLAUDECODE` set,
-`:350`).
+`:351`).
 
 **Secret resolution** (`secret()`, `:80`): process env → Windows `HKCU\Environment` (covers
 already-open apps) → `~/.claude/cc-router.env` (KEY=VALUE lines, meant to be `chmod 600`). No key
