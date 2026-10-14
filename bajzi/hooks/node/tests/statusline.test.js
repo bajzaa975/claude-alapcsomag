@@ -1,0 +1,384 @@
+'use strict';
+const { test } = require('node:test');
+const PERF = process.env.BAJZI_PERF === '1' ? {} : { skip: 'latency budget: set BAJZI_PERF=1' };
+const assert = require('node:assert');
+const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const { NODE_DIR, tmpDir, runScript, p95 } = require('./helpers');
+const parts = require('../lib/status-parts');
+const { render, usedPct, writeLine } = require('../statusline');
+
+const SCRIPT = path.join(NODE_DIR, 'statusline.js');
+const NIGHT = Date.UTC(2026, 8, 23, 0, 0);          // 6 h before the peak window: no peak part
+const strip = s => s.replace(/\x1b\[[0-9;]*m/g, '');
+
+function gitRepo(branch) {
+  const dir = tmpDir('bajzi-repo-');
+  const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false',
+    '-c', 'init.defaultBranch=main', '-C', dir, ...a], { stdio: 'ignore' });
+  g('init');
+  g('checkout', '-b', branch);
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'a\n');
+  g('add', 'a.txt');
+  g('commit', '-m', 'init');
+  return dir;
+}
+
+function fixtureRepo() {
+  const dir = gitRepo('feat/x');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'changed\n');          // tracked change = dirty
+  fs.mkdirSync(path.join(dir, 'runtime', 'handoff'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'runtime', 'handoff', 'feat-x.md'),
+    '# HANDOFF\nUpdated: 2026-09-23 10:00 \u00b7 Task: status line port\n');
+  fs.mkdirSync(path.join(dir, 'runtime', 'review-queue'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'runtime', 'review-queue', 'SPRINT-1.md'), '# Review queue: SPRINT-1\nstatus: open\n');
+  fs.writeFileSync(path.join(dir, 'runtime', 'review-queue', 'SPRINT-2.md'), '# Review queue: SPRINT-2\nstatus: clean\n');
+  return dir;
+}
+
+const input = (cwd, extra = {}) => Object.assign({
+  session_id: 's1', model: { display_name: 'Opus 5.5' }, workspace: { current_dir: cwd },
+  context_window: { remaining_percentage: 58 },
+}, extra);
+
+test('exact line for a full fixture (ANSI off)', () => {
+  const cwd = fixtureRepo();
+  const line = render(input(cwd), { env: {}, home: tmpDir('bajzi-h-'), nowMs: NIGHT, color: false });
+  assert.strictEqual(line, 'Opus 5.5 \u00b7 L0 \u00b7 feat/x* \u00b7 status line port \u00b7 \u2593\u2593\u2593\u2593\u2591\u2591\u2591\u2591\u2591\u2591 42% \u00b7 Q1');
+});
+
+test('usedPct = round(100 - remaining_percentage), clamped; missing -> null', () => {
+  assert.strictEqual(usedPct({ context_window: { remaining_percentage: 58 } }), 42);
+  assert.strictEqual(usedPct({ context_window: { remaining_percentage: 49.6 } }), 50);
+  assert.strictEqual(usedPct({ context_window: { remaining_percentage: -3 } }), 100);
+  assert.strictEqual(usedPct({ context_window: {} }), null);
+  assert.strictEqual(usedPct({}), null);
+  assert.strictEqual(usedPct({ context_window: { remaining_percentage: '40' } }), null);
+});
+
+test('colours: green < 40, yellow 40-49, red >= 50', () => {
+  const home = tmpDir('bajzi-h-');
+  const cwd = tmpDir('bajzi-nr-');
+  const col = rem => render({ context_window: { remaining_percentage: rem }, workspace: { current_dir: cwd } },
+    { env: {}, home, nowMs: NIGHT, color: true });
+  assert.ok(col(61).includes('\x1b[32m'));   // 39 used
+  assert.ok(col(60).includes('\x1b[33m'));   // 40 used
+  assert.ok(col(51).includes('\x1b[33m'));   // 49 used
+  assert.ok(col(50).includes('\x1b[31m'));   // 50 used
+});
+
+test('GLM share is shown only at L1-L3, from a fresh cache', () => {
+  const home = tmpDir('bajzi-h-');
+  fs.mkdirSync(path.join(home, '.claude', 'bajzi'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'bajzi', 'glm-share.json'), JSON.stringify({ ts: NIGHT - 1000, pct: 64 }));
+  const cwd = tmpDir('bajzi-nr-');
+  const l2 = strip(render({ workspace: { current_dir: cwd } }, { env: { CC_WORKER_MODE: 'glm' }, home, nowMs: NIGHT }));
+  assert.strictEqual(l2, 'L2 \u00b7 GLM 64%');
+  const l0 = strip(render({ workspace: { current_dir: cwd } }, { env: {}, home, nowMs: NIGHT }));
+  assert.strictEqual(l0, 'L0');
+});
+
+test('peak part: 2 h before and inside the window only', () => {
+  const home = tmpDir('bajzi-h-');
+  const cwd = tmpDir('bajzi-nr-');
+  const r = now => strip(render({ workspace: { current_dir: cwd } }, { env: {}, home, nowMs: now }));
+  assert.strictEqual(r(Date.UTC(2026, 8, 23, 3, 59)), 'L0');
+  assert.strictEqual(r(Date.UTC(2026, 8, 23, 4, 55)), 'L0 \u00b7 peak in 1h 5m');
+  assert.strictEqual(r(Date.UTC(2026, 8, 23, 7, 30)), 'L0 \u00b7 peak now, 2h 30m left');
+});
+
+test('handoffTask: newest file wins, truncated to 20 chars', () => {
+  const cwd = tmpDir('bajzi-nr-');
+  const dir = path.join(cwd, 'runtime', 'handoff');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'old.md'), 'Updated: x \u00b7 Task: old task\n');
+  const past = new Date(Date.now() - 3600000);
+  fs.utimesSync(path.join(dir, 'old.md'), past, past);
+  fs.writeFileSync(path.join(dir, 'new.md'), 'Updated: x \u00b7 Task: A very long task description here\n');
+  assert.strictEqual(parts.handoffTask(cwd), 'A very long task de\u2026');
+  assert.strictEqual(parts.handoffTask(tmpDir('bajzi-nr-')), null);
+});
+
+test('parseGitStatus: branch, dirty, detached', () => {
+  assert.deepStrictEqual(parts.parseGitStatus('# branch.oid abc\n# branch.head main\n'), { branch: 'main', dirty: false });
+  assert.deepStrictEqual(parts.parseGitStatus('# branch.oid abc\n# branch.head main\n1 .M N... 100644 100644 100644 a b a.txt\n'), { branch: 'main', dirty: true });
+  assert.deepStrictEqual(parts.parseGitStatus('# branch.oid 1234567890\n# branch.head (detached)\n'), { branch: '1234567', dirty: false });
+  assert.strictEqual(parts.parseGitStatus(''), null);
+});
+
+test('glmShare: no cache -> null and one refresh; lock suppresses a second refresh', () => {
+  const home = tmpDir('bajzi-h-');
+  let calls = 0;
+  const refresh = () => { calls++; };
+  assert.strictEqual(parts.glmShare({ nowMs: NIGHT, home, env: {}, refresh }), null);
+  assert.strictEqual(parts.glmShare({ nowMs: NIGHT + 1000, home, env: {}, refresh }), null);
+  assert.strictEqual(calls, 1);
+});
+
+test('glmShare: stale cache returns the old value and refreshes; fresh cache does not refresh', () => {
+  const home = tmpDir('bajzi-h-');
+  const cache = path.join(home, '.claude', 'bajzi', 'glm-share.json');
+  fs.mkdirSync(path.dirname(cache), { recursive: true });
+  let calls = 0;
+  const refresh = () => { calls++; };
+  fs.writeFileSync(cache, JSON.stringify({ ts: NIGHT - 400000, pct: 50 }));
+  assert.strictEqual(parts.glmShare({ nowMs: NIGHT, home, env: {}, refresh }), 50);
+  assert.strictEqual(calls, 1);
+  fs.writeFileSync(cache, JSON.stringify({ ts: NIGHT - 1000, pct: 70 }));
+  fs.rmSync(cache + '.lock', { force: true });
+  assert.strictEqual(parts.glmShare({ nowMs: NIGHT, home, env: {}, refresh }), 70);
+  assert.strictEqual(calls, 1);
+});
+
+test('refreshGlm reads glm_share_pct from the worker command; a failing command caches null', () => {
+  const dir = tmpDir('bajzi-w-');
+  const fake = path.join(dir, 'fake-worker.js');
+  fs.writeFileSync(fake, 'process.stdout.write(JSON.stringify({ glm_share_pct: 71.6 }))');
+  const cache = path.join(dir, 'glm-share.json');
+  parts.refreshGlm(cache, Object.assign({}, process.env, { BAJZI_WORKER_CMD: `"${process.execPath}" "${fake}"` }));
+  assert.strictEqual(JSON.parse(fs.readFileSync(cache, 'utf8')).pct, 72);
+  const fresh = path.join(dir, 'glm-none.json');
+  parts.refreshGlm(fresh, Object.assign({}, process.env, { BAJZI_WORKER_CMD: 'bajzi-no-such-worker-xyz' }));
+  assert.strictEqual(JSON.parse(fs.readFileSync(fresh, 'utf8')).pct, null);
+});
+
+test('M4: a failed refresh keeps the last good GLM value (never overwrites it with null)', () => {
+  const dir = tmpDir('bajzi-w-');
+  const cache = path.join(dir, 'glm-share.json');
+  fs.writeFileSync(cache, JSON.stringify({ ts: 1000, pct: 72 }));
+  fs.writeFileSync(path.join(dir, 'bad-worker.js'), 'process.stdout.write("not json")');
+  parts.refreshGlm(cache, Object.assign({}, process.env, { BAJZI_WORKER_CMD: 'bajzi-no-such-worker-xyz' }));
+  assert.strictEqual(JSON.parse(fs.readFileSync(cache, 'utf8')).pct, 72);
+  parts.refreshGlm(cache, Object.assign({}, process.env, { BAJZI_WORKER_CMD: `"${process.execPath}" "${path.join(dir, 'bad-worker.js')}"` }));
+  assert.strictEqual(JSON.parse(fs.readFileSync(cache, 'utf8')).pct, 72);
+});
+
+test('M3: the refresh lock is taken with wx -- a just-created (still empty) lock suppresses a refresh', () => {
+  const home = tmpDir('bajzi-h-');
+  const cache = parts.glmCachePath(home);
+  fs.mkdirSync(path.dirname(cache), { recursive: true });
+  fs.writeFileSync(cache + '.lock', '');                          // a concurrent writer mid-create
+  let calls = 0;
+  assert.strictEqual(parts.glmShare({ nowMs: Date.now(), home, env: {}, refresh: () => { calls++; } }), null);
+  assert.strictEqual(calls, 0);
+  fs.writeFileSync(cache + '.lock', String(Date.now() - 120000));  // expired lock is taken over once
+  parts.glmShare({ nowMs: Date.now(), home, env: {}, refresh: () => { calls++; } });
+  parts.glmShare({ nowMs: Date.now(), home, env: {}, refresh: () => { calls++; } });
+  assert.strictEqual(calls, 1);
+});
+
+test('M3: 8 concurrent status lines start at most one refresh', () => {
+  const home = tmpDir('bajzi-h-');
+  const hits = path.join(home, 'hits.txt');
+  const script = path.join(home, 'race.js');
+  fs.writeFileSync(script, `const parts = require(process.argv[3]);
+const fs = require('node:fs');
+const start = Number(process.argv[2]);
+while (Date.now() < start) { /* align the racers */ }
+parts.glmShare({ nowMs: Date.now(), home: process.argv[4], env: {}, refresh: () => fs.appendFileSync(process.argv[5], 'x') });
+`);
+  const { spawn } = require('node:child_process');
+  const start = Date.now() + 700;
+  const kids = [];
+  for (let i = 0; i < 8; i++) kids.push(spawn(process.execPath, [script, String(start), path.join(NODE_DIR, 'lib', 'status-parts.js'), home, hits], { stdio: 'ignore' }));
+  return Promise.all(kids.map(k => new Promise(r => k.on('exit', r)))).then(() => {
+    assert.strictEqual(fs.readFileSync(hits, 'utf8').length, 1);
+  });
+});
+
+test('M1: a cached git-info entry that fails the schema is ignored and recomputed', () => {
+  const cwd = gitRepo('feat/x');
+  const now = Date.now();
+  for (const info of [
+    { branch: 'evil\x1b]0;pwned\x07', dirty: false },
+    { branch: 'main\r\nfake', dirty: false },
+    { branch: 42, dirty: false },
+    { branch: 'main', dirty: 'yes' },
+    { branch: '', dirty: false },
+    'main',
+    [1],
+  ]) {
+    fs.writeFileSync(parts.gitCachePath(cwd), JSON.stringify({ ts: now, info }));
+    assert.deepStrictEqual(parts.gitInfo(cwd, now), { branch: 'feat/x', dirty: false }, JSON.stringify(info));
+  }
+  fs.writeFileSync(parts.gitCachePath(cwd), JSON.stringify({ ts: now, info: { branch: 'cached', dirty: true } }));
+  assert.deepStrictEqual(parts.gitInfo(cwd, now), { branch: 'cached', dirty: true });   // a valid entry is still used
+});
+
+test('M1: control and ESC characters are stripped from branch text', () => {
+  assert.deepStrictEqual(parts.parseGitStatus('# branch.oid abc\n# branch.head ma\x1b[31min\x07\n'), { branch: 'ma[31min', dirty: false });
+});
+
+test('RF5: status line degrades to a clean single line', () => {
+  const cwd = tmpDir('bajzi-nr-');                               // not a repo, no runtime/
+  const stdin = JSON.stringify({ workspace: { current_dir: cwd } }); // no model, no context_window
+  const r = runScript(SCRIPT, stdin, { CC_WORKER_MODE: 'glm', BAJZI_WORKER_CMD: 'bajzi-no-such-worker-xyz' }, { cwd });
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.stderr, '');
+  assert.match(strip(r.stdout), /^L2( \u00b7 peak [^\u00b7\n]+)?\n$/);
+  const empty = runScript(SCRIPT, '', {}, { cwd });
+  assert.strictEqual(empty.code, 0);
+  assert.match(strip(empty.stdout), /^L0( \u00b7 peak [^\u00b7\n]+)?\n$/);
+  const garbage = runScript(SCRIPT, 'not json', {}, { cwd });
+  assert.strictEqual(garbage.code, 0);
+  assert.strictEqual(garbage.stderr, '');
+});
+
+test('the status line writes the bridge for a safe session id only', () => {
+  const cwd = tmpDir('bajzi-nr-');
+  const ok = runScript(SCRIPT, JSON.stringify({ session_id: 'sess-1', context_window: { remaining_percentage: 45 }, workspace: { current_dir: cwd } }), {}, { cwd });
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ok.tmp, 'bajzi-ctx-sess-1.json'), 'utf8')).used_pct, 55);
+  const bad = runScript(SCRIPT, JSON.stringify({ session_id: '../evil', context_window: { remaining_percentage: 45 }, workspace: { current_dir: cwd } }), {}, { cwd });
+  assert.deepStrictEqual(fs.readdirSync(bad.tmp).filter(n => n.startsWith('bajzi-ctx-')), []);
+  assert.ok(!fs.existsSync(path.join(path.dirname(bad.tmp), 'bajzi-ctx-..', 'evil.json')));
+});
+
+// --- the line file <status dir>/<session_id>.line.json (the status record contract, spec §6.5) ---
+const LINE = 'Opus 5.5 \u00b7 L0 \u00b7 feat/x* \u00b7 status line port \u00b7 \u2593\u2593\u2593\u2593\u2591\u2591\u2591\u2591\u2591\u2591 42% \u00b7 5h 42% \u00b7 7d 34% \u00b7 Q1';
+const lineRe = line => new RegExp('^' + line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '( \u00b7 peak [^\u00b7\n]+)?\n$');
+const fullInput = cwd => ({
+  session_id: 's1', session_name: 'night', cwd, model: { display_name: 'Opus 5.5' },
+  workspace: { current_dir: cwd, project_dir: cwd, git_worktree: 'wt-1' },
+  context_window: { remaining_percentage: 58, used_percentage: 42.5 }, cost: { total_cost_usd: 1.23 },
+  rate_limits: { five_hour: { used_percentage: 42 }, seven_day: { used_percentage: 33.6 } },
+});
+const lineFile = (d, id = 's1') => JSON.parse(fs.readFileSync(path.join(d, `${id}.line.json`), 'utf8'));
+
+test('line file: the contract fields from a full fixture; the rendered line is byte-identical to the pinned one', () => {
+  const cwd = fixtureRepo();
+  const d = tmpDir('bajzi-ln-');
+  const t0 = Math.floor(Date.now() / 1000);
+  const r = runScript(SCRIPT, JSON.stringify(fullInput(cwd)), { BAJZI_STATUS_DIR: d, NO_COLOR: '1' }, { cwd });
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.stderr, '');
+  assert.match(r.stdout, lineRe(LINE));
+  const f = lineFile(d);
+  assert.ok(f.ts >= t0 && f.ts <= Math.floor(Date.now() / 1000), String(f.ts));
+  assert.deepStrictEqual(f, { v: 1, session_id: 's1', session_name: 'night', cwd, project_dir: cwd, git_worktree: 'wt-1',
+    branch: 'feat/x', model: 'Opus 5.5', ctx_pct: 42.5, cost_usd: 1.23, five_hour_pct: 42, seven_day_pct: 33.6, bajzi_level: 'L0', ts: f.ts });
+  assert.deepStrictEqual(fs.readdirSync(d), ['s1.line.json']);
+});
+
+test('line file: missing data = the key is omitted; GLM share and level come from the rendered facts', () => {
+  const cwd = tmpDir('bajzi-nr-');                                   // not a repo: no branch
+  const home = tmpDir('bajzi-h-');
+  fs.mkdirSync(path.join(home, '.claude', 'bajzi'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'bajzi', 'glm-share.json'), JSON.stringify({ ts: Date.now(), pct: 64 }));
+  const d = tmpDir('bajzi-ln-');
+  const r = runScript(SCRIPT, JSON.stringify({ session_id: 's2', workspace: { current_dir: cwd }, context_window: { remaining_percentage: 90 } }),
+    { HOME: home, BAJZI_STATUS_DIR: d, CC_WORKER_MODE: 'glm', NO_COLOR: '1' }, { cwd });
+  assert.match(r.stdout, /^L2 \u00b7 \u2593\u2591{9} 10% \u00b7 GLM 64%( \u00b7 peak [^\u00b7\n]+)?\n$/);
+  const f = lineFile(d, 's2');
+  assert.deepStrictEqual(f, { v: 1, session_id: 's2', cwd, glm_share: 64, bajzi_level: 'L2', ts: f.ts });
+});
+
+test('line file: an unwritable status dir, an unsafe id or a missing lib/session-status.js still renders the same line', () => {
+  const cwd = fixtureRepo();
+  const stdin = JSON.stringify(fullInput(cwd));
+  const file = path.join(tmpDir('bajzi-ln-'), 'file');
+  fs.writeFileSync(file, 'x');
+  for (const dir of [file, path.join(file, 'sub')]) {
+    const r = runScript(SCRIPT, stdin, { BAJZI_STATUS_DIR: dir, NO_COLOR: '1' }, { cwd });
+    assert.deepStrictEqual([r.code, r.stderr], [0, ''], dir);
+    assert.match(r.stdout, lineRe(LINE), dir);
+  }
+  const d = tmpDir('bajzi-ln-');
+  const bad = runScript(SCRIPT, JSON.stringify(Object.assign(fullInput(cwd), { session_id: '../evil' })), { BAJZI_STATUS_DIR: d, NO_COLOR: '1' }, { cwd });
+  assert.match(bad.stdout, lineRe(LINE));
+  assert.deepStrictEqual(fs.readdirSync(d), []);
+  const copy = tmpDir('bajzi-slc-');                                 // a partial install without the new lib
+  fs.mkdirSync(path.join(copy, 'lib'));
+  fs.copyFileSync(SCRIPT, path.join(copy, 'statusline.js'));
+  for (const f of fs.readdirSync(path.join(NODE_DIR, 'lib'))) {
+    if (f.endsWith('.js') && f !== 'session-status.js') fs.copyFileSync(path.join(NODE_DIR, 'lib', f), path.join(copy, 'lib', f));
+  }
+  const p = runScript(path.join(copy, 'statusline.js'), stdin, { BAJZI_STATUS_DIR: d, NO_COLOR: '1' }, { cwd });
+  assert.deepStrictEqual([p.code, p.stderr], [0, '']);
+  assert.match(p.stdout, lineRe(LINE));
+  assert.match(fs.readFileSync(path.join(p.home, '.claude', 'bajzi', 'hook-errors.log'), 'utf8'), / statusline Cannot find module/);
+});
+
+test('line file: rewritten only when the content changed or 30 s passed since its own ts', () => {
+  const d = tmpDir('bajzi-ln-');
+  const env = { BAJZI_STATUS_DIR: d };
+  const p = path.join(d, 's1.line.json');
+  const inp = cost => ({ session_id: 's1', workspace: { current_dir: 'D:/a' }, cost: { total_cost_usd: cost } });
+  const facts = { level: 1, branch: 'main', glm: 50 };
+  assert.strictEqual(writeLine(inp(1), facts, 1000000, env), true);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(p, 'utf8')),
+    { v: 1, session_id: 's1', cwd: 'D:/a', branch: 'main', cost_usd: 1, glm_share: 50, bajzi_level: 'L1', ts: 1000 });
+  const step = (cost, nowMs, f = facts) => { writeLine(inp(cost), f, nowMs, env); return JSON.parse(fs.readFileSync(p, 'utf8')); };
+  assert.strictEqual(step(1, 1029999).ts, 1000);                     // same content, 29.999 s: skipped
+  assert.deepStrictEqual([step(2, 1010000).ts, step(2, 1010000).cost_usd], [1010, 2]);   // content changed: written
+  assert.strictEqual(step(2, 1039999).ts, 1010);
+  assert.strictEqual(step(2, 1040000).ts, 1040);                     // 30 s since its own ts: written
+  assert.strictEqual(step(2, 1041000, { level: 1, branch: 'other', glm: 50 }).branch, 'other');
+  assert.strictEqual(step(2, 5000).ts, 5);                           // the clock went back: written
+  assert.strictEqual(writeLine({ session_id: '../x' }, facts, 1, env), false);
+  assert.strictEqual(writeLine({}, facts, 1, env), false);
+  assert.deepStrictEqual(fs.readdirSync(d), ['s1.line.json']);
+});
+
+test('plan limits: 5h and 7d parts follow the bar, rounded; absent/invalid -> omitted, no throw', () => {
+  const cwd = tmpDir('bajzi-nr-');
+  const r = rl => strip(render({ context_window: { remaining_percentage: 58 }, workspace: { current_dir: cwd }, rate_limits: rl },
+    { env: {}, home: tmpDir('bajzi-h-'), nowMs: NIGHT, color: false }));
+  assert.match(r({ five_hour: { used_percentage: 20 }, seven_day: { used_percentage: 34 } }), /42% \u00b7 5h 20% \u00b7 7d 34%/);
+  assert.match(r({ seven_day: { used_percentage: 33.6 } }), /42% \u00b7 7d 34%$/);
+  const only5 = r({ five_hour: { used_percentage: 20 } });
+  assert.match(only5, /5h 20%/); assert.doesNotMatch(only5, /7d/);
+  for (const bad of [undefined, null, 'x', { five_hour: null, seven_day: 'x' }, { five_hour: { used_percentage: 'x' }, seven_day: { used_percentage: NaN } }]) {
+    const l = r(bad);
+    assert.doesNotMatch(l, /5h|7d|NaN/);
+  }
+});
+
+test('line file: seven_day_pct next to five_hour_pct', () => {
+  const d = tmpDir('bajzi-ln-');
+  writeLine(fullInput(tmpDir('bajzi-nr-')), { level: 0 }, Date.now(), { BAJZI_STATUS_DIR: d });
+  const f = lineFile(d);
+  assert.strictEqual(f.five_hour_pct, 42);
+  assert.strictEqual(f.seven_day_pct, 33.6);
+});
+
+test('p95 of 20 warm runs < 150 ms', PERF, () => {
+  const cwd = fixtureRepo();
+  const home = tmpDir('bajzi-h-');
+  const tmp = tmpDir('bajzi-t-');
+  const stdin = JSON.stringify(input(cwd));
+  runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd });   // warm the git cache
+  const ms = [];
+  for (let i = 0; i < 20; i++) ms.push(runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd }).ms);
+  assert.ok(p95(ms) < 150, `p95 ${p95(ms).toFixed(1)} ms`);
+});
+
+// --- per-session level: the line shows THIS session's level (<status dir>/<session_id>.level) ---
+test('per-session level: machine default glm, session A set tight -> A shows L3, B shows L2', () => {
+  const cwd = tmpDir('bajzi-nr-');
+  const home = tmpDir('bajzi-h-');
+  const dir = path.join(home, '.claude', 'bajzi', 'sessions');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'worker-mode'), 'glm\n');
+  fs.writeFileSync(path.join(dir, 'A.level'), 'tight\n');
+  const lvl = (id, env = {}) => {
+    const facts = {};
+    render({ session_id: id, workspace: { current_dir: cwd } }, { env, home, nowMs: NIGHT, color: false, facts });
+    return facts.level;
+  };
+  assert.strictEqual(lvl('A'), 3);
+  assert.strictEqual(lvl('B'), 2);
+  assert.strictEqual(lvl('A', { CC_WORKER_MODE: 'light' }), 1);                                  // env beats the session file
+  fs.writeFileSync(path.join(dir, 'B.level'), 'claude\n');
+  assert.strictEqual(lvl('B', { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic' }), 3);   // non-Anthropic forces tight
+  assert.strictEqual(lvl('../A'), 2);                                                           // unsafe id: machine default
+});
+test('per-session level end to end: the script reads the session file named by the input session_id', () => {
+  const cwd = tmpDir('bajzi-nr-');
+  const d = tmpDir('bajzi-ln-');
+  fs.writeFileSync(path.join(d, 's9.level'), 'light\n');
+  const r = runScript(SCRIPT, JSON.stringify({ session_id: 's9', workspace: { current_dir: cwd } }), { BAJZI_STATUS_DIR: d, NO_COLOR: '1' }, { cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.match(r.stdout, /^L1( |\n)/);
+  assert.strictEqual(lineFile(d, 's9').bajzi_level, 'L1');
+});

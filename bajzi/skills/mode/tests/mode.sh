@@ -1,0 +1,1340 @@
+#!/usr/bin/env bash
+# Black-box tests for the bajzi:mode skill (SKILL.md) and the SessionStart
+# hook bajzi/hooks/day-run-mode.sh. Read-only against those files: this
+# script never edits SKILL.md, DAY-RUN-RULES.md, hooks.json or the hook.
+#
+# Cases 1-3 pull the documented write sequence and read command verbatim out
+# of SKILL.md with sed/grep and execute those exact strings against a temp
+# fixture, so this test fails if SKILL.md's snippet drifts from the hook's.
+# Cases 4-11 run the real hook script against a fake plugin root; case 12 runs
+# the PostToolUse routing counter (hooks/routing-counter.sh), case 13 the
+# PreToolUse dispatch guard (hooks/dispatch-guard.sh); case 16 the review/fix loop
+# skills' deterministic core (lib/findings-cli.js) and the four SKILL.md files.
+#
+# The real `claude` CLI is never invoked: PATH is prefixed with a shim that
+# exits 99 and drops a marker file; case 8 checks the marker never appeared.
+#
+# Everything lives under one mktemp -d, removed on exit by the trap.
+
+set -uo pipefail
+unset ANTHROPIC_BASE_URL CC_WORKER_MODE CC_ROUTER_WORKER BAJZI_SANDBOX BAJZI_UNAME   # the test process may itself run in a GLM/night-run/split env
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BAJZI_DIR="$(cd "$MODE_DIR/../.." && pwd)"
+SKILL_MD="$MODE_DIR/SKILL.md"
+RULES_MD="$MODE_DIR/DAY-RUN-RULES.md"
+SAVER_MD="$MODE_DIR/SAVER-RULES.md"
+HOOK_SH="$BAJZI_DIR/hooks/day-run-mode.sh"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+FAKE_HOME="$TMP/home"
+FAKE_CWD="$TMP/cwd"
+FAKE_ROOT="$TMP/plugin-root"
+ALT_ROOT="$TMP/plugin-root-norules"
+NOSAVER_ROOT="$TMP/plugin-root-nosaver"
+SHIM_DIR="$TMP/shim"
+MARKER="$TMP/claude-was-invoked"
+
+mkdir -p "$FAKE_HOME/.claude" "$FAKE_CWD/runtime" "$FAKE_ROOT/skills/mode" \
+    "$ALT_ROOT/skills/mode" "$NOSAVER_ROOT/skills/mode" "$SHIM_DIR"
+ln -s "$RULES_MD" "$FAKE_ROOT/skills/mode/DAY-RUN-RULES.md"
+ln -s "$SAVER_MD" "$FAKE_ROOT/skills/mode/SAVER-RULES.md"
+# day-run rules only -- no SAVER-RULES.md, for case 10f
+ln -s "$RULES_MD" "$NOSAVER_ROOT/skills/mode/DAY-RUN-RULES.md"
+
+cat > "$SHIM_DIR/claude" <<SHIM
+#!/usr/bin/env bash
+touch "$MARKER"
+exit 99
+SHIM
+chmod +x "$SHIM_DIR/claude"
+export PATH="$SHIM_DIR:$PATH"
+
+PASS=0
+FAIL=0
+pass() { PASS=$((PASS + 1)); printf 'ok - %s\n' "$1"; }
+fail() { FAIL=$((FAIL + 1)); printf 'FAIL - %s -- %s\n' "$1" "${2:-}"; }
+
+# JSON validation, stdin = the candidate document. Uses whatever interpreter the
+# machine has; with none of them present it cannot assert and reports success.
+JSON_CHECK=""
+for c in python python3 node; do
+    command -v "$c" >/dev/null 2>&1 && JSON_CHECK="$c" && break
+done
+json_ok() {
+    case "$JSON_CHECK" in
+        python | python3) "$JSON_CHECK" -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 ;;
+        node) node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>JSON.parse(s))' \
+            >/dev/null 2>&1 ;;
+        *) cat >/dev/null; return 0 ;;
+    esac
+}
+
+# --- extraction: SKILL.md's documented write sequence and read command ---
+
+extract_write_block() {
+    local fence_lines=() i=0 start end candidate
+    while IFS= read -r n; do fence_lines+=("$n"); done \
+        < <(grep -n '^```$' "$SKILL_MD" | cut -d: -f1)
+    while [ "$i" -lt "${#fence_lines[@]}" ]; do
+        start="${fence_lines[$i]}"
+        end="${fence_lines[$((i + 1))]:-}"
+        [ -z "$end" ] && break
+        candidate="$(sed -n "$((start + 1)),$((end - 1))p" "$SKILL_MD")"
+        if printf '%s' "$candidate" | grep -q 'mkdir -p'; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+        i=$((i + 2))
+    done
+    return 1
+}
+
+extract_read_cmd() {
+    grep -n '^`head -1 "<file>"' "$SKILL_MD" | head -1 | cut -d: -f2- \
+        | sed -e 's/^`//' -e 's/`$//'
+}
+
+run_write() { # $1 = target dir, $2 = mode word
+    local block
+    block="$(extract_write_block)" || return 1
+    block="${block//<dir>/$1}"
+    block="${block//<mode>/$2}"
+    bash -c "$block"
+}
+
+read_mode() { # $1 = file path -> prints the resolved mode word
+    local cmd
+    cmd="$(extract_read_cmd)"
+    cmd="${cmd//<file>/$1}"
+    eval "$cmd"
+}
+
+# --- cases 1-2: documented write sequence, target $HOME/.claude ---
+
+run_write "$FAKE_HOME/.claude" "day-run"
+exp="$TMP/expected"
+printf '%s\n' "day-run" > "$exp"
+if cmp -s "$exp" "$FAKE_HOME/.claude/bajzi-mode"; then
+    pass "1 day-run write: file is exactly 'day-run\\n'"
+else
+    fail "1 day-run write" "content: $(cat "$FAKE_HOME/.claude/bajzi-mode" 2>/dev/null)"
+fi
+
+run_write "$FAKE_HOME/.claude" "normal"
+printf '%s\n' "normal" > "$exp"
+if cmp -s "$exp" "$FAKE_HOME/.claude/bajzi-mode"; then
+    pass "2 normal write: overwrites to exactly 'normal\\n'"
+else
+    fail "2 normal write" "content: $(cat "$FAKE_HOME/.claude/bajzi-mode" 2>/dev/null)"
+fi
+shopt -s nullglob
+strays=("$FAKE_HOME/.claude"/.bajzi-mode.*)
+shopt -u nullglob
+if [ "${#strays[@]}" -eq 0 ]; then
+    pass "2 normal write: no stray .bajzi-mode.* temp file"
+else
+    fail "2 normal write: stray temp file left behind" "${strays[*]}"
+fi
+
+# --- case 3: resolution order (project file wins) + the documented read ---
+
+printf '%s\n' "day-run" > "$FAKE_CWD/runtime/bajzi-mode"
+printf '%s\n' "normal" > "$FAKE_HOME/.claude/bajzi-mode"
+if [ -s "$FAKE_CWD/runtime/bajzi-mode" ]; then
+    src="runtime/bajzi-mode"; f="$FAKE_CWD/runtime/bajzi-mode"
+else
+    src="~/.claude/bajzi-mode"; f="$FAKE_HOME/.claude/bajzi-mode"
+fi
+mode="$(read_mode "$f")"
+if [ "$mode" = "day-run" ] && [ "$src" = "runtime/bajzi-mode" ]; then
+    pass "3 status: project file wins (day-run, runtime/bajzi-mode)"
+else
+    fail "3 status: project override" "mode=$mode src=$src"
+fi
+
+rm -f "$FAKE_CWD/runtime/bajzi-mode"
+if [ -s "$FAKE_CWD/runtime/bajzi-mode" ] 2>/dev/null; then
+    src="runtime/bajzi-mode"; f="$FAKE_CWD/runtime/bajzi-mode"
+else
+    src="~/.claude/bajzi-mode"; f="$FAKE_HOME/.claude/bajzi-mode"
+fi
+mode="$(read_mode "$f")"
+if [ "$mode" = "normal" ] && [ "$src" = "~/.claude/bajzi-mode" ]; then
+    pass "3 status: falls back to user file (normal, ~/.claude/bajzi-mode)"
+else
+    fail "3 status: fallback" "mode=$mode src=$src"
+fi
+
+# --- cases 4-9: the real hook ---
+
+run_hook() { # $1 = cwd, $2 = home, $3 = plugin root
+    printf '{"cwd":"%s"}' "$1" | CLAUDE_PLUGIN_ROOT="$3" HOME="$2" bash "$HOOK_SH"
+}
+
+rm -f "$FAKE_CWD/runtime/bajzi-mode"
+
+# case 4: project override wins, both directions
+printf '%s\n' "normal" > "$FAKE_CWD/runtime/bajzi-mode"
+printf '%s\n' "day-run" > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+if [ "$out" = "{}" ]; then
+    pass "4 project=normal over user=day-run -> {}"
+else
+    fail "4 project=normal over user=day-run" "$out"
+fi
+
+printf '%s\n' "day-run" > "$FAKE_CWD/runtime/bajzi-mode"
+printf '%s\n' "normal" > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+if [ "$out" != "{}" ] && printf '%s' "$out" | grep -q 'DAY-RUN MODE'; then
+    pass "4 project=day-run over user=normal -> block"
+else
+    fail "4 project=day-run over user=normal" "$out"
+fi
+
+# case 5: {} for normal/absent/empty/garbage; block only for day-run
+rm -f "$FAKE_CWD/runtime/bajzi-mode"
+for val in "normal" "garbage-word"; do
+    printf '%s\n' "$val" > "$FAKE_HOME/.claude/bajzi-mode"
+    out="$(run_hook "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+    if [ "$out" = "{}" ]; then
+        pass "5 mode=$val -> {}"
+    else
+        fail "5 mode=$val" "$out"
+    fi
+done
+: > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+if [ "$out" = "{}" ]; then
+    pass "5 empty mode file -> {}"
+else
+    fail "5 empty mode file" "$out"
+fi
+rm -f "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+if [ "$out" = "{}" ]; then
+    pass "5 absent mode file -> {}"
+else
+    fail "5 absent mode file" "$out"
+fi
+printf '%s\n' "day-run" > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+if [ "$out" != "{}" ] && printf '%s' "$out" | grep -q 'DAY-RUN MODE'; then
+    pass "5 mode=day-run -> block (contrast case)"
+else
+    fail "5 mode=day-run" "$out"
+fi
+
+# case 6: whitespace/uppercase tolerance
+printf '  DAY-RUN \n' > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+if [ "$out" != "{}" ] && printf '%s' "$out" | grep -q 'DAY-RUN MODE'; then
+    pass "6 '  DAY-RUN <space>\\n' normalizes to day-run"
+else
+    fail "6 whitespace/uppercase tolerance" "$out"
+fi
+
+# case 7: output length caps
+ac="$(printf '%s' "$out" | sed -n 's/.*"additionalContext":"\(.*\)"}}$/\1/p')"
+nlines="$(printf '%s' "$ac" | grep -o '\\n' | wc -l)"
+if [ "$nlines" -le 85 ]; then
+    pass "7 additionalContext <= 85 lines ($nlines)"
+else
+    fail "7 additionalContext line count" "$nlines"
+fi
+rules_lines="$(grep -c '' "$RULES_MD")"
+if [ "$rules_lines" -le 80 ]; then
+    pass "7 DAY-RUN-RULES.md <= 80 lines ($rules_lines)"
+else
+    fail "7 DAY-RUN-RULES.md line count" "$rules_lines"
+fi
+rules_bytes="$(wc -c < "$RULES_MD" | tr -d ' ')"
+if [ "$rules_lines" -le 45 ] && [ "$rules_bytes" -le 4352 ]; then
+    pass "7 DAY-RUN-RULES.md <= 45 lines and <= 4352 bytes ($rules_lines/$rules_bytes)"
+else
+    fail "7 DAY-RUN-RULES.md size budget" "$rules_lines lines $rules_bytes bytes"
+fi
+grep -q 'Sub-agent tiers below are fixed regardless of ORCH' "$RULES_MD" && pass "7 rules keep: sub-agent tiers fixed regardless of ORCH" || fail "7 tiers-fixed rule" "missing"
+for kp in 'two verdicts per task: spec compliance, quality' 'STARTUP INJECTIONS: keep SessionStart hook output small' 'REVIEW LOOP, every development' 'DIRECT-EDIT THRESHOLD, all four' 'ESCALATION LADDER' 'FABLE DEPLETION' 'Only three questions allowed' 'Day-run never merges' '## Owner tasks'; do
+    grep -qF -- "$kp" "$RULES_MD" && pass "7 rules keep: $kp" || fail "7 rule missing" "$kp"
+done
+# every ALL-CAPS-ONLY label SAVER-*.md cites (e.g. ORCH-ONLY) must exist in the base rules
+for lbl in $(grep -ho '[A-Z]\{3,\}-ONLY' "$MODE_DIR"/SAVER-*.md | sort -u); do
+    grep -qF -- "$lbl" "$RULES_MD" && pass "7 SAVER label $lbl exists in DAY-RUN-RULES.md" || fail "7 SAVER label $lbl missing from DAY-RUN-RULES.md" "cited but absent"
+done
+# the hook's head cap must not silently truncate the rules file again
+last_rule="$(tail -n 1 "$RULES_MD" | tr -d '\r')"
+last_rule="${last_rule##*\" }"  # JSON escapes quotes; match the text after the last one
+if printf '%s' "$out" | grep -qF -- "$last_rule"; then
+    pass "7 last line of DAY-RUN-RULES.md survives the head cap"
+else
+    fail "7 rules file truncated by the head cap" "missing last rules line"
+fi
+if printf '%s' "$out" | json_ok; then
+    pass "7 day-run output is valid JSON"
+else
+    fail "7 day-run output is not valid JSON" "$out"
+fi
+
+# case 9: missing DAY-RUN-RULES.md emits {} rather than failing
+out="$(run_hook "$FAKE_CWD" "$FAKE_HOME" "$ALT_ROOT")"
+rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = "{}" ]; then
+    pass "9 missing DAY-RUN-RULES.md -> {} (exit 0)"
+else
+    fail "9 missing DAY-RUN-RULES.md" "rc=$rc out=$out"
+fi
+
+# --- case 10: saver mode (the GLM rung) ---
+#
+# Saver mode is driven by $HOME/.claude/worker-mode, written by the owner's
+# `worker` wrapper. HOME is the fake one for every call below, so the real
+# ~/.claude/worker-mode is never read or written. BAJZI_SAVER_LAUNCHER replaces
+# the `glm` name in the hook's PATH probe: "bash" is a command that certainly
+# exists, the xyz name is one that certainly does not.
+
+run_hook_saver() { # $1 = cwd, $2 = home, $3 = plugin root, $4 = launcher name
+    printf '{"cwd":"%s"}' "$1" \
+        | CLAUDE_PLUGIN_ROOT="$3" HOME="$2" BAJZI_SAVER_LAUNCHER="$4" bash "$HOOK_SH"
+}
+
+WM="$FAKE_HOME/.claude/worker-mode"
+rm -f "$FAKE_CWD/runtime/bajzi-mode"
+printf '%s\n' "day-run" > "$FAKE_HOME/.claude/bajzi-mode"
+
+printf '%s\n' "glm" > "$WM"
+out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "bash")"
+if printf '%s' "$out" | grep -q 'SAVER LEVEL L2'; then
+    pass "10a day-run + worker-mode=glm -> SAVER LEVEL L2"
+else
+    fail "10a day-run + worker-mode=glm" "no SAVER LEVEL L2 in additionalContext"
+fi
+if printf '%s' "$out" | grep -q 'model: glm -- saver mode'; then
+    pass "10a saver block carries the glm dispatch line"
+else
+    fail "10a saver dispatch line missing" "no 'model: glm -- saver mode' line"
+fi
+if printf '%s' "$out" | grep -q 'saver L2 (glm)'; then
+    pass "10a systemMessage reports saver mode"
+else
+    fail "10a systemMessage" "$(printf '%s' "$out" | sed -n 's/.*"systemMessage":"\([^"]*\)".*/\1/p')"
+fi
+if printf '%s' "$out" | json_ok; then
+    pass "10a saver output is valid JSON"
+else
+    fail "10a saver output is not valid JSON" "$out"
+fi
+
+printf '%s\n' "claude" > "$WM"
+out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "bash")"
+if [ "$out" != "{}" ] && ! printf '%s' "$out" | grep -q 'SAVER LEVEL'; then
+    pass "10b worker-mode=claude -> day-run block, no SAVER LEVEL"
+else
+    fail "10b worker-mode=claude" "$out"
+fi
+
+rm -f "$WM"
+out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "bash")"
+if [ "$out" != "{}" ] && ! printf '%s' "$out" | grep -q 'SAVER LEVEL'; then
+    pass "10c no worker-mode file -> day-run block, no SAVER LEVEL"
+else
+    fail "10c no worker-mode file" "$out"
+fi
+
+printf '%s\n' "glm" > "$WM"
+out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "definitely-not-a-command-xyz")"
+if [ "$out" != "{}" ] && ! printf '%s' "$out" | grep -q 'SAVER LEVEL'; then
+    pass "10d worker-mode=glm but launcher absent -> no SAVER LEVEL"
+else
+    fail "10d launcher absent" "$out"
+fi
+
+printf '%s\n' "normal" > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "bash")"
+if [ "$out" = "{}" ]; then
+    pass "10e mode=normal + worker-mode=glm -> {} (saver never fires alone)"
+else
+    fail "10e mode=normal + worker-mode=glm" "$out"
+fi
+
+# 10f: every saver condition true, but the plugin root has no SAVER-RULES.md.
+# The day-run block must still be emitted, plain -- saver silently stays off.
+printf '%s\n' "day-run" > "$FAKE_HOME/.claude/bajzi-mode"
+printf '%s\n' "glm" > "$WM"
+out="$(run_hook_saver "$FAKE_CWD" "$FAKE_HOME" "$NOSAVER_ROOT" "bash")"
+if printf '%s' "$out" | json_ok; then
+    pass "10f missing SAVER-RULES.md: output is valid JSON"
+else
+    fail "10f missing SAVER-RULES.md: invalid JSON" "$out"
+fi
+if printf '%s' "$out" | grep -q 'DAY-RUN MODE' \
+    && ! printf '%s' "$out" | grep -q 'SAVER LEVEL'; then
+    pass "10f missing SAVER-RULES.md -> day-run block, no SAVER LEVEL"
+else
+    fail "10f missing SAVER-RULES.md" "$out"
+fi
+if ! printf '%s' "$out" | grep -qiE 'saver (L[0-9]|level|off)'; then
+    pass "10f systemMessage is the plain day-run one"
+else
+    fail "10f systemMessage claims a saver level" \
+        "$(printf '%s' "$out" | sed -n 's/.*"systemMessage":"\([^"]*\)".*/\1/p')"
+fi
+rm -f "$WM"
+
+# --- case 11: saver levels ---
+#
+# The level comes from CC_WORKER_MODE (runner), else $HOME/.claude/worker-mode;
+# a z.ai provider (ANTHROPIC_BASE_URL) forces L3, or the GLM-worker block when
+# CC_ROUTER_WORKER=1. run_hook_env scrubs all three and sets only what the case
+# passes. Every output must also be valid JSON (the hook must never fail).
+run_hook_env() { # $1 = cwd, $2 = home, $3 = plugin root, then KEY=VALUE pairs
+    local c="$1" h="$2" r="$3"; shift 3
+    printf '{"cwd":"%s"}' "$c" | env -u ANTHROPIC_BASE_URL -u CC_ROUTER_WORKER -u CC_WORKER_MODE -u BAJZI_SPLIT -u BAJZI_SANDBOX \
+        HOME="$h" CLAUDE_PLUGIN_ROOT="$r" BAJZI_SAVER_LAUNCHER=bash "$@" bash "$HOOK_SH"
+}
+for f in SAVER-L1.md SAVER-L3.md GLM-WORKER.md; do ln -sf "$MODE_DIR/$f" "$FAKE_ROOT/skills/mode/$f"; done
+ZAI=ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+rm -f "$FAKE_CWD/runtime/bajzi-mode"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+expect() { # $1 name, $2 output, $3 must-contain, $4 must-not-contain (optional); also asserts valid JSON
+    if printf '%s' "$2" | grep -q -- "$3" && { [ -z "${4:-}" ] || ! printf '%s' "$2" | grep -q -- "$4"; } \
+        && printf '%s' "$2" | json_ok; then pass "$1"; else fail "$1" "$2"; fi
+}
+# expect_msg: the same must / must-not check on the systemMessage alone (not JSON, so no json_ok).
+expect_msg() { # $1 name, $2 full hook output, $3 must-contain, $4 must-not-contain (optional)
+    local m; m=$(printf '%s' "$2" | sed -n 's/.*"systemMessage":"\([^"]*\)".*/\1/p')
+    if printf '%s' "$m" | grep -q -- "$3" && { [ -z "${4:-}" ] || ! printf '%s' "$m" | grep -q -- "$4"; }; then
+        pass "$1"; else fail "$1" "$m"; fi
+}
+printf 'light\n' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11a file=light -> L1 block" "$out" 'SAVER LEVEL L1' 'SAVER LEVEL L2'
+expect "11a day-run table kept alongside L1" "$out" 'ROUTING TABLE'
+expect_msg "11a systemMessage names L1" "$out" 'saver L1 (light)'
+printf 'glm\n' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11b file=glm -> L2 block" "$out" 'SAVER LEVEL L2' 'SAVER LEVEL L1'
+expect "11c env beats file" "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=light)" 'SAVER LEVEL L1' 'SAVER LEVEL L2'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=light "$ZAI")"
+expect "11d z.ai provider beats level=light -> L3" "$out" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect_msg "11d systemMessage names L3" "$out" 'saver L3 (tight)'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI" CC_ROUTER_WORKER=1)"
+expect "11e z.ai + CC_ROUTER_WORKER=1 -> GLM worker, no day-run table" "$out" 'GLM WORKER' 'ROUTING TABLE'
+expect "11e worker gets no saver level block" "$out" 'GLM WORKER' 'SAVER LEVEL'
+expect_msg "11e systemMessage names the GLM worker" "$out" 'GLM worker'
+expect "11e' CC_ROUTER_WORKER=1 on Claude provider -> ignored, L2 as usual" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_ROUTER_WORKER=1)" 'SAVER LEVEL L2' 'GLM WORKER'
+expect "11e'' Claude session at tight -> L3 text" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)" 'SAVER LEVEL L3' 'SAVER LEVEL L2'
+printf 'banana\n' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11f garbage level on Claude -> no saver block + warning" "$out" 'treated as L0' 'SAVER LEVEL'
+expect "11f day-run table still injected" "$out" 'ROUTING TABLE'
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
+expect "11g day-run off but runner set CC_WORKER_MODE=tight -> L3 still injected" "$out" 'SAVER LEVEL L3' 'ROUTING TABLE'
+expect_msg "11g systemMessage does not claim day-run" "$out" 'CC_WORKER_MODE' 'day-run mode active'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+[ "$out" = "{}" ] && pass "11h day-run off, no env -> {} (bare install stays silent)" || fail "11h" "$out"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
+expect "11i day-run off, no env, z.ai provider -> L3 block, no day-run table" "$out" 'SAVER LEVEL L3' 'ROUTING TABLE'
+expect_msg "11i systemMessage credits the non-Anthropic provider" "$out" 'non-Anthropic provider (api.z.ai)'
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$FAKE_HOME/.claude/worker-mode"
+
+# 11j: FAIL CLOSED. Non-Anthropic provider, day-run on, but no SAVER-L3.md /
+# GLM-WORKER.md in the plugin root (NOSAVER_ROOT has DAY-RUN-RULES.md only):
+# the day-run table ("review a diff -> OPUS 5.5") must NOT reach a GLM session.
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$NOSAVER_ROOT" "$ZAI")"
+expect "11j z.ai + day-run on + L3 file absent -> no day-run table" "$out" 'L3 rules missing' 'ROUTING TABLE'
+expect "11j no DAY-RUN MODE text either" "$out" 'withheld' 'DAY-RUN MODE'
+expect_msg "11j systemMessage says the L3 rules are missing" "$out" 'L3 rules missing'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$NOSAVER_ROOT" "$ZAI" CC_ROUTER_WORKER=1)"
+expect "11j' worker + worker file absent -> warning, no day-run table" "$out" 'GLM-WORKER.md is missing' 'ROUTING TABLE'
+
+# 11k-11n: provider detection = the HOST of ANTHROPIC_BASE_URL, lowercased.
+L1ENV=CC_WORKER_MODE=light
+expect "11k uppercase z.ai URL -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=HTTPS://API.Z.AI/api/anthropic)" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect "11k' uppercase Anthropic URL -> still Anthropic (L1)" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=HTTPS://API.ANTHROPIC.COM)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic)"
+expect "11l api.deepseek.com -> L3" "$out" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect_msg "11l systemMessage names the deepseek host" "$out" 'api.deepseek.com'
+expect "11l' deepseek + CC_ROUTER_WORKER=1 -> worker block" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic CC_ROUTER_WORKER=1)" 'GLM WORKER' 'ROUTING TABLE'
+expect "11m https://api.anthropic.com -> normal level resolution (L1)" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://api.anthropic.com)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+expect "11m' anthropic.com with port and path -> L1" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://api.anthropic.com:443/v1)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+expect "11m'' userinfo on the real Anthropic host (user:pw@api.anthropic.com) -> L1" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://user:pw@api.anthropic.com/v1)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+expect "11n query-string trick (?u=api.anthropic.com) -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" 'ANTHROPIC_BASE_URL=https://evil.example/?u=api.anthropic.com')" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect "11n' userinfo trick (api.anthropic.com@evil.example) -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" 'ANTHROPIC_BASE_URL=https://api.anthropic.com@evil.example/')" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+expect "11n'' lookalike host (notanthropic.com) -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" ANTHROPIC_BASE_URL=https://notanthropic.com)" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+# Node's URL parser reads `\` as `/` for http(s), so this one connects to evil.com.
+expect "11n''' backslash trick (evil.com<backslash>@api.anthropic.com) -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$L1ENV" 'ANTHROPIC_BASE_URL=https://evil.com\@api.anthropic.com/')" 'SAVER LEVEL L3' 'SAVER LEVEL L1'
+
+# 11o: a leading UTF-8 BOM on the worker-mode file is ignored.
+printf '\357\273\277glm\r\n' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11o BOM-prefixed 'glm' worker-mode -> L2" "$out" 'SAVER LEVEL L2' 'treated as L0'
+rm -f "$FAKE_HOME/.claude/worker-mode"
+
+# 11p: the env level is normalised like the file.
+expect "11p CC_WORKER_MODE=TIGHT -> L3" \
+  "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=TIGHT)" 'SAVER LEVEL L3' 'treated as L0'
+
+# 11q: level/provider mismatch line (L2/L3 on Claude); absent on a GLM provider.
+MM='but this session runs on Claude: the saver guard blocks code writing here. For a full GLM session relaunch with: worker'
+printf 'day-run
+' > "$FAKE_HOME/.claude/bajzi-mode"; printf 'glm
+' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT")"
+expect "11q L2 on Claude: mismatch line in the saver block" "$out" "L2 $MM"
+expect_msg "11q L2 on Claude: mismatch line in the systemMessage" "$out" "L2 $MM"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
+expect "11q L3 on Claude: mismatch line in the saver block" "$out" "L3 $MM"
+expect_msg "11q L3 on Claude: mismatch line in the systemMessage" "$out" "L3 $MM"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
+expect "11q GLM provider: no mismatch line" "$out" 'SAVER LEVEL L3' "$MM"
+# 11q2: launcher missing -> no saver block at L2, but the gate is open: the mismatch line still shows.
+printf 'glm
+' > "$FAKE_HOME/.claude/worker-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_SAVER_LAUNCHER=bajzi-no-such-launcher-xyz)"
+expect_msg "11q2 L2 on Claude, launcher missing: mismatch line in the systemMessage" "$out" "L2 $MM"
+rm -f "$FAKE_HOME/.claude/bajzi-mode"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_SAVER_LAUNCHER=bajzi-no-such-launcher-xyz)"
+expect_msg "11q2b day-run off, L2 on Claude, launcher missing: mismatch line" "$out" "L2 $MM"
+expect_msg "11q2b day-run off: no 'saver off', names worker --level 0" "$out" 'worker --level 0' 'saver off:'
+printf 'day-run
+' > "$FAKE_HOME/.claude/bajzi-mode"
+# 11q4: on Linux (BAJZI_UNAME forces it; Git Bash says MINGW) an L2/L3 Claude session that is not a
+# sandboxed `split` session (no BAJZI_SANDBOX=1) is told the strict tier needs the split launcher.
+SPL='strict tier needs the split launcher: restart this session with: split'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux)"
+expect_msg "11q4 Linux, L2 on Claude: split hint in the systemMessage" "$out" "$SPL"
+expect "11q4 Linux, L2 on Claude: valid JSON" "$out" 'SAVER LEVEL L2'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight BAJZI_UNAME=Linux)"
+expect_msg "11q4 Linux, L3 on Claude: split hint" "$out" "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux BAJZI_SANDBOX=1)"
+expect_msg "11q4 Linux split session (BAJZI_SANDBOX=1): no split hint" "$out" "L2 $MM" "$SPL"
+# A session already started with split (BAJZI_SPLIT=1) but without the sandbox (BAJZI_SANDBOX unset: bwrap/socat missing, or the bwrap probe failed)
+# is never told to restart with split; the hint names what is missing.
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux BAJZI_SPLIT=1)"
+expect_msg "11q4 Linux split session without the sandbox: no 'restart with split'" "$out" "L2 $MM" "$SPL"
+expect_msg "11q4 Linux split session without the sandbox: hint names bubblewrap/socat and the bwrap probe" "$out" 'split session has no OS sandbox: bubblewrap or socat is missing, or bwrap cannot create a namespace'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=MINGW64_NT-10.0)"
+expect_msg "11q4 not Linux: no split hint" "$out" "L2 $MM" "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_UNAME=Linux "$ZAI")"
+expect_msg "11q4 Linux, GLM provider: no split hint" "$out" 'saver L3' "$SPL"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=light BAJZI_UNAME=Linux)"
+expect_msg "11q4 Linux, L1: no split hint" "$out" 'saver L1' "$SPL"
+# 11q5: a sandboxed split session (BAJZI_SANDBOX=1, the saver guard's tmp rule) gets the scratch line in the saver block (model context), never in the systemMessage.
+SCR='Split session: write scratch/temp files with the Bash tool'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_SANDBOX=1)"
+expect "11q5 BAJZI_SANDBOX=1: scratch line in the saver block" "$out" "$SCR"
+expect_msg "11q5 BAJZI_SANDBOX=1: scratch line not in the systemMessage" "$out" "L2 $MM" "$SCR"
+expect "11q5 no BAJZI_SANDBOX: no scratch line" "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm)" 'SAVER LEVEL L2' "$SCR"
+expect "11q5 BAJZI_SPLIT=1 alone (no sandbox): no scratch line" "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=glm BAJZI_SPLIT=1)" 'SAVER LEVEL L2' "$SCR"
+# 11q3: the injected L3 block on a Claude session must not forbid the Claude fallback at a peak exit 75.
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_WORKER_MODE=tight)"
+expect "11q3 L3 on Claude: peak line allows the Claude fallback" "$out" 'ORIGINAL Agent call' 'There is no Claude fallback at L3'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI")"
+expect "11q3 L3 on a GLM session: no Claude to fall back to" "$out" 'no Claude to fall back to'
+rm -f "$FAKE_HOME/.claude/worker-mode"
+
+# --- case 12: routing-violation counter (PostToolUse on Agent) ---
+#
+# Same gate and level as the SessionStart hook (both source hooks/lib-saver-level.sh).
+# A violation = haiku at L1/L2/L3, or sonnet at L2/L3, unless a GLM peak refusal was
+# logged in the last 10 min. The counter must print {} and exit 0 on EVERY path.
+CNT="$BAJZI_DIR/hooks/routing-counter.sh"
+viol="$FAKE_CWD/runtime/routing-violations.log"; rm -f "$viol" "$TMP/peak.log"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$FAKE_HOME/.claude/worker-mode"
+agent() { printf '{"tool_name":"Agent","tool_input":{"model":"%s"},"cwd":"%s"}' "$1" "$FAKE_CWD"; }
+cnt_raw() { # stdin = payload, then env pairs
+    env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$FAKE_HOME" CC_PEAK_LOG="$TMP/peak.log"         CLAUDE_PROJECT_DIR="$TMP/nocwd" "$@" bash "$CNT"; }
+cnt() { # $1 model, then env pairs
+    local m="$1"; shift; agent "$m" | cnt_raw "$@"; }
+out=$(cnt haiku CC_WORKER_MODE=light); rc=$?
+[ "$out" = "{}" ] && [ "$rc" -eq 0 ] && pass "12a counter prints {} and exits 0" || fail "12a" "rc=$rc $out"
+grep -q 'level=light model=haiku' "$viol" 2>/dev/null && pass "12b L1 + haiku is logged" || fail "12b" "no line"
+rm -f "$viol"; cnt sonnet CC_WORKER_MODE=light >/dev/null
+[ ! -s "$viol" ] && pass "12c L1 + sonnet is NOT a violation" || fail "12c" "$(cat "$viol")"
+cnt sonnet CC_WORKER_MODE=glm >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "12d L2 + sonnet is logged" || fail "12d" "missing"
+rm -f "$viol"; cnt opus CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12e opus is never a violation" || fail "12e" "$(cat "$viol")"
+rm -f "$viol"; printf '%s entry=glm\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" > "$TMP/peak.log"
+cnt haiku CC_WORKER_MODE=light >/dev/null
+[ ! -s "$viol" ] && pass "12f within 10 min of a peak refusal -> not logged" || fail "12f" "$(cat "$viol")"
+rm -f "$viol"; printf '%s entry=glm\n' "$(date -u -d '-11 minutes' +%Y-%m-%dT%H:%M:%S.000Z)" > "$TMP/peak.log"
+cnt haiku CC_WORKER_MODE=light >/dev/null
+grep -q 'model=haiku' "$viol" 2>/dev/null && pass "12f' peak refusal older than 10 min -> logged" || fail "12f'" "no line"
+rm -f "$viol" "$TMP/peak.log"; cnt haiku CC_WORKER_MODE=claude >/dev/null
+[ ! -s "$viol" ] && pass "12g L0 never logs" || fail "12g" "$(cat "$viol")"
+# 12h: gate closed. The worker-mode FILE says glm (a violation level) but day-run is
+# off and neither CC_WORKER_MODE nor a non-Anthropic provider is set.
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"; printf 'glm\n' > "$FAKE_HOME/.claude/worker-mode"
+rm -rf "$FAKE_CWD/runtime"
+out=$(cnt haiku); [ "$out" = "{}" ] && pass "12h gate closed (day-run off, no env, Anthropic) prints {}" || fail "12h" "$out"
+[ ! -e "$FAKE_CWD/runtime" ] && pass "12h' gate closed -> nothing written, not even runtime/" || fail "12h'" "$(ls -la "$FAKE_CWD/runtime" 2>&1)"
+mkdir -p "$FAKE_CWD/runtime"
+# 12i: same files, but the provider is non-Anthropic -> gate open, level forced to tight.
+cnt sonnet CC_WORKER_MODE=light ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic >/dev/null
+grep -q 'level=tight model=sonnet' "$viol" 2>/dev/null && pass "12i non-Anthropic provider opens the gate and counts as tight" || fail "12i" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+cnt sonnet ANTHROPIC_BASE_URL='https://evil.com\@api.anthropic.com/' >/dev/null
+grep -q 'level=tight model=sonnet' "$viol" 2>/dev/null && pass "12i' backslash host trick is non-Anthropic for the counter too" || fail "12i'" "$(cat "$viol" 2>&1)"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$viol" "$FAKE_HOME/.claude/worker-mode"
+# 12j: no model on the dispatch = the session default. The built-in Explore agent
+# INHERITS the session model (Claude Code docs, sub-agents, since v2.1.198), so a
+# model-less Explore dispatch is NOT a haiku dispatch.
+printf '{"tool_name":"Agent","tool_input":{"subagent_type":"Explore"},"cwd":"%s"}' "$FAKE_CWD" | cnt_raw CC_WORKER_MODE=light >/dev/null
+[ ! -s "$viol" ] && pass "12j no model + subagent_type=Explore -> session default, not logged" || fail "12j" "$(cat "$viol")"
+# 12k: only tool_input.model counts -- a "model" key in tool_response, or the word
+# inside the prompt text, must not be read as the dispatch model.
+printf '{"tool_name":"Agent","tool_input":{"prompt":"use \\"model\\":\\"haiku\\" here","subagent_type":"Explore"},"tool_response":{"model":"haiku"},"cwd":"%s"}' "$FAKE_CWD" \
+    | cnt_raw CC_WORKER_MODE=light >/dev/null
+[ ! -s "$viol" ] && pass "12k model outside tool_input is ignored" || fail "12k" "$(cat "$viol")"
+printf '{"tool_response":{"model":"opus"},"tool_input":{"description":"x","model":"haiku"},"cwd":"%s"}' "$FAKE_CWD" \
+    | cnt_raw CC_WORKER_MODE=light >/dev/null
+grep -q 'model=haiku' "$viol" 2>/dev/null && pass "12k' tool_input.model found whatever the key order" || fail "12k'" "no line"
+rm -f "$viol"
+# 12l: never fails, never blocks.
+for bad in '' 'not json' '{"tool_input":{"model":"haiku"' '{"tool_input":{"model":"hai\'; do
+    out=$(printf '%s' "$bad" | cnt_raw CC_WORKER_MODE=light); rc=$?
+    [ "$out" = "{}" ] && [ "$rc" -eq 0 ] || { fail "12l malformed stdin '$bad'" "rc=$rc $out"; continue; }
+    pass "12l malformed stdin '${bad:0:24}' -> {} exit 0"
+done
+# 12m: a model value cannot inject extra log lines.
+rm -f "$viol"
+printf '{"tool_input":{"model":"haiku\\nFAKE level=x"},"cwd":"%s"}' "$FAKE_CWD" | cnt_raw CC_WORKER_MODE=light >/dev/null
+[ "$(wc -l < "$viol" 2>/dev/null)" = "1" ] && ! grep -q '^FAKE' "$viol" && pass "12m one line per dispatch, no injection" || fail "12m" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+# 12n: no model on the dispatch -> the agent DEFINITION's frontmatter model counts.
+# Lookup order: <cwd>/.claude/agents, $HOME/.claude/agents, then for plugin:name the
+# plugin dirs under $HOME/.claude/plugins (cache/*/<plugin>/*/agents, marketplaces/*/plugins/<plugin>/agents).
+# inherit / no model line / no file = the session model, never counted.
+mkagent() { # $1 file, $2 model line ('' = none)
+    mkdir -p "$(dirname "$1")"
+    { printf -- '---\nname: x\ndescription: d\n'; [ -n "$2" ] && printf '%s\n' "$2"; printf -- '---\n\nbody\n'; } > "$1"; }
+sub() { printf '{"tool_name":"Agent","tool_input":{"description":"d","subagent_type":"%s","prompt":"p"},"cwd":"%s"}' "$1" "$FAKE_CWD"; }
+mkagent "$FAKE_CWD/.claude/agents/proj-rev.md" 'model: sonnet'
+mkagent "$FAKE_HOME/.claude/agents/home-fast.md" 'model: "haiku"'
+mkagent "$FAKE_HOME/.claude/agents/inh.md" 'model: inherit'
+mkagent "$FAKE_HOME/.claude/agents/nomodel.md" ''
+mkagent "$FAKE_HOME/.claude/agents/shadow.md" 'model: sonnet'
+mkagent "$FAKE_CWD/.claude/agents/shadow.md" 'model: inherit'
+printf -- '---\nname: late\n---\nmodel: sonnet\n' > "$FAKE_HOME/.claude/agents/late.md"
+mkagent "$FAKE_HOME/.claude/plugins/cache/mk1/fakeplug/1.2.3/agents/code-reviewer.md" 'model: sonnet'
+mkagent "$FAKE_HOME/.claude/plugins/marketplaces/mk2/plugins/mktplug/agents/scout.md" 'model: haiku'
+mkagent "$FAKE_HOME/.claude/plugins/cache/mk1/otherplug/1.0.0/agents/pinned.md" 'model: sonnet'
+rm -f "$viol"; sub proj-rev | cnt_raw CC_WORKER_MODE=glm >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "12n <cwd>/.claude/agents sonnet-pinned at L2 -> logged" || fail "12n" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; sub home-fast | cnt_raw CC_WORKER_MODE=light >/dev/null
+grep -q 'level=light model=haiku' "$viol" 2>/dev/null && pass "12n2 ~/.claude/agents haiku-pinned (quoted) at L1 -> logged" || fail "12n2" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; sub inh | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12o model: inherit -> session model, not logged" || fail "12o" "$(cat "$viol")"
+sub nomodel | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12o2 no model line -> not logged" || fail "12o2" "$(cat "$viol")"
+sub late | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12o3 model: after the frontmatter is ignored" || fail "12o3" "$(cat "$viol")"
+sub shadow | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12o4 project agent shadows the home agent of the same name" || fail "12o4" "$(cat "$viol")"
+sub does-not-exist | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12p missing agent file -> not logged" || fail "12p" "$(cat "$viol")"
+sub 'fakeplug:pinned' | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12p2 plugin name narrows the search (otherplug's agent not used)" || fail "12p2" "$(cat "$viol")"
+sub '../agents/proj-rev' | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12p3 a path in subagent_type resolves nothing" || fail "12p3" "$(cat "$viol")"
+sub 'fakeplug:code-reviewer' | cnt_raw CC_WORKER_MODE=glm >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "12q plugin:name resolves via plugins/cache" || fail "12q" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; sub 'mktplug:scout' | cnt_raw CC_WORKER_MODE=light >/dev/null
+grep -q 'level=light model=haiku' "$viol" 2>/dev/null && pass "12q2 plugin:name resolves via plugins/marketplaces" || fail "12q2" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+# an explicit tool_input.model wins over the definition.
+printf '{"tool_input":{"subagent_type":"proj-rev","model":"opus"},"cwd":"%s"}' "$FAKE_CWD" | cnt_raw CC_WORKER_MODE=tight >/dev/null
+[ ! -s "$viol" ] && pass "12r explicit tool_input.model overrides the frontmatter" || fail "12r" "$(cat "$viol")"
+rm -rf "$FAKE_CWD/.claude" "$FAKE_HOME/.claude/agents" "$FAKE_HOME/.claude/plugins" "$viol"
+# 12s: the hook fires for both tool names (Agent; Task on older CLI builds).
+HOOKS_JSON="$BAJZI_DIR/hooks/hooks.json"
+tr -d ' \n\r' < "$HOOKS_JSON" | grep -qF '"PostToolUse":[{"matcher":"Agent|Task","hooks":[{"type":"command","command":"bash\"${CLAUDE_PLUGIN_ROOT}/hooks/routing-counter.sh\""' \
+    && pass "12s hooks.json PostToolUse matcher is Agent|Task -> routing-counter.sh" || fail "12s" "matcher/command not found"
+
+# 12t: a bajzi:reviewer dispatch whose SERVED model (its sub-agent transcript,
+# <transcript_path minus .jsonl>/subagents/agent-<tool_response.agentId>.jsonl; else
+# tool_response.resolvedModel) is not on the reviewer allow-list -> one line
+# 'level=<l> reviewer-model=<served>' per off-list id. Needs node; BAJZI_HOME empty -> HOME.
+RMC="$FAKE_HOME/.claude/bajzi/config.json"; mkdir -p "$FAKE_HOME/.claude/bajzi"
+printf '{"reviewer_models": ["claude-opus-5-5", "claude-fable-5-1"]}' > "$RMC"
+TX="$TMP/tx"; mkdir -p "$TX/sess/subagents"
+served() { # $1 agentId, then models written as assistant lines (plus one user line)
+    local id="$1"; shift; { printf '{"type":"user","message":{"role":"user","content":"x"}}\n'
+    for m in "$@"; do printf '{"type":"assistant","message":{"model":"%s","role":"assistant"}}\n' "$m"; done; } > "$TX/sess/subagents/agent-$id.jsonl"; }
+rvpay() { # $1 subagent_type, $2 agentId, $3 resolvedModel
+    printf '{"tool_name":"Agent","tool_input":{"subagent_type":"%s","prompt":"p"},"tool_response":{"status":"completed","agentId":"%s","resolvedModel":"%s"},"transcript_path":"%s","cwd":"%s"}' \
+        "$1" "$2" "$3" "$TX/sess.jsonl" "$FAKE_CWD"; }
+rm -f "$viol"
+served a1 claude-opus-5-5 '<synthetic>' claude-opus-5-5
+out=$(rvpay bajzi:reviewer a1 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude)
+[ "$out" = "{}" ] && [ ! -s "$viol" ] && pass "12t reviewer served on the list (<synthetic> ignored) -> nothing" || fail "12t" "$out $(cat "$viol" 2>&1)"
+served a2 claude-opus-5-5 glm-5.3 glm-5.3
+rvpay bajzi:reviewer a2 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+[ "$(grep -c 'reviewer-model=' "$viol" 2>/dev/null)" = 1 ] && grep -qE '^[0-9TZ:-]+ level=claude reviewer-model=glm-5\.3 cause=off-list$' "$viol" \
+    && pass "12t2 reviewer served glm-5.3 -> one reviewer-model=glm-5.3 cause=off-list line" || fail "12t2" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+rvpay bajzi:reviewer nosuch claude-sonnet-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+grep -q 'reviewer-model=claude-sonnet-5 cause=off-list$' "$viol" 2>/dev/null && pass "12t3 no transcript -> resolvedModel is judged" || fail "12t3" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+printf '{"reviewer_models": ["glm-5.3"]}' > "$RMC"
+rvpay bajzi:reviewer a1 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+grep -q 'reviewer-model=claude-opus-5-5 cause=no-allowlist$' "$viol" 2>/dev/null && pass "12t4 invalid allow-list -> served opus logged with cause=no-allowlist" || fail "12t4" "$(cat "$viol" 2>&1)"
+rm -f "$viol" "$RMC"
+rvpay bajzi:reviewer a1 claude-opus-5-5 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+grep -q 'reviewer-model=claude-opus-5-5 cause=no-allowlist$' "$viol" 2>/dev/null && pass "12t4b missing allow-list -> cause=no-allowlist (a config error, not a routing one)" || fail "12t4b" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; printf '{"reviewer_models": ["claude-opus-5-5"]}' > "$RMC"
+rvpay bajzi:fixer a2 glm-5.3 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+rvpay general-purpose a2 glm-5.3 | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+[ ! -s "$viol" ] && pass "12t5 only bajzi:reviewer dispatches are judged" || fail "12t5" "$(cat "$viol")"
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"
+rvpay bajzi:reviewer a2 glm-5.3 | cnt_raw BAJZI_HOME= >/dev/null
+[ ! -s "$viol" ] && pass "12t6 gate closed -> reviewer check writes nothing" || fail "12t6" "$(cat "$viol")"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+served a3 'glm-5.3\nFAKE line'
+rvpay bajzi:reviewer a3 x | cnt_raw BAJZI_HOME= CC_WORKER_MODE=claude >/dev/null
+[ "$(wc -l < "$viol" 2>/dev/null)" = 1 ] && ! grep -q 'FAKE' "$viol" && pass "12t7 served id cannot inject a log line" || fail "12t7" "$(cat "$viol" 2>&1)"
+rm -f "$viol" "$RMC"
+# --- case 13: dispatch guard (PreToolUse on Agent|Task) ---
+#
+# Same gate as the counter (lib-saver-level.sh). Gate open, the guard classifies by
+# subagent_type FIRST (bajzi:reviewer / bajzi:fixer / bajzi:implementer*), and only a
+# foreign agent is classified from its description. Rules (spec §6.4):
+#   R1  a foreign REVIEW/REREVIEW -> deny "use /bajzi:review"; bajzi:reviewer needs a
+#       <sha>..<sha> range + a graph marker, or (no range) the calibrate opt-out
+#       'GRAPH: n/a single-file runtime/findings/<x>.blind.md'.
+#   R2  anything but fixer/reviewer naming runtime/findings/*.md or a *-review.md /
+#       *-rereview<n>.md file -> deny "use /bajzi:fix" (not the built-in read-only
+#       case-sensitive Explore / Plan / claude-code-guide); bajzi:fixer names exactly one *.fixer.md.
+#   R3  every dispatch but fixer: <= 24576 chars.
+#   R4  one TSV line per dispatch.
+# Every deny test asserts WHICH rule refused.
+DG="$BAJZI_DIR/hooks/dispatch-guard.sh"
+dlog="$FAKE_CWD/runtime/dispatch-sizes.log"
+dg_raw() { # stdin = payload, then env pairs
+    env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$TMP/nocwd" "$@" bash "$DG"; }
+disp() { # $1 description, $2 subagent_type, $3 prompt (already JSON-safe)
+    printf '{"tool_name":"Agent","tool_input":{"description":"%s","subagent_type":"%s","prompt":"%s"},"cwd":"%s"}' \
+        "$1" "$2" "$3" "$FAKE_CWD"; }
+dg() { local d="$1" s="$2" p="$3"; shift 3; disp "$d" "$s" "$p" | dg_raw "$@"; }
+is_allow() { [ "$1" = "{}" ]; }
+DENY_HEAD='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"dispatch-guard '
+is_deny() { # $1 output, $2 rule id -- the exact shape AND the rule that refused
+    printf '%s' "$1" | json_ok || return 1
+    case "$1" in "$DENY_HEAD$2: "*'"}}') return 0 ;; esac
+    return 1; }
+lastlog() { tail -n 1 "$dlog" 2>/dev/null; }
+logf() { lastlog | awk -F'\t' -v n="$1" '{ print $n }'; }
+S1=0123456789abcdef0123456789abcdef01234567 S2=89abcdef0123456789abcdef0123456789abcdef
+RV='bajzi:reviewer' FX='bajzi:fixer' IM='bajzi:implementer'
+GL='GRAPH: use code-review-graph detect_changes_tool with base x'
+# 13a: gate closed (day-run off, no env, Anthropic) -> {} and nothing written.
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"; rm -f "$FAKE_HOME/.claude/worker-mode"
+rm -rf "$FAKE_CWD/runtime"
+out=$(dg 'review B3' 'general-purpose' 'Review the diff for task B3.'); rc=$?
+is_allow "$out" && [ "$rc" -eq 0 ] && pass "13a gate closed: foreign review -> {}" || fail "13a" "rc=$rc $out"
+[ ! -e "$FAKE_CWD/runtime" ] && pass "13a' gate closed -> no log, not even runtime/" || fail "13a'" "$(ls -la "$FAKE_CWD/runtime" 2>&1)"
+mkdir -p "$FAKE_CWD/runtime"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+G=CC_WORKER_MODE=glm
+# 13b: R1, foreign review/re-review -> use /bajzi:review, graph marker or not.
+out=$(dg 'review task B3' 'general-purpose' 'Review the diff abc..def for spec and quality.' $G)
+is_deny "$out" R1 && case "$out" in *'/bajzi:review'*) true ;; *) false ;; esac \
+    && pass "13b foreign review -> deny R1, names /bajzi:review" || fail "13b" "$out"
+[ "$(logf 2)" = "REVIEW" ] && [ "$(logf 5)" = "deny:R1" ] && pass "13b' log: REVIEW ... deny:R1" || fail "13b'" "$(lastlog)"
+out=$(dg 'check B3' 'feature-dev:code-reviewer' 'Look at the diff abc..def.' $G)
+is_deny "$out" R1 && pass "13b2 foreign subagent_type with review -> REVIEW -> deny R1" || fail "13b2" "$out"
+out=$(dg 'REVIEW task B3' 'general-purpose' 'Look at the diff abc..def.' $G)
+is_deny "$out" R1 && pass "13b3 classification is case-insensitive" || fail "13b3" "$out"
+out=$(dg 'review task B3' 'general-purpose' "Review $S1..$S2.\\nGraph (detect-changes --brief): 3 files" $G)
+is_deny "$out" R1 && pass "13b4 foreign review WITH range + graph marker -> still deny R1" || fail "13b4" "$out"
+out=$(dg 're-review B3 fix' 'general-purpose' 'detect-changes --brief: 1 file. Check the fix.' $G)
+is_deny "$out" R1 && [ "$(logf 2)" = "REREVIEW" ] && pass "13b5 foreign re-review -> deny R1" || fail "13b5" "$out $(lastlog)"
+out=$(dg 'Code-review task B3' 'general-purpose' 'Look at the diff abc..def.' $G)
+is_deny "$out" R1 && [ "$(logf 2)" = "REVIEW" ] && pass "13b6 Code-review is a review -> deny R1" || fail "13b6" "$out $(lastlog)"
+out=$(dg 'review task B3' 'reviewer' "Review $S1..$S2. $GL" $G)
+is_deny "$out" R1 && pass "13b7 a bare 'reviewer' (not bajzi:) is foreign -> deny R1" || fail "13b7" "$out"
+# 13c: R1, bajzi:reviewer -- range + graph marker; no write path needed (D1: it never writes).
+out=$(dg 'review s1 round 1' "$RV" "slice_id: s1   round: 1   range: $S1..$S2\\n$GL\\ndiff: runtime/briefs/s1-r1.diff" $G)
+is_allow "$out" && [ "$(logf 2)" = "REVIEWER" ] && [ "$(logf 3)" = "$RV" ] && [ "$(logf 5)" = "allow" ] \
+    && pass "13c reviewer: range + graph, no runtime/findings write path -> allow, log REVIEWER" || fail "13c" "$out $(lastlog)"
+out=$(dg 'review s1 round 1' "$RV" "range: $S1..$S2\\ndiff: runtime/briefs/s1-r1.diff" $G)
+is_deny "$out" R1 && [ "$(logf 5)" = "deny:R1" ] && pass "13c2 reviewer: range, no graph marker -> deny R1" || fail "13c2" "$out $(lastlog)"
+out=$(dg 'review s1 round 1' "$RV" "$GL\\ndiff: runtime/briefs/s1-r1.diff" $G)
+is_deny "$out" R1 && pass "13c3 reviewer: graph, no range -> deny R1" || fail "13c3" "$out"
+out=$(dg 'review s1 round 1' "$RV" "range: abc..def\\n$GL" $G)
+is_deny "$out" R1 && pass "13c4 reviewer: abc..def is not a range (< 7 hex) -> deny R1" || fail "13c4" "$out"
+out=$(dg 'review s1 round 1' "$RV" "range: 0123abc..4567def\\n$GL" $G)
+is_allow "$out" && pass "13c5 reviewer: 7-hex short SHAs are a range -> allow" || fail "13c5" "$out"
+# 13d: R1, the single-file opt-out is the calibrate exemption only.
+out=$(dg 'calibrate debt' "$RV" 'Calibration mode.\nGRAPH: n/a single-file runtime/findings/debt.blind.md\nRead it.' $G)
+is_allow "$out" && pass "13d calibrate: no range + opt-out on runtime/findings/*.blind.md -> allow" || fail "13d" "$out"
+out=$(dg 'review s1 round 1' "$RV" "range: $S1..$S2\\nGRAPH: n/a single-file runtime/findings/debt.blind.md\\nchanged files: a.sh b.sh" $G)
+is_deny "$out" R1 && pass "13d2 opt-out does not cover a range review (multi-file diff) -> deny R1" || fail "13d2" "$out"
+out=$(dg 'review s1' "$RV" 'GRAPH: n/a single-file x.sh\nReview x.sh and y.sh' $G)
+is_deny "$out" R1 && pass "13d3 opt-out naming a source file -> deny R1" || fail "13d3" "$out"
+out=$(dg 'calibrate debt' "$RV" 'Calibration mode.\nGRAPH: n/a single-file' $G)
+is_deny "$out" R1 && pass "13d4 opt-out without a path -> deny R1" || fail "13d4" "$out"
+out=$(dg 'calibrate debt' "$RV" 'GRAPH: n/a single-file runtime/findings/debt.blind.md.bak x' $G)
+is_deny "$out" R1 && pass "13d5 opt-out path must END in .blind.md -> deny R1" || fail "13d5" "$out"
+out=$(dg 'calibrate' "$RV" 'GRAPH: n/a single-file runtime/findings/debt.blind.md Review app/a.py and app/b.py fully' $G)
+is_deny "$out" R1 && pass "13d6 opt-out brief naming other source files -> deny R1" || fail "13d6" "$out"
+out=$(dg 'calibrate' "$RV" 'GRAPH: n/a single-file runtime/findings/debt.blind.md Also read x.sh' $G)
+is_deny "$out" R1 && pass "13d7 opt-out brief naming a bare file name -> deny R1" || fail "13d7" "$out"
+out=$(dg 'calibrate debt' "$RV" 'Calibration mode.\nGRAPH: n/a single-file D:\\r\\runtime\\findings\\debt.blind.md\nRead (D:\\r\\runtime\\findings\\debt.blind.md), see runtime/briefs/debt-calibrate.txt.' $G)
+is_allow "$out" && pass "13d8 opt-out with backslash paths + its own runtime/briefs file -> allow" || fail "13d8" "$out"
+# 13e: typed classification wins over the description; foreign FIX/OTHER never hit R1.
+out=$(dg 'implement code-review skill (review round 2 wiring)' "$IM" 'Build the code-review skill.' $G)
+is_allow "$out" && [ "$(logf 2)" = "IMPLEMENTER" ] && pass "13e implementer with 'review' in the description -> allow" || fail "13e" "$out $(lastlog)"
+out=$(dg 'Implement Task 3: add reviewer field' 'general-purpose' 'Add the reviewer field to the model.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13e2 'reviewer' is not the word review -> allow" || fail "13e2" "$out $(lastlog)"
+out=$(dg 'Implement it, then self-review your diff and commit.' 'general-purpose' 'Implement it, then self-review your diff and commit.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13e3 self-review is not a review dispatch -> allow" || fail "13e3" "$out $(lastlog)"
+out=$(dg 'run tests' 'general-purpose' 'Run the suite and review the failures.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13e4 review in the prompt body only -> allow" || fail "13e4" "$out $(lastlog)"
+out=$(dg 'Fix round 1 B3' 'general-purpose' 'Apply the two review findings below. x.sh:12 drops rc. Test: bash t.sh' $G)
+is_allow "$out" && [ "$(logf 2)" = "FIX" ] && pass "13e5 foreign fix with inline findings -> FIX, allow" || fail "13e5" "$out $(lastlog)"
+out=$(dg 'Fix round 2' 'feature-dev:code-reviewer' 'Finding: x.sh:3 quotes. Excerpt: echo $x. Test: bash t.sh' $G)
+is_allow "$out" && [ "$(logf 2)" = "FIX" ] && pass "13e6 fix to a foreign reviewer agent -> FIX, not R1" || fail "13e6" "$out $(lastlog)"
+out=$(dg 'Implement per task-B3-rereview1.md' 'general-purpose' 'Implement the parser.' $G)
+is_allow "$out" && [ "$(logf 2)" = "OTHER" ] && pass "13e7 a *-rereview1.md name in the description does not classify" || fail "13e7" "$out $(lastlog)"
+# 13f: R2, anything but fixer/reviewer pointed at a findings or review file -> use /bajzi:fix.
+out=$(dg 'fix round 1 B3' 'general-purpose' 'Fix everything in runtime/findings/s1-r1.md' $G)
+is_deny "$out" R2 && case "$out" in *'/bajzi:fix'*) true ;; *) false ;; esac && [ "$(logf 5)" = "deny:R2" ] \
+    && pass "13f foreign dispatch naming runtime/findings/*.md -> deny R2, names /bajzi:fix" || fail "13f" "$out $(lastlog)"
+out=$(dg 'implement s2' "$IM" 'Implement it. Context: D:/repo/runtime/findings/debt.md' $G)
+is_deny "$out" R2 && pass "13f2 implementer naming runtime/findings/debt.md (absolute) -> deny R2" || fail "13f2" "$out"
+out=$(dg 'Address B3 findings' 'general-purpose' 'Read task-B3-review.md and fix everything' $G)
+is_deny "$out" R2 && pass "13f3 the incident (read task-B3-review.md) -> deny R2" || fail "13f3" "$out"
+out=$(dg 'fix round 1 B3' 'general-purpose' 'See .superpowers/sdd/x/task-B3-rereview1.md' $G)
+is_deny "$out" R2 && pass "13f4 naming task-B3-rereview1.md -> deny R2" || fail "13f4" "$out"
+# the old ~24-char write-target heuristic is gone: a review file is refused as a write target too.
+out=$(dg 'fix round 1 B3' 'general-purpose' 'Fix x.sh:12. Write your verdict to D:/x/task-B3-review.md' $G)
+is_deny "$out" R2 && pass "13f5 old write-target exception gone -> deny R2" || fail "13f5" "$out"
+if ! grep -qE 'WRITE_RE|reads_full_doc|write\|append\|save\|output' "$DG"; then
+    pass "13f6 the write-target heuristic is deleted from the script"; else fail "13f6" "still present"; fi
+# a slice id containing "review" is not a review file; runtime/briefs/*.diff is never an R2 path.
+out=$(dg 'implement code-review' "$IM" 'Notes in docs/code-review-r1.md; diff at runtime/briefs/code-review-r1.diff' $G)
+is_allow "$out" && pass "13f7 code-review-r1.md / runtime/briefs/*.diff -> not R2, allow" || fail "13f7" "$out"
+out=$(dg 'implement B5' "$IM" 'Implement per task-B5-brief.md; report in task-B5-report.md' $G)
+is_allow "$out" && pass "13f8 -brief.md / -report.md outside runtime/findings -> allow" || fail "13f8" "$out"
+out=$(dg 'implement s2' "$IM" 'Context: runtime\\findings\\s1-r1.md' $G)
+is_deny "$out" R2 && pass "13f9 backslash runtime\findings\*.md -> deny R2" || fail "13f9" "$out"
+out=$(dg 'implement s2' "$IM" 'Context: D:\\repo/runtime\\findings/s1-r1.md' $G)
+is_deny "$out" R2 && pass "13f10 mixed-slash findings path -> deny R2" || fail "13f10" "$out"
+# the built-in read-only agents (the case-sensitive names Explore / Plan / claude-code-guide; a lowercase custom name gets no exemption) may read a findings file;
+# R1, R3 and R4 still apply to them, and every other agent keeps R2.
+RO_P='List the open items in runtime/findings/s1-r1.md'
+for ro in Explore Plan claude-code-guide; do
+    out=$(dg 'audit s1' "$ro" "$RO_P" $G)
+    is_allow "$out" && [ "$(logf 3)" = "$ro" ] && [ "$(logf 5)" = "allow" ] \
+        && pass "13f11 read-only built-in '$ro' naming a findings path -> allow, logged" || fail "13f11 $ro" "$out $(lastlog)"
+done
+out=$(dg 'audit s1' explore "$RO_P" $G)
+is_deny "$out" R2 && pass "13f11b lowercase custom agent explore -> deny R2 (built-ins are case-sensitive)" || fail "13f11b" "$out"
+out=$(dg 'audit s1' 'general-purpose' "$RO_P" $G)
+is_deny "$out" R2 && case "$out" in *'Explore or Plan'*) true ;; *) false ;; esac \
+    && pass "13f12 general-purpose naming a findings path -> deny R2, hints Explore or Plan" || fail "13f12" "$out"
+out=$(dg 'audit s1' 'statusline-setup' "$RO_P" $G)
+is_deny "$out" R2 && pass "13f13 statusline-setup (has Edit) -> deny R2" || fail "13f13" "$out"
+out=$(dg 'audit s1' 'explore-deep' "$RO_P" $G)
+is_deny "$out" R2 && pass "13f14 exact match only: 'explore-deep' -> deny R2" || fail "13f14" "$out"
+out=$(dg 'review s1 round 1' 'Explore' "$RO_P" $G)
+is_deny "$out" R1 && pass "13f15 Explore with a REVIEW-class description -> still deny R1" || fail "13f15" "$out"
+out=$(dg 'audit s1' 'Explore' "$(head -c 24577 /dev/zero | tr '\0' a)" $G)
+is_deny "$out" R3 && pass "13f16 Explore over 24576 chars -> still deny R3" || fail "13f16" "${out:0:200}"
+LP="runtime/findings/$(head -c 300 /dev/zero | tr '\0' x)-r1.md"
+out=$(dg 'audit s1' 'general-purpose' "Read $LP" $G)
+is_deny "$out" R2 && case "$out" in *'Explore or Plan'*) true ;; *) false ;; esac \
+    && pass "13f17 a 300-char findings path does not cut the Explore/Plan hint" || fail "13f17" "$out"
+# 13g: R2 does not apply to the reviewer (read-only: its round-2 brief NAMES the r1 file + report).
+out=$(dg 're-review code-review round 2' "$RV" "range: $S1..$S2\\n$GL\\ndiff: runtime/briefs/code-review-r2.diff\\nround-1 findings: runtime/findings/code-review-r1.md\\nfixer report: runtime/findings/code-review-r1.report.md" $G)
+is_allow "$out" && pass "13g reviewer round 2 naming runtime/findings/<id with review>-r1.md -> allow" || fail "13g" "$out"
+# 13h: R2, bajzi:fixer names exactly one *.fixer.md.
+FXB='slice_id: s1\nfixer copy: runtime/findings/s1-r1.fixer.md\nfiles you may touch: a.sh\ntest command: bash t.sh\n# Fixer copy · s1 · round 1'
+out=$(dg 'fix round s1' "$FX" "$FXB" $G)
+is_allow "$out" && [ "$(logf 2)" = "FIXER" ] && pass "13h fixer naming one .fixer.md -> allow, log FIXER" || fail "13h" "$out $(lastlog)"
+out=$(dg 'fix round s1' "$FX" "$FXB\\nsee runtime/findings/s1-r1.fixer.md" $G)
+is_allow "$out" && pass "13h2 the same .fixer.md named twice -> allow" || fail "13h2" "$out"
+out=$(dg 'fix round s1' "$FX" 'Fix x.sh:12. Test: bash t.sh' $G)
+is_deny "$out" R2 && pass "13h3 fixer naming no .fixer.md -> deny R2" || fail "13h3" "$out"
+out=$(dg 'fix round s1' "$FX" "$FXB\\nand runtime/findings/s2-r1.fixer.md" $G)
+is_deny "$out" R2 && pass "13h4 fixer naming two .fixer.md -> deny R2" || fail "13h4" "$out"
+out=$(dg 'fix round debt' "$FX" 'fixer copy: runtime/findings/debt.fixer.md\n# Fixer copy · debt' $G)
+is_allow "$out" && pass "13h5 drain-fix on debt.fixer.md -> allow" || fail "13h5" "$out"
+# 13j: R3 = 24576 characters for every dispatch but the fixer's.
+p24k=$(head -c 24576 /dev/zero | tr '\0' a)
+out=$(dg 'implement B5' 'general-purpose' "${p24k}b" $G)
+is_deny "$out" R3 && [ "$(logf 4)" = "24577" ] && [ "$(logf 5)" = "deny:R3" ] \
+    && pass "13j OTHER prompt of 24577 chars -> deny R3 (every dispatch, not just fixes)" || fail "13j" "${out:0:200} $(lastlog)"
+out=$(dg 'implement B5' 'general-purpose' "$p24k" $G)
+is_allow "$out" && pass "13j2 prompt of exactly 24576 chars -> allow" || fail "13j2" "${out:0:200}"
+out=$(dg 'review s1 round 1' "$RV" "range: $S1..$S2 $GL ${p24k}" $G)
+is_deny "$out" R3 && pass "13j3 reviewer over 24576 chars (range + graph) -> deny R3" || fail "13j3" "${out:0:200}"
+out=$(dg 'implement s2' "$IM" "${p24k}b" $G)
+is_deny "$out" R3 && pass "13j4 implementer over 24576 chars -> deny R3" || fail "13j4" "${out:0:200}"
+out=$(dg 'fix round s1' "$FX" "$FXB ${p24k}${p24k}" $G)
+is_allow "$out" && [ "$(logf 5)" = "allow" ] && pass "13j5 fixer over 24576 chars -> allow (fixer exempt from R3)" || fail "13j5" "${out:0:200} $(lastlog)"
+# characters, not bytes: 24576 x n-tilde is 49152 bytes and still passes.
+out=$(dg 'implement B5' 'general-purpose' "$(printf '%s' "$p24k" | LC_ALL=C sed 's/a/ñ/g')" $G)
+is_allow "$out" && [ "$(logf 4)" = "24576" ] && pass "13j6 24576 two-byte chars (49152 bytes) -> allow" || fail "13j6" "${out:0:200} $(lastlog)"
+# 13k: R4 log line.
+rm -f "$dlog"
+out=$(dg 'implement task B5' 'general-purpose' 'Implement the parser. No preview needed.' $G)
+is_allow "$out" && pass "13k OTHER dispatch (preview is not review) -> allow" || fail "13k" "$out"
+[ "$(wc -l < "$dlog" 2>/dev/null)" = "1" ] && [ "$(logf 2)" = "OTHER" ] && [ "$(logf 3)" = "general-purpose" ] \
+    && [ "$(logf 4)" = "40" ] && [ "$(logf 5)" = "allow" ] \
+    && lastlog | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z	' \
+    && pass "13k' one log line: ISO, OTHER, subagent_type, 40 chars, allow" || fail "13k'" "$(cat "$dlog" 2>&1)"
+# 13l: never wedges a dispatch (truncated payloads included, even one that reads as a review).
+for bad in '' 'not json' '{"tool_input":{"prompt":"review' '{"tool_input":{"prompt":"rev\' \
+    '{"tool_input":{"description":"review","prompt":"Review abc."}'; do
+    out=$(printf '%s' "$bad" | dg_raw $G); rc=$?
+    [ "$out" = "{}" ] && [ "$rc" -eq 0 ] || { fail "13l malformed stdin '$bad'" "rc=$rc $out"; continue; }
+    pass "13l malformed stdin '${bad:0:24}' -> {} exit 0"
+done
+# 13l2: fail-open on a missing agents dir -- a plugin copy without bajzi/agents/ has no
+# /bajzi:review to point at, so R1-R3 do not apply.
+NA="$TMP/noagents/hooks"; mkdir -p "$NA"; cp "$BAJZI_DIR"/hooks/*.sh "$NA/"
+na() { local d="$1" s="$2" p="$3"; shift 3; disp "$d" "$s" "$p" | env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL \
+    HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$TMP/nocwd" "$@" bash "$NA/dispatch-guard.sh"; }
+out1=$(na 'review task B3' 'general-purpose' 'Review abc..def.' $G)
+out2=$(na 'fix round 1' 'general-purpose' 'Read runtime/findings/s1-r1.md' $G)
+out3=$(na 'implement' 'general-purpose' "${p24k}b" $G)
+is_allow "$out1" && is_allow "$out2" && is_allow "$out3" && pass "13l2 no agents dir -> R1/R2/R3 fail open" || fail "13l2" "$out1 $out2 ${out3:0:100}"
+is_deny "$(dg 'review task B3' 'general-purpose' 'Review abc..def.' $G)" R1 && pass "13l3 control: the same R1 dispatch with bajzi/agents present -> deny" || fail "13l3"
+# 13m: registered as PreToolUse on Agent|Task, next to the Bash noise filter.
+hj=$(tr -d ' \n\r' < "$BAJZI_DIR/hooks/hooks.json")
+pre="${hj%%\"PostToolUse\"*}"; pre="${pre#*\"PreToolUse\"}"
+case "$pre" in
+    *'{"matcher":"Agent|Task","hooks":[{"type":"command","command":"bash\"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-guard.sh\"","timeout":5}]}'*)
+        case "$pre" in *'hooks/noise-filter.sh'*) pass "13m hooks.json PreToolUse Agent|Task -> dispatch-guard.sh (noise filter kept)" ;;
+            *) fail "13m" "noise filter entry lost" ;; esac ;;
+    *) fail "13m" "PreToolUse dispatch-guard entry not found" ;;
+esac
+# 13m2: the merged hooks.json wires every hook of both branches exactly once per event.
+wired=$(node -e 'const h=require(process.argv[1]).hooks;const o=[];for(const[e,a]of Object.entries(h))for(const m of a)for(const c of m.hooks)o.push(e+":"+c.command.replace(/.*\/hooks\//,"").replace(/"$/,""));console.log(o.sort().join(" "))' "$BAJZI_DIR/hooks/hooks.json" 2>&1)
+want="Notification:node/session-signal.js PostToolUse:node/post-tool.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/pre-tool.js PreToolUse:noise-filter.sh SessionEnd:node/session-signal.js SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"' SessionStart:node "${CLAUDE_PLUGIN_ROOT}/skills/radar/radar.js" notice'" SessionStart:node/session-signal.js"' SessionStart:node/writer-guard.js" notice'" Stop:node/session-signal.js StopFailure:node/session-signal.js UserPromptSubmit:node/session-signal.js"
+[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 16 hook entries wired exactly once (node checks via pre-tool.js/post-tool.js)" || fail "13m2" "got: $wired"
+# 13n: non-ASCII prompt -- characters, not bytes, under both locales; \u escape = 1 char.
+for loc in C C.UTF-8; do
+    rm -f "$dlog"
+    out=$(dg 'implement' 'general-purpose' 'ñçïßñçïßñçï ñ çïßñçïßñçï' $G LC_ALL=$loc); rc=$?
+    is_allow "$out" && [ "$rc" -eq 0 ] && [ "$(logf 4)" = "24" ] \
+        && pass "13n LC_ALL=$loc non-ASCII prompt -> 24 chars logged, no crash" || fail "13n $loc" "rc=$rc $out $(lastlog)"
+done
+# 13o: input cannot inject log lines or tabs.
+rm -f "$dlog"
+dg 'implement' 'gen\teral\nFAKE' 'x' $G >/dev/null
+[ "$(wc -l < "$dlog" 2>/dev/null)" = "1" ] && [ "$(awk -F'\t' '{ print NF }' "$dlog")" = "5" ] && ! grep -q '^FAKE' "$dlog" \
+    && pass "13o one 5-field line, no injection" || fail "13o" "$(cat "$dlog" 2>&1)"
+# 13p: an unwritable log never changes the decision.
+rm -rf "$FAKE_CWD/runtime"; printf 'x' > "$FAKE_CWD/runtime"
+out=$(dg 'review task B3' 'general-purpose' 'Review abc..def.' $G)
+is_deny "$out" R1 && pass "13p log write failure -> decision unchanged (deny R1)" || fail "13p" "$out"
+rm -f "$FAKE_CWD/runtime"; mkdir -p "$FAKE_CWD/runtime"
+
+# --- case 14: writing-plans execution-method rule reaches every injected text ---
+# "never ask the execution method" after superpowers:writing-plans must be in every text the
+# hook can inject: the day-run rules and all three saver levels (L1, L2=SAVER-RULES.md, L3).
+for f in "$RULES_MD" "$MODE_DIR/SAVER-L1.md" "$MODE_DIR/SAVER-RULES.md" "$MODE_DIR/SAVER-L3.md"; do
+    grep -q 'never ask the execution method' "$f" \
+        && pass "14 $(basename "$f") carries the never-ask-execution-method line" \
+        || fail "14 $(basename "$f")" "line missing"
+done
+
+# --- case 15: the reviewer allow-list line (spec Invariant 3) ---
+# day-run on a Claude session appends REVIEWER MODELS from $HOME/.claude/bajzi/config.json; an
+# invalid list (GLM id, missing, malformed, empty) gets the stated Opus fallback + a setup warning;
+# a non-Anthropic session never gets the line.
+rm -f "$FAKE_CWD/runtime/bajzi-mode" "$FAKE_HOME/.claude/worker-mode"
+printf 'day-run
+' > "$FAKE_HOME/.claude/bajzi-mode"
+RMCFG="$FAKE_HOME/.claude/bajzi/config.json"
+mkdir -p "$FAKE_HOME/.claude/bajzi"
+printf '{"reviewer_models": ["claude-a-1", "claude-b-2"]}' > "$RMCFG"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME=)"
+expect "15a valid list -> REVIEWER MODELS line, in order" "$out" 'REVIEWER MODELS (reviewer allow-list; launch the first): claude-a-1, claude-b-2' 'REVIEWER = Opus'
+expect "15a rules tail still intact" "$out" 'Day-run never merges\.'
+expect_msg "15a no setup warning on a valid list" "$out" 'day-run mode active' 'bajzi:setup'
+printf '{"reviewer_models": ["claude-a-1", "glm-5.3"]}' > "$RMCFG"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME=)"
+expect "15b GLM id voids the list -> Opus fallback" "$out" 'REVIEWER = Opus (no version id' 'launch the first): claude-a-1'
+expect_msg "15b warns: run /bajzi:setup" "$out" 'reviewer allow-list invalid, run /bajzi:setup'
+for bad in '{"reviewer_models": [' '{"reviewer_models": []}' '{"other": 1}'; do
+    printf '%s' "$bad" > "$RMCFG"
+    out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME=)"
+    expect "15c invalid list ($bad) -> Opus fallback" "$out" 'REVIEWER = Opus (no version id'
+done
+rm -f "$RMCFG"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME=)"
+expect "15d missing config -> Opus fallback" "$out" 'REVIEWER = Opus (no version id'
+printf '{"reviewer_models": ["claude-a-1"]}' > "$RMCFG"
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" BAJZI_HOME= "$ZAI")"
+expect "15e non-Anthropic session: no REVIEWER MODELS line" "$out" 'SAVER LEVEL L3' 'launch the first)'
+rm -rf "$FAKE_HOME/.claude/bajzi"
+# 15f: Fable depletion never restarts on the depleted model, even when entry [0] is Fable.
+grep -q 'the first REVIEWER MODELS id that is not a Fable model' "$RULES_MD"     && pass "15f Fable-depletion restart skips Fable ids" || fail "15f" "restart line may name the depleted model"
+grep -q 'no rung spends Fable' "$RULES_MD" && pass "15f FABLE DEPLETION keeps: no rung spends Fable" || fail "15f" "no-rung-spends-Fable rule missing"
+
+# --- case 16: /bajzi:implement|review|fix|debt deterministic core (bajzi/lib/findings-cli.js) ---
+# The skills delegate every round, routing and cap decision to findings-cli.js; these cases run
+# it against fixture findings files in a temp repo. No model, no claude.
+CLI="$BAJZI_DIR/lib/findings-cli.js"
+SKILLS="$BAJZI_DIR/skills"
+CAD="$TMP/cadence"
+mkdir -p "$CAD/runtime/findings" "$CAD/runtime/slices"
+cli() { (cd "$CAD" && node "$CLI" "$@"); }
+fnd() { # $1 id, $2 severity, $3 location, $4 status (optional)
+    printf '## %s · %s · %s\nfinding: defect %s\nif_unfixed: users see %s break\nwhy_severity: %s - rubric\ntest: none\n' \
+        "$1" "$2" "$3" "$1" "$1" "$2"
+    [ -n "${4:-}" ] && printf 'status: %s\n' "$4"
+    printf '\n'
+}
+hdr() { printf '# Findings · %s · round %s\nrange: a..b\nreviewer: opus\nverdict: %s\nfiles_reviewed: 2\n\n' "$1" "$2" "$3"; }
+FD="$CAD/runtime/findings"
+{ hdr s1 1 'FINDINGS 7'
+  fnd F1 blocker app/a.py:1; fnd F2 major app/a.py:2; fnd F3 minor app/b.py:3; fnd F4 nit app/b.py:4
+  fnd F5 minor app/a.py:5; fnd F6 major app/a.py:6; fnd F7 minor app/c.py:7; } > "$FD/s1-r1.md"
+printf 'FIX s1 DONE 2/7\nF2 OUT_OF_SLICE\nF3 OUT_OF_SLICE\nF4 OUT_OF_SLICE\nF5 ATTEMPTED: flaky clock\n' > "$FD/s1-r1.report.md"
+
+# 16a: /bajzi:fix stops after round 2 -- the r2 file gets no fixer copy, a round-3 file is refused,
+# and the skill text says so and never asks for a round 3.
+out="$(cli copy fixer runtime/findings/s1-r1.md)"; rc=$?
+if [ $rc -eq 0 ] && [ -f "$FD/s1-r1.fixer.md" ] && ! grep -qE 'blocker|major|minor|nit|why_severity|if_unfixed' "$FD/s1-r1.fixer.md"; then
+    pass "16a r1 -> severity-blind fixer copy"; else fail "16a r1 fixer copy" "rc=$rc $out"; fi
+{ hdr s1 2 'FINDINGS 6'
+  fnd F1 blocker app/a.py:1 resolved; fnd F2 major app/a.py:2 open; fnd F3 minor app/b.py:3 open
+  fnd F4 nit app/b.py:4 open; fnd F5 minor app/a.py:5 open; fnd F6 major app/a.py:6 open
+  fnd F8 nit app/a.py:8 open; } > "$FD/s1-r2.md"
+rm -f "$FD/s1-r1.fixer.md"; out="$(cli copy fixer runtime/findings/s1-r1.md 2>&1)"; rc=$?
+if [ $rc -eq 3 ] && printf '%s' "$out" | grep -q 'STOP: .*runtime/findings/s1-r2.md exists' && [ ! -f "$FD/s1-r1.fixer.md" ]; then
+    pass "16a5 r1 with an r2 sibling -> STOP exit 3 (cap is per slice, not per file)"; else fail "16a5 r1 re-fix not stopped" "rc=$rc $out"; fi
+out="$(cli copy fixer runtime/findings/s1-r2.md 2>&1)"; rc=$?
+if [ $rc -eq 3 ] && printf '%s' "$out" | grep -q 'STOP' && [ ! -f "$FD/s1-r2.fixer.md" ]; then
+    pass "16a2 r2 -> STOP exit 3, no fixer copy"; else fail "16a2 r2 fix not stopped" "rc=$rc $out"; fi
+cp "$FD/s1-r2.md" "$FD/s1-r3.md"
+out="$(cli validate runtime/findings/s1-r3.md 2>&1)"; rc=$?
+[ $rc -eq 3 ] && pass "16a3 round-3 file refused (exit 3)" || fail "16a3 round 3 accepted" "rc=$rc $out"
+rm -f "$FD/s1-r3.md"
+if grep -q 'copy fixer' "$SKILLS/fix/SKILL.md" && grep -q 'STOP' "$SKILLS/fix/SKILL.md" \
+    && ! grep -qE -- '--round 3' "$SKILLS/fix/SKILL.md" "$SKILLS/review/SKILL.md"; then
+    pass "16a4 fix SKILL.md stops after round 2, no round-3 call"; else fail "16a4 fix SKILL.md" "round cap text missing"; fi
+
+# 16b: review round 2 routes each D4 branch to the right file.
+out="$(cli validate runtime/findings/s1-r2.md)"
+[ "$out" = "FINDINGS 6 · blocker 0 · major 2 · minor 2 · nit 2" ] && pass "16b validate prints verdict + open counts" || fail "16b validate" "$out"
+out="$(cli close s1)"; rc=$?
+[ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | head -1)" = "closed 1 · owner 5 · debt 2" ] && pass "16b2 close summary" || fail "16b2 close" "rc=$rc $out"
+NO="$FD/needs-owner.md"; DB="$FD/debt.md"
+chk() { grep -qF -- "$2" "$3" && pass "$1" || fail "$1" "missing '$2' in $(basename "$3")"; }
+nchk() { ! grep -qF -- "$2" "$3" && pass "$1" || fail "$1" "unexpected '$2' in $(basename "$3")"; }
+chk "16b3 open major OUT_OF_SLICE -> owner as rated" "- s1/F2 · app/a.py:2 · major · " "$NO"
+chk "16b4 ATTEMPTED minor -> owner one level up" "- s1/F5 · app/a.py:5 · major (was minor) · users see F5 break · ATTEMPTED: flaky clock" "$NO"
+chk "16b5 claimed-fixed-but-open major -> owner as blocker" "- s1/F6 · app/a.py:6 · blocker (was major)" "$NO"
+chk "16b6 new in round 2 -> owner" "- s1/F8 · app/a.py:8 · nit · " "$NO"
+chk "16b7 round-1 id absent from r2 -> owner" "- s1/F7 · app/c.py:7 · minor · " "$NO"
+chk "16b8 OUT_OF_SLICE minor -> debt" "## s1/F3 · minor · app/b.py:3" "$DB"
+chk "16b9 OUT_OF_SLICE nit -> debt" "## s1/F4 · nit · app/b.py:4" "$DB"
+nchk "16b10 resolved F1 goes nowhere (owner)" "s1/F1" "$NO"
+nchk "16b11 resolved F1 goes nowhere (debt)" "s1/F1" "$DB"
+nchk "16b12 no owner item parked in debt" "s1/F2" "$DB"
+nchk "16b13 no debt item sent to owner" "s1/F3" "$NO"
+before="$(wc -l < "$NO")"; cli close s1 >/dev/null
+[ "$(wc -l < "$NO")" = "$before" ] && [ "$(grep -c '^## ' "$DB")" = 2 ] && pass "16b14 close is idempotent" || fail "16b14 re-close duplicated lines"
+
+# 16c: /bajzi:debt --check exits 1 on the D6 cap (>15 items, or >3 in one file), 0 under it.
+mkdebt() { # $1 = count, $2 = distinct files? (yes|no)
+    printf '# Debt\n\n'
+    local i f
+    for i in $(seq 1 "$1"); do
+        f="app/f$i.py"; [ "$2" = no ] && f="app/one.py"
+        printf '## s0/F%s · minor · %s:%s\nfinding: d\nif_unfixed: u\nwhy_severity: minor\ntest: none\norigin: s0\nparked: 2026-09-24\n\n' "$i" "$f" "$i"
+    done
+}
+mv "$DB" "$DB.keep"
+mkdebt 15 yes > "$DB"; out="$(cli check 2>&1)"; rc=$?
+[ $rc -eq 0 ] && pass "16c 15 items -> exit 0" || fail "16c 15 items" "rc=$rc $out"
+mkdebt 16 yes > "$DB"; out="$(cli check 2>&1)"; rc=$?
+[ $rc -eq 4 ] && printf '%s' "$out" | grep -q 'DEBT CAP HIT' && pass "16c2 16 items -> exit 1 DEBT CAP HIT" || fail "16c2 16 items" "rc=$rc $out"
+mkdebt 4 no > "$DB"; out="$(cli check 2>&1)"; rc=$?
+[ $rc -eq 4 ] && printf '%s' "$out" | grep -q 'app/one.py: 4 items' && pass "16c3 4 in one file -> exit 1" || fail "16c3 per-file" "rc=$rc $out"
+printf 'garbage\n' > "$DB"; out="$(cli check 2>&1)"; rc=$?
+[ $rc -eq 4 ] && printf '%s' "$out" | grep -q 'DEBT CAP HIT: invalid debt.md' && pass "16c4 unparseable debt.md -> exit 4 DEBT CAP HIT (fails closed)" || fail "16c4" "rc=$rc $out"
+# 16c6 (I1): an unmergeable debt.md never costs the owner routing -- needs-owner.md is written first.
+mv "$NO" "$NO.keep"; printf 'garbage\n' > "$DB"; out="$(cli close s1 2>&1)"; rc=$?
+if [ $rc -eq 4 ] && printf '%s' "$out" | grep -q 'DEBT CAP HIT: debt.md merge refused, NOT parked: s1/F3, s1/F4' \
+    && grep -qF -- '- s1/F6 · app/a.py:6 · blocker (was major)' "$NO" && [ "$(cat "$DB")" = garbage ]; then
+    pass "16c6 invalid debt.md: owner items recorded, debt failure reported apart (exit 4)"; else fail "16c6" "rc=$rc $out"; fi
+mv "$NO.keep" "$NO"
+mkdebt 14 yes > "$DB"; out="$(cli close s1)"
+printf '%s' "$out" | grep -q 'DEBT CAP HIT: 16 items' && pass "16c5 close prints DEBT CAP HIT when parking crosses the cap" || fail "16c5" "$out"
+
+# 16d: --calibrate writes only disagreements to needs-owner.md, and blind_severity to debt.md.
+mv "$DB.keep" "$DB"; rm -f "$NO"
+printf 's1/F3 · minor · minor - rubric\ns1/F4 · minor · minor - rubric\n' > "$CAD/rerate.txt"
+out="$(cli calibrate rerate.txt)"; rc=$?
+[ $rc -eq 0 ] && [ "$out" = "calibrated 2 · disagreements 1" ] && pass "16d calibrate summary" || fail "16d calibrate" "rc=$rc $out"
+if [ "$(grep -c '^- ' "$NO")" = 1 ]; then
+    chk "16d2 only the disagreement reaches the owner" "- s1/F4 · app/b.py:4 · original: nit · blind: minor · users see F4 break" "$NO"
+else fail "16d2 needs-owner lines" "$(cat "$NO")"; fi
+[ "$(grep -c '^blind_severity: ' "$DB")" = 2 ] && pass "16d3 blind_severity written for every entry" || fail "16d3" "$(cat "$DB")"
+cp "$DB" "$DB.before"; printf 's1/F3 · major · x\n' > "$CAD/rerate.txt"
+out="$(cli calibrate rerate.txt 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'not re-rated: s1/F4' && cmp -s "$DB" "$DB.before" && [ "$(grep -c '^- ' "$NO")" = 1 ] && pass "16d4 missing id -> exit 2, nothing written" || fail "16d4" "rc=$rc $out"
+printf 's1/F3 · major · x\ns1/F4 · nit · x\ns1/F3 · minor · x\n' > "$CAD/rerate.txt"
+out="$(cli calibrate rerate.txt 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 's1/F3: re-rated twice' && cmp -s "$DB" "$DB.before" && pass "16d6 duplicate id in the re-rate -> exit 2, nothing written" || fail "16d6" "rc=$rc $out"
+out="$(cli copy blind)"
+[ "$out" = runtime/findings/debt.blind.md ] && pass "16d7 printed paths use forward slashes" || fail "16d7" "$out"
+! grep -qE '· (minor|nit) ·|why_severity|blind_severity' "$FD/debt.blind.md" && pass "16d5 blind copy has no severities" || fail "16d5" "$(cat "$FD/debt.blind.md")"
+
+# 16e: --drain drops resolved entries, keeps the rest, sends a drain-introduced finding to the owner.
+{ hdr debt 2 'FINDINGS 2'; fnd s1/F3 minor app/b.py:3 resolved; fnd s1/F4 nit app/b.py:4 open; fnd F9 major app/b.py:9 open; } > "$CAD/drain.md"
+out="$(cli drain drain.md)"; rc=$?
+if [ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | head -1)" = 'drained 1, remain 1' ] && ! grep -q 's1/F3' "$DB" \
+    && grep -q '## s1/F4 · nit' "$DB" && grep -qF -- '- drain/F9 · app/b.py:9 · major' "$NO"; then
+    pass "16e drain"; else fail "16e drain" "rc=$rc $out"; fi
+
+# 16f: /bajzi:implement picks the agent by the slice's tier (a lookup, not a memory).
+for t in 1 2 3; do printf '# Slice · sl%s\ntier: %s\nfiles: a.js\nacceptance: works\ntest: node --test\n' "$t" "$t" > "$CAD/runtime/slices/sl$t.md"; done
+if [ "$(cli slice sl1 | head -1)" = "agent: bajzi:implementer-risk" ] && [ "$(cli slice sl2 | head -1)" = "agent: bajzi:implementer" ] \
+    && [ "$(cli slice sl3 | head -1)" = "agent: bajzi:implementer" ]; then
+    pass "16f tier 1 -> implementer-risk, 2/3 -> implementer"; else fail "16f slice routing"; fi
+sed -i 's/^tier: 2/tier: 9/' "$CAD/runtime/slices/sl2.md"; out="$(cli slice sl2 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'tier must be 1, 2 or 3, got 9' && pass "16f2 bad tier refused" || fail "16f2" "rc=$rc $out"
+out="$(cli slice ../slices/sl1 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'bad slice id' && pass "16f3 path-traversal slice id refused" || fail "16f3" "rc=$rc $out"
+# 16f4: `test: none` (a no-test / Tier-3 slice) is printed as `test: skip`, which the skills never execute.
+printf '# Slice · sl4\ntier: 3\nfiles: docs/a.md\nacceptance: documented\ntest: none\n' > "$CAD/runtime/slices/sl4.md"
+out="$(cli slice sl4)"; rc=$?
+[ $rc -eq 0 ] && printf '%s\n' "$out" | grep -qx 'test: skip' && [ "$(cli slice sl1 | tail -1)" = 'test: node --test' ] \
+    && grep -q 'test: skip' "$SKILLS/implement/SKILL.md" && grep -q 'test: skip' "$SKILLS/fix/SKILL.md" \
+    && pass "16f4 test: none -> skip (implement/fix read it)" || fail "16f4" "rc=$rc $out"
+# 16f5: `debt` is the drain's namespace (debt.md, debt-r2.md), never a slice id.
+printf '# Slice · debt\ntier: 2\nfiles: a.js\nacceptance: works\ntest: node --test\n' > "$CAD/runtime/slices/debt.md"
+out="$(cli slice debt 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'reserved' && pass "16f5 slice id debt reserved" || fail "16f5" "rc=$rc $out"
+# 16f6 (R2-M1): files: never names a control-plane, absolute or parent path.
+ok=1
+for f in '.githooks/pre-commit' './.GitHooks/pre-commit' '..\other-repo\CLAUDE.md' '.claude/settings.json' \
+         'runtime/x.md' 'C:/x' '/etc/passwd' 'src/settings.local.json' 'bajzi/hooks/hooks.json' 'a.js, .git/config'; do
+    printf '# Slice · sl6\ntier: 2\nfiles: %s\nacceptance: works\ntest: node --test\n' "$f" > "$CAD/runtime/slices/sl6.md"
+    out="$(cli slice sl6 2>&1)"; rc=$?
+    { [ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'files: refused'; } || { ok=0; echo "  16f6 not refused: $f rc=$rc"; }
+done
+printf '# Slice · sl6\ntier: 2\nfiles: %s\nacceptance: works\ntest: node --test\n' './src/app.js, docs/runtime-notes.md, web\x.tsx' > "$CAD/runtime/slices/sl6.md"
+out="$(cli slice sl6 2>&1)"; rc=$?
+[ $rc -eq 0 ] || ok=0
+[ $ok -eq 1 ] && pass "16f6 files: control-plane/absolute/.. paths refused, normal paths pass" || fail "16f6" "rc=$rc $out"
+
+# 16g: every dispatch logs one R4-shaped TSV line -- with the dispatch guard's gate CLOSED
+# (an empty HOME, no runtime/bajzi-mode, no provider env), whatever this machine's real gate is.
+mkdir -p "$TMP/home-closed"; rm -f "$CAD/runtime/bajzi-mode"
+clic() { (cd "$CAD" && env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$TMP/home-closed" node "$CLI" "$@"); }
+printf 'brief ñ\n' > "$CAD/b.txt"; clic log review bajzi:reviewer b.txt allow
+line="$(tail -1 "$CAD/runtime/dispatch-sizes.log")"
+if printf '%s' "$line" | grep -qE $'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\tSKILL-REVIEW\tbajzi:reviewer\t8\tallow$'; then
+    pass "16g dispatch log line (R4 format, chars not bytes)"; else fail "16g log" "$line"; fi
+out="$(clic log "$(printf 'z\tforged')" bajzi:reviewer b.txt allow 2>&1)"; rc=$?
+[ $rc -eq 2 ] && [ "$(tail -1 "$CAD/runtime/dispatch-sizes.log")" = "$line" ] && pass "16g2 a class with a tab is refused, no forged TSV line" || fail "16g2" "rc=$rc $out"
+printf '# Needs owner\n\n- owner note' > "$NO"
+printf 's1/F4 · minor · x\n' > "$CAD/rerate.txt"; cli calibrate rerate.txt >/dev/null
+grep -qx -- '- owner note' "$NO" && pass "16g3 append to a needs-owner.md without a final newline keeps lines apart" || fail "16g3" "$(cat "$NO")"
+# 16g4: gate OPEN (day-run in the repo's runtime/bajzi-mode) -> the hook already logged the dispatch,
+# so an allow appends nothing; a deny (the harness refused, the hook never saw it) is still written.
+printf 'day-run\n' > "$CAD/runtime/bajzi-mode"
+DL="$CAD/runtime/dispatch-sizes.log"; n0="$(wc -l < "$DL")"
+clic log review bajzi:reviewer b.txt allow; rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$n0" ] && pass "16g4 gate open: allow -> no SKILL- line, exit 0" || fail "16g4" "rc=$rc $(tail -1 "$DL")"
+clic log review bajzi:reviewer b.txt deny; rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && tail -1 "$DL" | grep -qE $'\tSKILL-REVIEW\tbajzi:reviewer\t8\tdeny$' \
+    && pass "16g4b gate open: deny -> SKILL- line still written" || fail "16g4b" "rc=$rc $(tail -1 "$DL")"
+# 16g4c: a GLM dispatch (glm:<agent>) is logged even with the gate open: the hook never sees the Bash call.
+n0="$(wc -l < "$DL")"
+clic log implement glm:implementer b.txt allow; rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && tail -1 "$DL" | grep -qE $'	SKILL-IMPLEMENT	glm:implementer	8	allow$'     && pass "16g4c gate open: glm: allow -> SKILL- line written" || fail "16g4c" "rc=$rc $(tail -1 "$DL")"
+# 16g5: the gate check cannot run (no hooks/lib-saver-level.sh next to lib/) -> fail toward a duplicate line.
+mkdir -p "$TMP/nohooks"; cp -r "$BAJZI_DIR/lib" "$TMP/nohooks/lib"; n0="$(wc -l < "$DL")"
+(cd "$CAD" && env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$TMP/home-closed" node "$TMP/nohooks/lib/findings-cli.js" log review bajzi:reviewer b.txt allow); rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && pass "16g5 gate unresolvable (no lib) -> allow line written" || fail "16g5" "rc=$rc"
+rm -f "$CAD/runtime/bajzi-mode"
+
+# 16i (I4/I5/I3/M6): reviewer briefs pass PATHS, not contents -- a huge diff plus a big round-1
+# file still gives a small brief that names the full .diff, carries resolved SHAs, and the
+# current dispatch guard allows it (R1 marker, R2 no read-the-review, R3 size). Calibrate too.
+GR="$TMP/cadgit"; mkdir -p "$GR/runtime/findings"
+gitc() { git -C "$GR" -c user.name=t -c user.email=t@t "$@"; }
+gitc init -q; printf 'a\n' > "$GR/a.txt"; gitc add a.txt; gitc commit -qm base
+for i in $(seq 1 4000); do printf 'line %s of a large change that the reviewer must see in full\n' "$i"; done > "$GR/big.txt"
+gitc add big.txt; gitc commit -qm big
+B="$(gitc rev-parse HEAD~1)"; T="$(gitc rev-parse HEAD)"
+bcli() { (cd "$GR" && node "$CLI" "$@"); }
+gpay() { (cd "$GR" && node -e 'const fs=require("fs");process.stdout.write(JSON.stringify({tool_name:"Agent",tool_input:{description:process.argv[1],subagent_type:"bajzi:reviewer",prompt:fs.readFileSync(process.argv[2],"utf8")},cwd:process.argv[3]}))' "$1" "$2" "$FAKE_CWD"); }
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+out="$(bcli brief review s9 1 HEAD~1..HEAD)"; rc=$?
+if [ $rc -eq 0 ] && [ "$out" = runtime/briefs/s9-review.txt ] && [ "$(wc -c < "$GR/runtime/briefs/s9-r1.diff")" -gt 100000 ] \
+    && grep -qx "slice_id: s9   round: 1   range: $B..$T" "$GR/$out" && grep -q 'diff: runtime/briefs/s9-r1.diff' "$GR/$out"; then
+    pass "16i round-1 brief: full diff on disk, brief names it, range is resolved SHAs"; else fail "16i" "rc=$rc $out"; fi
+is_allow "$(gpay 'review s9 round 1' "$out" | dg_raw $G)" && pass "16i2 round-1 brief allowed by the dispatch guard" || fail "16i2" "$(gpay 'review s9 round 1' "$out" | dg_raw $G)"
+{ hdr s9 1 'FINDINGS 1'; for i in $(seq 1 120); do fnd "F$i" minor "big.txt:$i"; done; } > "$GR/runtime/findings/s9-r1.md"
+printf 'FIX s9 DONE 120/120\n' > "$GR/runtime/findings/s9-r1.report.md"
+out="$(bcli brief review s9 2 "$B..$T")"; rc=$?
+n="$(node -e 'process.stdout.write(String(Array.from(require("fs").readFileSync(process.argv[1],"utf8")).length))' "$GR/$out")"
+if [ $rc -eq 0 ] && [ "$out" = runtime/briefs/s9-rereview.txt ] && [ "$n" -lt 24576 ] && [ "$(wc -c < "$GR/runtime/findings/s9-r1.md")" -gt 10000 ] \
+    && grep -q 'diff: runtime/briefs/s9-r2.diff' "$GR/$out" && grep -q 'round-1 findings: runtime/findings/s9-r1.md' "$GR/$out" \
+    && grep -q 'fixer report: runtime/findings/s9-r1.report.md' "$GR/$out"; then
+    pass "16i3 re-review brief for a 100 KB diff + 10 KB r1 stays at $n chars (< R3 24576), names both files"; else fail "16i3" "rc=$rc n=$n $out"; fi
+is_allow "$(gpay 're-review s9 round 2' "$out" | dg_raw $G)" && pass "16i4 re-review brief allowed by the dispatch guard" || fail "16i4" "$(gpay 're-review s9 round 2' "$out" | dg_raw $G)"
+cp "$GR/runtime/findings/s9-r1.md" "$GR/runtime/findings/debt.md"; printf 'FIX debt DONE\n' > "$GR/runtime/findings/debt.report.md"
+out="$(bcli brief review debt 2 "$B..$T")"; rc=$?
+if [ $rc -eq 0 ] && [ "$out" = runtime/briefs/debt-drain-review.txt ] && grep -q 'round-1 findings: runtime/findings/debt.md' "$GR/$out" \
+    && is_allow "$(gpay 're-review debt round 2' "$out" | dg_raw $G)"; then
+    pass "16i5 drain-review brief by path, allowed by the guard"; else fail "16i5" "rc=$rc $out"; fi
+printf '# Blind re-rate · debt\n' > "$GR/runtime/findings/debt.blind.md"
+out="$(bcli brief calibrate)"; rc=$?
+if [ $rc -eq 0 ] && grep -qx 'GRAPH: n/a single-file runtime/findings/debt.blind.md' "$GR/$out" \
+    && is_allow "$(gpay 'calibrate debt' "$out" | dg_raw $G)"; then
+    pass "16i6 calibrate brief carries the R1 opt-out and the guard allows it"; else fail "16i6" "rc=$rc $out"; fi
+grep -v '^GRAPH:' "$GR/$out" > "$GR/nograph.txt"
+is_deny "$(gpay 'calibrate debt' nograph.txt | dg_raw $G)" R1 && pass "16i6b the gate is open here: without the opt-out, calibrate is denied R1" || fail "16i6b" "guard did not deny"
+cp "$GR/runtime/findings/s9-r1.md" "$GR/runtime/findings/s9-r2.md"
+out="$(bcli brief review s9 1 "$B..$T" 2>&1)"; rc=$?
+[ $rc -eq 3 ] && printf '%s' "$out" | grep -q 'STOP: runtime/findings/s9-r2.md exists' && pass "16i7 round-1 review with an r2 on disk -> STOP exit 3" || fail "16i7" "rc=$rc $out"
+
+# 16h: the four skills exist, are named, and route through findings-cli.js + the shared dispatch template.
+for s in implement review fix debt; do
+    f="$SKILLS/$s/SKILL.md"
+    if [ -f "$f" ] && sed -n 2p "$f" | grep -qx "name: $s" && grep -q 'findings-cli.js' "$f" && grep -q 'lib/dispatch.md' "$f"; then
+        pass "16h $s SKILL.md"; else fail "16h $s SKILL.md" "missing, misnamed or not wired"; fi
+done
+
+# --- case 17: per-session saver level (spec §6.1) ---
+#
+# `worker --level N` from inside a session writes <status dir>/<session_id>.level, and the hooks
+# resolve CC_WORKER_MODE > that file > worker-mode (the machine default). Two sessions A and B,
+# machine default glm, A set its own level: only A changes (THE regression for the owner's bug).
+SESS="$FAKE_HOME/.claude/bajzi/sessions"; mkdir -p "$SESS" "$FAKE_CWD/runtime"
+rm -f "$FAKE_CWD/runtime/bajzi-mode"; printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+printf 'glm\n' > "$FAKE_HOME/.claude/worker-mode"; printf 'tight\n' > "$SESS/sA.level"
+sclean() { env -u ANTHROPIC_BASE_URL -u CC_ROUTER_WORKER -u CC_WORKER_MODE -u BAJZI_STATUS_DIR -u BAJZI_HOME -u CLAUDE_CODE_SESSION_ID -u BAJZI_SESSION_LEVEL "$@"; }
+hook_sid() { # $1 = session id, then KEY=VALUE pairs -> SessionStart hook output
+    local s="$1"; shift
+    printf '{"session_id":"%s","transcript_path":"/t.jsonl","cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$s" "$FAKE_CWD" \
+        | sclean HOME="$FAKE_HOME" CLAUDE_PLUGIN_ROOT="$FAKE_ROOT" BAJZI_SAVER_LAUNCHER=bash "$@" bash "$HOOK_SH"; }
+expect "17a session A (own level tight) -> L3" "$(hook_sid sA)" 'SAVER LEVEL L3' 'SAVER LEVEL L2'
+expect "17b session B (no own level) -> machine default L2" "$(hook_sid sB)" 'SAVER LEVEL L2' 'SAVER LEVEL L3'
+expect "17c CC_WORKER_MODE beats the session file" "$(hook_sid sA CC_WORKER_MODE=light)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+printf 'claude\n' > "$SESS/sA.level"
+expect "17d session A set claude -> day-run table, no saver block" "$(hook_sid sA)" 'ROUTING TABLE' 'SAVER LEVEL'
+expect "17e non-Anthropic forces L3 over a session file" "$(hook_sid sA "$ZAI")" 'SAVER LEVEL L3'
+: > "$SESS/sA.level"
+expect "17f empty session file -> machine default L2" "$(hook_sid sA)" 'SAVER LEVEL L2'
+printf 'tight\n' > "$FAKE_HOME/.claude/bajzi/x.level"
+expect "17g unsafe id ../x never reads outside the status dir -> L2" "$(hook_sid ../x)" 'SAVER LEVEL L2' 'SAVER LEVEL L3'
+mkdir -p "$TMP/altsess"; printf 'light\n' > "$TMP/altsess/sA.level"
+expect "17h BAJZI_STATUS_DIR moves the status dir" "$(hook_sid sA BAJZI_STATUS_DIR="$TMP/altsess")" 'SAVER LEVEL L1'
+# the session id is the TOP-LEVEL key; a session_id-looking text inside a string is not a key
+printf 'tight\n' > "$SESS/sA.level"
+out=$(printf '{"session_id":"sB","prompt":"x \\"session_id\\":\\"sA\\"","cwd":"%s"}' "$FAKE_CWD" \
+    | sclean HOME="$FAKE_HOME" CLAUDE_PLUGIN_ROOT="$FAKE_ROOT" BAJZI_SAVER_LAUNCHER=bash bash "$HOOK_SH")
+expect "17i an escaped session_id inside a string is ignored -> sB's L2" "$out" 'SAVER LEVEL L2' 'SAVER LEVEL L3'
+
+# 17j-l: the routing counter counts against THIS session's level. Machine default glm (sonnet is
+# a violation at L2), session sA set light (sonnet is fine at L1).
+printf 'light\n' > "$SESS/sA.level"; rm -f "$viol"
+cpay() { printf '{"session_id":"%s","tool_name":"Agent","tool_input":{"model":"%s"},"cwd":"%s"}' "$1" "$2" "$FAKE_CWD"; }
+cnts() { sclean HOME="$FAKE_HOME" CC_PEAK_LOG="$TMP/peak.log" CLAUDE_PROJECT_DIR="$TMP/nocwd" bash "$CNT"; }
+out=$(cpay sA sonnet | cnts); rc=$?
+[ "$out" = "{}" ] && [ "$rc" -eq 0 ] && [ ! -s "$viol" ] && pass "17j counter: session sA at L1 + sonnet -> not a violation" || fail "17j" "rc=$rc $out $(cat "$viol" 2>&1)"
+cpay sB sonnet | cnts >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "17k counter: session sB on the machine default L2 + sonnet -> logged" || fail "17k" "$(cat "$viol" 2>&1)"
+rm -f "$viol"; cpay ../x sonnet | cnts >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "17l counter: unsafe id -> machine default" || fail "17l" "$(cat "$viol" 2>&1)"
+# 17n: only the first 4096 payload characters are searched for the id (bash's ${x#*pat} is
+# quadratic): a session_id after a 5000-char prompt is not seen -> machine default.
+rm -f "$viol"; long=$(printf 'p%.0s' $(seq 1 5000))
+printf '{"tool_name":"Agent","tool_input":{"model":"sonnet","prompt":"%s"},"session_id":"sA","cwd":"%s"}' "$long" "$FAKE_CWD" | cnts >/dev/null
+grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "17n counter: a session_id past 4096 chars is not read -> machine default" || fail "17n" "$(cat "$viol" 2>&1)"
+rm -f "$viol"
+
+# 17m: the dispatch guard takes the session id too (its rules use only the gate, so the
+# decision is unchanged): a session_id in the payload, safe or not, changes nothing.
+dpay() { printf '{"session_id":"%s","tool_name":"Agent","tool_input":{"description":"review task B3","subagent_type":"general-purpose","prompt":"Review the diff."},"cwd":"%s"}' "$1" "$FAKE_CWD"; }
+for s in sA ../x; do
+    out=$(dpay "$s" | sclean HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$TMP/nocwd" bash "$DG"); rc=$?
+    [ "$rc" -eq 0 ] && is_deny "$out" R1 && pass "17m guard with session_id '$s' -> same R1 deny" || fail "17m $s" "rc=$rc $out"
+done
+# 17o: BAJZI_SESSION_LEVEL (what the worker shim gives a child launched from a session with its own
+# level file) sets the level but NEVER opens the gate; the child has its own id and no level file.
+printf 'light\n' > "$SESS/sA.level"; printf 'glm\n' > "$FAKE_HOME/.claude/worker-mode"
+printf 'normal\n' > "$FAKE_HOME/.claude/bajzi-mode"
+out=$(hook_sid sChild BAJZI_SESSION_LEVEL=light)
+[ "$out" = "{}" ] && pass "17o day-run off + inherited level -> SessionStart {} (same as machine default)" || fail "17o" "$out"
+out=$(dpay sChild | sclean HOME="$FAKE_HOME" CLAUDE_PROJECT_DIR="$TMP/nocwd" BAJZI_SESSION_LEVEL=light bash "$DG")
+is_allow "$out" && pass "17p day-run off + inherited level -> dispatch guard allows" || fail "17p" "$out"
+printf 'day-run\n' > "$FAKE_HOME/.claude/bajzi-mode"
+expect "17q day-run on: the child resolves the inherited light -> L1" "$(hook_sid sChild BAJZI_SESSION_LEVEL=light)" 'SAVER LEVEL L1' 'SAVER LEVEL L2'
+expect "17r own session file beats the inherited level" "$(hook_sid sA BAJZI_SESSION_LEVEL=tight)" 'SAVER LEVEL L1' 'SAVER LEVEL L3'
+expect "17s CC_WORKER_MODE beats the inherited level" "$(hook_sid sChild BAJZI_SESSION_LEVEL=light CC_WORKER_MODE=tight)" 'SAVER LEVEL L3'
+rm -f "$FAKE_HOME/.claude/worker-mode" "$FAKE_HOME/.claude/bajzi/x.level"; rm -rf "$SESS" "$TMP/altsess"
+
+# case 7b: handoff-load.sh extracts the prompt block and strips it from the model context, for the
+# current heading AND for an older upper-case "... PROMPT" heading.
+for H in 'SUGGESTED OPENING PROMPT' 'SUGGESTED OPENING PROMPT (copy this)' 'LEGACY STARTING PROMPT'; do
+    HL="$TMP/hl"; rm -rf "$HL"; mkdir -p "$HL/runtime"
+    printf '# Handover
+
+## NEXT STEP
+Do the thing.
+
+## %s
+```
+PASTE-ME-PROMPT
+```
+
+## NOTES
+keep-this
+' "$H" > "$HL/runtime/HANDOFF.md"
+    out="$(printf '{"cwd":"%s"}' "$HL" | bash "$BAJZI_DIR/hooks/handoff-load.sh" 2>/dev/null)"
+    sm="${out%%\"hookSpecificOutput\"*}"; cx="${out#*\"hookSpecificOutput\"}"
+    if printf '%s' "$sm" | grep -q 'PASTE-ME-PROMPT' && ! printf '%s' "$cx" | grep -q 'PASTE-ME-PROMPT'         && printf '%s' "$cx" | grep -q 'keep-this'; then
+        pass "7b handoff-load heading '$H': prompt extracted and stripped from context"
+    else
+        fail "7b handoff-load heading '$H'" "$out"
+    fi
+done
+
+# case 8: the claude shim was never invoked -- checked last, so it covers
+# every case above, not just the ones textually before it.
+if [ ! -e "$MARKER" ]; then
+    pass "8 claude shim never invoked"
+else
+    fail "8 claude shim was invoked" "marker present at $MARKER"
+fi
+
+TOTAL=$((PASS + FAIL))
+echo "PASS $PASS/$TOTAL"
+if [ "$FAIL" -eq 0 ]; then
+    exit 0
+else
+    exit 1
+fi

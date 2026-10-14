@@ -1,0 +1,10 @@
+{
+  "name": "nightrun-pane",
+  "version": "0.1.0",
+  "description": "Live night-run status pane (`/nightrun`) that reads an external orchestrator's `runtime/nightrun` layout.",
+  "types": "./types/index.d.ts",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "author": {
+    "name": "bajzaa975"
+  }
+}

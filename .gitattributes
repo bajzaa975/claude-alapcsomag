@@ -1,0 +1,12 @@
+# Hook shell scripts must always check out with LF line endings, on Windows too:
+# with CRLF, bash fails with "bad interpreter".
+*.sh text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+bajzi/bin/**/*.js text eol=lf
+bajzi/hooks/node/**/*.js text eol=lf
+bajzi/skills/**/*.js text eol=lf
+# Launchers ship byte-for-byte (bash ones LF, .cmd twins CRLF): no eol conversion at all.
+bajzi/bin/launchers/** -text
+bajzi/gate/**/*.js text eol=lf
+*.tmpl text eol=lf

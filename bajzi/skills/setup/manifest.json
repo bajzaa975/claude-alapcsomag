@@ -1,0 +1,408 @@
+{
+  "_comment": "The desired Claude Code state. ADDING A NEW ITEM = ONLY THIS FILE NEEDS EDITING.",
+  "updated": "2026-10-13",
+  "marketplaces": [
+    {
+      "source": "anthropics/claude-plugins-official",
+      "why": "official catalog"
+    },
+    {
+      "source": "bajzaa975/claude-alapcsomag",
+      "why": "own plugin (bajzi). The same marketplace also lists bajzi-cowork, the claude.ai / Cowork-only variant: setup never installs it in Claude Code"
+    },
+    {
+      "source": "DietrichGebert/ponytail",
+      "why": "source of ponytail"
+    },
+    {
+      "source": "blader/humanizer",
+      "why": "source of humanizer"
+    }
+  ],
+  "plugins": [
+    {
+      "id": "bajzi@bajzi-plugins",
+      "why": "own: setup/project-setup/handoff/autopilot/mode/night-run/implement/review/fix/debt/radar/which/modszertan/agents + hooks (HANDOFF reload, status line, context/secret/injection guards). agents/: task-class agent definitions (reviewer, fixer, implementer, implementer-risk); implement/review/fix/debt skills orchestrate them through lib/findings-cli.js"
+    },
+    {
+      "id": "cache-timer@bajzi-plugins",
+      "why": "mod (plugin-authoring format): status line entry with the minutes left until the main thread's prompt cache goes cold"
+    },
+    {
+      "id": "nightrun-pane@bajzi-plugins",
+      "why": "mod: /nightrun pane with the newest night run's sprint states and log tail"
+    },
+    {
+      "id": "superpowers@claude-plugins-official",
+      "why": "TDD, debug, sub-agent patterns — ~688 tok always-on"
+    },
+    {
+      "id": "claude-md-management@claude-plugins-official",
+      "why": "CLAUDE.md audit + session learnings — ~175 tok always-on"
+    },
+    {
+      "id": "frontend-design@claude-plugins-official",
+      "why": "for UI work; skippable if not needed"
+    },
+    {
+      "id": "ponytail@ponytail",
+      "why": "lazy-senior-dev discipline: YAGNI, reuse before writing, stdlib before deps — a reviewed add-on with zero overlap with the base package",
+      "env": {
+        "PONYTAIL_DEFAULT_MODE": "lite"
+      },
+      "cost": "~1300 tok per SessionStart AND per subagent spawn. The subagent share lands in the SUBAGENT's context, not the main thread, so it does not eat the 50% ceiling. If subagent spend gets tight, narrow it with PONYTAIL_SUBAGENT_MATCHER (regex over the subagent type).",
+      "gotcha": "If ~/.claude/settings.json has NO statusLine, on first interaction ponytail injects a one-off nudge asking Claude to offer to set one up — i.e. it wants to edit global settings. Set a statusLine first, or decline the offer once. Uninstall: scripts/uninstall.js (cleans ~/.claude/.ponytail-active, ~/.config/ponytail/, statusLine entry).",
+      "checked": "MIT, v4.10.0, 138.9k stars, no network calls in the runtime hooks, no API key. Weak signal: ~176 open PRs, effectively a single maintainer."
+    },
+    {
+      "id": "humanizer@humanizer",
+      "why": "rewrites AI-sounding prose (Wikipedia 'Signs of AI writing' patterns) without changing what it says. A reviewed add-on with zero overlap with the base package",
+      "cost": "skill only (no hooks, no MCP): ~100 tok always-on for the skill-list description; the ~32 KB body (~8k tok) loads only when the skill is invoked.",
+      "checked": "MIT, v3.1.0, ~56.5k stars, last push 2026-09-28. Repo ships SKILL.md + .claude-plugin/{marketplace,plugin}.json; scripts/validate-package.py is CI-only; no hooks, no network calls, no API key."
+    }
+  ],
+  "deliberately_skipped": [
+    {
+      "id": "commit-commands",
+      "why": "duplication: Claude Code commits out of the box, in GSD there is ship/pr-branch, and autopilot forbids automatic push"
+    },
+    {
+      "id": "context-mode",
+      "why": "duplication: rtk + Claude Code auto-memory + the bajzi handoff hook already do this, and its SQLite session capture is a second, competing runtime/HANDOFF.md. Cost: six always-on hook types (a node process per event), a SessionStart routing block (~1.5k tok) that argues with our own rtk/subagent rules, plus 11 MCP tool schemas. Recheck: STALLED — last human commit and last release both 2026-06-29 (v1.0.169), the ~100 commits since are all `ci: update install stats` bot commits; 126 issues + 119 PRs open. License is Elastic-2.0 (source-available, not OSI). Also runs `npm install better-sqlite3` from a hook on first use."
+    },
+    {
+      "id": "headroom (headroomlabs-ai/headroom)",
+      "why": "REJECTED. Real project (72k stars, Apache-2.0, active), but integration means pointing ANTHROPIC_BASE_URL at a local proxy that relays EVERY Anthropic request through third-party code, rewrites ~/.claude.json (registers Serena MCP at user scope) and ~/.claude/settings.json. Their own code admits the proxy breaks tool-search, the /model picker and 1M context — we run Opus 5 with 1M. Telemetry beacon is ON by default (BEACON_DEFAULT_ON=True -> Cloudflare Worker); opt out with HEADROOM_BEACON=off / DO_NOT_TRACK=1. Its token win overlaps rtk + token-savior at a safer layer."
+    },
+    {
+      "id": "graphify (Graphify-Labs/graphify)",
+      "why": "NOT in the package; per-project trial only. pip CLI that builds a tree-sitter code graph (query/path/explain instead of grep) — genuinely useful, but it appends an always-on block to the GLOBAL ~/.claude/CLAUDE.md, writes ~/.claude/skills/, and registers PreToolUse hooks on Read|Glob|Bash|Grep that inject imperative 'MANDATORY: you MUST run graphify query first' prose competing with our own rules. Overlaps code-review-graph (blast radius) and symbol navigation. IF trialed: install with --project, never --strict, never global. Non-code inputs (PDF/images) go through an LLM, i.e. they leave the machine unless --code-only / --backend ollama."
+    },
+    {
+      "id": "obsidian-skills plugin (kepano/obsidian-skills)",
+      "why": "the CLI is taken (see 'defuddle'), the PLUGIN is not. 48k stars, MIT, effectively first-party (kepano = Obsidian CEO), zero hooks, zero MCP — but 3 of 6 skills are Obsidian-only and obsidian-cli executes arbitrary JS in a running vault. Install the whole thing only if actually working in an Obsidian vault."
+    },
+    {
+      "id": "LMCache (LMCache/LMCache)",
+      "why": "wrong layer. KV-cache manager for self-hosted vLLM inference (attention tensors across GPU/DRAM/SSD/Redis). Needs your own weights + GPU; there is no seam between Claude Code and api.anthropic.com. Does not reduce what we send or get billed for — the hosted-API equivalent is Anthropic prompt caching, which Claude Code already does."
+    },
+    {
+      "id": "Agent Reach (Panniantong/Agent-Reach)",
+      "why": "content acquisition for 15 platforms; no overlap with our stack and no telemetry to the author, but: install = paste a URL and let the agent run pip/npm from a remote markdown file; it reads the Chrome cookie DB and stores social session cookies (full account access, ban risk); EVERY page read is proxied through r.jina.ai and every search through mcp.exa.ai; and its always-on skill description is an aggressive 'MUST USE for any research' trigger. Standalone tool at most, never in the package."
+    },
+    {
+      "id": "oh-my-claudecode (Yeachan-Heo/oh-my-claudecode)",
+      "why": "a competing OPERATING SYSTEM, not a component. ~5.5-6.5k tokens always-on (40-skill index + a 6,001-byte block written into ~/.claude/CLAUDE.md, install style 'overwrite') + up to ~1k per prompt, 20 hook scripts on the tool path, fetch to registry.npmjs.org every session start, reads ~/.bash_history, patches settings.json statusLine. Ships its own context-guard-stop.mjs (a second context guard), its own .omc/ handoffs (a second HANDOFF) and a colliding /autopilot. With superpowers+claude-mem+GSD that makes 4 planners, 3 memory systems, 2 context guards. Try only per-project via /omc-setup local mode, never global."
+    },
+    {
+      "id": "claude-mem",
+      "why": "removed. Windows worker never reachable (see known_pitfalls); cross-session memory is covered by Claude Code auto-memory (MEMORY.md), runtime/HANDOFF.md via the bajzi SessionStart hook. Re-evaluate only on Linux/macOS machines."
+    }
+  ],
+  "gsd": {
+    "default_install": false,
+    "why_removed_from_default": "GSD is not installed by default. The package uses superpowers as the methodology everywhere; GSD's global install (46 skills, 29 agents, 17 hooks running on nearly every tool call) is a large always-on cost for near-zero everyday use outside one repo.",
+    "install": "npx @opengsd/gsd-core@latest",
+    "runtime": "Claude Code",
+    "scope": "global install, TRIMMED surface",
+    "profile": "full as baseProfile in .gsd-surface.json, 6 clusters disabled; the .gsd-profile marker says core but the surface file overrides it",
+    "interactive": true,
+    "note": "NEVER copy gsd-* files by hand, and do not clean up by hand — the installer writes its own hooks into settings.json with absolute paths.",
+    "version_checked": "1.14.0",
+    "update": "npx @opengsd/gsd-core@latest -g --claude",
+    "after_every_update": [
+      "Verify .gsd-surface.json still has ALL FOUR keys (baseProfile, disabledClusters, explicitAdds, explicitRemoves) — a missing key is silently ignored and restores all 72 skills.",
+      "Move aside any skill dir that duplicates a slash command (1.14 installs 46 over 46; ~+1,110 tokens for nothing). Verified safe: 42/46 commands load their workflow from gsd-core/workflows, not from the skill dir.",
+      "Agents: move ONLY the ui cluster's three (gsd-ui-auditor, gsd-ui-checker, gsd-ui-researcher). The other 26 are dispatched by kept commands — KEEP them.",
+      "Restore our permissions.deny (Read(.env), Read(.env.local), Read(.env.*.local), Read(.env.production*), Read(.env.development*), Read(.env.test*), Read(.env.staging*), Read(.secrets)) — GSD 1.14 removes that block in favour of its own secret-read-guard hook. The env denies are explicit names, not .env.*: .env.* also blocks the tracked .env.example, and .env.[!e]* was measured inverted on Claude Code 2.1.288 (it denied .env.example and allowed .env.local). The ceiling is that any other env name (.env.e2e) is not denied. bajzi's secret-guard hook keeps its own exact allow-list.",
+      "Re-measure. Expected: 9 skills (~248) + 46 commands (~1,264) + 26 agents (~1,507) = ~3,019 always-on tokens."
+    ],
+    "agent_layer": "1.14 stages 29 agents (~1,648 tok always-on); 1.12 staged ZERO, which meant every agent-dispatching GSD command was spawning a non-existent agent. Keeping 26 is deliberate: cutting them saves ~910 tok and breaks code-review, debug, ship, secure-phase, eval-review, ai-integration-phase, validate-phase, audit-milestone, profile-user.",
+    "status": "retired: superpowers + bajzi everywhere; the status line, context monitor, secret-read guard and read-injection scanner are ported into bajzi (hooks/node/). Setup never installs GSD."
+  },
+  "rtk": {
+    "required": false,
+    "check": "rtk gain",
+    "linux_mac": "cargo install, or from the rtk-ai/rtk release under ~/.local/bin",
+    "windows": "https://github.com/rtk-ai/rtk/releases/latest/download/rtk-x86_64-pc-windows-msvc.zip -> %USERPROFILE%\\.local\\bin, then PATH",
+    "hook": {
+      "PreToolUse": [
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "rtk hook claude"
+            }
+          ]
+        }
+      ]
+    },
+    "note": "Only add the hook if `rtk gain` WORKS. Name collision: reachingforthejack/rtk is a DIFFERENT tool.",
+    "exclude_commands": [
+      "ssh",
+      "scp",
+      "curl",
+      "keyring",
+      "deploy",
+      "release",
+      "publish",
+      "migrate"
+    ],
+    "config": {
+      "linux_mac": "~/.config/rtk/config.toml",
+      "windows": "%APPDATA%\\rtk\\config.toml",
+      "section": "[hooks] exclude_commands = [...] (merge: keep existing entries, add the missing ones)"
+    }
+  },
+  "defuddle": {
+    "required": false,
+    "check": "defuddle --version",
+    "install": "npm i -g defuddle",
+    "why": "Article/doc pages as clean markdown instead of WebFetch. Measured on stephango.com/file-over-app: 15,839 -> 2,238 chars (-86%).",
+    "usage": "defuddle parse <url> --md",
+    "rule_lives_in": "no shipped rule text; add your own rule to the global ~/.claude/CLAUDE.md if you want it to survive /clear",
+    "note": "From kepano/obsidian-skills (MIT) we take ONLY this binary. The 6-skill plugin is NOT installed: 3 of its skills are Obsidian-specific and obsidian-cli can run arbitrary JS in the vault. The defuddle skill there is just a 1.1 KB wrapper around this CLI."
+  },
+  "gate_tools": {
+    "_comment": "Machine-level tools the bajzi pre-commit gate (bajzi/gate/pre-commit.js, installed per repo by /bajzi:project-setup) runs. Not required for the machine: a repo whose stack needs one and lacks it is BLOCKED by its gate with the same install line (bajzi/gate/pre-commit.js HINTS; pre-commit.test.js asserts they agree). eslint and tsc come with each package.json (npm devDependencies), so they are not listed here.",
+    "gitleaks": {
+      "required": false,
+      "check": "gitleaks version",
+      "windows": "winget install --id Gitleaks.Gitleaks -e",
+      "linux_mac": "brew install gitleaks (or the release binary from github.com/gitleaks/gitleaks/releases)",
+      "why": "gate: secrets in the staged diff block the commit"
+    },
+    "ruff": {
+      "required": false,
+      "check": "ruff --version",
+      "install": "pip install ruff (in the repo .venv)",
+      "why": "gate: lint errors in staged .py files block the commit"
+    },
+    "pyright": {
+      "required": false,
+      "check": "pyright --version",
+      "install": "npm install -g pyright",
+      "why": "gate: project-wide type-error count may not rise above .gate-baseline.json"
+    }
+  },
+  "settings_merge": {
+    "effortLevel": "xhigh",
+    "advisorModel": "opus",
+    "modelSettings": {
+      "claude-opus-5-5": {
+        "effortLevel": "xhigh"
+      }
+    },
+    "tui": "fullscreen",
+    "theme": "dark",
+    "agentPushNotifEnabled": true,
+    "remoteControlAtStartup": true,
+    "disableClaudeAiConnectors": true,
+    "permissions": {
+      "defaultMode": "auto",
+      "deny": [
+        "Read(.env)",
+        "Read(.env.local)",
+        "Read(.env.*.local)",
+        "Read(.env.production*)",
+        "Read(.env.development*)",
+        "Read(.env.test*)",
+        "Read(.env.staging*)",
+        "Read(.secrets)"
+      ]
+    },
+    "env": {
+      "PONYTAIL_DEFAULT_MODE": "lite"
+    }
+  },
+  "global_rules": "From the installed marketplace: ~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md -> append to ~/.claude/CLAUDE.md (without duplication).",
+  "deletion_blocklist": [
+    "~/.claude/.credentials.json",
+    "~/.claude.json",
+    "~/.claude/projects/",
+    "~/.claude/history.jsonl",
+    "~/.claude/file-history/",
+    "~/.claude/shell-snapshots/",
+    "~/.claude/todos/",
+    "~/.claude/sessions/"
+  ],
+  "known_leftovers": [
+    {
+      "pattern": "~/.claude/context-mode/",
+      "action": "deletable if the context-mode plugin is not installed"
+    },
+    {
+      "pattern": "~/.claude/token-dashboard.db",
+      "action": "belongs to context-mode, NOT to rtk (rtk uses ~/.local/share/rtk/history.db)"
+    },
+    {
+      "pattern": "~/.claude/hooks/context-mode-cache-heal.mjs",
+      "action": "deletable together with the corresponding settings.json hook entry"
+    }
+  ],
+  "known_pitfalls": [
+    {
+      "when": "Windows, BEFORE installing the plugin",
+      "symptom": "The SessionStart hooks silently do not run: no HANDOFF reload and no methodology warning.",
+      "cause": "Since Claude Code 2.1.139, on Windows it uses the native PowerShell tool; without Git for Windows there is no `bash` on the machine.",
+      "action": "Install Git for Windows, then: git config --global core.autocrlf input"
+    },
+    {
+      "when": "Windows, the first prompt after installing/updating claude-mem",
+      "symptom": "'UserPromptSubmit hook timed out after 60s', slow session startup, then later 'UserPromptSubmit operation blocked by hook: claude-mem worker unreachable for 6 consecutive hooks' — the latter STOPS the work, no prompt can be submitted.",
+      "cause": "TWO different failures, do not mix them up. (1) ON FIRST RUN: claude-mem's bun-runner.js downloads and installs the Bun runtime (https://bun.sh); from a cold start this exceeds the hook's 60 s limit — that is the 'timed out after 60s'. (2) PERSISTENTLY, on Windows: the worker communicates over a Unix socket (.sock), which does not work on Windows — that is the 'worker unreachable'. Installing Bun does NOT solve (2): with Bun present (~/.bun/bin/bun) the worker still stays unreachable.",
+      "action": "On Windows do not chase Bun: disable the plugin and move on — in PowerShell, NOT inside Claude Code: `claude plugin disable claude-mem`. The hook does not affect the CLI. On Linux, installing Bun helps if you only see the (1) timeout: irm bun.sh/install.ps1 | iex (check: `where bun`). Do NOT rewrite the hook timeout in the plugin cache: the next update overwrites it.",
+      "note": "On Windows the worker stays unreachable even with the latest claude-mem and Bun ALREADY PRESENT, which rules out a missing runtime as the cause. On Linux it works. On Windows disabling is the final answer, not a workaround. IMPORTANT: `claude plugin disable` only affects a NEW session — an already running session keeps running its own, previously loaded MCP server (node -e bootstrap + scripts/mcp-server.cjs from the plugin's .mcp.json). So after disabling, close the running sessions, otherwise you will think the disable did not work. This is a common source of confusion."
+    },
+    {
+      "when": "claude.ai / Cowork shows an old bajzi or the claude-alapcsomag marketplace says 'Sync failed'",
+      "symptom": "Claude Code has the new version, claude.ai and Cowork keep the old one; a manual marketplace update there fails.",
+      "cause": "claude.ai-hosted marketplace sync rejects plugins that ship bin/ executables; bajzi ships bin/ (cc-router + launchers).",
+      "action": "In claude.ai install bajzi-cowork (skills-only build of bajzi, made by tools/build-cowork.js) and uninstall the old bajzi there. If Claude Code then also lists bajzi-cowork@synced next to bajzi@bajzi-plugins, disable the synced one in a plain shell: `claude plugin disable bajzi-cowork@synced` (duplicate handoff/autopilot/modszertan skills otherwise compete for the same triggers).",
+      "note": "The 'Sync failed' badge is the only signal; the server gives no error text, so check whether the plugin ships bin/."
+    },
+    {
+      "when": "After you added a new skill to the bajzi plugin",
+      "symptom": "'Unknown command' on the other machine, even though the marketplace was updated.",
+      "cause": "`claude plugin update` looks at the version number. If the version in plugin.json and marketplace.json does not move, the update is a no-op.",
+      "action": "ALWAYS bump the version in BOTH manifests (bajzi/.claude-plugin/plugin.json and .claude-plugin/marketplace.json), otherwise the change does not reach the other machines. The update takes effect at the next session start."
+    },
+    {
+      "when": "On a machine working with GSD",
+      "symptom": "The ~4,270 token always-on cost is there even if you never use GSD in that repo.",
+      "cause": "GSD's skills are machine-wide; .claude/METHODOLOGY controls WHAT THE MODEL USES, not WHAT GETS LOADED.",
+      "action": "Cluster disabling: /gsd-surface disable <cluster>. Switching the base profile gives little (the full tier only adds 10 skills). Restore: /gsd-surface reset."
+    },
+    {
+      "when": "On any machine where rtk's PreToolUse hook is active (automatic rewriting of Bash commands)",
+      "symptom": "When comparing two files, `diff A B` prints 'Files are identical' even though the files differ byte for byte; and `grep -h pattern f1 f2` over several files prints rtk grep's help text instead of the search result.",
+      "cause": "The hook silently rewrites the Bash command into rtk's own compressing command (grep -> rtk grep, etc.), and the wrapper's output is not equivalent to the original: for diff it is not merely shorter, it states the OPPOSITE. This is a silent failure — nothing warns you that the command was rewritten.",
+      "action": "Whenever a DECISION depends on the output (are two files identical, is there a match, what exactly changed), bypass the wrapper: `rtk proxy <command>` runs it raw, or use a command whose output cannot be mis-compressed (md5sum, `cmp -s`). Keep rtk for large, orientational output: build, test, lint, logs.",
+      "note": "`diff -rq` still reported the difference correctly, but `diff` on the file pair said 'identical' while the md5 sums differed; only `rtk proxy diff` showed the real change."
+    },
+    {
+      "when": "Several Claude Code sessions are open on the same project at the same time (a normal case)",
+      "symptom": "A session's handover vanishes, or after /clear a session resumes a task it was never working on. Nothing is logged and nothing warns you.",
+      "cause": "A single shared handover path per project (runtime/HANDOFF.md) would let whoever closed out last overwrite everyone else, and would load one file for every session regardless of task.",
+      "action": "Handovers live at runtime/handoff/<branch-slug>.md, one per task, and the hook loads only the file matching the current branch. If no handover matches your task but others exist, the hook LISTS them and loads nothing on purpose — ask for one by name if you want it. Two sessions on the same branch are guarded by the Owner-session header: /bajzi:handoff asks before overwriting a file another session wrote in the last 2 hours.",
+      "note": "the legacy runtime/HANDOFF.md path is still read, so nothing breaks on upgrade; the next /bajzi:handoff migrates it. Slug = branch name lowercased with everything outside [a-z0-9._-] turned into '-', truncated to 60 chars; anything git cannot answer (no repo, detached HEAD, dubious ownership) becomes 'default'."
+    },
+    {
+      "when": "Editing files in a checkout that has been sitting around for a while, especially one worktree among several for the same repo",
+      "symptom": "The work is finished and committed, and only then does it turn out the base file was long obsolete — e.g. a CLAUDE.md edited from an old copy while the live one on origin/dev has since been rewritten. A push is rejected non-fast-forward, or worse, succeeds and carries the stale content.",
+      "cause": "git status, git log and ahead/behind counts all read remote-tracking refs, which go stale SILENTLY. A clean working tree says nothing about whether the tree matches the remote. Without a fetch the checkout can be hundreds of commits behind and still look perfectly healthy.",
+      "action": "ALWAYS `git fetch` before judging git state or editing in a long-lived worktree. Then `git rev-list --left-right --count HEAD...origin/<branch>` (left = ahead, right = behind). If local commits look duplicated, `git cherry -v origin/<branch> HEAD` tells you whether dropping them loses anything: '-' = already upstream, '+' = unique to you.",
+      "note": "A stale checkout can silently duplicate or overwrite work already rewritten upstream; a non-fast-forward push rejection is often the only symptom."
+    },
+    {
+      "when": "Releasing a new version of this plugin",
+      "symptom": "The version is bumped and pushed, but on another machine `claude plugin update bajzi@bajzi-plugins` reports 'already up to date' and installs nothing — or the marketplace advertises a version that does not match what is actually shipped.",
+      "cause": "There are TWO manifests and they are easy to desynchronize: bajzi/.claude-plugin/plugin.json (the plugin's own version) and .claude-plugin/marketplace.json (the version the marketplace advertises). Bumping only the first leaves the marketplace entry at the old version.",
+      "action": "Bump BOTH in the same commit, then verify from the remote before telling anyone to update: `git show origin/main:.claude-plugin/marketplace.json`. Note that a stale marketplace entry does not necessarily block the update — updates can install correctly while marketplace.json still shows an older version, because the version resolved from the plugin's own manifest via the './bajzi' source. Fix it regardless: the advertised version being wrong is a defect on its own.",
+      "note": "Check the remote marketplace.json after every release, before telling anyone to update."
+    },
+    {
+      "when": "Git Bash on Windows, reading a file straight out of git",
+      "symptom": "`git show \"origin/main:.claude-plugin/marketplace.json\"` fails with 'ambiguous argument', and it looks like the file is missing. Paths with more slashes (e.g. bajzi/.claude-plugin/plugin.json) work fine, so the failure looks selective and file-specific.",
+      "cause": "MSYS path conversion rewrites the argument into 'origin\\\\main;.claude-plugin\\\\marketplace.json' before git ever sees it. Quoting does not help — the mangling happens in the MSYS layer, not the shell.",
+      "action": "Prefix the command with MSYS_NO_PATHCONV=1, e.g. `MSYS_NO_PATHCONV=1 git show origin/main:path/to/file`.",
+      "note": "Only affects Git Bash on Windows; Linux is unaffected."
+    },
+    {
+      "id": "gsd-update-resets-our-settings",
+      "symptom": "After a GSD update the always-on token count jumps and .env reads are no longer denied.",
+      "cause": "1.14 installs a skill dir for every command (45 duplicate names) and deletes the permissions.deny block that 1.12 wrote, replacing it with gsd-secret-read-guard.js.",
+      "fix": "Follow gsd.after_every_update. Measured: raw 1.14 install = 46 skills + 46 commands + 29 agents; trimmed to 9 + 46 + 26 = ~3,019 always-on tokens.",
+      "also": "Help text's --profile=core,audit is a trap: valid names are only core/standard/full, unknown tokens are dropped silently and --profile=audit alone falls back to FULL.",
+      "agents": "Do NOT cut the agent layer to chase the old ~1,463 number — that number came from 1.12 staging no agents at all, i.e. broken dispatches."
+    },
+    {
+      "id": "gsd-stale-hooks-RESOLVED",
+      "status": "RESOLVED in GSD 1.14.0 — kept for history",
+      "symptom": "Statusline stuck on '⚠ stale hooks — run /gsd-update', and running /gsd-update never cleared it.",
+      "cause": "gsd-check-update-worker.js marks any MANAGED_HOOKS file without a 'gsd-hook-version:' comment as stale; 1.12's gsd-node-runner.sh had none.",
+      "fix": "Update to 1.14.0 — it ships the comment (verified: '# gsd-hook-version: 1.14.0'). The old hand-patch procedure is obsolete."
+    }
+  ],
+  "noise_filter": {
+    "what": "PreToolUse(Bash) hook in this plugin: hooks/noise-filter.sh + hooks/noise-run.sh. Keeps loud, low-information command output out of the context window.",
+    "mechanism": "PostToolUse CANNOT shrink a tool result — it only ADDS text (additionalContext). Verified against the Claude Code 2.1.272 binary: 'updatedInput' 103 hits, 'updatedOutput' 0. So the rewrite must happen in PreToolUse via hookSpecificOutput.updatedInput.",
+    "exit_code": "The runner never pipes the command into tail — a pipeline returns tail's status and a FAILED BUILD WOULD LOOK SUCCESSFUL. It captures to a log, then prints head + error lines + final summary, and exits with the original rc.",
+    "scope": "Allowlist only: package installs and builds (npm/yarn/pnpm/bun, pip/uv, cargo/go, docker, apt, make/gradle/mvn, terraform init|plan). Anything under BAJZI_NOISE_KEEP (40) lines passes through whole. Output on failure is kept MORE, never less.",
+    "rtk_boundary": "Complementary, not competing: pytest/ruff/git/ls/find/grep/`err npm run build` stay rtk's; commands already starting with `rtk` are skipped, so the two PreToolUse hooks never rewrite the same call.",
+    "measured": "npm install --loglevel verbose: 28,295 -> 2,967 chars (-89.5%), rc preserved (0 on success, 1 on a failing pip install). NOTE: Claude Code runs Bash without a TTY, so many tools already suppress their progress bars — the real win is on verbose installs, builds and test runners, not on a plain `npm install`.",
+    "off": "BAJZI_NOISE_OFF=1"
+  },
+  "secret_patterns": [
+    "*.pem",
+    "*.key",
+    "id_rsa*",
+    "id_ed25519*",
+    "credentials.json"
+  ],
+  "bajzi_config": {
+    "path": "~/.claude/bajzi/config.json",
+    "reviewer_models": [
+      "claude-opus-5-5"
+    ],
+    "note": "The reviewer allow-list (spec Invariant 3), the ONLY place a reviewer model id is pinned. ORDERED: entry [0] is the launch default (drain, night-run orchestrator, day-run restart). Only claude- ids; any other entry voids the whole list. /bajzi:setup writes {\"reviewer_models\": [...]} to path when it is missing or invalid; a valid file that differs is drift (the owner's local swap), overwritten only on the owner's word."
+  },
+  "statusline": {
+    "install": "node \"${CLAUDE_PLUGIN_ROOT}/skills/setup/install-statusline.js\"",
+    "target": "~/.claude/bajzi/statusline.js",
+    "settings": "statusLine = {type: command, command: node \"<abs target, forward slashes>\"}; never the versioned plugin cache path",
+    "refresh": "re-run on every /bajzi:setup"
+  },
+  "user_mcps": {
+    "code-review-graph": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "code-review-graph",
+        "serve"
+      ]
+    },
+    "token-savior": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "token-savior-recall[memory-vector]",
+        "--with",
+        "mcp",
+        "token-savior"
+      ],
+      "env": {
+        "TOKEN_SAVIOR_CLIENT": "claude-code",
+        "TOKEN_SAVIOR_PROFILE": "optimized"
+      }
+    }
+  },
+  "forbidden_leftovers": {
+    "why": "GSD is retired and claude-mem removed; these must not remain on any machine. setup MOVES them to a backup after the user confirms, never deletes.",
+    "paths": [
+      "~/.claude/gsd-core",
+      "~/.claude/hooks/gsd-*",
+      "~/.claude/hooks/lib",
+      "~/.claude/skills/gsd-*",
+      "~/.claude/agents/gsd-*",
+      "~/.claude/commands/gsd",
+      "~/.claude/commands/gsd-*",
+      "~/.claude/gsd-file-manifest.json",
+      "~/.claude/gsd-install-state.json",
+      "~/.claude/.gsd-source",
+      "~/.claude/.gsd-surface.json",
+      "~/.claude-mem"
+    ],
+    "settings_substrings": [
+      "gsd-",
+      ".planning/",
+      "claude-mem"
+    ],
+    "deny_rules": [
+      { "rule": "Read(.env.*)", "why": "too broad: it also blocks the tracked .env.example. settings_merge now denies the explicit env names (.env.local, .env.*.local, .env.production*, .env.development*, .env.test*, .env.staging*); remove this rule from ~/.claude/settings.json permissions.deny" },
+      { "rule": "Edit(.env.*)", "why": "too broad: it also blocks the tracked .env.example. settings_merge now denies the explicit env names (.env.local, .env.*.local, .env.production*, .env.development*, .env.test*, .env.staging*); remove this rule from ~/.claude/settings.json permissions.deny" }
+    ]
+  }
+}
