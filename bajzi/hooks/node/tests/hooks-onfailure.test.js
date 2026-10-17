@@ -10,7 +10,7 @@ const { NODE_DIR, runScript } = require('./helpers');
 
 const HOOKS = require(path.join(NODE_DIR, '..', 'hooks.json')).hooks;
 const PRE = path.join(NODE_DIR, 'pre-tool.js');
-const BLOCKING = ['PreToolUse:.*:node/pre-tool.js', 'PreToolUse:Agent|Task:dispatch-guard.sh'];
+const BLOCKING = ['PreToolUse:.*:node/pre-tool.js'];
 
 const entries = [];
 for (const [event, groups] of Object.entries(HOOKS)) {
@@ -21,7 +21,7 @@ for (const [event, groups] of Object.entries(HOOKS)) {
   }
 }
 
-test('the two security-guard entries fail closed: onFailure block, timeout 10', () => {
+test('the pre-tool.js security-guard entry fails closed: onFailure block, timeout 10', () => {
   for (const key of BLOCKING) {
     const e = entries.filter(x => x.key === key);
     assert.strictEqual(e.length, 1, `${key} wired once`);
@@ -31,6 +31,9 @@ test('the two security-guard entries fail closed: onFailure block, timeout 10', 
 });
 
 test('no other hooks.json entry has onFailure (a crash there never blocks work)', () => {
+  const dg = entries.filter(x => x.key === 'PreToolUse:Agent|Task:dispatch-guard.sh');
+  assert.strictEqual(dg.length, 1);
+  assert.strictEqual(dg[0].h.timeout, 5);
   const others = entries.filter(x => !BLOCKING.includes(x.key));
   assert.ok(others.length > 0);
   for (const { key, h } of others) assert.ok(!('onFailure' in h), `${key} has onFailure`);
