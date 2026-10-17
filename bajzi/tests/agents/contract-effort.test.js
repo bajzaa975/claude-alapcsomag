@@ -48,3 +48,16 @@ test('pacing sentence in work briefs, not in review briefs', () => {
     }
   }
 });
+
+test('implement and fix briefs end with the pacing sentence; dispatch.md implement row names it', () => {
+  for (const t of ['dispatch-implement.md', 'dispatch-fix.md']) {
+    assert.ok(read('skills', 'mode', 'templates', t).trimEnd().endsWith(PACING), t);
+  }
+  const row = read('skills', 'lib', 'dispatch.md').split('\n').find(l => l.startsWith('| implement |'));
+  assert.match(row, /pacing sentence/);
+});
+
+test('review brief sources do not carry the pacing sentence', () => {
+  assert.ok(!read('skills', 'mode', 'templates', 'dispatch-review.md').includes(PACING));
+  assert.ok(!read('lib', 'findings-cli.js').includes(PACING)); // the FC brief generator's template text
+});

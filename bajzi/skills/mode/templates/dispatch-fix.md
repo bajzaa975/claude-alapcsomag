@@ -28,3 +28,4 @@ the orchestrator decides, not you.
 Return, at most 10 lines: what changed, file by file.
 
 Never paste file contents, raw test output or diffs into your report.
+Time matters here: do not spend time that can be avoided, and the earlier a correct result is obtained, the better.

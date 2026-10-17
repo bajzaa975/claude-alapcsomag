@@ -22,7 +22,7 @@ const ALLOWED_TOOLS = [
 ];
 const REQUIRED_HEADINGS = ['# Input', '# Output', '# Rules', '# Never'];
 const MAX_BODY_LINES = 60;
-// The frontmatter keys the shipped agents use, all mandatory; any other key is refused.
+// The mandatory frontmatter keys; optional keys are listed below, any other key is refused.
 const ALLOWED_KEYS = ['name', 'description', 'model', 'tools'];
 const OPTIONAL_KEYS = ['effort']; // optional, values low|medium|high|xhigh|max
 const ALLOWED_EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -104,6 +104,7 @@ for (const [name, reWhy] of [
   ['bad-tool-agent.md', /may not include Agent or Task/],
   ['bad-missing-heading.md', /missing required heading: # Never/],
   ['bad-body-too-long.md', /body is \d+ lines, max 60/],
+  ['bad-effort.md', /effort is not low\|medium\|high\|xhigh\|max: ludicrous/],
 ]) {
   test(`fixture: ${name} is rejected (${reWhy})`, () => {
     const r = validateAgent(fixture(name));

@@ -24,3 +24,4 @@ Return, at most 15 lines:
 - test counts (pass/fail)
 
 Never paste file contents, raw test output or diffs into your report.
+Time matters here: do not spend time that can be avoided, and the earlier a correct result is obtained, the better.

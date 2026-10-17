@@ -42,7 +42,7 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
 
 | class | agent | description | brief = | final message saved to |
 |---|---|---|---|---|
-| implement | the `agent:` from `FC slice <id>` | `implement <slice>` | the slice file, verbatim | — (read DONE/BLOCKED) |
+| implement | the `agent:` from `FC slice <id>` | `implement <slice>` | the slice file, verbatim, then the pacing sentence as the last line | — (read DONE/BLOCKED) |
 | review | reviewer | `review <slice> round 1` | `FC brief review <slice> 1 <base>..<tip>` | `runtime/findings/<slice>-r1.md` |
 | rereview | reviewer | `re-review <slice> round 2` | `FC brief review <slice> 2 <base>..<tip>` | `runtime/findings/<slice>-r2.md` |
 | fix | fixer | `fix round <slice>` | fixer brief below | `runtime/findings/<slice>-r1.report.md` |

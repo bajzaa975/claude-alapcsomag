@@ -3,18 +3,22 @@
   "updated": "2026-10-13",
   "marketplaces": [
     {
+      "name": "claude-plugins-official",
       "source": "anthropics/claude-plugins-official",
       "why": "official catalog"
     },
     {
+      "name": "bajzi-plugins",
       "source": "bajzaa975/claude-alapcsomag",
       "why": "own plugin (bajzi). The same marketplace also lists bajzi-cowork, the claude.ai / Cowork-only variant: setup never installs it in Claude Code"
     },
     {
+      "name": "ponytail",
       "source": "DietrichGebert/ponytail",
       "why": "source of ponytail"
     },
     {
+      "name": "humanizer",
       "source": "blader/humanizer",
       "why": "source of humanizer"
     }
