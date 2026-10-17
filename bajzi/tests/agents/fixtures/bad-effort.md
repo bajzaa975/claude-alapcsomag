@@ -1,6 +1,6 @@
 ---
-name: fixture-good
-description: Fixture used only by agents.test.js to prove the validator accepts a conforming file.
+name: fixture-bad-effort
+description: Fixture used only by agents.test.js to prove the validator rejects an unsupported effort value.
 model: sonnet
 tools: Read, Edit, Grep, Glob, Bash
 effort: ludicrous
