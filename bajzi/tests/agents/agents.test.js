@@ -24,6 +24,8 @@ const REQUIRED_HEADINGS = ['# Input', '# Output', '# Rules', '# Never'];
 const MAX_BODY_LINES = 60;
 // The frontmatter keys the shipped agents use, all mandatory; any other key is refused.
 const ALLOWED_KEYS = ['name', 'description', 'model', 'tools'];
+const OPTIONAL_KEYS = ['effort']; // optional, values low|medium|high|xhigh|max
+const ALLOWED_EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // Splits an agent .md into {fields, body}, or null when there is no frontmatter block.
 function parseAgent(content) {
@@ -46,7 +48,10 @@ function validateAgent(content, name) {
   if (!p) return { ok: false, why: 'no frontmatter block (--- ... ---)' };
   const { fields, body } = p;
   for (const key of Object.keys(fields)) {
-    if (!ALLOWED_KEYS.includes(key)) return { ok: false, why: `unknown frontmatter key: ${key}` };
+    if (!ALLOWED_KEYS.includes(key) && !OPTIONAL_KEYS.includes(key)) return { ok: false, why: `unknown frontmatter key: ${key}` };
+  }
+  if ('effort' in fields && !ALLOWED_EFFORT.includes(fields.effort)) {
+    return { ok: false, why: `effort is not low|medium|high|xhigh|max: ${fields.effort}` };
   }
   for (const key of ALLOWED_KEYS) {
     if (!fields[key]) return { ok: false, why: `missing frontmatter field: ${key}` };

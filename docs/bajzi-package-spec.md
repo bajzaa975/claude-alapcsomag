@@ -393,6 +393,8 @@ Claude Code writes it first, and bash's `${x#*pat}` is quadratic on a large `too
 > never down to sonnet); design/planning/brainstorming → the orchestrator's own model, main thread,
 > always. ESCALATION LADDER: sonnet r1 → fresh sonnet r2 → opus r3 → ORCH r4 → park.
 
+**Effort per class** (Claude Code 2.1.292+): locate/map, tests/lint/build, long-file read → low; implement, fix findings, documents → medium; risk-bearing slice, debugging → high; every review → high, the final whole-branch review → xhigh. The orchestrator passes the row's effort as the Agent tool's `effort` parameter on every Claude dispatch; GLM `glm -p` dispatches have no effort setting; the owner's own session effort is never changed. The agents carry the same default in their frontmatter `effort:` line (reviewer high, implementer medium, implementer-risk high, fixer medium). The briefs of the locate/map, tests, long-file-read and implement/fix classes end with the pacing sentence "Time matters here: do not spend time that can be avoided, and the earlier a correct result is obtained, the better." (`DAY-RUN-RULES.md`, `templates/dispatch-explore.md`, the fixer brief in `skills/lib/dispatch.md`); review and debugging briefs never carry it. Test: `bajzi/tests/agents/contract-effort.test.js`.
+
 L1 follows the table;
 L2 keeps debugging on opus, because sonnet at L2 is only the ladder r2 rung and the peak fallback,
 never a first-choice dispatch (`routing-counter.sh` sees the model, not the task class, so a
@@ -1901,7 +1903,7 @@ Where each piece comes from is in §5.1. Run every command from the shell named 
   `permissions.allow` entry containing a `forbidden_leftovers.settings_substrings` item (`SKILL.md`); (5) known leftover data directories; (6) move
   (never delete) each `leftover` path to `~/claude-backup-leftovers-<date>/`, only after the user
   confirms in chat (`SKILL.md`).
-- **PHASE D**: (1) prerequisites; (2) marketplaces; (3) install or **update** every
+- **PHASE D**: (1) prerequisites; (2) marketplaces (Claude Code 2.1.292+: a plugin whose marketplace is missing installs with one command, `claude plugin install <id> --marketplace <source>`; `marketplace add` is the fallback below 2.1.292); (3) install or **update** every
   manifest plugin, never re-enabling a deliberately disabled one; (4) never the optional `gsd` plugin; (5) global rules;
   (6) `settings_merge`; (7) rtk hook and its `exclude_commands`; (8) `~/.claude/bajzi-mode =
   day-run` only if absent; (9) `node "${CLAUDE_PLUGIN_ROOT}/skills/setup/install-statusline.js"`
@@ -2090,8 +2092,8 @@ Current versions (the `release.test.js` row reads the first line below):
 
 | Release unit | Current version | Where the version lives |
 |---|---|---|
-| bajzi plugin release | 1.18.0 | `bajzi/.claude-plugin/plugin.json` `version` and `.claude-plugin/marketplace.json` `plugins[0].version` (they must be equal) |
-| `bajzi-cowork` variant | 1.18.0 | generated: `node tools/build-cowork.js` restamps `bajzi-cowork/.claude-plugin/plugin.json` and its marketplace entry |
+| bajzi plugin release | 1.19.0 | `bajzi/.claude-plugin/plugin.json` `version` and `.claude-plugin/marketplace.json` `plugins[0].version` (they must be equal) |
+| `bajzi-cowork` variant | 1.19.0 | generated: `node tools/build-cowork.js` restamps `bajzi-cowork/.claude-plugin/plugin.json` and its marketplace entry |
 | `cache-timer`, `nightrun-pane` mods | 0.1.0 | each mod's own `.claude-plugin/plugin.json` and its marketplace entry |
 
 Steps for a bajzi release (details and the reinstall are in §8.3):

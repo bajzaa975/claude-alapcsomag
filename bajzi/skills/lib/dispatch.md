@@ -10,7 +10,7 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
    rereview, drain-review, calibrate) come from `FC brief` (below), never by hand: they pass the
    PATHS of the diff, the round-1 findings, the fixer report or `debt.md`, and the reviewer (it
    has Read) reads them in full. Implement and fixer briefs carry their content inline (Write
-   tool). Never tell an agent to "read the brief/plan/review".
+   tool). Both end with the pacing sentence (fixer brief below; for implement, append it after the slice file text). Never tell an agent to "read the brief/plan/review".
 2. **Dispatch** with the Agent tool: `subagent_type: bajzi:<agent>`, `prompt` = the brief file's
    text verbatim, `description` = the row's description below (the dispatch guard classifies on it).
 3. **Log**: run `FC log` after every dispatch EXCEPT a refusal whose reason starts
@@ -72,4 +72,5 @@ fixer copy: <the path `FC copy fixer` printed: runtime/findings/<slice>-r1.fixer
 files you may touch: <files: from the slice>
 test command: <test: from the slice; `skip` -> "none: this slice has no test, run none">
 <the .fixer.md file, verbatim>
+Time matters here: do not spend time that can be avoided, and the earlier a correct result is obtained, the better.
 ```

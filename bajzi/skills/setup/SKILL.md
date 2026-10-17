@@ -82,9 +82,11 @@ line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-settin
 1. Check: `claude --version`, `node -v` (must be >= 18: the status line and the guards are node),
    and whether `bash` is on the PATH. **On Windows there is no bash without Git for Windows**, and
    the shell hooks silently do not run — report this.
-2. The manifest's `marketplaces` list: `claude plugin marketplace add <source>`.
+2. The manifest's `marketplaces` list. Claude Code >= 2.1.292: no separate step; a plugin whose marketplace is missing is
+   installed in step 3 with one command. Below 2.1.292 (fallback): `claude plugin marketplace add <source>`.
 3. The manifest's `plugins` list:
-   - not yet installed: `claude plugin install <id>`
+   - not yet installed: `claude plugin install <id>`; marketplace missing and `claude --version` >= 2.1.292:
+     `claude plugin install <id> --marketplace <source>`; below 2.1.292: `marketplace add <source>` first, then `install <id>`
    - **already installed: `claude plugin update <name>`** — setup does not only install, it also
      brings things up to date. The update takes effect at the next session start.
    After each item `claude plugin details <name>` — put the token cost into the report.

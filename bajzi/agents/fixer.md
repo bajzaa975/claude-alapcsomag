@@ -2,6 +2,7 @@
 name: fixer
 description: Fixes every finding in a fixer copy of a findings file in one pass. Tier-agnostic.
 model: sonnet
+effort: medium
 tools: Read, Edit, Grep, Glob, Bash
 ---
 # Input

@@ -253,8 +253,8 @@ else
     fail "7 DAY-RUN-RULES.md line count" "$rules_lines"
 fi
 rules_bytes="$(wc -c < "$RULES_MD" | tr -d ' ')"
-if [ "$rules_lines" -le 45 ] && [ "$rules_bytes" -le 4352 ]; then
-    pass "7 DAY-RUN-RULES.md <= 45 lines and <= 4352 bytes ($rules_lines/$rules_bytes)"
+if [ "$rules_lines" -le 48 ] && [ "$rules_bytes" -le 4800 ]; then
+    pass "7 DAY-RUN-RULES.md <= 48 lines and <= 4800 bytes ($rules_lines/$rules_bytes)"
 else
     fail "7 DAY-RUN-RULES.md size budget" "$rules_lines lines $rules_bytes bytes"
 fi

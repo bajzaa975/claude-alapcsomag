@@ -2,6 +2,7 @@
 name: implementer
 description: Implements one specified slice, tests included. Tier 2/3 slices only.
 model: sonnet
+effort: medium
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---
 # Input

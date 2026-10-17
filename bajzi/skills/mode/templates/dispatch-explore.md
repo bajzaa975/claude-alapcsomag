@@ -18,3 +18,5 @@ Return ONLY:
 - no file contents, no surrounding code, no explanation
 
 Never paste file contents, raw test output or diffs into your report.
+
+Time matters here: do not spend time that can be avoided, and the earlier a correct result is obtained, the better.

@@ -2,6 +2,7 @@
 name: reviewer
 description: Reviews a commit range and returns a findings file as its final message. Read-only. Never fixes.
 model: opus
+effort: high
 tools: Read, Grep, Glob, mcp__code-review-graph__detect_changes_tool, mcp__code-review-graph__get_review_context_tool
 ---
 # Input
