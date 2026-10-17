@@ -6,7 +6,7 @@ Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](doc
 - Per-subagent effort (Claude Code 2.1.292+): `effort:` in the agent frontmatter (reviewer high, implementer medium, implementer-risk high, fixer medium). The day-run routing table names an effort per task class (final whole-branch review xhigh) and passes it as the Agent tool's `effort` parameter on Claude dispatches.
 - Pacing sentence added to the locate/map, tests, long-file-read, implement and fix briefs (never review or debugging briefs).
 - `/bajzi:setup` PHASE D installs a plugin with a missing marketplace in one command (`claude plugin install <id> --marketplace <source>`); `marketplace add` remains the fallback below Claude Code 2.1.292.
-- Hooks: the `pre-tool.js` guard hook (hosts the secret guard) fails closed (`onFailure: block`, timeout 10); the dispatch guard stays fail-open.
+- Hooks: the `pre-tool.js` guard hook (hosts the secret, writer, saver and context guards; Claude Code 2.1.295+) fails closed (`onFailure: block`, timeout 10); the dispatch guard stays fail-open.
 
 ## 1.18.0
 - License changed from MIT to PolyForm Noncommercial 1.0.0 (noncommercial use only).

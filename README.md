@@ -19,7 +19,9 @@ Marketplace name: `bajzi-plugins` (GitHub: `bajzaa975/claude-alapcsomag`). Full 
 
 ## Prerequisites
 
-- Claude Code CLI.
+- Claude Code CLI, 2.1.295 or newer recommended. Per-subagent effort and the one-command plugin
+  install in `/bajzi:setup` need 2.1.292+; the fail-closed guard hook needs 2.1.295+ (older
+  versions ignore it and the guards fail open).
 - Node.js 18 or newer (the hooks and the status line are Node scripts, no dependencies).
 - Git Bash on Windows (the shell hooks and launchers need a POSIX shell); any shell on Linux/macOS.
 - Optional: a Z.ai GLM API key, needed for saver levels L1 and above (see below).
@@ -39,6 +41,8 @@ Then, in a new Claude Code session:
 /bajzi:setup
 ```
 
+On Claude Code 2.1.292+ it installs a plugin whose marketplace is missing with
+`claude plugin install <id> --marketplace <source>`; older versions use `marketplace add` first.
 `/bajzi:setup` configures the machine from [`bajzi/skills/setup/manifest.json`](bajzi/skills/setup/manifest.json):
 marketplaces, plugins, `rtk`, settings, the status line, user-scope MCP servers, and the global
 rules in [`shared/CLAUDE.md`](shared/CLAUDE.md), which it appends to `~/.claude/CLAUDE.md` without
@@ -115,11 +119,17 @@ Check the install with `claude plugin list`.
   destructive scripts) to opus; every diff review to the reviewer models set in the manifest
   (`reviewer_models`). Design and planning stay on the session's own model. Escalation ladder:
   sonnet round 1, fresh sonnet round 2, opus round 3, the orchestrator round 4, then park.
+  Each class also carries a subagent effort (Claude Code 2.1.292+), passed as the Agent tool's
+  `effort` parameter: low for locating/mapping, tests/lint/build and long-file reads; medium for
+  implementation, fixes and documents; high for risk slices, debugging and every review; xhigh
+  for the final whole-branch review. Your own session's effort is never changed. Briefs for
+  the low and medium classes end with a pacing sentence ("Time matters here: ..."); review and
+  debugging briefs never do.
 - **Slice** — one unit of work described in `runtime/slices/<id>.md` (tier, files it may touch,
   acceptance criteria, test command); format in [`docs/slice-format.md`](docs/slice-format.md).
-- **Agents** — `implementer` (sonnet, tier 2/3 slices), `implementer-risk` (opus, tier 1 slices),
-  `reviewer` (opus, read-only, returns a findings file), `fixer` (sonnet, fixes every finding,
-  never sees severity). Findings file format: [`docs/findings-format.md`](docs/findings-format.md).
+- **Agents** — `implementer` (sonnet, medium effort, tier 2/3 slices), `implementer-risk` (opus,
+  high, tier 1 slices), `reviewer` (opus, high, read-only, returns a findings file), `fixer`
+  (sonnet, medium, fixes every finding, never sees severity). Findings file format: [`docs/findings-format.md`](docs/findings-format.md).
 - **Review loop** — `/bajzi:implement <id>`, then `/bajzi:review <slice> <range>`, then
   `/bajzi:fix <findings-file>`. Routing and the two-round cap are decided by code on files, not by
   the model. After round 2, open findings go to the owner (`needs-owner.md`) or are parked as debt
@@ -157,7 +167,10 @@ Check the install with `claude plugin list`.
   copies are denied to every session. Bash/PowerShell writes are not blocked.
 - Hooks fail open: an internal error allows the call and logs it. Two exceptions fail closed: the
   pre-commit gate and `day-run-mode.sh` when a non-Anthropic session
-  lacks the L3 text.
+  lacks the L3 text. Separately, on Claude Code 2.1.295+ the `pre-tool.js` guard hook (secret,
+  writer, saver and context guards) is wired with `onFailure: block`: if it cannot start, times
+  out or exits with a code other than 0 or 2, the tool call is blocked. The dispatch guard stays
+  fail-open.
 
 ### Night-run
 

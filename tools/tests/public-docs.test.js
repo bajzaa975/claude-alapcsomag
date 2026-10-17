@@ -181,3 +181,16 @@ test('changelogNamesLicense: an older entry naming the license passes, no entry 
   assert.ok(changelogNamesLicense(cl, '# MIT License'));
   assert.ok(!changelogNamesLicense('# Changelog\n\n## 2.0.0\n- fix\n', '# MIT License'));
 });
+
+test('READMEs describe the 1.19.0 effort, fail-closed pre-tool and setup install changes', () => {
+  const r = read('README.md').replace(/\s+/g, ' ');
+  const b = read('bajzi/README.md').replace(/\s+/g, ' ');
+  for (const s of [r, b]) {
+    assert.match(s, /xhigh/);
+    assert.match(s, /pacing sentence/);
+    assert.match(s, /onFailure: block/);
+    assert.match(s, /2\.1\.295/);
+  }
+  assert.match(r, /claude plugin install <id> --marketplace <source>/);
+  assert.match(r, /2\.1\.292/);
+});

@@ -37,7 +37,8 @@ A token-efficient working method for Claude Code and Cowork.
   Complementary to rtk — pytest/ruff/git/ls/find/grep stay rtk's, `rtk …` calls are skipped.
 
 **PreToolUse(Agent|Task)**
-- `dispatch-guard.sh` — refuses review or fix work sent to the wrong agent and oversized briefs
+- `dispatch-guard.sh` — refuses review or fix work sent to the wrong agent and oversized briefs;
+  fail-open (a discipline guard)
 
 **PostToolUse(Agent|Task)**
 - `routing-counter.sh` — counts sub-agent dispatches that bypass the saver level's GLM rung
@@ -51,7 +52,7 @@ A token-efficient working method for Claude Code and Cowork.
   before or inside the Z.ai peak window (14:00-18:00 UTC+8). It writes
   `<tmpdir>/bajzi-ctx-<session>.json`, which the context guard reads.
 - **Combined tool hooks** — hooks.json wires ONE node process per tool event:
-  `hooks/node/pre-tool.js` (PreToolUse, every tool) runs the context guard, the secret guard, the writer guard and the saver guard;
+  `hooks/node/pre-tool.js` (PreToolUse, every tool) runs the context guard, the secret guard, the writer guard and the saver guard. It is the one hook wired fail-closed (`onFailure: block`, timeout 10, Claude Code 2.1.295+): if the process cannot start, times out or exits other than 0/2, the tool call is blocked;
   `hooks/node/post-tool.js` (PostToolUse, every tool) runs the context guard and the injection
   scanner. Each check runs only on the tools listed below and fails open on its own; denies
   (pre) or warnings (post) are joined into one output, context guard first.
@@ -89,11 +90,20 @@ A token-efficient working method for Claude Code and Cowork.
   `<id>.artifacts.jsonl`; the status line writes `<id>.line.json`. No output ever; fails open.
   Creating `~/.claude/bajzi/hook-samples.on` switches on `hook-samples.jsonl` next to it:
   redacted shape samples of every hook input (content strings become `<str N>`).
-- Every node hook fails open: an internal error = allow, logged to `~/.claude/bajzi/hook-errors.log`
+- Every node hook fails open on an internal error (it exits 0): an internal error = allow, logged to `~/.claude/bajzi/hook-errors.log`
   (256 KB cap).
 - Tests (Git Bash on Windows, any shell on Linux), from the repo root:
   `node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js bajzi/tests/agents/*.test.js bajzi/lib/tests/*.test.js` and
   `bash bajzi/hooks/tests/saver-level-parity.sh`.
+
+## Subagent effort
+
+Each agent sets `effort:` in its frontmatter (reviewer high, implementer medium,
+implementer-risk high, fixer medium; Claude Code 2.1.292+). Day-run passes the routing row's
+effort on every Claude dispatch: low for locate/map, tests and long-file reads, medium for
+implement, fix and documents, high for risk slices, debugging and reviews, xhigh for the final
+whole-branch review. Your own session effort is never changed. Non-review briefs end with a
+pacing sentence.
 
 ## Saver levels
 
