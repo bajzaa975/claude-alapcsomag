@@ -201,7 +201,7 @@ test('hooks.json wires the secret guard (via pre-tool.js) on exactly Read|Grep|G
   const e = h.PreToolUse.find(x => x.hooks.some(k => k.command === 'node "${CLAUDE_PLUGIN_ROOT}/hooks/node/pre-tool.js"'));
   assert.ok(e);
   assert.strictEqual(e.matcher, '.*');
-  assert.strictEqual(e.hooks[0].timeout, 5);
+  assert.strictEqual(e.hooks[0].timeout, 10);
   assert.ok(!JSON.stringify(h).includes('secret-guard.js'), 'secret-guard.js must not also be wired directly');
   // pre-tool.js runs the secret check on exactly the old matcher's tools; post-tool.js never does.
   const dir = probeCopy();

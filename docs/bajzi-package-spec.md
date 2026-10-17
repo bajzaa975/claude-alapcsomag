@@ -58,6 +58,7 @@ the findings; Tier 3 = the gate only, e.g. docs).
 | I want to change… | File(s) : function | Tests | Tier | Gotcha |
 |---|---|---|---|---|
 | Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`, saver-guard on `Edit\|Write\|MultiEdit\|NotebookEdit\|Agent\|Task\|Bash\|PowerShell`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`, session-signal on every tool, never any output, §6.5); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
+| Which hooks fail closed (`"onFailure": "block"`) | `bajzi/hooks/hooks.json`: only the PreToolUse `.*` -> `pre-tool.js` and `Agent\|Task` -> `dispatch-guard.sh` entries (timeout 10) | `node --test bajzi/hooks/node/tests/hooks-onfailure.test.js`; mode.sh 13m | 1 | §5.3 "Fail-closed wiring". Every normal path of those two scripts must exit 0 (or 2), else every tool call blocks. Never add the key to a non-guard entry. |
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` (runs from `pre-tool.js`/`post-tool.js`) | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in §6.6: keep the doc in sync. |
 | What is allowed above 50% | `context-guard.js` `isHandoffPath`, `commandCheck`, `commandRule`, `mvRule`, `skillRule`, `exemptCheck` | same, tests `RF4:*`, `I1a/I1b/I1c:*`, `I-1: shell escapes...` | 1 | The `PLAIN_WORD` whitelist covers only `mkdir`/`mv`/`git mv` argument tokens. `isHandoffPath` itself is not anchored to the repo root — an accepted limit (§9.2). |
 | Status-line fields/order | `bajzi/hooks/node/statusline.js` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). `5h N%` / `7d N%` (`rate_limits.five_hour` / `.seven_day` `.used_percentage`, rounded) follow the context bar, plain text, omitted when absent or non-numeric. GLM share only rendered at level ≥ 1. |
@@ -144,7 +145,10 @@ from PowerShell: always launch bash suites from **Git Bash itself**, not from th
    **closed**: the bajzi pre-commit gate (`bajzi/gate/pre-commit.js`, a git hook, not a Claude
    Code hook; Invariant 11) and `day-run-mode.sh`'s non-Anthropic-without-L3-text path (top-level block under the
    `# FAIL CLOSED:` comment, no function; warns instead of
-   silently handing a GLM session the Opus-review table).
+   silently handing a GLM session the Opus-review table). Separately, Claude Code itself blocks
+   the tool call when the `pre-tool.js` or `dispatch-guard.sh` process cannot start, times out or
+   exits other than 0/2 (`"onFailure": "block"` on those two hooks.json entries, CC 2.1.295+,
+   §5.3 "Fail-closed wiring"); their internal errors still exit 0 as above.
 2. The 50% context block must **never deadlock the handoff**: `runtime/handoff/**`,
    `runtime/HANDOFF.md`, the `bajzi:handoff` skill, and a fixed small set of read-only git
    commands stay allowed above 50% (`context-guard.js` `exemptCheck`, RF4 tests).
@@ -232,7 +236,7 @@ between one `/bajzi:setup` run and the next (`install-statusline.js`).
 ### 5.2 Process model
 
 Every hook is a **short-lived process**, spawned synchronously by Claude Code (`node "<path>"` or
-`bash "<path>"`, `hooks.json`, `timeout: 5`), reading one JSON object on stdin and writing at most
+`bash "<path>"`, `hooks.json`, `timeout: 5`; 10 for the two fail-closed guard entries, §5.3), reading one JSON object on stdin and writing at most
 one JSON object to stdout, then exiting. bajzi's Node tool checks share **one** process per hook
 event: `pre-tool.js` (PreToolUse) and `post-tool.js` (PostToolUse) run them in-process (§5.3), so a
 tool call starts at most one Node process per event for them. There is no daemon, no server, no persistent state in
@@ -295,6 +299,7 @@ PreToolUse
       ...|Agent|Task|Bash|PowerShell    -> saver-guard.js    check (L2/L3-on-Claude write deny, §6.16)
       both deny -> one envelope, both reasons joined by a newline, context block first
   matcher Agent|Task                    -> dispatch-guard.sh  (review/fix dispatch discipline)
+  (these two entries only: "onFailure": "block", timeout 10 -- see below)
 
 PostToolUse
   matcher Agent|Task                    -> routing-counter.sh (logs saver-routing violations)
@@ -312,6 +317,20 @@ Sub-agent dispatch, e.g. Bash: glm -p "<task>"
      CC_ROUTER_WORKER=1 -> gets GLM-WORKER.md ONLY (no day-run table: a dispatched worker
      must not orchestrate)
 ```
+
+**Fail-closed wiring.** The two PreToolUse security-guard entries, `.*` -> `pre-tool.js` (secret,
+writer, saver and context guards) and `Agent|Task` -> `dispatch-guard.sh`, carry
+`"onFailure": "block"` and `"timeout": 10`. From Claude Code 2.1.295 a hook with that key that
+cannot start (no node/bash), times out, or exits with a code other than 0 (allow/continue) or 2
+(deny) BLOCKS the tool call instead of letting it through, so a broken install cannot silently
+switch the guards off. The 10 s timeout keeps a slow Windows node start from counting as a
+failure. Every normal path of both scripts (allow, deny, warn, unknown tool, empty or malformed
+stdin, missing optional files) exits 0 (a deny is the JSON envelope on exit 0), so `block` never
+fires on a healthy run (`hooks-onfailure.test.js`, mode.sh 13m). Every other entry (noise-filter,
+post-tool/injection-scan which is warn-only, routing-counter, session-signal, handoff-load,
+methodology-guard, day-run-mode, radar, writer-guard notice) has no `onFailure` and timeout 5: a
+crash there must never block work. Claude Code before 2.1.295 ignores the key and fails open as
+before.
 
 **Night run (`/bajzi:night-run`)** - the skill plans in an interactive session (PHASE A-D) and
 PHASE E starts the detached bash processes of §5.2: `run.sh` runs one headless `claude -p` per

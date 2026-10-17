@@ -921,12 +921,12 @@ out2=$(na 'fix round 1' 'general-purpose' 'Read runtime/findings/s1-r1.md' $G)
 out3=$(na 'implement' 'general-purpose' "${p24k}b" $G)
 is_allow "$out1" && is_allow "$out2" && is_allow "$out3" && pass "13l2 no agents dir -> R1/R2/R3 fail open" || fail "13l2" "$out1 $out2 ${out3:0:100}"
 is_deny "$(dg 'review task B3' 'general-purpose' 'Review abc..def.' $G)" R1 && pass "13l3 control: the same R1 dispatch with bajzi/agents present -> deny" || fail "13l3"
-# 13m: registered as PreToolUse on Agent|Task, next to the Bash noise filter.
+# 13m: registered as PreToolUse on Agent|Task (fails closed: onFailure block, timeout 10), next to the Bash noise filter.
 hj=$(tr -d ' \n\r' < "$BAJZI_DIR/hooks/hooks.json")
 pre="${hj%%\"PostToolUse\"*}"; pre="${pre#*\"PreToolUse\"}"
 case "$pre" in
-    *'{"matcher":"Agent|Task","hooks":[{"type":"command","command":"bash\"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-guard.sh\"","timeout":5}]}'*)
-        case "$pre" in *'hooks/noise-filter.sh'*) pass "13m hooks.json PreToolUse Agent|Task -> dispatch-guard.sh (noise filter kept)" ;;
+    *'{"matcher":"Agent|Task","hooks":[{"type":"command","command":"bash\"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-guard.sh\"","timeout":10,"onFailure":"block"}]}'*)
+        case "$pre" in *'hooks/noise-filter.sh'*) pass "13m hooks.json PreToolUse Agent|Task -> dispatch-guard.sh, onFailure block, timeout 10 (noise filter kept)" ;;
             *) fail "13m" "noise filter entry lost" ;; esac ;;
     *) fail "13m" "PreToolUse dispatch-guard entry not found" ;;
 esac

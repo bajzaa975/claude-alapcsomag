@@ -288,7 +288,7 @@ test('hooks.json wires the guard (via pre-tool.js / post-tool.js) on PreToolUse 
     const e = h[ev].find(x => x.hooks.some(k => k.command === `node "\${CLAUDE_PLUGIN_ROOT}/hooks/node/${script}"`));
     assert.ok(e, ev);
     assert.strictEqual(e.matcher, '.*');
-    assert.strictEqual(e.hooks[0].timeout, 5);
+    assert.strictEqual(e.hooks[0].timeout, ev === 'PreToolUse' ? 10 : 5);
   }
   assert.ok(!JSON.stringify(h).includes('context-guard.js'), 'context-guard.js must not also be wired directly');
   assert.strictEqual(h.PostToolUse[0].matcher, 'Agent|Task');   // mode.sh case 12s pins this

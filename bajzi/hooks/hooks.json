@@ -79,7 +79,8 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/node/pre-tool.js\"",
-            "timeout": 5
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       },
@@ -89,7 +90,8 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-guard.sh\"",
-            "timeout": 5
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       }
