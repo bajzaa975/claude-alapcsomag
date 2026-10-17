@@ -194,3 +194,23 @@ test('READMEs describe the 1.19.0 effort, fail-closed pre-tool and setup install
   assert.match(r, /claude plugin install <id> --marketplace <source>/);
   assert.match(r, /2\.1\.292/);
 });
+
+// Pacing classes come from the PACING line of DAY-RUN-RULES.md, so a README that drifts fails.
+const pacing = () => {
+  const m = read('bajzi/skills/mode/DAY-RUN-RULES.md').replace(/\s+/g, ' ').match(/PACING: briefs for (.+?) end with:/);
+  assert.ok(m, 'PACING line not found');
+  return m[1];
+};
+const pacingDoc = (p) => {
+  const m = read(p).replace(/\s+/g, ' ').match(/briefs for (locate\/map[^;.]*?) end with a pacing sentence/i);
+  assert.ok(m, p + ' lacks the pacing class list');
+  return m[1];
+};
+test('README.md pacing classes match DAY-RUN-RULES.md', () => {
+  assert.strictEqual(pacingDoc('README.md'), pacing());
+  assert.match(read('README.md').replace(/\s+/g, ' '), /review, debugging and documents briefs never do/);
+});
+test('bajzi/README.md pacing classes match DAY-RUN-RULES.md', () => {
+  assert.strictEqual(pacingDoc('bajzi/README.md'), pacing());
+  assert.match(read('bajzi/README.md').replace(/\s+/g, ' '), /review, debugging and documents briefs never do/);
+});

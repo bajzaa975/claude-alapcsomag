@@ -123,8 +123,8 @@ Check the install with `claude plugin list`.
   `effort` parameter: low for locating/mapping, tests/lint/build and long-file reads; medium for
   implementation, fixes and documents; high for risk slices, debugging and every review; xhigh
   for the final whole-branch review. Your own session's effort is never changed. Briefs for
-  the low and medium classes end with a pacing sentence ("Time matters here: ..."); review and
-  debugging briefs never do.
+  locate/map, tests, long-file read, implement and fix end with a pacing sentence
+  ("Time matters here: ..."); review, debugging and documents briefs never do.
 - **Slice** — one unit of work described in `runtime/slices/<id>.md` (tier, files it may touch,
   acceptance criteria, test command); format in [`docs/slice-format.md`](docs/slice-format.md).
 - **Agents** — `implementer` (sonnet, medium effort, tier 2/3 slices), `implementer-risk` (opus,
