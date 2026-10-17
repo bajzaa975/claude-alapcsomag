@@ -1,6 +1,6 @@
 'use strict';
 // hooks.json "onFailure": "block" (Claude Code 2.1.295+): a hook that cannot start, times out or
-// exits with an unexpected code BLOCKS the tool call. Only the two security guards carry it, so
+// exits with an unexpected code BLOCKS the tool call. Only the pre-tool.js guard hook carries it, so
 // every normal path of pre-tool.js must exit with an expected code (0 = allow/continue; a deny
 // is a JSON envelope on exit 0, bajzi never uses exit 2).
 const { test } = require('node:test');

@@ -2064,7 +2064,7 @@ written, so that run leaves no trace.
   `PreToolUse`, `PostToolUse`), configured in `hooks.json`, reading one JSON object on stdin and
   writing at most one JSON object to stdout.
 - **Fail-open / fail-closed** — on an internal error, "fail-open" means allow and log;
-  "fail-closed" means refuse. Every bajzi hook is fail-open except the two named in Invariant 1 (CC's `onFailure` block on `pre-tool.js` covers only start/timeout failures).
+  "fail-closed" means refuse. Every bajzi hook is fail-open except the two named in Invariant 1 (CC's `onFailure` block on `pre-tool.js` covers start failures, timeouts and exits with a code other than 0 or 2).
 - **Bridge file** — `<tmpdir>/bajzi-ctx-<session_id>.json`, the only channel from the status line
   to the context guard; its absence means "unknown," not "safe" (§7.2).
 - **Saver level (L0-L3)** — how much of a session's work is routed to GLM instead of Claude: L0
