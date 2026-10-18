@@ -13,7 +13,7 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
    tool). Both end with the pacing sentence (fixer brief below; for implement, append it after the slice file text). Never tell an agent to "read the brief/plan/review".
 2. **Dispatch** with the Agent tool: `subagent_type: bajzi:<agent>`, `prompt` = the brief file's
    text verbatim, `description` = the row's description below (the dispatch guard classifies on it), `effort` = the
-   routing row's effort (implement/fix medium, risk slice high, review high, final whole-branch review xhigh).
+   routing row's effort (implement and fix medium, high for a risk-bearing slice; review high, final whole-branch review xhigh).
 3. **Log**: run `FC log` after every dispatch EXCEPT a refusal whose reason starts
    `dispatch-guard R<n>:` (the hook already logged it): `allow`, or `deny` for a harness or user
    refusal. With the dispatch guard's gate open an `allow` writes nothing (the hook's own line covers it).

@@ -72,6 +72,8 @@ test('dispatch.md dispatch step names the effort parameter and xhigh final revie
   const step = read('skills', 'lib', 'dispatch.md').split('2. **Dispatch**')[1].split('3. **Log**')[0];
   assert.match(step, /`effort`/);
   assert.match(step, /xhigh/);
+  assert.match(step, /fix medium, high for a risk-bearing slice/);
+  assert.doesNotMatch(step, /fix medium, risk slice high/);
 });
 
 test('spec agent contract names the optional effort key', () => {
