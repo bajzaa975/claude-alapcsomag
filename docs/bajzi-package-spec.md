@@ -322,8 +322,10 @@ Sub-agent dispatch, e.g. Bash: glm -p "<task>"
 writer, saver and context guards) carries
 `"onFailure": "block"` and `"timeout": 10`. From Claude Code 2.1.295 a hook with that key that
 cannot start (no node/bash), times out, or exits with a code other than 0 (allow/continue) or 2
-(deny) BLOCKS the tool call instead of letting it through, so a broken install cannot silently
-switch the guards off. The 10 s timeout keeps a slow Windows node start from counting as a
+(deny) BLOCKS the tool call instead of letting it through, so a hook that cannot run (no node,
+`lib/hook-io` missing) cannot silently switch the guards off. A single check module that is
+missing or throws is different: `runChecks` logs it and allows the call (exit 0), so that one
+guard is off. The 10 s timeout keeps a slow Windows node start from counting as a
 failure. Every normal path of `pre-tool.js` (allow, deny, warn, unknown tool, empty or malformed
 stdin, missing optional files) exits 0 (a deny is the JSON envelope on exit 0), so `block` never
 fires on a healthy run (`hooks-onfailure.test.js`). `dispatch-guard.sh` is a discipline guard, so it stays fail-open (timeout 5, no `onFailure`; mode.sh 13m pins the wiring, 13l its exit-0 on malformed input). Every other entry (noise-filter,
