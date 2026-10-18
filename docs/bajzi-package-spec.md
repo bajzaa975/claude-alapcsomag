@@ -393,7 +393,7 @@ Claude Code writes it first, and bash's `${x#*pat}` is quadratic on a large `too
 > never down to sonnet); design/planning/brainstorming → the orchestrator's own model, main thread,
 > always. ESCALATION LADDER: sonnet r1 → fresh sonnet r2 → opus r3 → ORCH r4 → park.
 
-**Effort per class** (Claude Code 2.1.292+): locate/map, tests/lint/build, long-file read → low; implement, fix findings, documents → medium; risk-bearing slice, debugging → high; every review → high, the final whole-branch review → xhigh. The orchestrator passes the row's effort as the Agent tool's `effort` parameter on every Claude dispatch; GLM `glm -p` dispatches have no effort setting; the owner's own session effort is never changed. The agents carry the same default in their frontmatter `effort:` line (reviewer high, implementer medium, implementer-risk high, fixer medium). The briefs of the locate/map, tests, long-file-read and implement/fix classes end with the pacing sentence "Time matters here: do not spend time that can be avoided, and the earlier a correct result is obtained, the better." (`DAY-RUN-RULES.md`, `templates/dispatch-explore.md`, the fixer brief in `skills/lib/dispatch.md`); review and debugging briefs never carry it. Test: `bajzi/tests/agents/contract-effort.test.js`.
+**Effort per class** (Claude Code 2.1.292+): locate/map, tests/lint/build, long-file read → low; implement, fix findings, documents → medium; risk-bearing slice, fixes of a risk-bearing slice, debugging → high; every review → high, the final whole-branch review → xhigh. The orchestrator passes the row's effort as the Agent tool's `effort` parameter on every Claude dispatch; GLM `glm -p` dispatches have no effort setting; the owner's own session effort is never changed. The agents carry the same default in their frontmatter `effort:` line (reviewer high, implementer medium, implementer-risk high, fixer medium). The briefs of the locate/map, tests, long-file-read and implement/fix classes end with the pacing sentence "Time matters here: do not spend time that can be avoided, and the earlier a correct result is obtained, the better." (`DAY-RUN-RULES.md`, `templates/dispatch-explore.md`, `templates/dispatch-implement.md`, `templates/dispatch-fix.md`, the fixer brief in `skills/lib/dispatch.md`); review and debugging briefs never carry it. Test: `bajzi/tests/agents/contract-effort.test.js`.
 
 L1 follows the table;
 L2 keeps debugging on opus, because sonnet at L2 is only the ladder r2 rung and the peak fallback,
@@ -1311,7 +1311,7 @@ The bajzi night run (`/bajzi:night-run`, §6.2) is self-contained and needs none
 Plugin agents (`bajzi/agents/*.md`, auto-discovered, namespaced `bajzi:<name>`). Every file meets
 the agent contract in `agents.test.js:validateAgent` (alias-only `model`, allow-listed `tools`, body
 ≤ 60 lines, Input/Output/Rules/Never, no `Agent`/`Task`, `name:` = the file basename, no frontmatter
-key outside `name`/`description`/`model`/`tools`). The findings file format, severity
+key outside `name`/`description`/`model`/`tools` plus the optional `effort`; reviewer high, fixer medium, implementer medium, implementer-risk high). The findings file format, severity
 rubric, derived copies and close policy are `docs/findings-format.md` + `bajzi/lib/findings.js`.
 
 | Agent | model | tools | Input → output |
@@ -1903,7 +1903,7 @@ Where each piece comes from is in §5.1. Run every command from the shell named 
   `permissions.allow` entry containing a `forbidden_leftovers.settings_substrings` item (`SKILL.md`); (5) known leftover data directories; (6) move
   (never delete) each `leftover` path to `~/claude-backup-leftovers-<date>/`, only after the user
   confirms in chat (`SKILL.md`).
-- **PHASE D**: (1) prerequisites; (2) marketplaces (every manifest entry, which carries a `name` equal to the id suffix after `@` and a `source`, is registered when missing; Claude Code 2.1.292+: a plugin whose marketplace is missing installs with `claude plugin install <id> --marketplace <source of the entry named like the id suffix>`; `marketplace add` then `install` below 2.1.292; `manifest-marketplaces.test.js` pins the id-to-entry mapping); (3) install or **update** every
+- **PHASE D**: (1) prerequisites; (2) marketplaces (below Claude Code 2.1.292 every manifest entry, which carries a `name` equal to the id suffix after `@` and a `source`, is registered when missing; 2.1.292+: a plugin whose marketplace is missing installs with `claude plugin install <id> --marketplace <source of the entry named like the id suffix>`; `marketplace add` then `install` below 2.1.292; `manifest-marketplaces.test.js` pins the id-to-entry mapping); (3) install or **update** every
   manifest plugin, never re-enabling a deliberately disabled one; (4) never the optional `gsd` plugin; (5) global rules;
   (6) `settings_merge`; (7) rtk hook and its `exclude_commands`; (8) `~/.claude/bajzi-mode =
   day-run` only if absent; (9) `node "${CLAUDE_PLUGIN_ROOT}/skills/setup/install-statusline.js"`

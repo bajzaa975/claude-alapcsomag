@@ -61,3 +61,22 @@ test('review brief sources do not carry the pacing sentence', () => {
   assert.ok(!read('skills', 'mode', 'templates', 'dispatch-review.md').includes(PACING));
   assert.ok(!read('lib', 'findings-cli.js').includes(PACING)); // the FC brief generator's template text
 });
+
+test('fix row: implementer model, medium, high for a risk-bearing slice', () => {
+  const row = read('skills', 'mode', 'DAY-RUN-RULES.md').split('\n').find(l => l.startsWith('- fix review findings'));
+  assert.match(row, /medium/);
+  assert.match(row, /high.*risk|risk.*high/);
+});
+
+test('dispatch.md dispatch step names the effort parameter and xhigh final review', () => {
+  const step = read('skills', 'lib', 'dispatch.md').split('2. **Dispatch**')[1].split('3. **Log**')[0];
+  assert.match(step, /`effort`/);
+  assert.match(step, /xhigh/);
+});
+
+test('spec agent contract names the optional effort key', () => {
+  const s = fs.readFileSync(path.join(B, '..', 'docs', 'bajzi-package-spec.md'), 'utf8');
+  const sec = s.split('### 6.12')[1].split('| Agent |')[0];
+  assert.match(sec, /`effort`/);
+  assert.doesNotMatch(sec, /no frontmatter\s+key outside `name`\/`description`\/`model`\/`tools`\)/);
+});

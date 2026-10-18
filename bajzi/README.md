@@ -90,7 +90,7 @@ A token-efficient working method for Claude Code and Cowork.
   `<id>.artifacts.jsonl`; the status line writes `<id>.line.json`. No output ever; fails open.
   Creating `~/.claude/bajzi/hook-samples.on` switches on `hook-samples.jsonl` next to it:
   redacted shape samples of every hook input (content strings become `<str N>`).
-- Every node hook fails open on an internal error (it exits 0): an internal error = allow, logged to `~/.claude/bajzi/hook-errors.log`
+- Every node hook fails open on an internal error (it exits 0, i.e. allow), logged to `~/.claude/bajzi/hook-errors.log`
   (256 KB cap).
 - Tests (Git Bash on Windows, any shell on Linux), from the repo root:
   `node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js bajzi/tests/agents/*.test.js bajzi/lib/tests/*.test.js` and
@@ -101,7 +101,7 @@ A token-efficient working method for Claude Code and Cowork.
 Each agent sets `effort:` in its frontmatter (reviewer high, implementer medium,
 implementer-risk high, fixer medium; Claude Code 2.1.292+). Day-run passes the routing row's
 effort on every Claude dispatch: low for locate/map, tests and long-file reads, medium for
-implement, fix and documents, high for risk slices, debugging and reviews, xhigh for the final
+implement, fix and documents, high for risk slices (and their fixes), debugging and reviews, xhigh for the final
 whole-branch review. Your own session effort is never changed. Briefs for locate/map, tests, long-file read,
 implement and fix end with a pacing sentence; review, debugging and documents briefs never do.
 

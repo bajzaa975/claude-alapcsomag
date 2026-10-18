@@ -82,8 +82,8 @@ line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-settin
 1. Check: `claude --version`, `node -v` (must be >= 18: the status line and the guards are node),
    and whether `bash` is on the PATH. **On Windows there is no bash without Git for Windows**, and
    the shell hooks silently do not run — report this.
-2. The manifest's `marketplaces` list (each entry has a `name`, the id suffix after `@`, and a `source`): register every missing
-   one with `claude plugin marketplace add <source>` so updates keep working.
+2. The manifest's `marketplaces` list (each entry has a `name`, the id suffix after `@`, and a `source`): below Claude Code 2.1.292 register every
+   missing one with `claude plugin marketplace add <source>`; on 2.1.292+ step 3's `install --marketplace` registers it.
 3. The manifest's `plugins` list:
    - not yet installed: `claude plugin install <id>`; marketplace missing and `claude --version` >= 2.1.292:
      `claude plugin install <id> --marketplace <source of the entry whose name equals the id's @suffix>`; below 2.1.292: `marketplace add <source>` first, then `install <id>`

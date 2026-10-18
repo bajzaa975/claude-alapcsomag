@@ -121,7 +121,7 @@ Check the install with `claude plugin list`.
   sonnet round 1, fresh sonnet round 2, opus round 3, the orchestrator round 4, then park.
   Each class also carries a subagent effort (Claude Code 2.1.292+), passed as the Agent tool's
   `effort` parameter: low for locating/mapping, tests/lint/build and long-file reads; medium for
-  implementation, fixes and documents; high for risk slices, debugging and every review; xhigh
+  implementation, fixes and documents; high for risk slices (and their fixes), debugging and every review; xhigh
   for the final whole-branch review. Your own session's effort is never changed. Briefs for
   locate/map, tests, long-file read, implement and fix end with a pacing sentence
   ("Time matters here: ..."); review, debugging and documents briefs never do.

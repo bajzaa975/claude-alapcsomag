@@ -9,7 +9,7 @@ ROUTING TABLE, task class -> model, effort:
 - implement a specified slice / TDD -> sonnet, medium, the default fixer
 - risk-bearing slice (locks, concurrency, quotas, auth, money, migrations, destructive scripts) -> opus, high, from round 1, never sonnet.
   File count alone is not risk: a 3+ file slice stays sonnet
-- fix review findings -> implementer's model, medium, one rung up after a failed round; never the reviewer
+- fix review findings -> implementer's model, medium (high for a risk-bearing slice), one rung up after a failed round; never the reviewer
 - review a diff -> REVIEWER, high; final whole-branch review -> REVIEWER, xhigh. ALWAYS. Never ORCH's or the implementer's model, never a cheaper tier for a
   "small" diff. Fresh context each round; EVIDENCE line required or FAIL. REVIEWER = a model from the REVIEWER MODELS line after this
   block, else `reviewer_models` in ~/.claude/bajzi/config.json; never GLM.
