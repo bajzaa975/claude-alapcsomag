@@ -1479,7 +1479,8 @@ and the number is its exit code. Every other second field is a runner-side outco
 - `DEFERRED-alive` — the story was skipped this pass because its PREVIOUS session was still
   alive (reason `sid=<sid>`); non-terminal, so a later pass or the next night picks it up.
 - `DEFERRED-locked` — `BRANCH_LOCK_CMD` said someone else holds the story branch's lock
-  (reason `holder=<text>`, one line, <= 200 chars); non-terminal, re-queue it.
+  (reason `holder=<text>`, one line, <= 200 chars), or the story's own leftover lock could not
+  be released (reason `holder=own leftover lock <id> (release failed)`); non-terminal, re-queue it.
 - `BLOCKED-lock` — the lock adapter failed or timed out (30 s), or the story worktree could
   not be prepared (reason = the error); the story never ran. Fix the adapter or the tree.
 - `INTERRUPTED` — the runner was signalled and that story was killed mid-flight. Its worktree

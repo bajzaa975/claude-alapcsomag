@@ -13,7 +13,8 @@
 #   2.4  ok    -> the worktree exists on <ns>/<prefix>-<id>-<slug> before acquire
 #                 (fresh branch, remote-only branch, existing tree), worktrees.tsv
 #                 rows for the trees run.sh created; a tree on another branch -> BLOCKED-lock;
-#                 a tree with a detached HEAD (mid-rebase/bisect) is continued in
+#                 a tree with a detached HEAD (mid-rebase/bisect) is continued in;
+#                 a plain non-git dir or a tree whose admin dir was pruned -> BLOCKED-lock
 #   2.5  a garbage holder is cut to one printable line of <= 200 chars
 #   2.6  the story's own leftover lock id is released BEFORE the new acquire;
 #        a malformed leftover id is never passed to the adapter
@@ -165,13 +166,17 @@ id=$(acq_id S1)
 yes_no '[ -n "$id" ] && [ "$(first "^release $id\$")" -gt "$(first "^acquire ")" ]' "2.2b the errored acquire's id was released"
 
 echo "== 2.4 ok: the three worktree cases and a wrong-branch tree =="
-setup okt; nr_queue "$ND" S1 S2 S3 S4 S5; nr_plan "$ND/fake" ok
+setup okt; nr_queue "$ND" S1 S2 S3 S4 S5 S6 S7; nr_plan "$ND/fake" ok
 git -C "$D/seed" push -q "$D/origin.git" main:refs/heads/bajzi/nrt-S2-slug
 git -C "$D/base" fetch -q origin
 git -C "$D/base" worktree add -q -b bajzi/nrt-S3-slug "$ND/wt/S3" origin/main
 git -C "$D/base" worktree add -q -b other "$ND/wt/S4" origin/main
 git -C "$D/base" worktree add -q -b bajzi/nrt-S5-slug "$ND/wt/S5" origin/main
 git -C "$ND/wt/S5" checkout -q --detach
+mkdir -p "$ND/wt/S6"; printf 'leftover
+' >"$ND/wt/S6/x"
+git -C "$D/base" worktree add -q -b bajzi/nrt-S7-slug "$ND/wt/S7" origin/main
+rm -rf "$D/base/.git/worktrees/S7"
 run
 for s in S1 S2 S3; do
   yes_no '[ -n "$(acq_id $s)" ]' "2.4 $s: acquire $ND/wt/$s <8hex>"
@@ -185,6 +190,11 @@ yes_no '! awk -F"\t" "\$1==\"S3\"" "$ND/worktrees.tsv" | grep -q .' "2.4 S3: an 
 r=$(row S4); printf 'S4 row: %s\n' "${r:-<none>}"
 yes_no '[ -n "$(acq_id S5)" ] && [ -n "$(row S5 | grep "^S5 0 ")" ]' "2.4 S5: a detached-HEAD tree is continued in (acquired, ran)"
 yes_no 'printf "%s" "$r" | grep -qE "^S4 BLOCKED-lock .*not bajzi/nrt-S4-slug" && ! grep -q "wt/S4 " "$LK/lock.log"' "2.4 S4: a tree on another branch is BLOCKED-lock, never acquired"
+for s in S6 S7; do
+  r=$(row $s); printf '%s row: %s
+' "$s" "${r:-<none>}"
+  yes_no 'printf "%s" "$r" | grep -qE "^$s BLOCKED-lock " && ! grep -q "wt/$s " "$LK/lock.log"' "2.4 $s: a non-worktree dir (plain / pruned admin dir) is BLOCKED-lock, never acquired"
+done
 yes_no 'balanced && [ -z "$(ls "$ND"/story/*.lockid 2>/dev/null)" ]' "2.4 every acquire released, no .lockid left"
 yes_no '[ "$(first "^release $(acq_id S1)")" -gt "$(first "^session-end")" ]' "2.4 S1 released after its session ended"
 
