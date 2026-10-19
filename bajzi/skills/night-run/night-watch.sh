@@ -384,15 +384,18 @@ notify(){ # message
 }
 
 # One notify per NEW state.txt row (first two fields only), terminal tokens only (DEFERRED-* is not).
-# Independent of WATCH_TRIAGE and the brief; ITEM_SEEN starts at the row count at watcher start.
-ITEM_SEEN=""
+# Independent of WATCH_TRIAGE and the brief; the first call only records the rows present at watcher start.
+ITEM_SEEN=0; ITEM_PREV=""
 item_notify(){
-  local sf n; sf=$(state_file)
+  local sf cur rows id tok; sf=$(state_file)
   [ -n "$sf" ] || return 0
-  n=$(wc -l <"$sf" 2>/dev/null | tr -dc '0-9'); [ -n "$n" ] || n=0
-  if [ -z "$ITEM_SEEN" ]; then ITEM_SEEN=$n; return 0; fi
-  [ "$n" -gt "$ITEM_SEEN" ] || { ITEM_SEEN=$n; return 0; }
-  local rows id tok; rows=$(tail -n "$((n - ITEM_SEEN))" "$sf"); ITEM_SEEN=$n
+  cur=$(awk 'NF { print $1, $2 }' "$sf" 2>/dev/null)
+  if [ "$ITEM_SEEN" = 0 ]; then ITEM_SEEN=1; ITEM_PREV=$cur; return 0; fi
+  # rows of the current file not matched (as a multiset) by the previous snapshot: survives delete + append in one interval
+  rows=$(awk 'NR==FNR { c[$0]++; next } { if (c[$0] > 0) c[$0]--; else print }' <(printf '%s
+' "$ITEM_PREV") <(printf '%s
+' "$cur"))
+  ITEM_PREV=$cur
   while read -r id tok _; do
     [ -n "$tok" ] || continue
     case "$tok" in DEFERRED-*) continue;; esac

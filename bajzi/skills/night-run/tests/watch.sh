@@ -381,7 +381,9 @@ fi
 # --------------------------- 18. default notifier (WATCH_NOTIFY_CMD unset) via notify.sh ---
 cat >"$WT/bin/curl" <<EOS
 #!/usr/bin/env bash
-{ printf 'ARGS %s\n' "\$*"; cat; printf '\n'; } >>"$WT/curl.log"
+{ printf 'ARGS %s\n' "\$*"
+  while [ \$# -gt 0 ]; do [ "\$1" = -K ] && { printf 'CFG '; cat "\$2"; }; shift; done
+  cat; printf '\n'; } >>"$WT/curl.log"
 exit \$(cat "$WT/curl.rc" 2>/dev/null || echo 0)
 EOS
 chmod +x "$WT/bin/curl"
@@ -394,6 +396,8 @@ run_watch "$ND" >/dev/null; touch "$ND/heartbeat"; run_watch "$ND" >/dev/null
 N=$(ncalls); CL=$(cat "$WT/curl.log")
 if [ "$N" = 1 ]; then ok "18.1 status change + identical tick: exactly one curl call"; else bad "18.1 expected 1 curl call, got $N"; fi
 check "18.1 URL ends in the topic" "https://ntfy.sh/secret-topic-xyz" "$CL"
+case "$(/usr/bin/grep '^ARGS ' "$WT/curl.log")" in *secret-topic-xyz*) bad "18.1 topic is in curl's argv";; *) ok "18.1 topic not in curl's argv (config file)";; esac
+case "$(/usr/bin/grep '^ARGS ' "$WT/curl.log")" in *secret-topic-xyz*) bad "18.1 topic is in curl's argv";; *) ok "18.1 topic not in curl's argv (config file)";; esac
 check "18.1 Title header" "Title: night-run watchtest-dn1" "$CL"
 check "18.1 body has the status" "OK" "$(tail -1 "$WT/curl.log")"
 # 2. no topic
@@ -430,6 +434,46 @@ if [ "$N" = 1 ]; then ok "18.5 new terminal row: one notify '<id> <token>'"; els
 case "$CL" in *hidden-reason-text*) bad "18.5 the reason leaked";; *) ok "18.5 reason text not sent";; esac
 case "$CL" in *"s1 0"*) bad "18.5 pre-start row announced";; *) ok "18.5 rows before start not announced";; esac
 case "$CL" in *s3*) bad "18.5 non-terminal DEFERRED row announced";; *) ok "18.5 DEFERRED-* row not announced";; esac
+
+# 6. delete one row + append one between two ticks (supervisor re-queue): the new row is announced
+ND=$(mkenv dn6); hold "$ND"; touch "$ND/heartbeat"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"
+' "$WT/topic" >>"$ND/config.env"; : >"$WT/curl.log"
+PATH="$WT/bin:$PATH" "$WATCH" --config "$ND/config.env" --interval 1 >"$WT/dn6.log" 2>&1 &
+W6=$!
+sleep 3; touch "$ND/heartbeat"
+printf 's9 MERGED 2026-09-18T03:00:00Z
+' >"$ND/state-2026-09-18.txt"
+sleep 4; touch "$ND/heartbeat"
+kill -TERM "$W6" 2>/dev/null; wait "$W6" 2>/dev/null
+N=$(/usr/bin/grep -c 's9 MERGED' "$WT/curl.log")
+if [ "$N" = 1 ]; then ok "18.6 delete + append in one interval: new row announced once"; else bad "18.6 expected 1 's9 MERGED', got $N"; fi
+# 7. UNKNOWN and DISK-LOW messages carry no absolute path
+ND=$(mkenv dn7); touch "$ND/heartbeat"; rm -f "$ND/run.meta"; : >"$WT/curl.log"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"
+' "$WT/topic" >>"$ND/config.env"
+run_watch "$ND" >/dev/null
+CL=$(cat "$WT/curl.log")
+check "18.7 UNKNOWN notified" "UNKNOWN" "$CL"
+case "$CL" in *"$ND"*) bad "18.7 UNKNOWN body has the NIGHT_DIR path";; *) ok "18.7 UNKNOWN body has no path";; esac
+ND=$(mkenv dn8); touch "$ND/heartbeat"; : >"$WT/curl.log"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"
+' "$WT/topic" >>"$ND/config.env"
+printf '#!/bin/sh
+exit 1
+' >"$WT/bin/df"; chmod +x "$WT/bin/df"
+run_watch "$ND" >/dev/null
+rm -f "$WT/bin/df"
+CL=$(cat "$WT/curl.log")
+check "18.8 DISK-LOW notified" "DISK-LOW" "$CL"
+case "$CL" in *"$ND"*) bad "18.8 DISK-LOW body has the NIGHT_DIR/BASE path";; *) ok "18.8 DISK-LOW body has no path";; esac
+# 9. toast: powershell.exe alone is enough (no pwsh)
+mkdir -p "$WT/psbin"; printf '#!/bin/sh
+echo called >>"%s/ps.log"
+' "$WT" >"$WT/psbin/powershell.exe"; chmod +x "$WT/psbin/powershell.exe"
+: >"$WT/ps.log"
+ORCH_NTFY_TOPIC_FILE=/nonexistent OS=Windows_NT ORCH_NOTIFY_NO_TOAST=0 PATH="$WT/psbin:/usr/bin:/bin" bash "$HERE/../notify.sh" hi >/dev/null 2>&1; sleep 1
+if [ -s "$WT/ps.log" ]; then ok "18.9 toast via powershell.exe"; else bad "18.9 powershell.exe not called"; fi
 
 else echo "SKIP (no flock): scenarios 14-17"; fi
 # ------------------------------------------------------------- teardown -----
