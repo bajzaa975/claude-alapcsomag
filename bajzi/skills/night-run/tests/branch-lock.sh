@@ -8,13 +8,17 @@
 #        an absolute executable path -> accepted
 #   2.1  held  -> no session, DEFERRED-locked holder=<text>, runner.log names the holder
 #   2.2  error -> no session, BLOCKED-lock
-#   2.3  hang  -> BLOCKED-lock once the 30 s timeout fires
+#   2.3  hang  -> BLOCKED-lock once the 30 s timeout fires; the uncertain id is released
+#   2.2b an errored acquire's id is released too
 #   2.4  ok    -> the worktree exists on <ns>/<prefix>-<id>-<slug> before acquire
 #                 (fresh branch, remote-only branch, existing tree), worktrees.tsv
-#                 rows for the trees run.sh created; a tree on another branch -> BLOCKED-lock
+#                 rows for the trees run.sh created; a tree on another branch -> BLOCKED-lock;
+#                 a tree with a detached HEAD (mid-rebase/bisect) is continued in
 #   2.5  a garbage holder is cut to one printable line of <= 200 chars
 #   2.6  the story's own leftover lock id is released BEFORE the new acquire;
 #        a malformed leftover id is never passed to the adapter
+#   2.6b a failed leftover release keeps the id (DEFERRED-locked, no acquire); the next
+#        runner releases it
 #   2.7  a leftover id whose session is still alive -> DEFERRED-alive, no release
 #   2.8  a dry run calls the adapter 0 times
 #   3.1  heartbeat every >= 30 s while the story runs
@@ -22,7 +26,8 @@
 #   3.3  a story killed by its own timeout -> released, the next story runs
 #   3.4  TERM to the runner -> released, INTERRUPTED row, exit 143
 #   3.5  STOP -> finish: every acquire has its release
-#   3.6  a failing heartbeat -> one WARNING, the story completes
+#   3.6  failing heartbeats (>= 2) -> one WARNING, the story completes
+#   3.7  TERM during a slow acquire, before START -> the EXIT trap releases that id once
 #   +    without BRANCH_LOCK_CMD nothing changes: no adapter, no pre-created worktree
 # Non-dry cases need Linux (setsid, flock, pgrep, /proc); the slow ones run in parallel.
 #
@@ -49,6 +54,7 @@ fi
 mode=$(cat "$D/mode.$op" 2>/dev/null || echo ok)
 case "$mode" in
   ok) exit 0;;
+  slowok) sleep 5; exit 0;;
   held) echo "alice since 2026-10-19T01:00Z"; echo "second line"; exit 1;;
   garbage) printf 'bob\033[31m\a'; printf 'x%.0s' $(seq 1 500); printf '\nsecond line\n'; exit 1;;
   err) echo "adapter exploded" >&2; exit 7;;
@@ -129,8 +135,11 @@ setup tmo 'PER_STORY_TIMEOUT="60"'; nr_queue "$ND" S1 S2; nr_plan "$ND/fake" "ha
 setup term; nr_queue "$ND" S1; nr_plan "$ND/fake" "ok:60"
 ( setsid bash "$NR_RUN" --config "$CFG" >"$D/out.txt" 2>&1 & p=$!
   wait_for "grep -q ' START S1 (' '$LOG' 2>/dev/null"; sleep 1; kill -TERM "$p"; wait "$p"; echo $? >"$D/rc" ) &
-setup hbfail; echo err >"$LK/mode.heartbeat"; nr_queue "$ND" S1; nr_plan "$ND/fake" "ok:45" "ok"
+setup hbfail; echo err >"$LK/mode.heartbeat"; nr_queue "$ND" S1; nr_plan "$ND/fake" "ok:80" "ok"
 ( run ) &
+setup termacq; echo slowok >"$LK/mode.acquire"; nr_queue "$ND" S1; nr_plan "$ND/fake" ok
+( setsid bash "$NR_RUN" --config "$CFG" >"$D/out.txt" 2>&1 & p=$!
+  wait_for "grep -q '^acquire ' '$LK/lock.log'"; sleep 1; kill -TERM "$p"; wait "$p"; echo $? >"$D/rc" ) &
 
 # ---------------------------------------------------------- the fast cases ------
 echo "== default: no BRANCH_LOCK_CMD =="
@@ -152,13 +161,17 @@ setup err; echo err >"$LK/mode.acquire"; nr_queue "$ND" S1; nr_plan "$ND/fake" o
 r=$(row S1); printf 'S1 row: %s\n' "${r:-<none>}"
 yes_no 'printf "%s" "$r" | grep -qE "^S1 BLOCKED-lock .*exited 7.*adapter exploded"' "2.2 BLOCKED-lock row with the adapter's error"
 yes_no '! grep -q " START S1 (" "$LOG"' "2.2 no session for S1"
+id=$(acq_id S1)
+yes_no '[ -n "$id" ] && [ "$(first "^release $id\$")" -gt "$(first "^acquire ")" ]' "2.2b the errored acquire's id was released"
 
 echo "== 2.4 ok: the three worktree cases and a wrong-branch tree =="
-setup okt; nr_queue "$ND" S1 S2 S3 S4; nr_plan "$ND/fake" ok
+setup okt; nr_queue "$ND" S1 S2 S3 S4 S5; nr_plan "$ND/fake" ok
 git -C "$D/seed" push -q "$D/origin.git" main:refs/heads/bajzi/nrt-S2-slug
 git -C "$D/base" fetch -q origin
 git -C "$D/base" worktree add -q -b bajzi/nrt-S3-slug "$ND/wt/S3" origin/main
 git -C "$D/base" worktree add -q -b other "$ND/wt/S4" origin/main
+git -C "$D/base" worktree add -q -b bajzi/nrt-S5-slug "$ND/wt/S5" origin/main
+git -C "$ND/wt/S5" checkout -q --detach
 run
 for s in S1 S2 S3; do
   yes_no '[ -n "$(acq_id $s)" ]' "2.4 $s: acquire $ND/wt/$s <8hex>"
@@ -170,6 +183,7 @@ for s in S1 S2; do
 done
 yes_no '! awk -F"\t" "\$1==\"S3\"" "$ND/worktrees.tsv" | grep -q .' "2.4 S3: an existing tree adds no worktrees.tsv row"
 r=$(row S4); printf 'S4 row: %s\n' "${r:-<none>}"
+yes_no '[ -n "$(acq_id S5)" ] && [ -n "$(row S5 | grep "^S5 0 ")" ]' "2.4 S5: a detached-HEAD tree is continued in (acquired, ran)"
 yes_no 'printf "%s" "$r" | grep -qE "^S4 BLOCKED-lock .*not bajzi/nrt-S4-slug" && ! grep -q "wt/S4 " "$LK/lock.log"' "2.4 S4: a tree on another branch is BLOCKED-lock, never acquired"
 yes_no 'balanced && [ -z "$(ls "$ND"/story/*.lockid 2>/dev/null)" ]' "2.4 every acquire released, no .lockid left"
 yes_no '[ "$(first "^release $(acq_id S1)")" -gt "$(first "^session-end")" ]' "2.4 S1 released after its session ended"
@@ -191,6 +205,18 @@ yes_no '[ -n "$(first "^release deadbeef$")" ] && [ "$(first "^release deadbeef$
 yes_no '! grep -q "not-an-id" "$LK/lock.log" && grep -q "WARNING S2" "$LOG"' "2.6 a malformed leftover id is never passed on (WARNING instead)"
 yes_no '[ -n "$(row S1 | grep "^S1 0 ")" ] && [ ! -e "$ND/story/S1.lockid" ]' "2.6 S1 ran and its .lockid is gone"
 
+echo "== 2.6b leftover lock id, its release fails =="
+setup leftfail; nr_queue "$ND" S1; nr_plan "$ND/fake" ok
+echo deadbeef >"$ND/story/S1.lockid"; nr_dead_pid >"$ND/story/S1.sid"
+echo err >"$LK/mode.release"
+run
+yes_no 'grep -qx deadbeef "$ND/story/S1.lockid"' "2.6b run 1: the old id is still recorded"
+yes_no '[ -n "$(row S1 | grep "^S1 DEFERRED-locked ")" ] && ! grep -q "^acquire " "$LK/lock.log"' "2.6b run 1: DEFERRED-locked, no new acquire"
+rm -f "$LK/mode.release"; : >"$LK/lock.log"
+run
+yes_no '[ -n "$(first "^release deadbeef$")" ] && [ "$(first "^release deadbeef$")" -lt "$(first "^acquire $ND/wt/S1 ")" ]' "2.6b run 2: release deadbeef, then a new acquire"
+yes_no '[ -n "$(row S1 | grep "^S1 0 ")" ] && [ ! -e "$ND/story/S1.lockid" ]' "2.6b run 2: S1 ran and its .lockid is gone"
+
 echo "== 2.7 leftover lock id, its session alive =="
 setup alive; nr_queue "$ND" S1; nr_plan "$ND/fake" ok
 setsid -w sleep 25 >/dev/null 2>&1 &
@@ -208,6 +234,8 @@ wait
 echo "== 2.3 hang =="
 use hang; r=$(row S1); s=$(cat "$D/secs" 2>/dev/null); printf 'S1 row: %s (run %ss)\n' "${r:-<none>}" "${s:-?}"
 yes_no 'printf "%s" "$r" | grep -qE "^S1 BLOCKED-lock .*timed out after 30s"' "2.3 a hanging acquire is BLOCKED-lock (timed out)"
+id=$(acq_id S1)
+yes_no '[ -n "$id" ] && [ -n "$(first "^release $id\$")" ]' "2.3 the timed-out acquire's id was released"
 yes_no '[ "${s:-999}" -le 60 ] && ! grep -q " START S1 (" "$LOG"' "2.3 within the timeout, and no session"
 
 echo "== 3.1 / 3.2 / 3.5 heartbeat, release, STOP =="
@@ -231,10 +259,16 @@ yes_no '[ -n "$id" ] && [ -n "$(first "^release $id\$")" ] && [ ! -e "$ND/story/
 
 echo "== 3.6 heartbeat failure =="
 use hbfail
-yes_no '[ "$(grep -c "WARNING.*heartbeat" "$LOG")" -eq 1 ] && grep -q "^heartbeat " "$LK/lock.log"' "3.6 one WARNING line for the failed heartbeat"
+hb=$(grep -c "^heartbeat " "$LK/lock.log"); printf '%s failed heartbeat(s)\n' "$hb"
+yes_no '[ "$(grep -c "WARNING.*heartbeat" "$LOG")" -eq 1 ] && [ "$hb" -ge 2 ]' "3.6 >= 2 failed heartbeats, exactly one WARNING line"
 yes_no '[ -n "$(row S1 | grep "^S1 0 ")" ] && balanced' "3.6 the story completed and was released"
 
-for n in nolock held err okt garb left alive hang beat tmo term hbfail; do use "$n"; nr_cleanup "$ND"; done
+echo "== 3.7 TERM during acquire, before START =="
+use termacq; id=$(acq_id S1); rc=$(cat "$D/rc" 2>/dev/null)
+yes_no '[ "${rc:-x}" = 143 ] && ! grep -q " START S1 (" "$LOG"' "3.7 the runner exited 143 before START (got ${rc:-none})"
+yes_no '[ -n "$id" ] && [ "$(grep -c "^release $id\$" "$LK/lock.log")" -eq 1 ] && [ ! -e "$ND/story/S1.lockid" ]' "3.7 the acquired id was released exactly once"
+
+for n in nolock held err okt garb left leftfail alive hang beat tmo term hbfail termacq; do use "$n"; nr_cleanup "$ND"; done
 s=$(nr_strays)
 yes_no '[ -z "$s" ]' "nothing left running${s:+: $s}"
 

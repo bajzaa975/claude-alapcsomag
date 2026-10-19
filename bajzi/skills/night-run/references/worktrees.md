@@ -38,9 +38,12 @@ Tab-separated, no header, one row per tree the run creates:
 
 The **story session** appends its own row, right after it creates or resumes the
 tree — `run.sh` only tells it to (see the `prompt_for` line about appending
-`"$1<TAB>path<TAB>branch<TAB>ISO time"`). The runner never writes this file
-itself, because only the story session knows which of the three creation cases
-below actually happened.
+`"$1<TAB>path<TAB>branch<TAB>ISO time"`). Without `BRANCH_LOCK_CMD` the runner
+never writes this file itself, because only the story session knows which of
+the three creation cases below actually happened. With `BRANCH_LOCK_CMD` set,
+`run.sh` creates the tree before the lock acquire (`lock_prepare_tree`) and
+appends the row itself for a tree it created; the story prompt then carries
+no append instruction.
 
     printf '%s\t%s\t%s\t%s\n' "$ID" "$NIGHT_DIR/wt/$ID" "$BRANCH" \
       "$(date -u +%FT%TZ)" >> "$NIGHT_DIR/worktrees.tsv"

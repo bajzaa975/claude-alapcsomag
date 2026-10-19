@@ -944,12 +944,14 @@ lock_call(){ # op arg... ; rc = the adapter's exit code (124/137 = timed out, 12
 }
 # rc 0 when $NIGHT_DIR/wt/<id> exists on the story branch: the same three cases as the
 # prompt (exists -> use it; branch local or on origin -> add it; neither -> new from base).
+# A detached HEAD (a story interrupted mid-rebase or mid-bisect) is continued in, like the
+# prompt does; only a tree on ANOTHER named branch is refused.
 lock_prepare_tree(){ # id slug
   local id=$1 tree=$NIGHT_DIR/wt/$1 br cur out
   br=$(story_branch "$1" "$2"); LOCK_ERR=""
   if [ -e "$tree" ]; then
     cur=$(git -C "$tree" symbolic-ref -q --short HEAD </dev/null 2>/dev/null 9>&-)
-    [ "$cur" = "$br" ] && return 0
+    { [ -z "$cur" ] || [ "$cur" = "$br" ]; } && return 0
     LOCK_ERR=$(one_line "worktree $tree exists but is on '${cur:-<no branch>}', not $br")
     return 1
   fi
@@ -971,18 +973,23 @@ lock_acquire(){ # id tree -> 0 acquired (LOCK_ID), 1 held (LOCK_HOLDER), 2 error
   lid=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
   lock_id_ok "$lid" || { LOCK_ERR="could not generate a lock id from /dev/urandom"; return 2; }
   # Recorded BEFORE the call: a runner SIGKILLed inside acquire still leaves the id for
-  # the next runner to release. On an error it stays for the same reason.
+  # the next runner to release. LOCK_ID is set before the call too: a TERM/INT that lands
+  # during it runs the traps before rc is read, and the EXIT trap must release this id.
   printf '%s\n' "$lid" >"$lf" 2>/dev/null || { LOCK_ERR="could not write $lf"; return 2; }
+  LOCK_ID=$lid; LOCK_STORY=$id; LOCK_BEAT_AT=$(date +%s); LOCK_BEAT_WARNED=0
   lock_call acquire "$tree" "$lid"; rc=$?
   case $rc in
-    0) LOCK_ID=$lid; LOCK_STORY=$id; LOCK_BEAT_AT=$(date +%s); LOCK_BEAT_WARNED=0; return 0;;
-    1) rm -f "$lf"; LOCK_HOLDER=${LOCK_OUT:-unknown}; return 1;;
+    0) return 0;;
+    1) LOCK_ID=""; LOCK_STORY=""; rm -f "$lf"; LOCK_HOLDER=${LOCK_OUT:-unknown}; return 1;;
     124|137) LOCK_ERR="acquire timed out after ${LOCK_TIMEOUT}s";;
     *) LOCK_ERR=$(one_line "acquire exited $rc: ${LOCK_ERRTXT:-${LOCK_OUT:-no output}}");;
   esac
+  # A timeout or an error is an UNCERTAIN outcome: the adapter may hold the id. Release it
+  # now; a failed release leaves it in $lf for the next runner.
+  lock_release
   return 2
 }
-lock_release(){ # idempotent: a no-op without LOCK_ID
+lock_release(){ # idempotent: a no-op without LOCK_ID; rc 1 = the release failed
   [ -n "$LOCK_ID" ] || return 0
   local lid=$LOCK_ID sid=$LOCK_STORY lf=$STORYDIR/$LOCK_STORY.lockid
   LOCK_ID=""; LOCK_STORY=""
@@ -991,6 +998,7 @@ lock_release(){ # idempotent: a no-op without LOCK_ID
     log "LOCK $sid released $lid"
   else
     log "WARNING $sid: lock release $lid failed (exit $?: ${LOCK_ERRTXT:-${LOCK_OUT:-no output}}) — $lf keeps the id for the next runner"
+    return 1
   fi
   return 0
 }
@@ -1086,6 +1094,9 @@ prompt_for(){ # id slug note brief_path deadline_epoch finalize_epoch budget_sec
   local gname gemail
   local br
   gname=$(sq "$GIT_USER_NAME"); gemail=$(sq "$GIT_USER_EMAIL"); br=$(story_branch "$1" "$2")
+  # Lock mode: run.sh created the tree and appended its worktrees.tsv row itself.
+  local tsv=" Append the tree to $NIGHT_DIR/worktrees.tsv as \"$1<TAB>path<TAB>branch<TAB>ISO time\"."
+  [ -n "$BRANCH_LOCK_CMD" ] && tsv=""
   cat <<P
 Invoke the bajzi:autopilot skill first (scope: $PROJECT story $1 only), then read $4 in full and obey it.
 Your hard wall clock cap is $7 seconds: the runner's \`timeout\` kills this session at unix epoch $5 ($(date -d "@$5" '+%F %T %Z')), and SIGKILLs it 60 seconds later. At unix epoch $6 ($(date -d "@$6" '+%F %T %Z')) STOP taking new work and finalize — commit what is green, push, open or update the PR, write the handoff, emit the RESULT line. Compare \`date +%s\` with those two numbers, not a feeling, whenever the brief asks how much time is left. Wait at most $CI_WAIT_MINUTES minutes for CI in total. Commit as $GIT_USER_NAME <$GIT_USER_EMAIL> — a fresh worktree may have no git identity, so pin it with \`git -c user.name=$gname -c user.email=$gemail commit ...\`.
@@ -1093,7 +1104,7 @@ You are a HEADLESS per-story session started by the shared night runner; there i
 $4 is the authoritative brief and the reviewer's criteria source. It is read-only (0444) — never modify it, never chmod it, never render your own copy.
 Project: $PROJECT (repo $REPO, base branch $BASE_BRANCH). Required CI check: $REQUIRED_CHECK — only a pull_request-event run of it counts.
 Story: $1 — $3
-Branch: $br in worktree $NIGHT_DIR/wt/$1. Fetch first, then take exactly one case: the path already exists -> continue in it, never recreate; the path is missing but the branch exists locally or on the remote -> git worktree add $NIGHT_DIR/wt/$1 $br; neither exists -> git worktree add $NIGHT_DIR/wt/$1 -b $br origin/$BASE_BRANCH. Append the tree to $NIGHT_DIR/worktrees.tsv as "$1<TAB>path<TAB>branch<TAB>ISO time". Never create a worktree in a deployed tree and never use bare git stash.
+Branch: $br in worktree $NIGHT_DIR/wt/$1. Fetch first, then take exactly one case: the path already exists -> continue in it, never recreate; the path is missing but the branch exists locally or on the remote -> git worktree add $NIGHT_DIR/wt/$1 $br; neither exists -> git worktree add $NIGHT_DIR/wt/$1 -b $br origin/$BASE_BRANCH.$tsv Never create a worktree in a deployed tree and never use bare git stash.
 Do the story with sub-agents for every heavy step (explore, implement with TDD, run tests, review) so your own context stays small; never read a file over 300 lines yourself.
 End the story with the review-and-fix loop: a FRESH, INDEPENDENT sub-agent on the reviewer model BRIEF section 4 names (the reviewer allow-list) reviews the diff against origin/$BASE_BRANCH (never your summary of it) and returns VERDICT pass|fail with BLOCKING / NON-BLOCKING findings and an EVIDENCE line; a different sub-agent fixes blocking findings; repeat with a new reviewer, at most 2 rounds (round 1 reviews the diff, round 2 verifies the fixes). Zero blocking findings = review-green. Still blocking after round 2, or the same finding twice with no change in the diff -> PARK with reason review; the third round is the owner's call, never yours, and never taken by rewriting a refused brief by hand. Never reach green by deleting or skipping a test, loosening an assertion or lowering a threshold.
 Whatever your LAST action depends on runs in the FOREGROUND: the final gate and any command whose result you must act on before ending the turn are run without run_in_background; long intermediate runs may still go to the background. A headless session that ends its turn to wait for a background task exits right there, the task is killed, and the RESULT line below is never written.
@@ -1171,7 +1182,12 @@ run_story(){ # id slug note
       old=$(head -1 "$lf" 2>/dev/null)
       if lock_id_ok "$old"; then
         log "LOCK $id — releasing my own leftover lock $old (its session is gone)"
-        LOCK_ID=$old; LOCK_STORY=$id; lock_release
+        LOCK_ID=$old; LOCK_STORY=$id
+        if ! lock_release; then
+          # A new acquire would overwrite $lf and lose the old id: keep it, retry later.
+          record_state "$id" DEFERRED-locked "holder=own leftover lock $old (release failed)"
+          return 0
+        fi
       else
         log "WARNING $id: $lf does not hold an 8-hex lock id ($(one_line "$old" | cut -c1-40)) — removed, never passed to the adapter"
         rm -f "$lf"
