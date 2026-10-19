@@ -283,6 +283,10 @@ case "$BRANCH_PREFIX" in *[!A-Za-z0-9._-]*) echo "run.sh: BRANCH_PREFIX must be 
 : "${BRANCH_NAMESPACE:=feat}"          # optional: first segment of every story branch, <ns>/<prefix>-<id>-<slug>
 ns_re='^[abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456789._-]{0,30}$'
 [[ "$BRANCH_NAMESPACE" =~ $ns_re ]] || { echo "run.sh: BRANCH_NAMESPACE must match $ns_re (the first segment of every story branch), got '$BRANCH_NAMESPACE'" >&2; exit 2; }
+# Same check as supervise.sh (tests/branch-namespace.sh (6) pins the two): git-invalid
+# names, and BASE_BRANCH itself or any name starting with it (git cannot create dev/... beside
+# dev; the deny rule `origin <BASE_BRANCH>*` refuses every push of devbot/...).
+case "$BRANCH_NAMESPACE" in *..*|*.lock|*.|"$BASE_BRANCH"*) echo "run.sh: BRANCH_NAMESPACE must not contain '..', end in '.lock' or '.', or start with BASE_BRANCH ($BASE_BRANCH), got '$BRANCH_NAMESPACE'" >&2; exit 2;; esac
 story_branch(){ printf '%s/%s-%s-%s' "$BRANCH_NAMESPACE" "$BRANCH_PREFIX" "$1" "$2"; } # id slug -> the story's branch
 case "$REPO" in */*) :;; *) echo "run.sh: REPO must be in owner/name form, got '$REPO'" >&2; exit 2;; esac
 [ -d "$NIGHT_DIR" ] || { echo "run.sh: NIGHT_DIR does not exist: $NIGHT_DIR" >&2; exit 2; }

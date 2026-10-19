@@ -142,6 +142,9 @@ REPO=${REPO:-}; BASE_BRANCH=${BASE_BRANCH:-}; BRANCH_PREFIX=${BRANCH_PREFIX:-}; 
 BRANCH_NAMESPACE=${BRANCH_NAMESPACE:-feat}   # run.sh's key: story branches are <ns>/<BRANCH_PREFIX>-<id>-<slug>
 ns_re='^[abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456789._-]{0,30}$'
 [[ "$BRANCH_NAMESPACE" =~ $ns_re ]] || { echo "$PROG: BRANCH_NAMESPACE must match $ns_re, got '$BRANCH_NAMESPACE'" >&2; exit 2; }
+# Same check as run.sh (tests/branch-namespace.sh (6) pins the two); an unset BASE_BRANCH skips the prefix test.
+case "$BRANCH_NAMESPACE" in *..*|*.lock|*.) echo "$PROG: BRANCH_NAMESPACE must not contain '..' or end in '.lock' or '.', got '$BRANCH_NAMESPACE'" >&2; exit 2;; esac
+case "$BRANCH_NAMESPACE" in "${BASE_BRANCH:-/}"*) echo "$PROG: BRANCH_NAMESPACE must not start with BASE_BRANCH ($BASE_BRANCH), got '$BRANCH_NAMESPACE'" >&2; exit 2;; esac
 # run.sh validates it; here only the gate's CI-wait allowance reads it (unusable = the default 45)
 case "${CI_WAIT_MINUTES:-}" in ''|*[!0-9]*) CI_WAIT_MINUTES=45;; *) CI_WAIT_MINUTES=$((10#$CI_WAIT_MINUTES));; esac
 

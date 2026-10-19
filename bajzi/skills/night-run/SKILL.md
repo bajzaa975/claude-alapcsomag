@@ -145,7 +145,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
    bad field. `REPO` and `BASE` are the two that must not be confused; see the paragraph
    above.
 
-   Eight more keys are OPTIONAL — absent is fine, every one has a default, and an older
+   Nine more keys are OPTIONAL — absent is fine, every one has a default, and an older
    `config.env` still starts (`templates/config.env.tmpl` carries the same list; all but
    `ADDON_SKILLS` commented out):
 
@@ -166,6 +166,11 @@ only where the `owner/name` value is wanted. There is no third spelling.
    - `QUOTA_MAX_WAIT_SEC` (21600) — the longest SINGLE usage-limit wait; beyond it the run
      leaves the rows `DEFERRED-quota`, reports and finishes instead of holding the run lock.
    - `QUOTA_FALLBACK_WAIT_SEC` (1800) — the wait used when the reset time cannot be parsed.
+   - `BRANCH_NAMESPACE` (`feat`) — the first segment of every story branch,
+     `<BRANCH_NAMESPACE>/<BRANCH_PREFIX>-<id>-<slug>`; PHASE C renders it into the brief and the
+     push allow rules. It must match `^[a-z0-9][a-z0-9._-]{0,30}$`, contain no `..`, not end in
+     `.lock` or `.`, and not equal or start with `BASE_BRANCH`; otherwise `run.sh` and
+     `supervise.sh` exit 2, so report a value that breaks this as a BLOCKER.
 
    **`FIRST RUN`** → create it here, before step 3, and never later:
 

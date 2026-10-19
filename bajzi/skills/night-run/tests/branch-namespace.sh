@@ -61,6 +61,28 @@ ND=$T/d3; printf 'BRANCH_NAMESPACE="Bad Name"\n' >>"$ND/config.env"
 if [ "$RC" -eq 2 ] && has "$ND/sup.out" "supervise.sh: BRANCH_NAMESPACE"; then ok "3 supervise.sh --check refuses 'Bad Name': exit 2 naming BRANCH_NAMESPACE"
 else bad "3 supervise.sh 'Bad Name': rc $RC, $(head -2 "$ND/sup.out" | tr '\n' '|')"; fi
 
+# (6) one fixture list through BOTH scripts (BASE_BRANCH=main): they must agree with the
+# expected verdict. Refused: equal to / starting with BASE_BRANCH (git cannot create main/...
+# beside main; the deny rule origin main* eats mainline/...), git-invalid `..`, `.lock`, trailing dot.
+verdict(){ [ "$1" -eq 2 ] && has "$2" "BRANCH_NAMESPACE" && echo refuse || echo accept; }
+while read -r want v; do
+  dry d6 "BRANCH_NAMESPACE=\"$v\""; r=$(verdict "$RC" "$OUT")
+  ( cd "$T" && timeout 10 bash "$NR_SKILL_DIR/supervise.sh" --check --config "$T/d6/config.env" >"$T/d6/sup.out" 2>&1 ); s=$(verdict $? "$T/d6/sup.out")
+  if [ "$r" = "$want" ] && [ "$s" = "$want" ]; then ok "6 '$v': run.sh and supervise.sh both $want"
+  else bad "6 '$v': want $want, run.sh $r, supervise.sh $s"; fi
+done <<'FIX'
+refuse main
+refuse mainline
+refuse a..b
+refuse x.lock
+refuse feat.
+refuse Bad
+accept feat
+accept bajzi
+accept mai
+accept a.b_c-9
+FIX
+
 # (4)+(5) the templates, rendered by literal replace exactly as PHASE C does
 render(){ # <namespace> -> node checks, one "PASS|FAIL <text>" line each
   node - "$NR_SKILL_DIR/templates" "$1" <<'JS'
