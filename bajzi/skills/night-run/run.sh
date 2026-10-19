@@ -105,6 +105,9 @@
 # "<id> <exit code>" for a story that ran, or "<id> <TOKEN> <time> <reason>"
 # for one that could not: BLOCKED-queue, BLOCKED-criteria, BLOCKED-needs,
 # BLOCKED-needs-unknown, BLOCKED-brief, BLOCKED-deadline, DEFERRED-needs,
+# BLOCKED-lock (BRANCH_LOCK_CMD failed or timed out, or the story worktree could
+# not be prepared), DEFERRED-locked with reason `holder=<text>` (someone else
+# holds the story branch's external lock),
 # INTERRUPTED for the one story that was running when the runner was signalled,
 # DEFERRED-alive with reason `sid=<sid>` for a story whose PREVIOUS session was
 # still alive (so it was not started a second time), and DEFERRED-quota /
@@ -288,6 +291,19 @@ ns_re='^[abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456
 # dev; the deny rule `origin <BASE_BRANCH>*` refuses every push of devbot/...).
 case "$BRANCH_NAMESPACE" in *..*|*.lock|*.|"$BASE_BRANCH"*) echo "run.sh: BRANCH_NAMESPACE must not contain '..', end in '.lock' or '.', or start with BASE_BRANCH ($BASE_BRANCH), got '$BRANCH_NAMESPACE'" >&2; exit 2;; esac
 story_branch(){ printf '%s/%s-%s-%s' "$BRANCH_NAMESPACE" "$BRANCH_PREFIX" "$1" "$2"; } # id slug -> the story's branch
+# Optional: an external per-branch lock around every story (argv contract at lock_call).
+# Empty = no lock and no worktree pre-creation. Run as an argv, never through a shell, so
+# it must be an ABSOLUTE path to an executable regular file.
+: "${BRANCH_LOCK_CMD:=}"
+if [ -n "$BRANCH_LOCK_CMD" ]; then
+  case "$BRANCH_LOCK_CMD" in
+    *[[:cntrl:]]*) echo "run.sh: BRANCH_LOCK_CMD contains a control character — quote it on ONE line in $CONFIG." >&2; exit 2;;
+    /*) :;;
+    *) echo "run.sh: BRANCH_LOCK_CMD must be an ABSOLUTE path to an executable file, got '$BRANCH_LOCK_CMD'" >&2; exit 2;;
+  esac
+  { [ -f "$BRANCH_LOCK_CMD" ] && [ -x "$BRANCH_LOCK_CMD" ]; } ||
+    { echo "run.sh: BRANCH_LOCK_CMD '$BRANCH_LOCK_CMD' is not an executable regular file" >&2; exit 2; }
+fi
 case "$REPO" in */*) :;; *) echo "run.sh: REPO must be in owner/name form, got '$REPO'" >&2; exit 2;; esac
 [ -d "$NIGHT_DIR" ] || { echo "run.sh: NIGHT_DIR does not exist: $NIGHT_DIR" >&2; exit 2; }
 # A dry run prints prompts and launches nothing, so it must not need the base
@@ -515,7 +531,7 @@ acquire_lock(){
   # The handler MUST exit. `trap release_lock EXIT INT TERM` released the lock
   # and then RESUMED the queue walk, so a second runner acquired cleanly and
   # both walked the same stories in the same worktree.
-  trap 'release_lock' EXIT
+  trap 'lock_release; release_lock' EXIT
   trap 'kill_story; release_lock; exit 130' INT
   trap 'kill_story; release_lock; exit 143' TERM
   lock_publish || log "WARNING: could not write $LOCK — the run IS locked ($FLOCK), but the owner's pgid check will not see it"
@@ -561,7 +577,7 @@ acquire_lock(){
 # A run that is alive says so at least once a minute; the watcher restarts a
 # run whose heartbeat has gone stale and that never wrote `finished`.
 # A dry run writes NOTHING — not state, not a report and not a heartbeat.
-beat(){ [ $DRY -eq 0 ] || return 0; touch "$HEARTBEAT" 2>/dev/null || true; }
+beat(){ [ $DRY -eq 0 ] || return 0; touch "$HEARTBEAT" 2>/dev/null || true; lock_heartbeat; }
 # An INTERRUPTIBLE sleep. A plain `sleep` defers a trap until it returns, and
 # "the TERM handler runs in twenty minutes" is not handling a signal; bash
 # returns from `wait` the moment a trapped signal arrives.
@@ -657,6 +673,7 @@ kill_story(){
   # target is the RECORDED sid, not a pgid guessed from the wrapper.
   stop_session "${STORY_SID:-$STORY_PID}" "KILL ${STORY_ID:-story}"
   kill -TERM "$STORY_PID" 2>/dev/null || true
+  lock_release   # the session is gone: hand the branch back (a no-op without a lock)
   # The queue line must not vanish just because the runner was signalled.
   if [ -n "$STORY_ID" ]; then
     record_state "$STORY_ID" INTERRUPTED "the runner was signalled and killed this story"
@@ -892,6 +909,103 @@ record_state(){ # id token [reason...]
   fi
 }
 
+# --------------------------------------------- the external branch lock -------
+# Only with BRANCH_LOCK_CMD set. The adapter's argv contract (docs/bajzi-package-spec.md,
+# "Night-run branch lock hook"):
+#   acquire <worktree> <lock-id>   exit 0 = acquired, 1 = held (stdout line 1 = holder), else error
+#   heartbeat <lock-id>            exit 0 = renewed, else error (one WARNING, the story goes on)
+#   release <lock-id>              exit 0 = released; must be idempotent
+# lock-id = exactly 8 lowercase hex chars, opaque. Every call: validated argv, `timeout 30`,
+# stdin </dev/null, fd 9 (the run lock) closed.
+LOCK_ID=""          # the id this runner holds right now ("" = none)
+LOCK_STORY=""       # the queue id it belongs to: $STORYDIR/<id>.lockid records it on disk
+LOCK_BEAT_AT=0      # epoch of the last lock heartbeat
+LOCK_BEAT_WARNED=0  # one WARNING per held lock
+LOCK_HOLDER=""      # set by lock_acquire rc 1
+LOCK_ERR=""         # set by lock_acquire rc 2 and lock_prepare_tree
+LOCK_OUT=""; LOCK_ERRTXT=""   # set by lock_call: first stdout / stderr line, cleaned
+LOCK_TIMEOUT=30
+# Adapter text reaches state.txt, runner.log and notifications: one line, printable, <= 200.
+one_line(){ printf '%s\n' "$1" | head -1 | LC_ALL=C tr -cd '[:print:]' | cut -c1-200; }
+lock_id_ok(){ [[ $1 =~ ^[0-9a-f]{8}$ ]]; }
+lock_call(){ # op arg... ; rc = the adapter's exit code (124/137 = timed out, 126 = refused here)
+  local f=$NIGHT_DIR/.lock-cmd.$$ rc
+  LOCK_OUT=""; LOCK_ERRTXT=""
+  case "$1" in
+    acquire) [ $# -eq 3 ] && [[ $2 == /* ]] && [[ $2 != *[[:cntrl:]]* ]] && lock_id_ok "$3";;
+    heartbeat|release) [ $# -eq 2 ] && lock_id_ok "$2";;
+    *) false;;
+  esac || { LOCK_ERRTXT="bajzi refused an invalid adapter call ($(one_line "$1"))"; return 126; }
+  timeout -k 5 "$LOCK_TIMEOUT" "$BRANCH_LOCK_CMD" "$@" </dev/null >"$f" 2>"$f.err" 9>&-; rc=$?
+  LOCK_OUT=$(one_line "$(head -c 4096 "$f" 2>/dev/null)")
+  LOCK_ERRTXT=$(one_line "$(head -c 4096 "$f.err" 2>/dev/null)")
+  rm -f "$f" "$f.err" 2>/dev/null
+  return $rc
+}
+# rc 0 when $NIGHT_DIR/wt/<id> exists on the story branch: the same three cases as the
+# prompt (exists -> use it; branch local or on origin -> add it; neither -> new from base).
+lock_prepare_tree(){ # id slug
+  local id=$1 tree=$NIGHT_DIR/wt/$1 br cur out
+  br=$(story_branch "$1" "$2"); LOCK_ERR=""
+  if [ -e "$tree" ]; then
+    cur=$(git -C "$tree" symbolic-ref -q --short HEAD </dev/null 2>/dev/null 9>&-)
+    [ "$cur" = "$br" ] && return 0
+    LOCK_ERR=$(one_line "worktree $tree exists but is on '${cur:-<no branch>}', not $br")
+    return 1
+  fi
+  out=$(timeout -k 5 60 git -C "$BASE" fetch -q origin </dev/null 2>&1 9>&-) ||
+    { beat; LOCK_ERR=$(one_line "git fetch failed: $out"); return 1; }
+  beat
+  if git -C "$BASE" show-ref --verify -q "refs/heads/$br" </dev/null 9>&- ||
+     git -C "$BASE" show-ref --verify -q "refs/remotes/origin/$br" </dev/null 9>&-; then
+    out=$(git -C "$BASE" worktree add -q "$tree" "$br" </dev/null 2>&1 9>&-)
+  else
+    out=$(git -C "$BASE" worktree add -q -b "$br" "$tree" "origin/$BASE_BRANCH" </dev/null 2>&1 9>&-)
+  fi || { LOCK_ERR=$(one_line "git worktree add $tree failed: $out"); return 1; }
+  printf '%s\t%s\t%s\t%s\n' "$id" "$tree" "$br" "$(date -u +%FT%TZ)" >>"$NIGHT_DIR/worktrees.tsv"
+  return 0
+}
+lock_acquire(){ # id tree -> 0 acquired (LOCK_ID), 1 held (LOCK_HOLDER), 2 error (LOCK_ERR)
+  local id=$1 tree=$2 lid rc lf=$STORYDIR/$1.lockid
+  LOCK_HOLDER=""; LOCK_ERR=""
+  lid=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+  lock_id_ok "$lid" || { LOCK_ERR="could not generate a lock id from /dev/urandom"; return 2; }
+  # Recorded BEFORE the call: a runner SIGKILLed inside acquire still leaves the id for
+  # the next runner to release. On an error it stays for the same reason.
+  printf '%s\n' "$lid" >"$lf" 2>/dev/null || { LOCK_ERR="could not write $lf"; return 2; }
+  lock_call acquire "$tree" "$lid"; rc=$?
+  case $rc in
+    0) LOCK_ID=$lid; LOCK_STORY=$id; LOCK_BEAT_AT=$(date +%s); LOCK_BEAT_WARNED=0; return 0;;
+    1) rm -f "$lf"; LOCK_HOLDER=${LOCK_OUT:-unknown}; return 1;;
+    124|137) LOCK_ERR="acquire timed out after ${LOCK_TIMEOUT}s";;
+    *) LOCK_ERR=$(one_line "acquire exited $rc: ${LOCK_ERRTXT:-${LOCK_OUT:-no output}}");;
+  esac
+  return 2
+}
+lock_release(){ # idempotent: a no-op without LOCK_ID
+  [ -n "$LOCK_ID" ] || return 0
+  local lid=$LOCK_ID sid=$LOCK_STORY lf=$STORYDIR/$LOCK_STORY.lockid
+  LOCK_ID=""; LOCK_STORY=""
+  if lock_call release "$lid"; then
+    [ "$(head -1 "$lf" 2>/dev/null)" = "$lid" ] && rm -f "$lf"
+    log "LOCK $sid released $lid"
+  else
+    log "WARNING $sid: lock release $lid failed (exit $?: ${LOCK_ERRTXT:-${LOCK_OUT:-no output}}) — $lf keeps the id for the next runner"
+  fi
+  return 0
+}
+lock_heartbeat(){ # from beat(): at most every 30 s while a lock is held
+  [ -n "$LOCK_ID" ] || return 0
+  local now; now=$(date +%s)
+  [ $(( now - LOCK_BEAT_AT )) -ge 30 ] || return 0
+  LOCK_BEAT_AT=$now
+  lock_call heartbeat "$LOCK_ID" && return 0
+  [ "$LOCK_BEAT_WARNED" -eq 1 ] && return 0
+  LOCK_BEAT_WARNED=1
+  log "WARNING $LOCK_STORY: lock heartbeat $LOCK_ID failed (${LOCK_ERRTXT:-${LOCK_OUT:-no output}}) — the story goes on; further heartbeat failures of this lock are not logged"
+  return 0
+}
+
 MERGED_PRS=" "
 GH_ERR=""
 # 0 = satisfied, 1 = not merged yet (defer), 2 = unusable value (configuration
@@ -999,7 +1113,7 @@ P
 #   stop     = finish the run now (weekly limit, or a wait we may not take)
 QUEUE_ACTION="continue"
 run_story(){ # id slug note
-  local id=$1 slug=$2 note=$3 rc prompt now budget remain epoch finalize prev sidf
+  local id=$1 slug=$2 note=$3 rc prompt now budget remain epoch finalize prev sidf lf old lrc
   QUEUE_ACTION="continue"
   sidf=$STORYDIR/$id.sid
   # The per-story clock is CLAMPED to the --deadline: --deadline is the hard
@@ -1044,6 +1158,38 @@ run_story(){ # id slug note
   fi
   # No session may start while the usage limit is still in force.
   if ! quota_gate; then QUEUE_ACTION="stop"; return 0; fi
+  # Lock mode: the tree first (acquire names it), then our OWN leftover id — a runner
+  # SIGKILLed mid-story ran no trap — and only then a fresh acquire.
+  if [ -n "$BRANCH_LOCK_CMD" ]; then
+    if ! lock_prepare_tree "$id" "$slug"; then
+      log "BLOCKED $id — $LOCK_ERR"
+      record_state "$id" BLOCKED-lock "$LOCK_ERR"
+      return 1
+    fi
+    lf=$STORYDIR/$id.lockid
+    if [ -f "$lf" ]; then
+      old=$(head -1 "$lf" 2>/dev/null)
+      if lock_id_ok "$old"; then
+        log "LOCK $id — releasing my own leftover lock $old (its session is gone)"
+        LOCK_ID=$old; LOCK_STORY=$id; lock_release
+      else
+        log "WARNING $id: $lf does not hold an 8-hex lock id ($(one_line "$old" | cut -c1-40)) — removed, never passed to the adapter"
+        rm -f "$lf"
+      fi
+    fi
+    lock_acquire "$id" "$NIGHT_DIR/wt/$id"; lrc=$?
+    if [ "$lrc" -eq 1 ]; then
+      log "SKIP $id — branch $(story_branch "$id" "$slug") is locked by: $LOCK_HOLDER"
+      record_state "$id" DEFERRED-locked "holder=$LOCK_HOLDER"
+      return 0
+    fi
+    if [ "$lrc" -ne 0 ]; then
+      log "BLOCKED $id — branch lock: $LOCK_ERR"
+      record_state "$id" BLOCKED-lock "$LOCK_ERR"
+      return 1
+    fi
+    log "LOCK $id acquired $LOCK_ID ($(story_branch "$id" "$slug"))"
+  fi
   prompt=$(prompt_for "$id" "$slug" "$note" "$BRIEF_PATH" "$epoch" "$finalize" "$budget")
   log "START $id (budget ${budget}s, killed at epoch $epoch = $(date -d "@$epoch" '+%F %T'), finalize at $finalize, brief $BRIEF_PATH)"
   # -k 60: plain `timeout` sends only SIGTERM, and a session that ignores it
@@ -1074,6 +1220,7 @@ run_story(){ # id slug note
   # timeout would otherwise keep working in the worktree the next story uses.
   stop_session "$STORY_SID" "DRAIN $id"
   STORY_PID=""; STORY_ID=""; STORY_SID=""
+  lock_release   # any rc, after the drain: the session can no longer touch the branch
   classify_result "$id" "$rc" "$LOGS/$id.log"
   # shellcheck disable=SC2086  # an EMPTY reason must not become an empty argument
   record_state "$id" "$CLASS_TOKEN" $CLASS_REASON
@@ -1179,7 +1326,7 @@ write_report(){ # the deterministic report FIRST, then one fresh session for the
     log "REPORT narrative skipped — quota resets at $(date -u -d "@$qe" +%FT%TZ); the deterministic report stands ($out)"
     return 0
   fi
-  ( exec 9>&-; cd "$BASE" && env -u CLAUDECODE timeout -k 60 1800 "$CLAUDE_BIN" -p "Write the night report for the $PROJECT overnight run of $RUN_DATE. Read these with Bash (change nothing else, except what the 'End of night:' items of section 6a of $BRIEF ask for): $STATE; $LOGS/runner.log; the RESULT lines from grep -h 'RESULT ' $LOGS/*.log; $BASE/runtime/AUTOPILOT-REPORT.md; $BASE/runtime/handoff/night-*.md; $BASE/runtime/DECISIONS.md if present; and gh pr list -R $REPO --state all --limit 20 --json number,title,state,mergedAt,headRefName. Write $out in English with: $STATE holds THIS run's rows only, one or more per queue line, as '<id> <rc|TOKEN> <ISO time> [reason]'. A numeric second field is a story that ran and its exit code. Every other second field is a runner-side outcome with the reason in the rest of the line: BLOCKED-queue (malformed queue line), BLOCKED-criteria (the queue line carried no acceptance criteria), BLOCKED-needs (the needs column held no PR number), BLOCKED-needs-unknown (gh could not say whether the dependency PR is merged), BLOCKED-brief (the per-story brief could not be rendered, so the story was never launched), BLOCKED-deadline (no time left before the hard deadline), DEFERRED-needs (the dependency PR was not merged in time), DEFERRED-alive (a session from an earlier pass or an earlier runner was still alive in that story's worktree, so it was not started a second time) and INTERRUPTED (the runner was signalled and killed that story mid-flight — say so, and say the story must be re-queued). When an id has several rows the LAST one is its outcome and the earlier ones are its history. Every id in $STATE is a queue line that MUST appear in the table and in section 4, never be omitted, and so is every id the deterministic '## Stories' table above lists as 'not reached' — those are queue lines the run never got to and they must be re-queued. 1) a one-paragraph summary (stories attempted, merged, open, parked, blocked, plus blocked-before-start); 2) one table row per story: id, result, PR, merged or open, review verdict and rounds, tests run; 3) decisions taken on the owner's behalf; 4) PARKED and BLOCKED items with reasons, naming which floor was hit (review, timeout, context, ci, forbidden, tests or merge-forbidden); 5) any story reported merged or open with reason=review, flagged as a contradiction; 6) LET'S REVIEW THIS TOGETHER in priority order; 7) worktrees under $NIGHT_DIR/wt that are dirty, unpushed or parked and must be kept; 8) what the add-on rules say comes next, if any. Then read section 6a (add-on rules) of $BRIEF and carry out its 'End of night:' items, if any. Do NOT rewrite or delete what is already in $out — it was written from the state rows and it is the ground truth; APPEND your narrative to it under the heading '## Narrative'. Finish with the line REPORT WRITTEN $out" \
+  ( exec 9>&-; cd "$BASE" && env -u CLAUDECODE timeout -k 60 1800 "$CLAUDE_BIN" -p "Write the night report for the $PROJECT overnight run of $RUN_DATE. Read these with Bash (change nothing else, except what the 'End of night:' items of section 6a of $BRIEF ask for): $STATE; $LOGS/runner.log; the RESULT lines from grep -h 'RESULT ' $LOGS/*.log; $BASE/runtime/AUTOPILOT-REPORT.md; $BASE/runtime/handoff/night-*.md; $BASE/runtime/DECISIONS.md if present; and gh pr list -R $REPO --state all --limit 20 --json number,title,state,mergedAt,headRefName. Write $out in English with: $STATE holds THIS run's rows only, one or more per queue line, as '<id> <rc|TOKEN> <ISO time> [reason]'. A numeric second field is a story that ran and its exit code. Every other second field is a runner-side outcome with the reason in the rest of the line: BLOCKED-queue (malformed queue line), BLOCKED-criteria (the queue line carried no acceptance criteria), BLOCKED-needs (the needs column held no PR number), BLOCKED-needs-unknown (gh could not say whether the dependency PR is merged), BLOCKED-brief (the per-story brief could not be rendered, so the story was never launched), BLOCKED-deadline (no time left before the hard deadline), BLOCKED-lock (the external branch lock command failed or timed out, or the story worktree could not be prepared, so the story was never launched), DEFERRED-locked (someone else holds the story branch's external lock; the reason names the holder — re-queue it), DEFERRED-needs (the dependency PR was not merged in time), DEFERRED-alive (a session from an earlier pass or an earlier runner was still alive in that story's worktree, so it was not started a second time) and INTERRUPTED (the runner was signalled and killed that story mid-flight — say so, and say the story must be re-queued). When an id has several rows the LAST one is its outcome and the earlier ones are its history. Every id in $STATE is a queue line that MUST appear in the table and in section 4, never be omitted, and so is every id the deterministic '## Stories' table above lists as 'not reached' — those are queue lines the run never got to and they must be re-queued. 1) a one-paragraph summary (stories attempted, merged, open, parked, blocked, plus blocked-before-start); 2) one table row per story: id, result, PR, merged or open, review verdict and rounds, tests run; 3) decisions taken on the owner's behalf; 4) PARKED and BLOCKED items with reasons, naming which floor was hit (review, timeout, context, ci, forbidden, tests or merge-forbidden); 5) any story reported merged or open with reason=review, flagged as a contradiction; 6) LET'S REVIEW THIS TOGETHER in priority order; 7) worktrees under $NIGHT_DIR/wt that are dirty, unpushed or parked and must be kept; 8) what the add-on rules say comes next, if any. Then read section 6a (add-on rules) of $BRIEF and carry out its 'End of night:' items, if any. Do NOT rewrite or delete what is already in $out — it was written from the state rows and it is the ground truth; APPEND your narrative to it under the heading '## Narrative'. Finish with the line REPORT WRITTEN $out" \
       --permission-mode "$PERM_MODE" "${EXTRA[@]}" --output-format text </dev/null ) >"$LOGS/report.log" 2>&1 &
   # BACKGROUNDED AND POLLED, exactly like a story: this session may run for up
   # to 1800 s, and in the foreground the runner beat NOT ONCE in that window —

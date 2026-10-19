@@ -171,6 +171,12 @@ only where the `owner/name` value is wanted. There is no third spelling.
      push allow rules. It must match `^[a-z0-9][a-z0-9._-]{0,30}$`, contain no `..`, not end in
      `.lock` or `.`, and not equal or start with `BASE_BRANCH`; otherwise `run.sh` and
      `supervise.sh` exit 2, so report a value that breaks this as a BLOCKER.
+   - `BRANCH_LOCK_CMD` (empty) — the absolute path of an external lock adapter; empty = no
+     lock. Set, `run.sh` creates the story worktree itself, then calls it as an argv under
+     `timeout 30`: `acquire <worktree> <lock-id>` (exit 0 acquired, 1 held with the holder on
+     stdout line 1, else error), `heartbeat <lock-id>` every >= 30 s, `release <lock-id>`
+     (idempotent) on every exit path. `<lock-id>` = 8 lowercase hex chars, opaque. A relative,
+     missing or non-executable path makes `run.sh` exit 2 — report it as a BLOCKER.
 
    **`FIRST RUN`** → create it here, before step 3, and never later:
 
@@ -1472,6 +1478,10 @@ and the number is its exit code. Every other second field is a runner-side outco
   can wait it out: do NOT re-run before the weekly reset named in the reason column.
 - `DEFERRED-alive` — the story was skipped this pass because its PREVIOUS session was still
   alive (reason `sid=<sid>`); non-terminal, so a later pass or the next night picks it up.
+- `DEFERRED-locked` — `BRANCH_LOCK_CMD` said someone else holds the story branch's lock
+  (reason `holder=<text>`, one line, <= 200 chars); non-terminal, re-queue it.
+- `BLOCKED-lock` — the lock adapter failed or timed out (30 s), or the story worktree could
+  not be prepared (reason = the error); the story never ran. Fix the adapter or the tree.
 - `INTERRUPTED` — the runner was signalled and that story was killed mid-flight. Its worktree
   may be dirty or half-pushed, so keep it, inspect it, and re-queue the story.
 
