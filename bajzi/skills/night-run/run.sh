@@ -1022,6 +1022,9 @@ lock_retry_recorded(){
     [ -n "$prev" ] && session_alive "$prev" && continue
     log "LOCK $s — retrying the release of recorded lock $old before exit"
     LOCK_ID=$old; LOCK_STORY=$s
+    # One release may take 30 s + 5 s kill: beat before each, so six ids stay far inside
+    # the watcher's 180 s. A plain touch, not beat(): its lock_heartbeat could hang too.
+    touch "$HEARTBEAT" 2>/dev/null || true
     lock_release || true
   done
 }

@@ -641,7 +641,7 @@ Exit paths and what releases the lock:
 | INT / TERM to the runner mid-story | `kill_story`, after the story session is stopped; INTERRUPTED row, exit 130 / 143 |
 | any `exit` of the runner (finish, STOP, a signal before START, including one during the acquire call) | the EXIT trap (`lock_release; release_lock`); a no-op when nothing is held |
 | acquire timed out or errored | `lock_acquire`, right after the call (the outcome is uncertain) |
-| a failed release | WARNING; `story/<id>.lockid` keeps the id; `finish` retries it once before the runner exits when that story's session is not alive (`lock_retry_recorded`), else the next runner on that story releases it before preparing the tree |
+| a failed release | WARNING; `story/<id>.lockid` keeps the id; `finish` retries it once before the runner exits when that story's session is not alive (`lock_retry_recorded`, which touches the heartbeat before each retry, so a hanging adapter cannot starve it), else the next runner on that story releases it before preparing the tree |
 | SIGKILL of `run.sh` | nothing runs; see the ceiling below |
 
 Known ceiling: after a `run.sh` SIGKILL no trap runs. The lock is no longer heartbeated and goes stale after the adapter's own staleness window; the setsid story session may outlive it until its own `timeout`; the next runner on the same story releases the lock by its recorded id (after the DEFERRED-alive check has seen that session gone) and acquires a fresh one.

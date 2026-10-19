@@ -30,6 +30,8 @@
 #   3.1  heartbeat every >= 30 s while the story runs
 #   3.2  release after the session ended, .lockid removed
 #   3.2b a failed release after the session is retried once before the runner exits
+#   3.2c six recorded ids, release hangs: the heartbeat never gets older than 60 s while
+#        finish retries them
 #   3.3  a story killed by its own timeout -> released, the next story runs
 #   3.4  TERM to the runner -> released, INTERRUPTED row, exit 143
 #   3.5  STOP -> finish: every acquire has its release
@@ -38,7 +40,7 @@
 #   +    without BRANCH_LOCK_CMD nothing changes: no adapter, no pre-created worktree
 # Non-dry cases need Linux (setsid, flock, pgrep, /proc); the slow ones run in parallel.
 #
-# Usage:  bash tests/branch-lock.sh      (~2 min)
+# Usage:  bash tests/branch-lock.sh      (~3.5 min)
 set -u
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
@@ -150,6 +152,14 @@ setup hbfail; echo err >"$LK/mode.heartbeat"; nr_queue "$ND" S1; nr_plan "$ND/fa
 setup termacq; echo slowok >"$LK/mode.acquire"; nr_queue "$ND" S1; nr_plan "$ND/fake" ok
 ( setsid bash "$NR_RUN" --config "$CFG" >"$D/out.txt" 2>&1 & p=$!
   wait_for "grep -q '^acquire ' '$LK/lock.log'"; sleep 1; kill -TERM "$p"; wait "$p"; echo $? >"$D/rc" ) &
+setup relhang; echo hang >"$LK/mode.release"; nr_queue "$ND" S1 S2 S3 S4 S5 S6; nr_plan "$ND/fake" ok
+for n in 1 2 3 4 5 6; do echo "dead000$n" >"$ND/story/S$n.lockid"; nr_dead_pid >"$ND/story/S$n.sid"; done
+echo "test: finish only" >"$ND/STOP"
+( run & p=$!; m=0
+  while kill -0 "$p" 2>/dev/null; do
+    if [ -f "$ND/heartbeat" ]; then a=$(( $(date +%s) - $(stat -c %Y "$ND/heartbeat") )); [ "$a" -gt "$m" ] && m=$a; fi
+    sleep 1
+  done; echo "$m" >"$D/maxage"; wait "$p" ) &
 
 # ---------------------------------------------------------- the fast cases ------
 echo "== default: no BRANCH_LOCK_CMD =="
@@ -218,8 +228,7 @@ git -C "$D/base" remote set-url origin "$D/gone.git"
 echo deadbeef >"$ND/story/S1.lockid"; nr_dead_pid >"$ND/story/S1.sid"
 run
 for s in S1 S2; do
-  r=$(row $s); printf '%s row: %s
-' "$s" "${r:-<none>}"
+  r=$(row $s); printf '%s row: %s\n' "$s" "${r:-<none>}"
   yes_no 'printf "%s" "$r" | grep -qE "^$s BLOCKED-lock .*git fetch failed"' "2.4b $s: BLOCKED-lock naming the fetch failure"
 done
 yes_no '! grep -q "^acquire " "$LK/lock.log" && ! grep -q " START S" "$LOG"' "2.4b no acquire, no session"
@@ -306,12 +315,17 @@ hb=$(grep -c "^heartbeat " "$LK/lock.log"); printf '%s failed heartbeat(s)\n' "$
 yes_no '[ "$(grep -c "WARNING.*heartbeat" "$LOG")" -eq 1 ] && [ "$hb" -ge 2 ]' "3.6 >= 2 failed heartbeats, exactly one WARNING line"
 yes_no '[ -n "$(row S1 | grep "^S1 0 ")" ] && balanced' "3.6 the story completed and was released"
 
+echo "== 3.2c six recorded ids, every release hangs =="
+use relhang; m=$(cat "$D/maxage" 2>/dev/null); printf 'oldest heartbeat seen: %ss\n' "${m:-?}"
+yes_no '[ "$(grep -c "^release dead000[1-6]\$" "$LK/lock.log")" -eq 6 ]' "3.2c finish retried all six recorded ids"
+yes_no '[ -n "$m" ] && [ "$m" -le 60 ]' "3.2c the heartbeat never got older than 60 s (got ${m:-?}s)"
+
 echo "== 3.7 TERM during acquire, before START =="
 use termacq; id=$(acq_id S1); rc=$(cat "$D/rc" 2>/dev/null)
 yes_no '[ "${rc:-x}" = 143 ] && ! grep -q " START S1 (" "$LOG"' "3.7 the runner exited 143 before START (got ${rc:-none})"
 yes_no '[ -n "$id" ] && [ "$(grep -c "^release $id\$" "$LK/lock.log")" -eq 1 ] && [ ! -e "$ND/story/S1.lockid" ]' "3.7 the acquired id was released exactly once"
 
-for n in nolock held err okt nofetch relfail garb left leftfail alive hang beat tmo term hbfail termacq; do use "$n"; nr_cleanup "$ND"; done
+for n in nolock held err okt nofetch relfail garb left leftfail alive hang beat tmo term hbfail termacq relhang; do use "$n"; nr_cleanup "$ND"; done
 s=$(nr_strays)
 yes_no '[ -z "$s" ]' "nothing left running${s:+: $s}"
 
