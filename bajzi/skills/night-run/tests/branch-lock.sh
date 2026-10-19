@@ -173,8 +173,7 @@ git -C "$D/base" worktree add -q -b bajzi/nrt-S3-slug "$ND/wt/S3" origin/main
 git -C "$D/base" worktree add -q -b other "$ND/wt/S4" origin/main
 git -C "$D/base" worktree add -q -b bajzi/nrt-S5-slug "$ND/wt/S5" origin/main
 git -C "$ND/wt/S5" checkout -q --detach
-mkdir -p "$ND/wt/S6"; printf 'leftover
-' >"$ND/wt/S6/x"
+mkdir -p "$ND/wt/S6"; printf 'leftover\n' >"$ND/wt/S6/x"
 git -C "$D/base" worktree add -q -b bajzi/nrt-S7-slug "$ND/wt/S7" origin/main
 rm -rf "$D/base/.git/worktrees/S7"
 run
@@ -191,8 +190,7 @@ r=$(row S4); printf 'S4 row: %s\n' "${r:-<none>}"
 yes_no '[ -n "$(acq_id S5)" ] && [ -n "$(row S5 | grep "^S5 0 ")" ]' "2.4 S5: a detached-HEAD tree is continued in (acquired, ran)"
 yes_no 'printf "%s" "$r" | grep -qE "^S4 BLOCKED-lock .*not bajzi/nrt-S4-slug" && ! grep -q "wt/S4 " "$LK/lock.log"' "2.4 S4: a tree on another branch is BLOCKED-lock, never acquired"
 for s in S6 S7; do
-  r=$(row $s); printf '%s row: %s
-' "$s" "${r:-<none>}"
+  r=$(row $s); printf '%s row: %s\n' "$s" "${r:-<none>}"
   yes_no 'printf "%s" "$r" | grep -qE "^$s BLOCKED-lock " && ! grep -q "wt/$s " "$LK/lock.log"' "2.4 $s: a non-worktree dir (plain / pruned admin dir) is BLOCKED-lock, never acquired"
 done
 yes_no 'balanced && [ -z "$(ls "$ND"/story/*.lockid 2>/dev/null)" ]' "2.4 every acquire released, no .lockid left"
