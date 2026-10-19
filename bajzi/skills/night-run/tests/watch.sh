@@ -456,45 +456,58 @@ case "$CL" in *s3*) bad "18.5 non-terminal DEFERRED row announced";; *) ok "18.5
 
 # 6. delete one row + append one between two ticks (supervisor re-queue): the new row is announced
 ND=$(mkenv dn6); hold "$ND"; touch "$ND/heartbeat"
-printf 'ORCH_NTFY_TOPIC_FILE="%s"
-' "$WT/topic" >>"$ND/config.env"; : >"$WT/curl.log"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\n' "$WT/topic" >>"$ND/config.env"; : >"$WT/curl.log"
 PATH="$WT/bin:$PATH" "$WATCH" --config "$ND/config.env" --interval 1 >"$WT/dn6.log" 2>&1 &
 W6=$!
 sleep 3; touch "$ND/heartbeat"
-printf 's9 MERGED 2026-09-18T03:00:00Z
-' >"$ND/state-2026-09-18.txt"
+printf 's9 MERGED 2026-09-18T03:00:00Z\n' >"$ND/state-2026-09-18.txt"
 sleep 4; touch "$ND/heartbeat"
 kill -TERM "$W6" 2>/dev/null; wait "$W6" 2>/dev/null
 N=$(/usr/bin/grep -c 's9 MERGED' "$WT/curl.log")
 if [ "$N" = 1 ]; then ok "18.6 delete + append in one interval: new row announced once"; else bad "18.6 expected 1 's9 MERGED', got $N"; fi
 # 7. UNKNOWN and DISK-LOW messages carry no absolute path
 ND=$(mkenv dn7); touch "$ND/heartbeat"; rm -f "$ND/run.meta"; : >"$WT/curl.log"
-printf 'ORCH_NTFY_TOPIC_FILE="%s"
-' "$WT/topic" >>"$ND/config.env"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\n' "$WT/topic" >>"$ND/config.env"
 run_watch "$ND" >/dev/null
 CL=$(cat "$WT/curl.log")
 check "18.7 UNKNOWN notified" "UNKNOWN" "$CL"
 case "$CL" in *"$ND"*) bad "18.7 UNKNOWN body has the NIGHT_DIR path";; *) ok "18.7 UNKNOWN body has no path";; esac
 ND=$(mkenv dn8); touch "$ND/heartbeat"; : >"$WT/curl.log"
-printf 'ORCH_NTFY_TOPIC_FILE="%s"
-' "$WT/topic" >>"$ND/config.env"
-printf '#!/bin/sh
-exit 1
-' >"$WT/bin/df"; chmod +x "$WT/bin/df"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\n' "$WT/topic" >>"$ND/config.env"
+printf '#!/bin/sh\nexit 1\n' >"$WT/bin/df"; chmod +x "$WT/bin/df"
 run_watch "$ND" >/dev/null
 rm -f "$WT/bin/df"
 CL=$(cat "$WT/curl.log")
 check "18.8 DISK-LOW notified" "DISK-LOW" "$CL"
 case "$CL" in *"$ND"*) bad "18.8 DISK-LOW body has the NIGHT_DIR/BASE path";; *) ok "18.8 DISK-LOW body has no path";; esac
-# 9. toast: powershell.exe alone is enough (no pwsh)
-mkdir -p "$WT/psbin"; printf '#!/bin/sh
-echo called >>"%s/ps.log"
-' "$WT" >"$WT/psbin/powershell.exe"; chmod +x "$WT/psbin/powershell.exe"
+# 10. same id + token re-queued (row deleted, appended again with a new timestamp) in one interval: announced
+ND=$(mkenv dn10); hold "$ND"; touch "$ND/heartbeat"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\n' "$WT/topic" >>"$ND/config.env"; : >"$WT/curl.log"
+printf 's2 1 2026-09-18T01:00:00Z\n' >>"$ND/state.txt"
+PATH="$WT/bin:$PATH" "$WATCH" --config "$ND/config.env" --interval 1 >"$WT/dn10.log" 2>&1 &
+W10=$!
+sleep 3; touch "$ND/heartbeat"
+/usr/bin/grep -v '^s2 ' "$ND/state.txt" >"$ND/state.new"; printf 's2 1 2026-09-18T04:00:00Z\n' >>"$ND/state.new"; mv "$ND/state.new" "$ND/state.txt"
+sleep 4; touch "$ND/heartbeat"
+kill -TERM "$W10" 2>/dev/null; wait "$W10" 2>/dev/null
+N=$(/usr/bin/grep -c 's2 1' "$WT/curl.log")
+if [ "$N" = 1 ]; then ok "18.10 same id+token re-queued in one interval: announced once"; else bad "18.10 expected 1 's2 1', got $N"; fi
+# 11. WATCH_NOTIFY_CMD="" == unset (default notifier); WATCH_NOTIFY_CMD=true is the off switch
+ND=$(mkenv dn11); hold "$ND"; touch "$ND/heartbeat"; : >"$WT/curl.log"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\nWATCH_NOTIFY_CMD=""\n' "$WT/topic" >>"$ND/config.env"
+run_watch "$ND" >/dev/null
+if [ "$(ncalls)" = 1 ]; then ok "18.11 empty WATCH_NOTIFY_CMD uses the default notifier"; else bad "18.11 expected 1 curl call, got $(ncalls)"; fi
+ND=$(mkenv dn12); hold "$ND"; touch "$ND/heartbeat"; : >"$WT/curl.log"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\nWATCH_NOTIFY_CMD="true"\n' "$WT/topic" >>"$ND/config.env"
+run_watch "$ND" >/dev/null
+if [ "$(ncalls)" = 0 ]; then ok "18.12 WATCH_NOTIFY_CMD=true switches notifications off"; else bad "18.12 curl called ($(ncalls))"; fi
+
+else echo "SKIP (no flock): scenarios 14-18 except 18.9"; fi
+# 9. toast: powershell.exe alone is enough (no pwsh); needs no flock
+mkdir -p "$WT/psbin"; printf '#!/bin/sh\necho called >>"%s/ps.log"\n' "$WT" >"$WT/psbin/powershell.exe"; chmod +x "$WT/psbin/powershell.exe"
 : >"$WT/ps.log"
 ORCH_NTFY_TOPIC_FILE=/nonexistent OS=Windows_NT ORCH_NOTIFY_NO_TOAST=0 PATH="$WT/psbin:/usr/bin:/bin" bash "$HERE/../notify.sh" hi >/dev/null 2>&1; sleep 1
 if [ -s "$WT/ps.log" ]; then ok "18.9 toast via powershell.exe"; else bad "18.9 powershell.exe not called"; fi
-
-else echo "SKIP (no flock): scenarios 14-17"; fi
 # ------------------------------------------------------------- teardown -----
 for p in $HOLDERS; do kill "$p" 2>/dev/null; done
 sleep 0.5

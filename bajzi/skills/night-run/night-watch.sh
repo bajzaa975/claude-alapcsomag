@@ -384,18 +384,16 @@ notify(){ # message
   return 0
 }
 
-# One notify per NEW state.txt row (first two fields only), terminal tokens only (DEFERRED-* is not).
+# One notify per NEW state.txt row (id, token, timestamp; only id and token are sent), terminal tokens only (DEFERRED-* is not).
 # Independent of WATCH_TRIAGE and the brief; the first call only records the rows present at watcher start.
 ITEM_SEEN=0; ITEM_PREV=""
 item_notify(){
   local sf cur rows id tok; sf=$(state_file)
   [ -n "$sf" ] || return 0
-  cur=$(awk 'NF { print $1, $2 }' "$sf" 2>/dev/null)
+  cur=$(awk 'NF { print $1, $2, $3 }' "$sf" 2>/dev/null)
   if [ "$ITEM_SEEN" = 0 ]; then ITEM_SEEN=1; ITEM_PREV=$cur; return 0; fi
   # rows of the current file not matched (as a multiset) by the previous snapshot: survives delete + append in one interval
-  rows=$(awk 'NR==FNR { c[$0]++; next } { if (c[$0] > 0) c[$0]--; else print }' <(printf '%s
-' "$ITEM_PREV") <(printf '%s
-' "$cur"))
+  rows=$(awk 'NR==FNR { c[$0]++; next } { if (c[$0] > 0) c[$0]--; else print }' <(printf '%s\n' "$ITEM_PREV") <(printf '%s\n' "$cur"))
   ITEM_PREV=$cur
   while read -r id tok _; do
     [ -n "$tok" ] || continue
