@@ -2,7 +2,7 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-## Unreleased
+## 1.20.0
 - night-run: the watcher now notifies by default. With `WATCH_NOTIFY_CMD` unset, the new `notify.sh` pushes status changes and each new terminal state row (`<id> <token>`, never paths or reasons) to ntfy.sh (`ORCH_NTFY_TOPIC`, else the first non-empty line of `~/.claude/bajzi/ntfy-topic`) and, on Windows, shows a balloon toast (off with `ORCH_NOTIFY_NO_TOAST=1`). A failure is one WARNING line. Test/override server: `ORCH_NTFY_SERVER` (default `https://ntfy.sh`).
 
 ## 1.19.0
