@@ -361,6 +361,8 @@ Then take EXACTLY ONE of three cases:
    own handoff file, named for your queue id, never `night.md` and never another
    story's file — together with the PR body, for where the previous session
    stopped. A story session killed mid-flight must be able to continue.
+   Exception: a tree your prompt says `run.sh prepared` is new unless your
+   handoff file or an open PR exists; still run the status check below.
 
    **That tree probably holds uncommitted work** — this case exists mostly
    because a previous session was killed mid-flight. BEFORE you read, build or

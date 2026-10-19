@@ -145,7 +145,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
    bad field. `REPO` and `BASE` are the two that must not be confused; see the paragraph
    above.
 
-   Nine more keys are OPTIONAL — absent is fine, every one has a default, and an older
+   Ten more keys are OPTIONAL — absent is fine, every one has a default, and an older
    `config.env` still starts (`templates/config.env.tmpl` carries the same list; all but
    `ADDON_SKILLS` commented out):
 
@@ -173,7 +173,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
      `supervise.sh` exit 2, so report a value that breaks this as a BLOCKER.
    - `BRANCH_LOCK_CMD` (empty) — the absolute path of an external lock adapter; empty = no
      lock. Set, `run.sh` creates the story worktree itself, then calls it as an argv under
-     `timeout 30`: `acquire <worktree> <lock-id>` (exit 0 acquired, 1 held with the holder on
+     `timeout 30`: `acquire <worktree> <lock-id> <branch>` (exit 0 acquired, 1 held with the holder on
      stdout line 1, else error), `heartbeat <lock-id>` every >= 30 s, `release <lock-id>`
      (idempotent) on every exit path. `<lock-id>` = 8 lowercase hex chars, opaque. A relative,
      missing or non-executable path makes `run.sh` exit 2 — report it as a BLOCKER.

@@ -912,7 +912,7 @@ record_state(){ # id token [reason...]
 # --------------------------------------------- the external branch lock -------
 # Only with BRANCH_LOCK_CMD set. The adapter's argv contract (docs/bajzi-package-spec.md,
 # "Night-run branch lock hook"):
-#   acquire <worktree> <lock-id>   exit 0 = acquired, 1 = held (stdout line 1 = holder), else error
+#   acquire <worktree> <lock-id> <branch>   exit 0 = acquired, 1 = held (stdout line 1 = holder), else error
 #   heartbeat <lock-id>            exit 0 = renewed, else error (one WARNING, the story goes on)
 #   release <lock-id>              exit 0 = released; must be idempotent
 # lock-id = exactly 8 lowercase hex chars, opaque. Every call: validated argv, `timeout 30`,
@@ -932,7 +932,8 @@ lock_call(){ # op arg... ; rc = the adapter's exit code (124/137 = timed out, 12
   local f=$NIGHT_DIR/.lock-cmd.$$ rc
   LOCK_OUT=""; LOCK_ERRTXT=""
   case "$1" in
-    acquire) [ $# -eq 3 ] && [[ $2 == /* ]] && [[ $2 != *[[:cntrl:]]* ]] && lock_id_ok "$3";;
+    acquire) [ $# -eq 4 ] && [[ $2 == /* ]] && [[ $2 != *[[:cntrl:]]* ]] && lock_id_ok "$3" &&
+             [ -n "$4" ] && [[ $4 != -* ]] && [[ $4 != *[[:cntrl:]]* ]];;
     heartbeat|release) [ $# -eq 2 ] && lock_id_ok "$2";;
     *) false;;
   esac || { LOCK_ERRTXT="bajzi refused an invalid adapter call ($(one_line "$1"))"; return 126; }
@@ -960,7 +961,8 @@ lock_prepare_tree(){ # id slug
     LOCK_ERR=$(one_line "worktree $tree exists but is on '${cur:-<no branch>}', not $br")
     return 1
   fi
-  out=$(timeout -k 5 60 git -C "$BASE" fetch -q origin </dev/null 2>&1 9>&-) ||
+  # --prune: a story branch deleted on origin must not be recreated from a stale origin ref.
+  out=$(timeout -k 5 60 git -C "$BASE" fetch -q --prune origin </dev/null 2>&1 9>&-) ||
     { beat; LOCK_ERR=$(one_line "git fetch failed: $out"); return 1; }
   beat
   if git -C "$BASE" show-ref --verify -q "refs/heads/$br" </dev/null 9>&- ||
@@ -972,8 +974,8 @@ lock_prepare_tree(){ # id slug
   printf '%s\t%s\t%s\t%s\n' "$id" "$tree" "$br" "$(date -u +%FT%TZ)" >>"$NIGHT_DIR/worktrees.tsv"
   return 0
 }
-lock_acquire(){ # id tree -> 0 acquired (LOCK_ID), 1 held (LOCK_HOLDER), 2 error (LOCK_ERR)
-  local id=$1 tree=$2 lid rc lf=$STORYDIR/$1.lockid
+lock_acquire(){ # id tree branch -> 0 acquired (LOCK_ID), 1 held (LOCK_HOLDER), 2 error (LOCK_ERR)
+  local id=$1 tree=$2 br=$3 lid rc lf=$STORYDIR/$1.lockid
   LOCK_HOLDER=""; LOCK_ERR=""
   lid=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
   lock_id_ok "$lid" || { LOCK_ERR="could not generate a lock id from /dev/urandom"; return 2; }
@@ -982,7 +984,7 @@ lock_acquire(){ # id tree -> 0 acquired (LOCK_ID), 1 held (LOCK_HOLDER), 2 error
   # during it runs the traps before rc is read, and the EXIT trap must release this id.
   printf '%s\n' "$lid" >"$lf" 2>/dev/null || { LOCK_ERR="could not write $lf"; return 2; }
   LOCK_ID=$lid; LOCK_STORY=$id; LOCK_BEAT_AT=$(date +%s); LOCK_BEAT_WARNED=0
-  lock_call acquire "$tree" "$lid"; rc=$?
+  lock_call acquire "$tree" "$lid" "$br"; rc=$?
   case $rc in
     0) return 0;;
     1) LOCK_ID=""; LOCK_STORY=""; rm -f "$lf"; LOCK_HOLDER=${LOCK_OUT:-unknown}; return 1;;
@@ -1006,6 +1008,22 @@ lock_release(){ # idempotent: a no-op without LOCK_ID; rc 1 = the release failed
     return 1
   fi
   return 0
+}
+# Before the runner exits: one more release of every recorded id whose story session is
+# provably gone (the DEFERRED-alive check), e.g. a release that failed after its story.
+lock_retry_recorded(){
+  [ -n "$BRANCH_LOCK_CMD" ] && [ $DRY -eq 0 ] || return 0
+  local lf s old prev
+  for lf in "$STORYDIR"/*.lockid; do
+    [ -f "$lf" ] || continue
+    s=$(basename "$lf" .lockid); old=$(head -1 "$lf" 2>/dev/null)
+    lock_id_ok "$old" || continue
+    prev=""; [ -f "$STORYDIR/$s.sid" ] && prev=$(tr -dc '0-9' <"$STORYDIR/$s.sid" 2>/dev/null)
+    [ -n "$prev" ] && session_alive "$prev" && continue
+    log "LOCK $s — retrying the release of recorded lock $old before exit"
+    LOCK_ID=$old; LOCK_STORY=$s
+    lock_release || true
+  done
 }
 lock_heartbeat(){ # from beat(): at most every 30 s while a lock is held
   [ -n "$LOCK_ID" ] || return 0
@@ -1101,7 +1119,7 @@ prompt_for(){ # id slug note brief_path deadline_epoch finalize_epoch budget_sec
   gname=$(sq "$GIT_USER_NAME"); gemail=$(sq "$GIT_USER_EMAIL"); br=$(story_branch "$1" "$2")
   # Lock mode: run.sh created the tree and appended its worktrees.tsv row itself.
   local tsv=" Append the tree to $NIGHT_DIR/worktrees.tsv as \"$1<TAB>path<TAB>branch<TAB>ISO time\"."
-  [ -n "$BRANCH_LOCK_CMD" ] && tsv=""
+  [ -n "$BRANCH_LOCK_CMD" ] && tsv=" run.sh prepared this tree before starting you (branch lock mode), so it exists even on a first attempt; BRIEF 3.1 case 1 says how to treat it."
   cat <<P
 Invoke the bajzi:autopilot skill first (scope: $PROJECT story $1 only), then read $4 in full and obey it.
 Your hard wall clock cap is $7 seconds: the runner's \`timeout\` kills this session at unix epoch $5 ($(date -d "@$5" '+%F %T %Z')), and SIGKILLs it 60 seconds later. At unix epoch $6 ($(date -d "@$6" '+%F %T %Z')) STOP taking new work and finalize — commit what is green, push, open or update the PR, write the handoff, emit the RESULT line. Compare \`date +%s\` with those two numbers, not a feeling, whenever the brief asks how much time is left. Wait at most $CI_WAIT_MINUTES minutes for CI in total. Commit as $GIT_USER_NAME <$GIT_USER_EMAIL> — a fresh worktree may have no git identity, so pin it with \`git -c user.name=$gname -c user.email=$gemail commit ...\`.
@@ -1174,14 +1192,10 @@ run_story(){ # id slug note
   fi
   # No session may start while the usage limit is still in force.
   if ! quota_gate; then QUEUE_ACTION="stop"; return 0; fi
-  # Lock mode: the tree first (acquire names it), then our OWN leftover id — a runner
-  # SIGKILLed mid-story ran no trap — and only then a fresh acquire.
+  # Lock mode: our OWN leftover id first — a runner SIGKILLed mid-story ran no trap, and
+  # the alive check above proved its session gone — then the tree (acquire names it),
+  # and only then a fresh acquire.
   if [ -n "$BRANCH_LOCK_CMD" ]; then
-    if ! lock_prepare_tree "$id" "$slug"; then
-      log "BLOCKED $id — $LOCK_ERR"
-      record_state "$id" BLOCKED-lock "$LOCK_ERR"
-      return 1
-    fi
     lf=$STORYDIR/$id.lockid
     if [ -f "$lf" ]; then
       old=$(head -1 "$lf" 2>/dev/null)
@@ -1198,7 +1212,12 @@ run_story(){ # id slug note
         rm -f "$lf"
       fi
     fi
-    lock_acquire "$id" "$NIGHT_DIR/wt/$id"; lrc=$?
+    if ! lock_prepare_tree "$id" "$slug"; then
+      log "BLOCKED $id — $LOCK_ERR"
+      record_state "$id" BLOCKED-lock "$LOCK_ERR"
+      return 1
+    fi
+    lock_acquire "$id" "$NIGHT_DIR/wt/$id" "$(story_branch "$id" "$slug")"; lrc=$?
     if [ "$lrc" -eq 1 ]; then
       log "SKIP $id — branch $(story_branch "$id" "$slug") is locked by: $LOCK_HOLDER"
       record_state "$id" DEFERRED-locked "holder=$LOCK_HOLDER"
@@ -1373,6 +1392,7 @@ write_report(){ # the deterministic report FIRST, then one fresh session for the
 }
 
 finish(){
+  lock_retry_recorded
   log "RUN end — state ($STATE):"
   tee -a "$LOGS/runner.log" 9>&- <"$STATE"
   if [ $DRY -eq 0 ]; then

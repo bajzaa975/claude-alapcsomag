@@ -2,7 +2,7 @@
 # Proves the optional config.env key BRANCH_LOCK_CMD: an external per-branch lock
 # around every story. run.sh calls the adapter with a fixed argv, never a shell
 # string, each call under `timeout 30`:
-#   acquire <worktree> <lock-id> | heartbeat <lock-id> | release <lock-id>
+#   acquire <worktree> <lock-id> <branch> | heartbeat <lock-id> | release <lock-id>
 # (lock-id = exactly 8 lowercase hex chars; acquire exit 1 = held, stdout line 1 = holder).
 #   1.4  relative / missing / non-executable path -> exit 2 before any story;
 #        an absolute executable path -> accepted
@@ -14,16 +14,22 @@
 #                 (fresh branch, remote-only branch, existing tree), worktrees.tsv
 #                 rows for the trees run.sh created; a tree on another branch -> BLOCKED-lock;
 #                 a tree with a detached HEAD (mid-rebase/bisect) is continued in;
-#                 a plain non-git dir or a tree whose admin dir was pruned -> BLOCKED-lock
+#                 a plain non-git dir or a tree whose admin dir was pruned -> BLOCKED-lock;
+#                 acquire carries the story branch (also for the detached tree);
+#                 a branch deleted on origin is cut fresh from origin/main (fetch --prune)
+#   2.4b origin unreachable -> BLOCKED-lock naming the fetch failure, no acquire, no
+#        session; a leftover id is still released first
 #   2.5  a garbage holder is cut to one printable line of <= 200 chars
 #   2.6  the story's own leftover lock id is released BEFORE the new acquire;
 #        a malformed leftover id is never passed to the adapter
 #   2.6b a failed leftover release keeps the id (DEFERRED-locked, no acquire); the next
 #        runner releases it
 #   2.7  a leftover id whose session is still alive -> DEFERRED-alive, no release
-#   2.8  a dry run calls the adapter 0 times
+#   2.8  a dry run calls the adapter 0 times; the default prompt carries the worktrees.tsv
+#        append sentence, the lock-mode prompt does not and says run.sh prepared the tree
 #   3.1  heartbeat every >= 30 s while the story runs
 #   3.2  release after the session ended, .lockid removed
+#   3.2b a failed release after the session is retried once before the runner exits
 #   3.3  a story killed by its own timeout -> released, the next story runs
 #   3.4  TERM to the runner -> released, INTERRUPTED row, exit 143
 #   3.5  STOP -> finish: every acquire has its release
@@ -85,6 +91,9 @@ dry c14ok "BRANCH_LOCK_CMD=\"$T/bin/okcmd\""
 if [ "$RC" -eq 0 ] && has "$OUT" "=== S1"; then ok "1.4 an absolute executable path is accepted"
 else bad "1.4 absolute executable: rc $RC, $(head -2 "$OUT" | tr '\n' '|' | cut -c1-200)"; fi
 yes_no '[ ! -s "$T/bin/okcmd.d/lock.log" ]' "2.8 the dry run called the lock command 0 times"
+yes_no '! has "$OUT" "Append the tree to" && has "$OUT" "run.sh prepared this tree"' "2.8 lock-mode prompt: no worktrees.tsv append sentence, says run.sh prepared the tree"
+dry c28dflt
+yes_no '[ "$RC" -eq 0 ] && has "$OUT" "Append the tree to $ND/worktrees.tsv" && ! has "$OUT" "run.sh prepared this tree"' "2.8 default prompt: carries the worktrees.tsv append sentence"
 
 # ============================================================ non-dry fixtures =
 need_linux(){ local t; for t in setsid flock pgrep; do command -v "$t" >/dev/null 2>&1 || return 1; done; [ -d /proc/self ]; }
@@ -166,7 +175,7 @@ id=$(acq_id S1)
 yes_no '[ -n "$id" ] && [ "$(first "^release $id\$")" -gt "$(first "^acquire ")" ]' "2.2b the errored acquire's id was released"
 
 echo "== 2.4 ok: the three worktree cases and a wrong-branch tree =="
-setup okt; nr_queue "$ND" S1 S2 S3 S4 S5 S6 S7; nr_plan "$ND/fake" ok
+setup okt; nr_queue "$ND" S1 S2 S3 S4 S5 S6 S7 S8; nr_plan "$ND/fake" ok
 git -C "$D/seed" push -q "$D/origin.git" main:refs/heads/bajzi/nrt-S2-slug
 git -C "$D/base" fetch -q origin
 git -C "$D/base" worktree add -q -b bajzi/nrt-S3-slug "$ND/wt/S3" origin/main
@@ -176,6 +185,11 @@ git -C "$ND/wt/S5" checkout -q --detach
 mkdir -p "$ND/wt/S6"; printf 'leftover\n' >"$ND/wt/S6/x"
 git -C "$D/base" worktree add -q -b bajzi/nrt-S7-slug "$ND/wt/S7" origin/main
 rm -rf "$D/base/.git/worktrees/S7"
+# S8: its branch was deleted on origin, BASE still has the stale origin ref to another commit.
+c8=$(git -C "$D/seed" -c user.name=t -c user.email=t@example.invalid commit-tree -m s8 -p HEAD 'HEAD^{tree}')
+git -C "$D/seed" push -q "$D/origin.git" "$c8:refs/heads/bajzi/nrt-S8-slug"
+git -C "$D/base" fetch -q origin
+git -C "$D/origin.git" update-ref -d refs/heads/bajzi/nrt-S8-slug
 run
 for s in S1 S2 S3; do
   yes_no '[ -n "$(acq_id $s)" ]' "2.4 $s: acquire $ND/wt/$s <8hex>"
@@ -188,6 +202,8 @@ done
 yes_no '! awk -F"\t" "\$1==\"S3\"" "$ND/worktrees.tsv" | grep -q .' "2.4 S3: an existing tree adds no worktrees.tsv row"
 r=$(row S4); printf 'S4 row: %s\n' "${r:-<none>}"
 yes_no '[ -n "$(acq_id S5)" ] && [ -n "$(row S5 | grep "^S5 0 ")" ]' "2.4 S5: a detached-HEAD tree is continued in (acquired, ran)"
+yes_no 'grep -qE "^acquire $ND/wt/S5 [0-9a-f]{8} bajzi/nrt-S5-slug\$" "$LK/lock.log"' "2.4 S5: acquire names the story branch bajzi/nrt-S5-slug for the detached tree"
+yes_no '[ "$(git -C "$ND/wt/S8" rev-parse HEAD 2>/dev/null)" = "$(git -C "$D/base" rev-parse origin/main)" ] && [ "$(git -C "$ND/wt/S8" rev-parse --abbrev-ref HEAD 2>/dev/null)" = bajzi/nrt-S8-slug ]' "2.4 S8: a branch deleted on origin is cut fresh from origin/main, not the stale ref"
 yes_no 'printf "%s" "$r" | grep -qE "^S4 BLOCKED-lock .*not bajzi/nrt-S4-slug" && ! grep -q "wt/S4 " "$LK/lock.log"' "2.4 S4: a tree on another branch is BLOCKED-lock, never acquired"
 for s in S6 S7; do
   r=$(row $s); printf '%s row: %s\n' "$s" "${r:-<none>}"
@@ -195,6 +211,25 @@ for s in S6 S7; do
 done
 yes_no 'balanced && [ -z "$(ls "$ND"/story/*.lockid 2>/dev/null)" ]' "2.4 every acquire released, no .lockid left"
 yes_no '[ "$(first "^release $(acq_id S1)")" -gt "$(first "^session-end")" ]' "2.4 S1 released after its session ended"
+
+echo "== 2.4b origin unreachable, with a leftover id =="
+setup nofetch; nr_queue "$ND" S1 S2; nr_plan "$ND/fake" ok
+git -C "$D/base" remote set-url origin "$D/gone.git"
+echo deadbeef >"$ND/story/S1.lockid"; nr_dead_pid >"$ND/story/S1.sid"
+run
+for s in S1 S2; do
+  r=$(row $s); printf '%s row: %s
+' "$s" "${r:-<none>}"
+  yes_no 'printf "%s" "$r" | grep -qE "^$s BLOCKED-lock .*git fetch failed"' "2.4b $s: BLOCKED-lock naming the fetch failure"
+done
+yes_no '! grep -q "^acquire " "$LK/lock.log" && ! grep -q " START S" "$LOG"' "2.4b no acquire, no session"
+yes_no '[ -n "$(first "^release deadbeef$")" ] && [ ! -e "$ND/story/S1.lockid" ]' "2.4b S1's leftover id was released before the tree failed"
+
+echo "== 3.2b release fails after the story =="
+setup relfail; echo err >"$LK/mode.release"; nr_queue "$ND" S1; nr_plan "$ND/fake" ok; run
+id=$(acq_id S1)
+yes_no '[ -n "$id" ] && [ "$(grep -c "^release $id\$" "$LK/lock.log")" -eq 2 ] && [ "$(first "^release $id\$")" -gt "$(first "^session-end")" ]' "3.2b the failed release was retried once before the run ended"
+yes_no '[ -n "$(row S1 | grep "^S1 0 ")" ] && grep -qx "${id:-none}" "$ND/story/S1.lockid"' "3.2b S1 ran, its .lockid keeps the id for the next runner"
 
 echo "== 2.5 garbage holder =="
 setup garb; echo garbage >"$LK/mode.acquire"; nr_queue "$ND" S1; nr_plan "$ND/fake" ok; run
@@ -276,7 +311,7 @@ use termacq; id=$(acq_id S1); rc=$(cat "$D/rc" 2>/dev/null)
 yes_no '[ "${rc:-x}" = 143 ] && ! grep -q " START S1 (" "$LOG"' "3.7 the runner exited 143 before START (got ${rc:-none})"
 yes_no '[ -n "$id" ] && [ "$(grep -c "^release $id\$" "$LK/lock.log")" -eq 1 ] && [ ! -e "$ND/story/S1.lockid" ]' "3.7 the acquired id was released exactly once"
 
-for n in nolock held err okt garb left leftfail alive hang beat tmo term hbfail termacq; do use "$n"; nr_cleanup "$ND"; done
+for n in nolock held err okt nofetch relfail garb left leftfail alive hang beat tmo term hbfail termacq; do use "$n"; nr_cleanup "$ND"; done
 s=$(nr_strays)
 yes_no '[ -z "$s" ]' "nothing left running${s:+: $s}"
 
