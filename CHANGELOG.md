@@ -3,7 +3,7 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
-- night-run: the watcher now notifies by default. With `WATCH_NOTIFY_CMD` unset, the new `notify.sh` pushes status changes and each new terminal state row (`<id> <token>`, never paths or reasons) to ntfy.sh (`ORCH_NTFY_TOPIC`, else the first non-empty line of `~/.claude/bajzi/ntfy-topic`) and, on Windows, shows a balloon toast (off with `ORCH_NOTIFY_NO_TOAST=1`). A failure is one WARNING line.
+- night-run: the watcher now notifies by default. With `WATCH_NOTIFY_CMD` unset, the new `notify.sh` pushes status changes and each new terminal state row (`<id> <token>`, never paths or reasons) to ntfy.sh (`ORCH_NTFY_TOPIC`, else the first non-empty line of `~/.claude/bajzi/ntfy-topic`) and, on Windows, shows a balloon toast (off with `ORCH_NOTIFY_NO_TOAST=1`). A failure is one WARNING line. Test/override server: `ORCH_NTFY_SERVER` (default `https://ntfy.sh`).
 
 ## 1.19.0
 - Per-subagent effort (Claude Code 2.1.292+): `effort:` in the agent frontmatter (reviewer high, implementer medium, implementer-risk high, fixer medium). The day-run routing table names an effort per task class (final whole-branch review xhigh) and passes it as the Agent tool's `effort` parameter on Claude dispatches.

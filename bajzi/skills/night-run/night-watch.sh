@@ -23,7 +23,8 @@
 #                           notifier notify.sh: ntfy.sh push to $ORCH_NTFY_TOPIC, else the first
 #                           non-empty line of ~/.claude/bajzi/ntfy-topic (none = skipped), plus a
 #                           Windows balloon toast unless ORCH_NOTIFY_NO_TOAST=1. A failure is one
-#                           WARNING line, never a failed watcher.
+#                           WARNING line, never a failed watcher. ORCH_NTFY_SERVER (default
+#                           https://ntfy.sh) overrides the push server (tests).
 #   WATCH_TRIAGE=1          tier 1: on every NEW terminal row in state.txt spawn ONE headless
 #                           `claude -p` tick (model WATCH_TRIAGE_MODEL, bypassPermissions) with
 #                           $NIGHT_DIR/WATCHER-BRIEF.md; 0 disables. Costs tokens only on events.

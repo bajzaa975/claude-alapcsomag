@@ -159,6 +159,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
      calls `notify.sh`: an ntfy.sh push to `$ORCH_NTFY_TOPIC` (else the first non-empty line of
      `~/.claude/bajzi/ntfy-topic`; no topic = no push) and, on Windows, a balloon toast unless
      `ORCH_NOTIFY_NO_TOAST=1`. Status changes and each new terminal state row are announced.
+     `ORCH_NTFY_SERVER` (default `https://ntfy.sh`) overrides the push server (tests).
    - `QUOTA_MARGIN_SEC` (180) — seconds added to the announced usage-limit reset before a
      session is launched again; `run.sh` applies it once, when it writes `quota-until`.
    - `QUOTA_MAX_WAITS` (3) — how many usage-limit waits ONE run may take before it finishes.

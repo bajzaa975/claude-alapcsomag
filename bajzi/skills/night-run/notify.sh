@@ -2,6 +2,7 @@
 # notify.sh <message> [<title>] — default night-run notifier (night-watch.sh, when WATCH_NOTIFY_CMD is unset).
 # ntfy: topic = $ORCH_NTFY_TOPIC, else the first non-empty line of ${ORCH_NTFY_TOPIC_FILE:-~/.claude/bajzi/ntfy-topic};
 #   no topic = skipped silently. The topic is the only access control on ntfy.sh: never printed, never logged.
+#   Server = ${ORCH_NTFY_SERVER:-https://ntfy.sh} (optional override, used by the tests).
 # Windows toast (NotifyIcon balloon via pwsh or powershell.exe, detached): off with ORCH_NOTIFY_NO_TOAST=1.
 # Exit 0 = everything attempted worked or was skipped; 1 = the ntfy POST failed.
 msg=${1:-}; title=${2:-night-run}
@@ -27,7 +28,10 @@ if [ "$win" = 1 ] && [ "${ORCH_NOTIFY_NO_TOAST:-}" != 1 ] && ps=$(command -v pws
 fi
 
 [ -n "$topic" ] || exit 0
-# the topic goes through a curl config (-K), never argv (visible in process listings)
-printf '%s' "$msg" | curl -sS -m 15 -o /dev/null -f -H "Title: $title" --data-binary @- -K <(printf 'url = "https://ntfy.sh/%s"
-' "$topic") >/dev/null 2>&1 || exit 1
+# the topic goes through a private temp curl config (-K), never argv (visible in process listings);
+# a real file, not <(...): native Windows curl cannot open a /dev/fd pipe
+cfg=$(umask 077; mktemp "${TMPDIR:-/tmp}/ntfy-cfg.XXXXXX") || exit 1
+trap 'rm -f "$cfg"' EXIT
+printf 'url = "%s/%s"\n' "${ORCH_NTFY_SERVER:-https://ntfy.sh}" "$topic" >"$cfg"
+printf '%s' "$msg" | curl -sS -m 15 -o /dev/null -f -H "Title: $title" --data-binary @- -K "$cfg" >/dev/null 2>&1 || exit 1
 exit 0

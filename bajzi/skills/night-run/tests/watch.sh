@@ -264,6 +264,26 @@ OUT=$(run_watch "$ND"); RC=$?
 check "13 unusable started_epoch: UNKNOWN" " UNKNOWN " "$OUT"
 else echo "SKIP (no flock): scenario 13"; fi
 
+# ------------------------------------ 19. real curl against a local ntfy-like server ---
+# no stub, no flock: runs on Windows Git Bash too (a /dev/fd -K config does not there)
+cat >"$WT/srv.js" <<'EOJ'
+const http = require('http'), fs = require('fs');
+const s = http.createServer((q, r) => { let b = ''; q.on('data', d => b += d); q.on('end', () => {
+  fs.writeFileSync(process.argv[2], JSON.stringify({ m: q.method, p: q.url, t: q.headers.title, b })); r.end('ok'); }); });
+s.listen(0, '127.0.0.1', () => fs.writeFileSync(process.argv[3], String(s.address().port)));
+EOJ
+node "$WT/srv.js" "$WT/srv.req" "$WT/srv.port" & SRV=$!
+for _ in $(seq 50); do [ -s "$WT/srv.port" ] && break; sleep 0.1; done
+mkdir -p "$WT/tmp19"
+TMPDIR="$WT/tmp19" ORCH_NTFY_TOPIC=topic19 ORCH_NTFY_SERVER="http://127.0.0.1:$(cat "$WT/srv.port")" ORCH_NOTIFY_NO_TOAST=1 bash "$HERE/../notify.sh" "body19" "Title19"; RC=$?
+kill "$SRV" 2>/dev/null
+if [ "$RC" = 0 ]; then ok "19.1 real curl push: exit 0"; else bad "19.1 notify.sh exit $RC"; fi
+R19=$(cat "$WT/srv.req" 2>/dev/null)
+check "19.2 POST /<topic>" '"m":"POST","p":"/topic19"' "$R19"
+check "19.3 Title header" '"t":"Title19"' "$R19"
+check "19.4 body" '"b":"body19"' "$R19"
+if [ -z "$(ls -A "$WT/tmp19")" ]; then ok "19.5 no temp config left behind"; else bad "19.5 temp config left: $(ls "$WT/tmp19")"; fi
+
 if [ "$HAVE_FLOCK" = 1 ]; then
 # ------------------------------------------ 14. DEFERRED-* is never counted done ---
 # run.sh adds tokens over time (DEFERRED-needs, -quota, -quota-weekly, -alive):
@@ -396,7 +416,6 @@ run_watch "$ND" >/dev/null; touch "$ND/heartbeat"; run_watch "$ND" >/dev/null
 N=$(ncalls); CL=$(cat "$WT/curl.log")
 if [ "$N" = 1 ]; then ok "18.1 status change + identical tick: exactly one curl call"; else bad "18.1 expected 1 curl call, got $N"; fi
 check "18.1 URL ends in the topic" "https://ntfy.sh/secret-topic-xyz" "$CL"
-case "$(/usr/bin/grep '^ARGS ' "$WT/curl.log")" in *secret-topic-xyz*) bad "18.1 topic is in curl's argv";; *) ok "18.1 topic not in curl's argv (config file)";; esac
 case "$(/usr/bin/grep '^ARGS ' "$WT/curl.log")" in *secret-topic-xyz*) bad "18.1 topic is in curl's argv";; *) ok "18.1 topic not in curl's argv (config file)";; esac
 check "18.1 Title header" "Title: night-run watchtest-dn1" "$CL"
 check "18.1 body has the status" "OK" "$(tail -1 "$WT/curl.log")"
