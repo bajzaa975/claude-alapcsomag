@@ -260,6 +260,8 @@ single-instance per night dir (`watch.pid`, `supervise.pid`, the shared live-and
 
 **Night-run notifications (shared contract).** Both night-run runners (this package's `night-watch.sh` and the external orchestrator's `notify.ps1`) use one contract: topic = `ORCH_NTFY_TOPIC`, else the first non-empty line of `~/.claude/bajzi/ntfy-topic`; no topic means no push; `ORCH_NTFY_SERVER` (default `https://ntfy.sh`) optionally overrides the server (tests); `ORCH_NOTIFY_NO_TOAST=1` turns the Windows balloon toast off. The topic is the only access control on ntfy.sh, so it is never printed or logged. `night-watch.sh` calls `notify.sh <message> <title>` when `WATCH_NOTIFY_CMD` is unset (an explicit command wins): on status transitions, restarts and each new terminal `state.txt` row (`<id> <token>`, no reason field; `DEFERRED-*` rows are not announced). Messages carry no absolute paths. `notify.sh` exits 1 only when the ntfy POST failed; the watcher turns that into one `WARNING: default notifier failed (ntfy)` line and never fails because of it.
 
+**Night-run ref guard.** This package's runner (`run.sh`, `supervise.sh`) has no ref guard. If one is added, it must ignore `refs/orch/checkpoints/*`, as the external orchestrator's night-run guard does: the orchestrator writes one such ref per pane spawn or restart, so a pane opened on the project mid-run must not park the run.
+
 ### 5.3 Session lifecycle
 
 **Interactive session** — the wiring in `bajzi/hooks/hooks.json`:
