@@ -675,6 +675,11 @@ gcase s10; pr 9 supervise-fix-hook SUCCESS 120; gcheck; trip "s10 the supervisor
 gcase s11; pr 7 feat/nr-S1-first-story SUCCESS 10; gcheck; healthy "s11 check completed 10 min ago (< STALL_MIN)"
 gcase s11b; pr 7 feat/nr-S1-first-story "" 120 IN_PROGRESS; gcheck; healthy "s11b check still running"
 gcase s12; pr 7 feat/other-thing SUCCESS 120; gcheck; healthy "s12 not a night PR"
+# BRANCH_NAMESPACE replaces the feat/ segment: bajzi/nr-<id>- is a night PR, feat/nr-<id>- no longer is
+gcase s12b 'BRANCH_NAMESPACE="bajzi"'; pr 7 bajzi/nr-S1-first-story SUCCESS 120; gcheck; trip "s12b BRANCH_NAMESPACE=bajzi: bajzi/nr-S1-* PR" "TRIP pr-green:#7"
+pr 7 feat/nr-S1-first-story SUCCESS 120; gcheck; healthy "s12b BRANCH_NAMESPACE=bajzi: a feat/nr-S1-* PR is not a night PR"
+gcase s12c 'BRANCH_NAMESPACE="bajzi"'; pr 7 bajzi/nr-S1-first-story "" 120 IN_PROGRESS; backdate 60
+gcheck; healthy "s12c BRANCH_NAMESPACE=bajzi: S1's running check on bajzi/nr-S1-* is its CI wait"
 # PRs left open by earlier nights: an id in neither tonight's queue nor state, a supervise-* PR created
 # before this run (started_epoch 5 h ago) — neither trips; a supervise-* PR without createdAt still does.
 gcase s10b; prj 70 feat/nr-S7-old 4320 "$(run_ build CI SUCCESS 4330 4320)"

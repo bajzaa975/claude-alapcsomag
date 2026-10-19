@@ -280,6 +280,10 @@ for v in PROJECT REPO BASE_BRANCH BRANCH_PREFIX REQUIRED_CHECK GIT_USER_NAME GIT
   esac
 done
 case "$BRANCH_PREFIX" in *[!A-Za-z0-9._-]*) echo "run.sh: BRANCH_PREFIX must be [A-Za-z0-9._-] (it becomes part of a branch name), got '$BRANCH_PREFIX'" >&2; exit 2;; esac
+: "${BRANCH_NAMESPACE:=feat}"          # optional: first segment of every story branch, <ns>/<prefix>-<id>-<slug>
+ns_re='^[abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456789._-]{0,30}$'
+[[ "$BRANCH_NAMESPACE" =~ $ns_re ]] || { echo "run.sh: BRANCH_NAMESPACE must match $ns_re (the first segment of every story branch), got '$BRANCH_NAMESPACE'" >&2; exit 2; }
+story_branch(){ printf '%s/%s-%s-%s' "$BRANCH_NAMESPACE" "$BRANCH_PREFIX" "$1" "$2"; } # id slug -> the story's branch
 case "$REPO" in */*) :;; *) echo "run.sh: REPO must be in owner/name form, got '$REPO'" >&2; exit 2;; esac
 [ -d "$NIGHT_DIR" ] || { echo "run.sh: NIGHT_DIR does not exist: $NIGHT_DIR" >&2; exit 2; }
 # A dry run prints prompts and launches nothing, so it must not need the base
@@ -962,7 +966,8 @@ render_brief(){ # id deadline_epoch finalize_epoch; rc != 0 means DO NOT RUN the
 # ------------------------------------------------------------ story prompt ---
 prompt_for(){ # id slug note brief_path deadline_epoch finalize_epoch budget_seconds
   local gname gemail
-  gname=$(sq "$GIT_USER_NAME"); gemail=$(sq "$GIT_USER_EMAIL")
+  local br
+  gname=$(sq "$GIT_USER_NAME"); gemail=$(sq "$GIT_USER_EMAIL"); br=$(story_branch "$1" "$2")
   cat <<P
 Invoke the bajzi:autopilot skill first (scope: $PROJECT story $1 only), then read $4 in full and obey it.
 Your hard wall clock cap is $7 seconds: the runner's \`timeout\` kills this session at unix epoch $5 ($(date -d "@$5" '+%F %T %Z')), and SIGKILLs it 60 seconds later. At unix epoch $6 ($(date -d "@$6" '+%F %T %Z')) STOP taking new work and finalize — commit what is green, push, open or update the PR, write the handoff, emit the RESULT line. Compare \`date +%s\` with those two numbers, not a feeling, whenever the brief asks how much time is left. Wait at most $CI_WAIT_MINUTES minutes for CI in total. Commit as $GIT_USER_NAME <$GIT_USER_EMAIL> — a fresh worktree may have no git identity, so pin it with \`git -c user.name=$gname -c user.email=$gemail commit ...\`.
@@ -970,7 +975,7 @@ You are a HEADLESS per-story session started by the shared night runner; there i
 $4 is the authoritative brief and the reviewer's criteria source. It is read-only (0444) — never modify it, never chmod it, never render your own copy.
 Project: $PROJECT (repo $REPO, base branch $BASE_BRANCH). Required CI check: $REQUIRED_CHECK — only a pull_request-event run of it counts.
 Story: $1 — $3
-Branch: feat/$BRANCH_PREFIX-$1-$2 in worktree $NIGHT_DIR/wt/$1. Fetch first, then take exactly one case: the path already exists -> continue in it, never recreate; the path is missing but the branch exists locally or on the remote -> git worktree add $NIGHT_DIR/wt/$1 feat/$BRANCH_PREFIX-$1-$2; neither exists -> git worktree add $NIGHT_DIR/wt/$1 -b feat/$BRANCH_PREFIX-$1-$2 origin/$BASE_BRANCH. Append the tree to $NIGHT_DIR/worktrees.tsv as "$1<TAB>path<TAB>branch<TAB>ISO time". Never create a worktree in a deployed tree and never use bare git stash.
+Branch: $br in worktree $NIGHT_DIR/wt/$1. Fetch first, then take exactly one case: the path already exists -> continue in it, never recreate; the path is missing but the branch exists locally or on the remote -> git worktree add $NIGHT_DIR/wt/$1 $br; neither exists -> git worktree add $NIGHT_DIR/wt/$1 -b $br origin/$BASE_BRANCH. Append the tree to $NIGHT_DIR/worktrees.tsv as "$1<TAB>path<TAB>branch<TAB>ISO time". Never create a worktree in a deployed tree and never use bare git stash.
 Do the story with sub-agents for every heavy step (explore, implement with TDD, run tests, review) so your own context stays small; never read a file over 300 lines yourself.
 End the story with the review-and-fix loop: a FRESH, INDEPENDENT sub-agent on the reviewer model BRIEF section 4 names (the reviewer allow-list) reviews the diff against origin/$BASE_BRANCH (never your summary of it) and returns VERDICT pass|fail with BLOCKING / NON-BLOCKING findings and an EVIDENCE line; a different sub-agent fixes blocking findings; repeat with a new reviewer, at most 2 rounds (round 1 reviews the diff, round 2 verifies the fixes). Zero blocking findings = review-green. Still blocking after round 2, or the same finding twice with no change in the diff -> PARK with reason review; the third round is the owner's call, never yours, and never taken by rewriting a refused brief by hand. Never reach green by deleting or skipping a test, loosening an assertion or lowering a threshold.
 Whatever your LAST action depends on runs in the FOREGROUND: the final gate and any command whose result you must act on before ending the turn are run without run_in_background; long intermediate runs may still go to the background. A headless session that ends its turn to wait for a background task exits right there, the task is killed, and the RESULT line below is never written.
@@ -1394,7 +1399,7 @@ for pass in 1 2 3; do
     needs=$(trim "${needs:-}")
     note=$(trim "${note:-}")
     # A line with no `|`, or a truncated one, used to start a story on the
-    # branch feat/<prefix>-<id>-  with an empty slug. Both fields are mandatory.
+    # branch <namespace>/<prefix>-<id>-  with an empty slug. Both fields are mandatory.
     if [ -z "$slug" ]; then
       log "BLOCKED $id — malformed queue line: no slug (a queue line is 'id|slug|needs|note')"
       [ $DRY -eq 0 ] && record_state "$id" BLOCKED-queue "malformed queue line: no slug"
@@ -1402,7 +1407,7 @@ for pass in 1 2 3; do
     fi
     case "$slug" in
       *[!A-Za-z0-9._-]*)
-        log "BLOCKED $id — slug '$slug' must be [A-Za-z0-9._-]: it becomes the branch feat/$BRANCH_PREFIX-$id-$slug, and a space or a slash there fails inside the story session, hours later"
+        log "BLOCKED $id — slug '$slug' must be [A-Za-z0-9._-]: it becomes the branch $(story_branch "$id" "$slug"), and a space or a slash there fails inside the story session, hours later"
         [ $DRY -eq 0 ] && record_state "$id" BLOCKED-queue "slug '$slug' is not a valid branch name fragment"
         continue;;
     esac

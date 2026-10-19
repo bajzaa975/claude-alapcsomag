@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## Unreleased
+- night-run: new optional `config.env` key `BRANCH_NAMESPACE` (default `feat`) sets the first segment of every story branch, `<BRANCH_NAMESPACE>/<BRANCH_PREFIX>-<id>-<slug>`, in the story prompt, the brief, the push allow rules and the supervisor's night-PR match. The default changes nothing; an invalid value stops `run.sh` and `supervise.sh` with exit 2.
+
 ## 1.20.0
 - night-run: the watcher now notifies by default. With `WATCH_NOTIFY_CMD` unset, the new `notify.sh` pushes status changes and each new terminal state row (`<id> <token>`, never paths or reasons) to ntfy.sh (`ORCH_NTFY_TOPIC`, else the first non-empty line of `~/.claude/bajzi/ntfy-topic`) and, on Windows, shows a balloon toast (off with `ORCH_NOTIFY_NO_TOAST=1`). A failure is one WARNING line. Test/override server: `ORCH_NTFY_SERVER` (default `https://ntfy.sh`).
 

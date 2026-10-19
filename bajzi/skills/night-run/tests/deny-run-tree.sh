@@ -81,7 +81,7 @@ render(){ # <out> [extra deny rule...]: substitute the config.env values, drop w
 import json, os, re, sys
 tmpl, out, base, night = sys.argv[1:5]
 d = json.load(open(tmpl))
-sub = {"<BASE_DIR>": base, "<NIGHT_DIR>": night, "<BASE_BRANCH>": "dev", "<BRANCH_PREFIX>": "feat/", "<project>": "app"}
+sub = {"<BASE_DIR>": base, "<NIGHT_DIR>": night, "<BASE_BRANCH>": "dev", "<BRANCH_PREFIX>": "feat/", "<BRANCH_NAMESPACE>": "feat", "<project>": "app"}
 for k in ("allow", "deny", "ask"):
     if k not in d["permissions"]:
         continue

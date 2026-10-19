@@ -25,7 +25,7 @@
 #   SUPERVISE_FORCE_EVERY_MIN=120  minutes (>= 0): an Opus tick at least this often even when healthy;
 #                                0 = gate off, every tick runs Opus (the rollback switch)
 #   SUPERVISE_DEADLINE_MIN=60    minutes (>= 1) before deadline_epoch with stories left = a trip
-#   NIGHT_DIR                    required; REPO, BASE_BRANCH, BRANCH_PREFIX, REQUIRED_CHECK for the PR trip;
+#   NIGHT_DIR                    required; REPO, BASE_BRANCH, BRANCH_NAMESPACE, BRANCH_PREFIX, REQUIRED_CHECK for the PR trip;
 #                                CI_WAIT_MINUTES (run.sh's, default 45) for the stall trip's CI-wait allowance
 #
 # EACH ITERATION, after the sleep
@@ -49,7 +49,7 @@
 #                            + CI_WAIT_MINUTES (default 45); never all of wt/, heartbeat, logs/<id>.log or the
 #                            supervisor's own files; skipped while quota-until holds a future epoch
 #        pr-green:#<n> / pr-red:#<n>    ONE `gh pr list --limit 500` per check: an open night PR (head
-#                            feat/<BRANCH_PREFIX>-<id>-* whose id is in tonight's queue or state file with no
+#                            <BRANCH_NAMESPACE>/<BRANCH_PREFIX>-<id>-* whose id is in tonight's queue or state file with no
 #                            is_done row, or supervise-* created at or after the earlier of started_epoch and
 #                            this supervisor's start) whose REQUIRED_CHECK jobs all completed SUCCESS|SKIPPED|
 #                            NEUTRAL / any FAILURE|TIMED_OUT|STARTUP_FAILURE|CANCELLED more than
@@ -139,6 +139,9 @@ for v in SUPERVISE_STALL_MIN SUPERVISE_FORCE_EVERY_MIN SUPERVISE_DEADLINE_MIN; d
   echo "$PROG: $v must be a whole number of minutes >= $min, got '$val'" >&2; exit 2
 done
 REPO=${REPO:-}; BASE_BRANCH=${BASE_BRANCH:-}; BRANCH_PREFIX=${BRANCH_PREFIX:-}; REQUIRED_CHECK=${REQUIRED_CHECK:-}
+BRANCH_NAMESPACE=${BRANCH_NAMESPACE:-feat}   # run.sh's key: story branches are <ns>/<BRANCH_PREFIX>-<id>-<slug>
+ns_re='^[abcdefghijklmnopqrstuvwxyz0123456789][abcdefghijklmnopqrstuvwxyz0123456789._-]{0,30}$'
+[[ "$BRANCH_NAMESPACE" =~ $ns_re ]] || { echo "$PROG: BRANCH_NAMESPACE must match $ns_re, got '$BRANCH_NAMESPACE'" >&2; exit 2; }
 # run.sh validates it; here only the gate's CI-wait allowance reads it (unusable = the default 45)
 case "${CI_WAIT_MINUTES:-}" in ''|*[!0-9]*) CI_WAIT_MINUTES=45;; *) CI_WAIT_MINUTES=$((10#$CI_WAIT_MINUTES));; esac
 
@@ -295,11 +298,11 @@ last_opus(){ # supervise.last-opus when it belongs to this run (>= run_floor), e
   l=$(head -1 "$LAST_OPUS" 2>/dev/null | tr -dc '0-9'); fl=$(run_floor)
   if [ -n "$l" ] && { [ -z "$fl" ] || [ "$l" -ge "$fl" ]; }; then printf '%s' "$l"; else printf '%s' "$SUP_START"; fi
 }
-pr_story(){ # head -> the LONGEST queue/state id it carries as feat/<prefix>-<id>- (S1 never claims S10's PR)
+pr_story(){ # head -> the LONGEST queue/state id it carries as <ns>/<prefix>-<id>- (S1 never claims S10's PR)
   local best="" id
   while read -r id; do
     [ -n "$id" ] || continue
-    case "$1" in "feat/$BRANCH_PREFIX-$id-"*) [ "${#id}" -gt "${#best}" ] && best=$id;; esac
+    case "$1" in "$BRANCH_NAMESPACE/$BRANCH_PREFIX-$id-"*) [ "${#id}" -gt "${#best}" ] && best=$id;; esac
   done < <(queue_ids; awk '{print $1}' "$(state_file)" 2>/dev/null)
   printf '%s' "$best"
 }
@@ -356,7 +359,7 @@ pr_trips(){ # gh rows (ERR = gh failed) -> pr-green:#n / pr-red:#n tokens, or gh
       # an earlier night's supervise-* PR (created before this run) is not tonight's; undatable counts
       supervise-*) case "$c" in ''|*[!0-9]*) :;; *) [ -n "$fl" ] && [ "$c" -lt "$fl" ] && continue;; esac;;
       # an id in neither tonight's queue nor its state file is an earlier night's PR
-      "feat/$BRANCH_PREFIX-"*) id=$(pr_story "$head"); { [ -z "$id" ] || is_done "$id"; } && continue;;
+      "$BRANCH_NAMESPACE/$BRANCH_PREFIX-"*) id=$(pr_story "$head"); { [ -z "$id" ] || is_done "$id"; } && continue;;
       *) continue;;
     esac
     out="$out pr-$v:#$n"

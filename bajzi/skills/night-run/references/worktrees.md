@@ -16,9 +16,9 @@ record says this run created it, and every check fails towards KEEP.
 ## 1. Naming
 
     <path>    $NIGHT_DIR/wt/<id>                     e.g. ~/night-runs/example-app/wt/S49
-    <branch>  feat/<BRANCH_PREFIX>-<id>-<slug>       e.g. feat/app-S49-invoice-pdf
+    <branch>  <BRANCH_NAMESPACE>/<BRANCH_PREFIX>-<id>-<slug>   e.g. feat/app-S49-invoice-pdf
 
-`NIGHT_DIR` and `BRANCH_PREFIX` come from `config.env`; `<id>` and `<slug>` are
+`NIGHT_DIR`, `BRANCH_PREFIX` and the optional `BRANCH_NAMESPACE` (default `feat`) come from `config.env`; `<id>` and `<slug>` are
 columns 1 and 2 of the queue line. Trees live under the run's own night
 directory, never in `$HOME`: cleanup is then scoped by construction — everything
 under `wt/` belongs to this project's night runs and nothing else does.
@@ -33,7 +33,7 @@ Tab-separated, no header, one row per tree the run creates:
 |---|---------|------------------------------------------------------------|
 | 1 | id      | the queue id, e.g. `S49`                                    |
 | 2 | path    | absolute path of the worktree, `$NIGHT_DIR/wt/<id>`         |
-| 3 | branch  | full branch name, `feat/<BRANCH_PREFIX>-<id>-<slug>`        |
+| 3 | branch  | full branch name, `<BRANCH_NAMESPACE>/<BRANCH_PREFIX>-<id>-<slug>` |
 | 4 | created | ISO-8601 UTC, e.g. `2026-09-18T01:12:44Z`                   |
 
 The **story session** appends its own row, right after it creates or resumes the

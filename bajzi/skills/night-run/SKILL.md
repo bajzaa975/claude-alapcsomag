@@ -121,7 +121,7 @@ opens nothing. Anywhere below that a path is meant, it is spelled `<BASE>`; `<RE
 only where the `owner/name` value is wanted. There is no third spelling.
 
 0. **`config.env` — resolve and validate it BEFORE anything reads it.** It is the single
-   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the sixteen
+   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the seventeen
    PHASE C placeholders, and `BASE` in particular is the directory the allowlist is
    installed into and every story session starts from — an invented value points the whole
    night at the wrong tree.
@@ -665,7 +665,7 @@ Then write into `~/night-runs/<project>/`:
   re-rendered, never edited by hand and never handed to the owner.
 - `queue.txt`, one line per story in exactly the format the runner parses (`#` starts a
   comment): `<id>|<slug>|<needs>|<note>`.
-  `<slug>`: lowercase, hyphenated, <= 5 words (it becomes `feat/<BRANCH_PREFIX>-<id>-<slug>`).
+  `<slug>`: lowercase, hyphenated, <= 5 words (it becomes `<BRANCH_NAMESPACE>/<BRANCH_PREFIX>-<id>-<slug>`, namespace default `feat`).
   `<needs>`: `-` for none, otherwise the NUMBER of a PR that must be MERGED first.
   `<note>`: the acceptance criteria, one line — the reviewer is given this verbatim, so it
   may NEVER be empty and never `-` (that is the needs column's "none" value, not this
@@ -709,9 +709,10 @@ Then write into `~/night-runs/<project>/`:
   (`SUPERVISE MISCONFIGURED ... missing or unrendered`), so the supervisor would do nothing all night.
 - `BRIEF.md`, rendered from `templates/BRIEF.md.tmpl` in three steps, in this order.
 
-  **1. Substitute these SIXTEEN placeholders, and only these sixteen.**
+  **1. Substitute these SEVENTEEN placeholders, and only these seventeen.**
   `{{PROJECT}} {{REPO}} {{BASE}} {{BASE_BRANCH}} {{BRANCH_PREFIX}} {{NIGHT_DIR}} {{MODEL}}
-  {{REQUIRED_CHECK}} {{PER_STORY_TIMEOUT}}` come from the same-named `config.env` fields;
+  {{REQUIRED_CHECK}} {{PER_STORY_TIMEOUT}} {{BRANCH_NAMESPACE}}` come from the same-named `config.env` fields
+  (`BRANCH_NAMESPACE` is optional: `feat` when unset);
   `{{NIGHT_RULES}}` is the full body of the project's `docs/NIGHT-RULES.md`, verbatim;
   `{{ADDON_RULES}}` is the body of every `addon-brief` block PHASE A step 9 collected,
   verbatim, in `ADDON_SKILLS` order, joined with one blank line — exactly
@@ -805,12 +806,13 @@ Then write into `~/night-runs/<project>/`:
   re-inject a live placeholder, and must be deleted from the project's file.
 
 `config.env` is NOT rendered here — PHASE A step 0 created and validated it, because steps
-3-5 and the sixteen placeholders above read it. If it is still missing at this point, step 0
+3-5 and the seventeen placeholders above read it. If it is still missing at this point, step 0
 was skipped: go back and do it, do not improvise values. Render only
 `settings.local.json`, from `templates/settings.local.json.tmpl`, for PHASE E to install.
 The JSON template is NOT copy-ready and its own `_comment_placeholders` says what it needs:
 
-- `<BASE_BRANCH>` and `<BRANCH_PREFIX>` from `config.env`, `<project>` from `PROJECT`, and
+- `<BASE_BRANCH>` and `<BRANCH_PREFIX>` from `config.env`, `<BRANCH_NAMESPACE>` from its optional
+  `BRANCH_NAMESPACE` (`feat` when unset), `<project>` from `PROJECT`, and
   `<NIGHT_DIR>` / `<BASE_DIR>` from `config.env`'s `NIGHT_DIR` and `BASE` — ABSOLUTE, no
   trailing slash, NEVER `~`: a `Bash(...)` rule is matched against the raw command text, so a
   `~` in the rule only ever matches a literal tilde. These two scope the `git -C` allow rules

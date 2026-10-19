@@ -21,7 +21,9 @@
     BASE                 absolute path of the base worktree every story
                          session is started from
     BASE_BRANCH          branch stories branch off and merge into
-    BRANCH_PREFIX        short prefix in feat/<prefix>-<id>-<slug>
+    BRANCH_NAMESPACE     first branch segment, config.env's BRANCH_NAMESPACE
+                         (default feat): <namespace>/<prefix>-<id>-<slug>
+    BRANCH_PREFIX        short prefix in <namespace>/<prefix>-<id>-<slug>
     NIGHT_DIR            absolute path of the project's night directory
     MODEL                model id of the per-story orchestrator session
     REVIEWER_MODEL       entry [0] of the reviewer allow-list: the review model
@@ -321,7 +323,7 @@ cram to beat the threshold: a story that dies mid-write is strictly worse.
 Paths and names are fixed:
 
     worktree   {{NIGHT_DIR}}/wt/<id>/
-    branch     feat/{{BRANCH_PREFIX}}-<id>-<slug>        slug <= 5 words, lowercase, hyphenated
+    branch     {{BRANCH_NAMESPACE}}/{{BRANCH_PREFIX}}-<id>-<slug>        slug <= 5 words, lowercase, hyphenated
 
 Always `git fetch` first, from `{{BASE}}` (the checkout on disk):
 
@@ -345,11 +347,11 @@ test -d "{{NIGHT_DIR}}/wt/<id>" && echo TREE_EXISTS
 
 # 2 does the branch exist on the remote?
 /usr/bin/git -C "{{BASE}}" ls-remote --exit-code --heads origin \
-  "feat/{{BRANCH_PREFIX}}-<id>-<slug>" && echo REMOTE_BRANCH
+  "{{BRANCH_NAMESPACE}}/{{BRANCH_PREFIX}}-<id>-<slug>" && echo REMOTE_BRANCH
 
 # 3 does it exist locally?
 /usr/bin/git -C "{{BASE}}" rev-parse --verify --quiet \
-  "refs/heads/feat/{{BRANCH_PREFIX}}-<id>-<slug>" && echo LOCAL_BRANCH
+  "refs/heads/{{BRANCH_NAMESPACE}}/{{BRANCH_PREFIX}}-<id>-<slug>" && echo LOCAL_BRANCH
 ```
 
 Then take EXACTLY ONE of three cases:
@@ -386,7 +388,7 @@ Then take EXACTLY ONE of three cases:
 2. **No tree, but `REMOTE_BRANCH` or `LOCAL_BRANCH` printed** → attach it:
 
    ```bash
-   /usr/bin/git -C "{{BASE}}" worktree add "{{NIGHT_DIR}}/wt/<id>" "feat/{{BRANCH_PREFIX}}-<id>-<slug>"
+   /usr/bin/git -C "{{BASE}}" worktree add "{{NIGHT_DIR}}/wt/<id>" "{{BRANCH_NAMESPACE}}/{{BRANCH_PREFIX}}-<id>-<slug>"
    ```
 
    Never invent a suffixed second branch (`-v2`, `-new`). Two branches for one
@@ -395,7 +397,7 @@ Then take EXACTLY ONE of three cases:
    ref, never from whatever the local base branch happens to point at:
 
    ```bash
-   /usr/bin/git -C "{{BASE}}" worktree add "{{NIGHT_DIR}}/wt/<id>" -b "feat/{{BRANCH_PREFIX}}-<id>-<slug>" "origin/{{BASE_BRANCH}}"
+   /usr/bin/git -C "{{BASE}}" worktree add "{{NIGHT_DIR}}/wt/<id>" -b "{{BRANCH_NAMESPACE}}/{{BRANCH_PREFIX}}-<id>-<slug>" "origin/{{BASE_BRANCH}}"
    ```
 
 Immediately after creating a tree, append one tab-separated row to
@@ -679,7 +681,7 @@ them a blocker.
 ### 5.1 How to read CI
 
 ```bash
-gh run list --branch "feat/{{BRANCH_PREFIX}}-<id>-<slug>" --event pull_request --limit 3 --json status,conclusion,headSha,event
+gh run list --branch "{{BRANCH_NAMESPACE}}/{{BRANCH_PREFIX}}-<id>-<slug>" --event pull_request --limit 3 --json status,conclusion,headSha,event
 ```
 
 - **Only a `pull_request`-event run counts.** A `workflow_dispatch`, `push` or
@@ -719,7 +721,7 @@ gh run list --branch "feat/{{BRANCH_PREFIX}}-<id>-<slug>" --event pull_request -
 
 CLEAN UP AFTER A GREEN MERGE, in this order, in the same session (squash-merge
 makes the branch's real commits unreachable once the branch is gone, so the tag
-is the only copy). The story's branch is `feat/{{BRANCH_PREFIX}}-<id>-<slug>`;
+is the only copy). The story's branch is `{{BRANCH_NAMESPACE}}/{{BRANCH_PREFIX}}-<id>-<slug>`;
 write it in full everywhere `<branch>` appears below, in DOUBLE quotes.
 
 1. `/usr/bin/git -C "{{BASE}}" fetch origin`, then tag the merged tip
