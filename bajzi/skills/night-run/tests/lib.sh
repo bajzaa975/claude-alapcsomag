@@ -16,6 +16,7 @@ NR_RUN=$NR_SKILL_DIR/run.sh
 # not source this library, uses the same variable and the same default).
 NR_SCRATCH=${NR_SCRATCH:-${TMPDIR:-/tmp}/night-run-tests}
 NR_PASS=0
+export ORCH_NTFY_TOPIC= ORCH_NTFY_TOPIC_FILE="$NR_SCRATCH/no-such-ntfy-topic" ORCH_NOTIFY_NO_TOAST=1   # tests never reach ntfy.sh or show a toast
 NR_FAIL=0
 
 ok(){   NR_PASS=$((NR_PASS+1)); printf 'PASS %s\n' "$*"; }

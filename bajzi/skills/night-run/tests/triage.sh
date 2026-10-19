@@ -23,6 +23,7 @@ WATCH=$HERE/../night-watch.sh
 
 NR_SCRATCH=${NR_SCRATCH:-${TMPDIR:-/tmp}/night-run-tests}
 mkdir -p "$NR_SCRATCH" || exit 1
+export ORCH_NTFY_TOPIC= ORCH_NTFY_TOPIC_FILE="$NR_SCRATCH/no-such-ntfy-topic" ORCH_NOTIFY_NO_TOAST=1   # tests never reach ntfy.sh or show a toast
 WT=$(mktemp -d "$NR_SCRATCH/triage.XXXXXX") || exit 1
 FAILED=0
 FAKE_PIDS=""

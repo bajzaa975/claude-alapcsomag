@@ -21,6 +21,7 @@ WATCH=$HERE/../night-watch.sh
 
 NR_SCRATCH=${NR_SCRATCH:-${TMPDIR:-/tmp}/night-run-tests}
 mkdir -p "$NR_SCRATCH" || exit 1
+export ORCH_NTFY_TOPIC= ORCH_NTFY_TOPIC_FILE="$NR_SCRATCH/no-such-ntfy-topic" ORCH_NOTIFY_NO_TOAST=1   # tests never reach ntfy.sh or show a toast
 WT=$(mktemp -d "$NR_SCRATCH/watch.XXXXXX") || exit 1
 FAILED=0
 # Scenarios that probe runner liveness need flock; without it they SKIP, not FAIL.
@@ -376,6 +377,59 @@ else
   if [ "$RC" = 0 ]; then ok "17 exit 0 on STOPPED"; else bad "17 expected exit 0, got $RC"; fi
   case "$SA" in *"ignoring stale STOP"*) bad "17 the STOP was treated as an earlier night's";; *) ok "17 the STOP was not called stale";; esac
 fi
+
+# --------------------------- 18. default notifier (WATCH_NOTIFY_CMD unset) via notify.sh ---
+cat >"$WT/bin/curl" <<EOS
+#!/usr/bin/env bash
+{ printf 'ARGS %s\n' "\$*"; cat; printf '\n'; } >>"$WT/curl.log"
+exit \$(cat "$WT/curl.rc" 2>/dev/null || echo 0)
+EOS
+chmod +x "$WT/bin/curl"
+printf 'secret-topic-xyz\n' >"$WT/topic"
+ncalls(){ /usr/bin/grep -c '^ARGS ' "$WT/curl.log" 2>/dev/null || true; }
+ND=$(mkenv dn1); hold "$ND"; touch "$ND/heartbeat"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\n' "$WT/topic" >>"$ND/config.env"
+: >"$WT/curl.log"; echo 0 >"$WT/curl.rc"
+run_watch "$ND" >/dev/null; touch "$ND/heartbeat"; run_watch "$ND" >/dev/null
+N=$(ncalls); CL=$(cat "$WT/curl.log")
+if [ "$N" = 1 ]; then ok "18.1 status change + identical tick: exactly one curl call"; else bad "18.1 expected 1 curl call, got $N"; fi
+check "18.1 URL ends in the topic" "https://ntfy.sh/secret-topic-xyz" "$CL"
+check "18.1 Title header" "Title: night-run watchtest-dn1" "$CL"
+check "18.1 body has the status" "OK" "$(tail -1 "$WT/curl.log")"
+# 2. no topic
+ND=$(mkenv dn2); hold "$ND"; touch "$ND/heartbeat"; : >"$WT/curl.log"
+OUT=$(run_watch "$ND")
+if [ "$(ncalls)" = 0 ]; then ok "18.2 no topic: zero curl calls"; else bad "18.2 curl called without a topic"; fi
+case "$OUT" in *WARNING*) bad "18.2 WARNING without a topic";; *) ok "18.2 no WARNING without a topic";; esac
+# 3. curl fails
+ND=$(mkenv dn3); hold "$ND"; touch "$ND/heartbeat"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\n' "$WT/topic" >>"$ND/config.env"; echo 22 >"$WT/curl.rc"
+OUT=$(run_watch "$ND"); RC=$?
+if [ "$RC" = 0 ]; then ok "18.3 curl failure: normal exit"; else bad "18.3 exit $RC"; fi
+check "18.3 status line still printed" " OK runner=alive" "$OUT"
+N=$(printf '%s\n' "$OUT" | /usr/bin/grep -c 'WARNING: default notifier failed')
+if [ "$N" = 1 ]; then ok "18.3 exactly one WARNING"; else bad "18.3 expected 1 WARNING, got $N"; fi
+case "$OUT" in *secret-topic-xyz*) bad "18.3 the topic leaked into the watcher output";; *) ok "18.3 topic not in the output";; esac
+# 4. explicit WATCH_NOTIFY_CMD wins
+ND=$(mkenv dn4); hold "$ND"; touch "$ND/heartbeat"; echo 0 >"$WT/curl.rc"; : >"$WT/curl.log"; : >"$WT/notify.log"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\nWATCH_NOTIFY_CMD="%s"\n' "$WT/topic" "$WT/notify.sh" >>"$ND/config.env"
+run_watch "$ND" >/dev/null
+if [ "$(ncalls)" = 0 ] && [ -s "$WT/notify.log" ]; then ok "18.4 explicit WATCH_NOTIFY_CMD wins, curl untouched"; else bad "18.4 curl=$(ncalls) cmd=$(wc -l <"$WT/notify.log")"; fi
+# 5. per-item notify (live watcher)
+ND=$(mkenv dn5); hold "$ND"; touch "$ND/heartbeat"
+printf 'ORCH_NTFY_TOPIC_FILE="%s"\n' "$WT/topic" >>"$ND/config.env"; : >"$WT/curl.log"
+PATH="$WT/bin:$PATH" "$WATCH" --config "$ND/config.env" --interval 1 >"$WT/dn5.log" 2>&1 &
+W5=$!
+sleep 3; touch "$ND/heartbeat"
+printf 's2 MERGED 2026-09-18T02:00:00Z hidden-reason-text\ns3 DEFERRED-quota 2026-09-18T02:01:00Z resets=x\n' >>"$ND/state.txt"
+sleep 4; touch "$ND/heartbeat"
+kill -TERM "$W5" 2>/dev/null; wait "$W5" 2>/dev/null
+CL=$(cat "$WT/curl.log")
+N=$(printf '%s\n' "$CL" | /usr/bin/grep -c 's2 MERGED')
+if [ "$N" = 1 ]; then ok "18.5 new terminal row: one notify '<id> <token>'"; else bad "18.5 expected 1 's2 MERGED', got $N"; fi
+case "$CL" in *hidden-reason-text*) bad "18.5 the reason leaked";; *) ok "18.5 reason text not sent";; esac
+case "$CL" in *"s1 0"*) bad "18.5 pre-start row announced";; *) ok "18.5 rows before start not announced";; esac
+case "$CL" in *s3*) bad "18.5 non-terminal DEFERRED row announced";; *) ok "18.5 DEFERRED-* row not announced";; esac
 
 else echo "SKIP (no flock): scenarios 14-17"; fi
 # ------------------------------------------------------------- teardown -----

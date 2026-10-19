@@ -19,7 +19,11 @@
 # CONFIG KEYS (defaults when absent)
 #   WATCH_INTERVAL=900      seconds between ticks; 0 disables the watcher (exit 0)
 #   WATCH_MAX_RESTARTS=2    how many times a dead runner may be restarted
-#   WATCH_NOTIFY_CMD=""     optional command, gets ONE argument: the message
+#   WATCH_NOTIFY_CMD=""     optional command, gets ONE argument: the message. UNSET = the default
+#                           notifier notify.sh: ntfy.sh push to $ORCH_NTFY_TOPIC, else the first
+#                           non-empty line of ~/.claude/bajzi/ntfy-topic (none = skipped), plus a
+#                           Windows balloon toast unless ORCH_NOTIFY_NO_TOAST=1. A failure is one
+#                           WARNING line, never a failed watcher.
 #   WATCH_TRIAGE=1          tier 1: on every NEW terminal row in state.txt spawn ONE headless
 #                           `claude -p` tick (model WATCH_TRIAGE_MODEL, bypassPermissions) with
 #                           $NIGHT_DIR/WATCHER-BRIEF.md; 0 disables. Costs tokens only on events.
@@ -111,7 +115,8 @@
 #              unreadable df is NOT this — that is DISK-LOW, see above.
 #
 # NOTIFY happens on TRANSITIONS only (previous status kept in watch.status), and
-# on each restart: WATCH_NOTIFY_CMD "<message>" when set.
+# on each restart, and once per NEW state.txt row with a terminal token ("<id> <token>" only, never
+# the reason): WATCH_NOTIFY_CMD "<message>" when set, else notify.sh. Messages carry no absolute paths.
 #
 # ORPHANS are REPORTED, never signalled: the only process this script ever
 # signals is the `sleep` slice it started itself, when it is signalled in turn.
@@ -214,6 +219,7 @@ say(){ printf '%s %s\n' "$(now_iso)" "$*"; }
 # night-watch.sh AND the same config or NIGHT_DIR; a stale pid file is taken over) lives in
 # tick-lib.sh, shared with supervise.sh.
 TICK_LIB=$(cd "$(dirname "$0")" 2>/dev/null && pwd)/tick-lib.sh
+NOTIFY_SH=${TICK_LIB%/*}/notify.sh
 # shellcheck source=tick-lib.sh
 . "$TICK_LIB" || { echo "$PROG: cannot source $TICK_LIB" >&2; exit 2; }
 claim_pidfile "$PIDFILE"
@@ -310,7 +316,7 @@ read_run_start(){ # 0 = RUN_START is a usable epoch, 1 = this run cannot be date
   local raw v now_s
   RUN_START=""; RUN_START_WHY=""
   if [ ! -f "$META" ]; then
-    RUN_START_WHY="$META is missing — this run cannot be dated, so tonight's markers cannot be told from an older night's"
+    RUN_START_WHY="${META##*/} is missing — this run cannot be dated, so tonight's markers cannot be told from an older night's"
     return 1
   fi
   raw=$(meta_get started_epoch)
@@ -319,7 +325,7 @@ read_run_start(){ # 0 = RUN_START is a usable epoch, 1 = this run cannot be date
   # A SANE epoch only: an ISO timestamp squeezed through `tr -dc 0-9` becomes a
   # 14-digit number that would make every marker look stale for ever.
   if [ -z "$v" ] || [ "$v" -lt 1000000000 ] || [ "$v" -gt $((now_s + 86400)) ]; then
-    RUN_START_WHY="$META has no usable started_epoch (got '$raw')"
+    RUN_START_WHY="${META##*/} has no usable started_epoch (got '$raw')"
     return 1
   fi
   RUN_START=$v
@@ -370,7 +376,29 @@ notify(){ # message
   if [ -n "$WATCH_NOTIFY_CMD" ]; then
     "$WATCH_NOTIFY_CMD" "$msg" >/dev/null 2>&1 \
       || say "WARNING: WATCH_NOTIFY_CMD failed: $WATCH_NOTIFY_CMD"
+  else
+    "$NOTIFY_SH" "$msg" "night-run $PROJECT" >/dev/null 2>&1 \
+      || say "WARNING: default notifier failed (ntfy)"
   fi
+  return 0
+}
+
+# One notify per NEW state.txt row (first two fields only), terminal tokens only (DEFERRED-* is not).
+# Independent of WATCH_TRIAGE and the brief; ITEM_SEEN starts at the row count at watcher start.
+ITEM_SEEN=""
+item_notify(){
+  local sf n; sf=$(state_file)
+  [ -n "$sf" ] || return 0
+  n=$(wc -l <"$sf" 2>/dev/null | tr -dc '0-9'); [ -n "$n" ] || n=0
+  if [ -z "$ITEM_SEEN" ]; then ITEM_SEEN=$n; return 0; fi
+  [ "$n" -gt "$ITEM_SEEN" ] || { ITEM_SEEN=$n; return 0; }
+  local rows id tok; rows=$(tail -n "$((n - ITEM_SEEN))" "$sf"); ITEM_SEEN=$n
+  while read -r id tok _; do
+    [ -n "$tok" ] || continue
+    case "$tok" in DEFERRED-*) continue;; esac
+    notify "night-run $PROJECT: $id $tok"
+  done <<<"$rows"
+  return 0
 }
 
 maybe_notify(){ # status detail — only when the status CHANGED
@@ -516,7 +544,7 @@ tick(){
     1) runner=dead;;
     *) runner=dead; unknown=1
        if [ "$HAVE_FLOCK" -eq 0 ]; then unknown_why="flock is not installed — runner liveness cannot be tested"
-       else unknown_why="the flock probe on $FLOCK_FILE failed"; fi;;
+       else unknown_why="the flock probe on ${FLOCK_FILE##*/} failed"; fi;;
   esac
 
   local hb_age=-1
@@ -630,7 +658,7 @@ tick(){
   elif [ "$disk_bad" -eq 1 ]; then
     status=DISK-LOW
     if [ "$disk_txt" = "?" ]; then
-      detail="df could not read $BASE or $NIGHT_DIR — treated as NOT enough disk"
+      detail="df could not read BASE or NIGHT_DIR — treated as NOT enough disk"
     else
       detail="free disk ${disk_txt} is below DISK_FLOOR_GB=${DISK_FLOOR_GB}G"
     fi
@@ -693,8 +721,10 @@ tick(){
 # ------------------------------------------------------------------ loop ---
 say "$PROG: watching $NIGHT_DIR (project=$PROJECT interval=${WATCH_INTERVAL}s max_restarts=$WATCH_MAX_RESTARTS floor=${DISK_FLOOR_GB}G once=$ONCE)"
 init_restart_budget
+item_notify   # baseline: rows that existed before this watcher started are not announced
 
 tick
+item_notify
 triage_check
 if [ $ONCE -eq 1 ] || [ "$TICK_EXIT" -eq 1 ]; then
   cleanup
@@ -721,6 +751,7 @@ while :; do
     if marker_of_this_run "$FINISHED" finished || stop_is_live; then break; fi
   done
   tick
+  item_notify
   [ "$TICK_EXIT" -eq 1 ] && break
 done
 

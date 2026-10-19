@@ -155,7 +155,10 @@ only where the `owner/name` value is wanted. There is no third spelling.
    - `WATCH_INTERVAL` (900) — seconds between watchdog ticks; `0` turns the watchdog off.
    - `WATCH_MAX_RESTARTS` (2) — how many times the watchdog may restart a dead runner.
      PHASE C writes it for each run's length (`Deadline and run length` there).
-   - `WATCH_NOTIFY_CMD` (none) — a command called with ONE argument, the message.
+   - `WATCH_NOTIFY_CMD` (none) — a command called with ONE argument, the message. Unset, the watcher
+     calls `notify.sh`: an ntfy.sh push to `$ORCH_NTFY_TOPIC` (else the first non-empty line of
+     `~/.claude/bajzi/ntfy-topic`; no topic = no push) and, on Windows, a balloon toast unless
+     `ORCH_NOTIFY_NO_TOAST=1`. Status changes and each new terminal state row are announced.
    - `QUOTA_MARGIN_SEC` (180) — seconds added to the announced usage-limit reset before a
      session is launched again; `run.sh` applies it once, when it writes `quota-until`.
    - `QUOTA_MAX_WAITS` (3) — how many usage-limit waits ONE run may take before it finishes.
