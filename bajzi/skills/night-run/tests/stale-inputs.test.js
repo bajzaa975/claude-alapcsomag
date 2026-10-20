@@ -432,11 +432,16 @@ test('BRIEF head comment admits the live tokens in the variant blocks', () => {
 });
 
 test('door-blast: BRIEF PR body requires Door and Blast radius; PHASE F lists one-way first, missing = unknown', () => {
-  const b = flat(BRIEF);
+  const i5 = BRIEF.indexOf('5. **One PR per story');
+  const b = flat(BRIEF.slice(i5, BRIEF.indexOf('\n---', i5)));
   has(b, '`Door: one-way`');
   has(b, '`Door: two-way`');
   has(b, '`Blast radius:');
   const f = flat(SKILL.slice(SKILL.indexOf('## PHASE F')));
   has(f, 'List `Door: one-way` PRs first');
   has(f, 'listed as `Door: unknown` and treated like one-way');
+  const ro = SKILL.indexOf('**Review order by reversibility.**');
+  const para = flat(SKILL.slice(ro, SKILL.indexOf('\n**', ro + 5)));
+  has(para, "quote each PR's `Door:` and `Blast radius:` lines");
+  has(para, 'never guess the value');
 });
