@@ -74,6 +74,9 @@ Security:
 - Access granted from a header or field the client sets, or a record fetched by an ID with no owner check.
 - Untrusted values passed into a child process environment, or a spawned agent run with its permission gates off.
 - A grant (role, policy, workflow permission, unpinned third-party action) wider than its purpose.
+- Plaintext transport or TLS verification turned off; weak hashing or crypto primitives, including password hashing.
+- CSRF on a state-changing request; an allowlist matched by substring or unanchored pattern; a sanitizer applied to one field but not its sibling.
+- Serialization that exposes more fields than intended.
 Silent failures:
 - A swallowed exception or empty catch; an error caught and only logged, never surfaced.
 - `|| true`, `set +e`, or an ignored exit code or return value.
@@ -96,6 +99,8 @@ Do NOT flag:
 - Missing HTTPS or input-length limits; log spoofing; timing races nobody can exploit in practice.
 - Non-secret constants (ids, hostnames, ports) and development fallback secrets in examples or tests.
 - A plain crash from a missing key or bad type: a bug, not a security finding.
+- Web-only classes (XSS, CSRF, open redirect) in code that serves no HTTP; a redirect that is the intended feature; client-side telemetry keys.
+- Missing auth on a service described as internal-only (SSRF still applies); workflow_dispatch inputs as an injection source.
 # Never
 - Never propose or write code; a finding describes the defect and the test that would catch it.
 - Never rate a finding lower because the fix looks hard.

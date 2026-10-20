@@ -1358,12 +1358,12 @@ rubric, derived copies and close policy are `docs/findings-format.md` + `bajzi/l
 The reviewer body carries an inline `# Checklist` (≤ 40 lines; inline because the agent prompt loads
 in every review and a separate file would be unreachable from other projects' cwd): security
 (injection into shell/SQL/path/template, secrets in code or logs, unsafe deserialization/eval, a new
-entry point without authz, unsafe temp files) and silent failures (swallowed exceptions, `|| true`
+entry point without authz, unsafe temp files, unescaped HTML/URL, open redirect or SSRF, weak random tokens, access from a spoofable field or a missing owner check, untrusted child-process env or a permission-bypassed agent, over-wide grants, TLS off or plaintext, weak hashing, CSRF, substring/unanchored allowlists, a sanitizer on one field but not its sibling, over-exposing serialization) and silent failures (swallowed exceptions, `|| true`
 or ignored exit codes, error-hiding fallbacks, logged-but-not-surfaced errors, defaults/optional
-chaining masking missing data, retries that end without an error). A Rules line requires a security
+chaining masking missing data, retries that end without an error, a broad catch, a stub/mock fallback outside tests). A Rules line requires a security
 finding to name source, sink and path, else it is not one. A DO-NOT-flag list excludes DoS/rate
 limiting, trusted inputs (env vars, the owner's CLI args, repo config), parameterized SQL, issues
-outside the diff and theoretical issues with no reachable path. Three further lenses (own wording) sit before it: tests (a test that cannot fail is minor; a missing test names the regression it would catch), comments (a comment the code now contradicts is minor, a finished-but-left TODO a nit) and data shapes (a type/schema that admits an invalid instance is major when it guards money, security or persisted data, else minor). `agents.test.js` pins all of it.
+outside the diff and theoretical issues with no reachable path, plus web-only classes in code that serves no HTTP, an intended redirect, client-side telemetry keys, missing auth on an internal-only service (SSRF excepted) and `workflow_dispatch` inputs. Three further lenses (own wording) sit before it: tests (a test that cannot fail is minor; a missing test names the regression it would catch), comments (a comment the code now contradicts is minor, a finished-but-left TODO a nit) and data shapes (a type/schema that admits an invalid instance is major when it guards money, security or persisted data, else minor). `agents.test.js` pins all of it.
 
 | Agent | model | tools | Input → output |
 |---|---|---|---|

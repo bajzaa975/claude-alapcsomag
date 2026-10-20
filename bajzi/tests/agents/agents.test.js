@@ -197,10 +197,10 @@ function checkChecklist(body) {
   const s = sec.indexOf('Security:'), f = sec.indexOf('Silent failures:'), d = sec.indexOf('Do NOT flag:');
   if (s < 0 || f <= s || d <= f) return 'Checklist needs Security:, Silent failures:, Do NOT flag: in that order';
   const parts = [
-    [sec.slice(s, f), [/Injection/, /Secrets/, /deserialization/, /authorization/, /Temp files/]],
+    [sec.slice(s, f), [/Injection/, /Secrets/, /deserialization/, /authorization/, /Temp files/, /TLS verification/, /weak hashing/, /CSRF/, /substring or unanchored/, /sibling/, /exposes more fields/]],
     [sec.slice(f, d), [/swallowed exception/, /\|\| true/, /fallback or default/, /Optional chaining/, /retry loop/]],
     [sec.slice(f, d), [/cannot fail/, /regression/, /contradicts/, /TODO/, /invalid instance/]],
-    [sec.slice(d), [/Denial of service/, /Trusted inputs/, /Parameterized SQL/, /already existed outside the diff/, /Theoretical issues/]],
+    [sec.slice(d), [/Denial of service/, /Trusted inputs/, /Parameterized SQL/, /already existed outside the diff/, /Theoretical issues/, /serves no HTTP/, /telemetry keys/, /intended feature/, /internal-only/, /workflow_dispatch/]],
   ];
   for (const [part, res] of parts) {
     for (const re of res) if (!re.test(part.join('\n'))) return `${re} not in its own sub-list`;
