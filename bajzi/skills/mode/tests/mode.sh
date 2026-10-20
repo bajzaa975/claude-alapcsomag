@@ -1377,8 +1377,8 @@ fi
 mbl="$TMP/hl-mbl.md"; { printf 'x'; i=0; while [ $i -lt 5000 ]; do printf 'ő'; i=$((i+1)); done; printf '\nnext\n'; } > "$mbl"
 out="$(hl_run "$mbl")"; body="$(hl_body "$out")"
 if [ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -le 8000 ] && [ -n "$body" ] \
-    && [ "$(printf '%s' "$body" | iconv -f UTF-8 -t UTF-8 2>&1 >/dev/null | wc -c)" -eq 0 ] \
-    && ! printf '%s' "$body" | grep -q 'next'; then
+   && [ "$(printf '%s' "$body" | iconv -f UTF-8 -t UTF-8 2>&1 >/dev/null | wc -c)" -eq 0 ] \
+   && ! printf '%s' "$body" | grep -q 'next'; then
     pass "7c over-long multibyte first line hard-cut on a character boundary"
 else
     fail "7c over-long multibyte first line" "${out:0:200}"
