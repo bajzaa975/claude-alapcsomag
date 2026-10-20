@@ -436,7 +436,8 @@ test('brief review: always-read listing, missing paths skipped, caps warn, base-
   };
   fs.mkdirSync(path.join(d, 'docs'));
   for (const f of ['a', 'b', 'c', 'd', 'e', 'f']) fs.writeFileSync(path.join(d, f), f);
-  const checks = Array.from({ length: 12 }, (_, i) => `- chk${i}: must hold`).join('\n');
+  const checks = Array.from({ length: 12 }, (_, i) => `- chk${i}: must hold` +
+    (i === 3 ? '\n  - keep3 sub' : '') + (i === 10 ? '\n  wrapped10 continuation\n  - sub10 bullet' : '')).join('\n');
   fs.writeFileSync(path.join(d, 'docs/review-policy.md'),
     `## Checks\n${checks}\n\n## Always read\n- a\n- \`missing\`\n- b\n- c\n- d\n- e\n- f\n`);
   g('init', '-q'); g('add', '.'); g('commit', '-qm', 'c0');
@@ -447,7 +448,7 @@ test('brief review: always-read listing, missing paths skipped, caps warn, base-
   assert.match(b, /^policy-warning: 12 checks entries \(cap 10\), extra entries ignored; 7 always read entries \(cap 5\), extra entries ignored$/m);
   assert.match(b, /^policy-changed: yes$/m);
   const pol = fs.readFileSync(path.join(d, 'runtime/briefs/s1-r1.policy.md'), 'utf8');
-  assert.match(pol, /chk9:/); assert.doesNotMatch(pol, /chk10:|wrapped10|sub10|chk11:/);
+  assert.match(pol, /chk9:/); assert.match(pol, /keep3 sub/); assert.doesNotMatch(pol, /chk10:|wrapped10|sub10|chk11:/);
   assert.doesNotMatch(pol, /^- (f|`missing`)$/m);
   fs.rmSync(d, { recursive: true, force: true });
 });
