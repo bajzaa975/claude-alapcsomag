@@ -62,18 +62,27 @@ Security:
 - Unsafe deserialization, or eval/exec of data that is not fixed in the code.
 - A new entry point (route, command, hook, handler) that skips the authorization check its siblings do.
 - Temp files or created files that are predictable, world-readable or left behind.
+- Untrusted data rendered into HTML or a URL unescaped, or used as a redirect target or server-side request address.
+- Guessable tokens or IDs made with a non-cryptographic random source.
+- Access granted from a header or field the client sets, or a record fetched by an ID with no owner check.
+- Untrusted values passed into a child process environment, or a spawned agent run with its permission gates off.
+- A grant (role, policy, workflow permission, unpinned third-party action) wider than its purpose.
 Silent failures:
 - A swallowed exception or empty catch; an error caught and only logged, never surfaced.
 - `|| true`, `set +e`, or an ignored exit code or return value.
 - A fallback or default that hides the error and returns plausible data.
 - Optional chaining or `?? default` that turns missing data into a quiet no-op.
 - A retry loop that gives up and ends without raising the error.
+- A broad catch that also hides unrelated errors, or a fallback to a stub or mock outside tests.
 Do NOT flag:
 - Denial of service, missing rate limits or resource exhaustion.
 - Trusted inputs: environment variables, the owner's own CLI arguments, repo config files.
 - Parameterized SQL.
 - Problems that already existed outside the diff.
 - Theoretical issues with no reachable path from an input.
+- Missing HTTPS or input-length limits; log spoofing; timing races nobody can exploit in practice.
+- Non-secret constants (ids, hostnames, ports) and development fallback secrets in examples or tests.
+- A plain crash from a missing key or bad type: a bug, not a security finding.
 # Never
 - Never propose or write code; a finding describes the defect and the test that would catch it.
 - Never rate a finding lower because the fix looks hard.
