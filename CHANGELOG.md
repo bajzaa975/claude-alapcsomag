@@ -2,7 +2,7 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-## Unreleased
+## 1.23.0
 - skills: new interview skills `bajzi:grilling` (model-invocable; numbered question rounds, decisions written to a record file with Proof lines, `Grilled: grilling <date> (Q1-Qn)` header), `/bajzi:grill-me` (user entry to it) and `/bajzi:respec-cards` (owner-approved spec cards; `Grilled: respec-cards <date> (cards NN-MM)` header). grilling and grill-me are adapted from https://github.com/mattpocock/skills (MIT, (c) 2026 Matt Pocock); see `bajzi/skills/grilling/NOTICE.md`.
 
 ## 1.22.0
