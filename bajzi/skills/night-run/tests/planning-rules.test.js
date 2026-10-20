@@ -41,6 +41,15 @@ test('PHASE B: restrictions are asked ONCE in ONE table, before the queue is dra
   assert.ok(SKILL.indexOf('| story | restriction | source line | recommendation |') < SKILL.indexOf('## PHASE C — Plan'));
 });
 
+test('PHASE B: numbered table, yes / yes except contract, narrative format in run.sh prompt', () => {
+  has(SKILL, '| # | story | restriction | source line | recommendation |');
+  has(SKILL, '`yes except <n>: <answer>` overrides single rows');
+  has(SKILL, "A `yes` is recorded as each row's recommendation being that row's answer");
+  has(SKILL, 'In the narrative, a BLOCKED or DEFERRED entry that');
+  has(flat(read('run.sh')), "'<n>. <question> -> recommended: <answer> (<why, <= 1 sentence>)'");
+  has(flat(read('run.sh')), "'yes except <n>: <answer>' overrides single rows");
+});
+
 test('PHASE B: no fait-accompli parked/external lists; advisor-gated items are built with the default as config', () => {
   const b = slice(SKILL, '## PHASE B — Collect', '## PHASE C — Plan');
   has(b, 'A "parked for owner" or "waiting on external answer" list never appears in the plan, the gate or the brief as a fait accompli.');
