@@ -46,6 +46,13 @@ test('extra variants: sql template literal, block run:, document.write', () => {
   assert.ok(scanText('document.write(x)', 'a.js').some(r => r.id === 'html-injection'));
 });
 
+test('list-item run: block closes at sibling key', () => {
+  const head = 'jobs:\n  b:\n    steps:\n      - run: |\n          echo hi\n';
+  const env = '        env:\n          T: ${{ github.event.issue.title }}\n';
+  assert.ok(!scanText(head + env, '.github/workflows/x.yml').some(r => r.id === 'gha-event-in-run'));
+  assert.ok(scanText(head + '          echo ${{ github.event.issue.title }}\n', '.github/workflows/x.yml').some(r => r.id === 'gha-event-in-run'));
+});
+
 test('benign set: zero hits', () => {
   const benign = [
     ['a.js', 'execFile("git", ["log", ref])'],

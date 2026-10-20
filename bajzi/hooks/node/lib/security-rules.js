@@ -6,7 +6,7 @@ const PY = ['.py', '.pyi', '.ipynb'];
 const DOC = ['.md', '.mdx', '.txt', '.rst'];
 
 const EVENT = /\$\{\{\s*github\.event\./;
-const RUN = /^([ \t]*)(?:-[ \t]+)?run:[ \t]*(.{0,300})/;
+const RUN = /^([ \t]*(?:-[ \t]+)?)run:[ \t]*(.{0,300})/;
 // Line scan (no multi-line regex): github.event.* inside a run: value, inline or in a | / > block.
 function ghaEventInRun(text) {
   let block = -1; // indent of the open run: block, -1 = none
