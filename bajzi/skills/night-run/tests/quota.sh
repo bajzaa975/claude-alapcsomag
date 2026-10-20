@@ -124,7 +124,10 @@ echo
 # The reset is two hours ahead of the clock, not a fixed time of day: a fixed
 # "11:05pm" fell inside run.sh's 15-minute past grace (or within the 3-minute
 # deadline) once a day, and the test then saw a correct wait as a failure.
+# Never in local 02:xx: on the autumn DST night that hour happens twice, and a
+# bare "2:30am" names two instants.
 want=$(( ( $(date +%s) + 7200 ) / 60 * 60 ))
+[ "$(TZ=Europe/Budapest date -d "@$want" +%H)" = 02 ] && want=$(( want + 3600 ))
 at=$(TZ=Europe/Budapest date -d "@$want" +%-I:%M%P)
 echo "== (D) 'resets $at (Europe/Budapest)' parsed exactly; no wait past the deadline =="
 setup D 'QUOTA_MARGIN_SEC="5"'
