@@ -192,13 +192,13 @@ Check the install with `claude plugin list`.
 | `autopilot` | `/bajzi:autopilot` | Autonomous work session: carries several tasks or a sprint through without questions, with a decision log and a closing report. |
 | `debt` | `/bajzi:debt --check\|--drain\|--calibrate` | Parked review debt (`runtime/findings/debt.md`): check the cap before a slice, drain it with one fixer pass plus one review, calibrate with a blind re-rate. |
 | `fix` | `/bajzi:fix <findings-file>` | Fixes a round-1 findings file through the fixer agent, runs the gate, commits, then runs the round-2 re-review. |
+| `grill-me` | `/bajzi:grill-me <plan, decision or idea>` | A relentless interview to sharpen a plan or design; runs `bajzi:grilling`. |
+| `grilling` | (model-invocable) | Numbered interview rounds that record each settled decision with a Proof line and mark the spec `Grilled:`. Adapted from mattpocock/skills (MIT). |
 | `handoff` | `/bajzi:handoff` | Saves session state into `runtime/handoff/<slug>.md` plus a suggested opening prompt for after `/clear`. |
 | `implement` | `/bajzi:implement <id>` | Implements one slice from `runtime/slices/<id>.md` through the implementer agents and commits it for review. |
 | `mode` | `/bajzi:mode` | Switches between day-run (autonomous, model-routed) and normal mode, or reports which is active. |
 | `modszertan` | `/bajzi:modszertan` | Selects or changes the repo's leading methodology (GSD, superpowers or neither). |
 | `night-run` | `/bajzi:night-run` | Plans an unattended multi-hour overnight run: preflight, queue, brief, approval gate, launch. |
-| `grill-me` | `/bajzi:grill-me <plan, decision or idea>` | A relentless interview to sharpen a plan or design; runs `bajzi:grilling`. |
-| `grilling` | (model-invoked only) | Numbered interview rounds that record each settled decision with a Proof line and mark the spec `Grilled:`. Adapted from mattpocock/skills (MIT). |
 | `project-setup` | `/bajzi:project-setup [--check]` | Applies or checks the repo's `.claude/project-profile.json`: project plugins, MCPs, methodology, instruction files, pre-commit gate. |
 | `radar` | `/bajzi:radar [now\|install]` | Biweekly read-only review of your Claude setup (plugins, Claude news, methodology, usage); adopt or decline its items. |
 | `respec-cards` | `/bajzi:respec-cards` | Specifies or re-specifies a system as owner-approved cards, interviewing question by question. |

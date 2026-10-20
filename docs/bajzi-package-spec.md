@@ -41,7 +41,7 @@ source, installs it with a skill and reports drift with a read-only check.
   profile, §6.10).
 - Agents and skills for a review/fix loop with a two-round cap and a findings format (§6.12).
 - `/bajzi:night-run`, an unattended multi-hour story runner (§6.2 night-run subsections, §2).
-- `/bajzi:radar` (§6.14), `/bajzi:which` (§6.17) `/bajzi:grill-me` and `/bajzi:respec-cards` (interview skills, §6.18) and a few small skills (§6.18).
+- `/bajzi:radar` (§6.14), `/bajzi:which` (§6.17), `/bajzi:grill-me` and `/bajzi:respec-cards` (interview skills, §6.18) and a few small skills.
 
 **Optional, not part of the package:** an external orchestrator may launch sessions and read the
 session status records (§6.5, §6.11).
