@@ -445,3 +445,15 @@ test('door-blast: BRIEF PR body requires Door and Blast radius; PHASE F lists on
   has(para, "quote each PR's `Door:` and `Blast radius:` lines");
   has(para, 'never guess the value');
 });
+
+test('BRIEF.md.tmpl 5.1: red CI runs ci-tail.sh, one fixer, park with the tail; placeholder rendered', () => {
+  const b = flat(read('templates', 'BRIEF.md.tmpl'));
+  has(b, '{{CI_TAIL_SH}}');
+  has(b, 'conclusion: failure');
+  has(b, 'Read ONLY that file');
+  has(b, 'Dispatch ONE fixer');
+  has(b, 'A SECOND failure parks the story');
+  has(b, '`CI failure tail:` heading');
+  has(flat(SKILL), '`{{CI_TAIL_SH}}`');
+  assert.ok(fs.existsSync(path.join(DIR, 'ci-tail.sh')), 'ci-tail.sh exists');
+});

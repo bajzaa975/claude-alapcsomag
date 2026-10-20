@@ -121,7 +121,7 @@ opens nothing. Anywhere below that a path is meant, it is spelled `<BASE>`; `<RE
 only where the `owner/name` value is wanted. There is no third spelling.
 
 0. **`config.env` — resolve and validate it BEFORE anything reads it.** It is the single
-   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the seventeen
+   source of `REPO`, `BASE`, `BASE_BRANCH`, `NIGHT_DIR`, `DISK_FLOOR_GB` and the eighteen
    PHASE C placeholders, and `BASE` in particular is the directory the allowlist is
    installed into and every story session starts from — an invented value points the whole
    night at the wrong tree.
@@ -720,7 +720,7 @@ Then write into `~/night-runs/<project>/`:
   (`SUPERVISE MISCONFIGURED ... missing or unrendered`), so the supervisor would do nothing all night.
 - `BRIEF.md`, rendered from `templates/BRIEF.md.tmpl` in three steps, in this order.
 
-  **1. Substitute these SEVENTEEN placeholders, and only these seventeen.**
+  **1. Substitute these EIGHTEEN placeholders, and only these eighteen.**
   `{{PROJECT}} {{REPO}} {{BASE}} {{BASE_BRANCH}} {{BRANCH_PREFIX}} {{NIGHT_DIR}} {{MODEL}}
   {{REQUIRED_CHECK}} {{PER_STORY_TIMEOUT}} {{BRANCH_NAMESPACE}}` come from the same-named `config.env` fields
   (`BRANCH_NAMESPACE` is optional: `feat` when unset);
@@ -730,6 +730,7 @@ Then write into `~/night-runs/<project>/`:
   `(no add-on rules)` when there is none (see "Add-on skills");
   `{{RUN_DATE}}` is `date +%F` of the night being planned;
   `{{REVIEWER_MODEL}}` is entry [0] of the reviewer allow-list (the `--first` read above);
+  `{{CI_TAIL_SH}}` = the absolute path of `ci-tail.sh` beside `run.sh` in the plugin copy that is running (`$(dirname "$RUN_SH")/ci-tail.sh`, `RUN_SH` as resolved for launch.sh);
   `{{DELEGATION_TABLE}}` and `{{DELEGATION_MODELS}}` are the two blocks of the `DELEGATION
   VARIANT` section in the template's opening comment (GLM variant at L2/L3, Claude-tier variant at
   L0/L1; the level is the one PHASE A step 8 resolved): the block is the lines strictly between the two fence lines, joined with a single newline, no trailing newline, and the closing fence's indent is not part of it
@@ -817,7 +818,7 @@ Then write into `~/night-runs/<project>/`:
   re-inject a live placeholder, and must be deleted from the project's file.
 
 `config.env` is NOT rendered here — PHASE A step 0 created and validated it, because steps
-3-5 and the seventeen placeholders above read it. If it is still missing at this point, step 0
+3-5 and the eighteen placeholders above read it. If it is still missing at this point, step 0
 was skipped: go back and do it, do not improvise values. Render only
 `settings.local.json`, from `templates/settings.local.json.tmpl`, for PHASE E to install.
 The JSON template is NOT copy-ready and its own `_comment_placeholders` says what it needs:
