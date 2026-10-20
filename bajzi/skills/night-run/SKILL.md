@@ -829,6 +829,9 @@ The JSON template is NOT copy-ready and its own `_comment_placeholders` says wha
   trailing slash, NEVER `~`: a `Bash(...)` rule is matched against the raw command text, so a
   `~` in the rule only ever matches a literal tilde. These two scope the `git -C` allow rules
   to the run's own trees; unscoped, `-C *` reached every git repo on this shared machine.
+- `<CI_TAIL_SH>` = exactly the value `{{CI_TAIL_SH}}` renders to in `BRIEF.md` (the absolute
+  `ci-tail.sh` path). The ci-tail allow names that one script, quoted as the brief writes it; its
+  only `*` is the run-id argument, so `bash -c ... ci-tail.sh` or another `*ci-tail.sh` never matches.
 - ONE `Edit(<glob>)` deny line per forbidden path in `docs/NIGHT-RULES.md` section 3, and
   one `Read(<glob>)` deny line per secret file. This translation is section 3's ONLY
   enforcement channel — sections 1, 5 and 6 are wired into the brief, section 3 is prose

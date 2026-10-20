@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ci-tail.sh <night-dir> <run-id> — last 80 lines of a failed CI run's log, ANSI-stripped and
 # secret-redacted, written to <night-dir>/ci/<run-id>.txt (path printed). Zero LLM tokens.
-# exit 2 = bad args, exit 1 = gh missing/failing (no file written).
-set -u
+# exit 2 = bad args, exit 1 = gh missing/failing or any pipeline stage failing (no file written).
+set -uo pipefail   # any failing stage (tr, sed, tail) fails the pipeline: no file, no path
 [ $# -eq 2 ] && [ -d "$1" ] && case "$2" in ''|*[!0-9]*) false;; esac || {
   echo "usage: ci-tail.sh <existing-night-dir> <digits-only-run-id>" >&2; exit 2; }
 ND=$1 RID=$2

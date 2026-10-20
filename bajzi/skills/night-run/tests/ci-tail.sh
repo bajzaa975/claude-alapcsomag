@@ -50,4 +50,8 @@ FAKE_GH_FAIL=1 bash "$CT" "$S/nd" 456 >/dev/null 2>&1; rc=$?
 : > "$S/empty"
 FAKE_GH_LOG="$S/empty" bash "$CT" "$S/nd" 789 >/dev/null 2>&1; rc=$?
 [ $rc = 1 ] && [ ! -e "$S/nd/ci/789.txt" ] && ok "empty log exit 1, no file" || bad "empty log rc=$rc"
+mkdir -p "$S/badsed"; printf '#!/usr/bin/env bash\nexit 1\n' > "$S/badsed/sed"; chmod +x "$S/badsed/sed"
+OUT=$(PATH="$S/badsed:$PATH" bash "$CT" "$S/nd" 321 2>/dev/null); rc=$?
+[ $rc = 1 ] && [ -z "$OUT" ] && [ ! -e "$S/nd/ci/321.txt" ] && [ ! -e "$S/nd/ci/321.txt.tmp" ] \
+  && ok "failing sed stage exit 1, no file, no path" || bad "failing sed rc=$rc out=$OUT"
 exit $FAILED

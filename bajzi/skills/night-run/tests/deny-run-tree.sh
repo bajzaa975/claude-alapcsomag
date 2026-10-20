@@ -81,7 +81,7 @@ render(){ # <out> [extra deny rule...]: substitute the config.env values, drop w
 import json, os, re, sys
 tmpl, out, base, night = sys.argv[1:5]
 d = json.load(open(tmpl))
-sub = {"<BASE_DIR>": base, "<NIGHT_DIR>": night, "<BASE_BRANCH>": "dev", "<BRANCH_PREFIX>": "feat/", "<BRANCH_NAMESPACE>": "feat", "<project>": "app"}
+sub = {"<CI_TAIL_SH>": "/opt/bajzi/skills/night-run/ci-tail.sh", "<BASE_DIR>": base, "<NIGHT_DIR>": night, "<BASE_BRANCH>": "dev", "<BRANCH_PREFIX>": "feat/", "<BRANCH_NAMESPACE>": "feat", "<project>": "app"}
 for k in ("allow", "deny", "ask"):
     if k not in d["permissions"]:
         continue
@@ -125,12 +125,12 @@ PY
 }
 bash_denied(){ # <name> <command>: rc 0 if a Bash(...) deny in $T/<name>.json matches <command>, with the measured
                # Bash-rule semantics (anchored, every '*' is '.*' and crosses spaces, ':*' = ' *', the rest literal)
-  (cd "$T" && py - "$1.json" "$2" <<'PY'
-import json, re, sys
+  (cd "$T" && KEY=${KEY:-deny} py - "$1.json" "$2" <<'PY'
+import json, os, re, sys
 def rx(b):
     b = b[:-2] + " *" if b.endswith(":*") else b
     return re.compile(".*".join(map(re.escape, b.split("*"))) + r"\Z", re.S)
-deny = [m[1] for r in json.load(open(sys.argv[1]))["permissions"]["deny"] if (m := re.fullmatch(r"Bash\((.*)\)", r))]
+deny = [m[1] for r in json.load(open(sys.argv[1]))["permissions"][os.environ["KEY"]] if (m := re.fullmatch(r"Bash\((.*)\)", r))]
 raise SystemExit(0 if any(rx(b).match(sys.argv[2]) for b in deny) else 1)
 PY
   )
@@ -417,6 +417,21 @@ ADDON=addondk.txt render rerun.json && post rerun.json denied.md
 (cd "$T" && py - rerun.json "$BASE" "$NIGHT" denied.md <check.py >rerun.out 2>&1); RC=$?
 [ "$RC" -eq 1 ] && grep -qxF 'ADDON ALLOW MISSING: Bash(mytool --no-docker *)' "$T/rerun.out"
 check $? "the post-render step re-run without its addon-allow.txt argument (docker step strips the add-on rule) fails with ADDON ALLOW MISSING"
+
+# --- (D2) the ci-tail allow names the EXACT rendered script path; '*' only in the run-id position ----
+CT=/opt/bajzi/skills/night-run/ci-tail.sh
+render citail.json
+(cd "$T" && py - citail.json "$CT" "$NIGHT" <<'PY'
+import json, sys
+a = [r for r in json.load(open(sys.argv[1]))["permissions"]["allow"] if "ci-tail" in r]
+sys.exit(0 if a == ['Bash(bash "%s" "%s" *)' % (sys.argv[2], sys.argv[3])] else 1)
+PY
+); check $? "exactly one ci-tail allow rule, no '*' before the run-id"
+KEY=allow bash_denied citail "bash \"$CT\" \"$NIGHT\" 123"; check $? "the brief's ci-tail command matches the allow rule"
+for c in "bash -c 'x' ci-tail.sh $NIGHT 1" "bash -c 'x' ci-tail.sh \"$NIGHT\" 1" \
+         "bash /other/evil-ci-tail.sh $NIGHT 1" "bash \"/other/evil-ci-tail.sh\" \"$NIGHT\" 1"; do
+  KEY=allow bash_denied citail "$c"; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
+done
 
 # --- (E) the supervisor's own settings: the night file minus THIS night's state-file deny ----------
 # The supervisor re-queues a story by deleting its state row, which Edit(~/night-runs/<project>/state*.txt)
