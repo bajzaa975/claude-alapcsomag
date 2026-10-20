@@ -1,6 +1,6 @@
 ---
 name: respec-cards
-description: Use when the owner wants a system specified (or re-specified) in their own words as approval cards — "spec cards", "re-spec", "kártyák", "interview me about X", a new project idea before any code, or an existing project whose plan, code and owner intent have drifted apart.
+description: Use when the owner wants a system specified (or re-specified) in their own words as approval cards — "spec cards", "re-spec", "interview me about X", a new project idea before any code, or an existing project whose plan, code and owner intent have drifted apart.
 disable-model-invocation: true
 ---
 
@@ -42,7 +42,7 @@ Each question you send has exactly these parts, in order:
 2. Today's fact in one line ("Today: …" — from code or the plan, with what you verified).
 3. Options (a)(b)(c); the recommended one FIRST and marked "(Recommended)" in the owner's language.
 4. `Why:` one line for the recommendation.
-Every label above ("Today", "Recommended", "Why") is written in the owner's language too (HU: Ma / Javasolt / Miért).
+Every label above ("Today", "Recommended", "Why") is written in the owner's language too.
 Name actors by name ("<maintainer> merges", "<owner> approves"), never "you/I". One decision per question;
 batches of up to 4 only via the question tool, which shows them one at a time.
 Legal points are NOT questions: read the statute text (not memory), decide, cite it (law + §), and state the
