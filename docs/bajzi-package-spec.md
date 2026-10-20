@@ -1350,9 +1350,19 @@ The bajzi night run (`/bajzi:night-run`, §6.2) is self-contained and needs none
 
 Plugin agents (`bajzi/agents/*.md`, auto-discovered, namespaced `bajzi:<name>`). Every file meets
 the agent contract in `agents.test.js:validateAgent` (alias-only `model`, allow-listed `tools`, body
-≤ 60 lines, Input/Output/Rules/Never, no `Agent`/`Task`, `name:` = the file basename, no frontmatter
+≤ 60 lines (the reviewer: ≤ 100, it carries the checklist), Input/Output/Rules/Never, no `Agent`/`Task`, `name:` = the file basename, no frontmatter
 key outside `name`/`description`/`model`/`tools` plus the optional `effort`; reviewer high, fixer medium, implementer medium, implementer-risk high). The findings file format, severity
 rubric, derived copies and close policy are `docs/findings-format.md` + `bajzi/lib/findings.js`.
+
+The reviewer body carries an inline `# Checklist` (≤ 40 lines; inline because the agent prompt loads
+in every review and a separate file would be unreachable from other projects' cwd): security
+(injection into shell/SQL/path/template, secrets in code or logs, unsafe deserialization/eval, a new
+entry point without authz, unsafe temp files) and silent failures (swallowed exceptions, `|| true`
+or ignored exit codes, error-hiding fallbacks, logged-but-not-surfaced errors, defaults/optional
+chaining masking missing data, retries that end without an error). A Rules line requires a security
+finding to name source, sink and path, else it is not one. A DO-NOT-flag list excludes DoS/rate
+limiting, trusted inputs (env vars, the owner's CLI args, repo config), parameterized SQL, issues
+outside the diff and theoretical issues with no reachable path. `agents.test.js` pins all three.
 
 | Agent | model | tools | Input → output |
 |---|---|---|---|

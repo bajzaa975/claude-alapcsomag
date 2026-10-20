@@ -49,6 +49,28 @@ Severity rubric (docs/findings-format.md; `why_severity` names one of these line
 - Changed logic without a test is at least major.
 - Round 2: judge only whether each round-1 finding is resolved; add a new finding only if the
   fix introduced it. Mark every finding `resolved` or `open`.
+- A security finding names the source (where untrusted data enters), the sink (where it does
+  harm) and the path between them; without all three it is not a security finding.
+# Checklist
+Look for these in the diff; each hit is a finding only if it passes the Rules above.
+Security:
+- Injection: untrusted text reaching a shell command, SQL string, file path or template.
+- Secrets written into code, logs, error messages or committed config.
+- Unsafe deserialization, or eval/exec of data that is not fixed in the code.
+- A new entry point (route, command, hook, handler) that skips the authorization check its siblings do.
+- Temp files or created files that are predictable, world-readable or left behind.
+Silent failures:
+- A swallowed exception or empty catch; an error caught and only logged, never surfaced.
+- `|| true`, `set +e`, or an ignored exit code or return value.
+- A fallback or default that hides the error and returns plausible data.
+- Optional chaining or `?? default` that turns missing data into a quiet no-op.
+- A retry loop that gives up and ends without raising the error.
+Do NOT flag:
+- Denial of service, missing rate limits or resource exhaustion.
+- Trusted inputs: environment variables, the owner's own CLI arguments, repo config files.
+- Parameterized SQL.
+- Problems that already existed outside the diff.
+- Theoretical issues with no reachable path from an input.
 # Never
 - Never propose or write code; a finding describes the defect and the test that would catch it.
 - Never rate a finding lower because the fix looks hard.

@@ -22,6 +22,7 @@ const ALLOWED_TOOLS = [
 ];
 const REQUIRED_HEADINGS = ['# Input', '# Output', '# Rules', '# Never'];
 const MAX_BODY_LINES = 60;
+const MAX_BODY_LINES_BY_AGENT = { reviewer: 100 }; // the reviewer carries the review checklist
 // The mandatory frontmatter keys; optional keys are listed below, any other key is refused.
 const ALLOWED_KEYS = ['name', 'description', 'model', 'tools'];
 const OPTIONAL_KEYS = ['effort']; // optional, values low|medium|high|xhigh|max
@@ -74,8 +75,9 @@ function validateAgent(content, name) {
 
   const trimmedBody = body.replace(/^\r?\n+/, '').replace(/\r?\n+$/, '');
   const bodyLines = trimmedBody === '' ? [] : trimmedBody.split(/\r?\n/);
-  if (bodyLines.length > MAX_BODY_LINES) {
-    return { ok: false, why: `body is ${bodyLines.length} lines, max ${MAX_BODY_LINES}` };
+  const maxLines = MAX_BODY_LINES_BY_AGENT[name] || MAX_BODY_LINES;
+  if (bodyLines.length > maxLines) {
+    return { ok: false, why: `body is ${bodyLines.length} lines, max ${maxLines}` };
   }
   for (const h of REQUIRED_HEADINGS) {
     if (!bodyLines.includes(h)) return { ok: false, why: `missing required heading: ${h}` };
@@ -181,6 +183,24 @@ test('reviewer rubric lines match docs/findings-format.md verbatim', () => {
   assert.strictEqual(lines.length, 5, `rubric lines found in the doc: ${lines.length}`);
   const body = read('reviewer.md');
   for (const l of lines) assert.ok(body.includes(l), `reviewer.md lacks: ${l}`);
+});
+
+// The review checklist is inline in the reviewer (a separate file is unreachable from other cwds).
+test('reviewer body pins the Checklist, the source/sink/path rule and the DO-NOT-flag list', () => {
+  const body = read('reviewer.md');
+  const lines = body.split(/\r?\n/);
+  const i = lines.indexOf('# Checklist');
+  assert.ok(i >= 0, 'missing # Checklist heading');
+  const j = lines.findIndex((l, k) => k > i && /^# /.test(l));
+  assert.ok(j - i <= 40, `Checklist is ${j - i} lines, max 40`);
+  assert.match(body, /security finding names the source .*, the sink .*and the path between them/s);
+  assert.match(body, /^Do NOT flag:$/m);
+  for (const re of [/Denial of service/, /Trusted inputs/, /Parameterized SQL/, /already existed outside the diff/, /Theoretical issues/]) {
+    assert.match(body, re);
+  }
+  for (const re of [/Injection/, /Secrets/, /deserialization/, /authorization/, /Temp files/, /swallowed exception/, /\|\| true/, /fallback or default/, /Optional chaining/, /retry loop/]) {
+    assert.match(body, re);
+  }
 });
 
 // implementer-risk is implementer plus exactly one inserted block (the Tier-1 rule) and a
