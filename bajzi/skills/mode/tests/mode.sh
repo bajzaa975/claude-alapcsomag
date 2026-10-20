@@ -1329,12 +1329,20 @@ hl_run() { # $1 = body generator output file
     HL="$TMP/hl"; rm -rf "$HL"; mkdir -p "$HL/runtime"; cp "$1" "$HL/runtime/HANDOFF.md"
     printf '{"cwd":"%s"}' "$HL" | bash "$BAJZI_DIR/hooks/handoff-load.sh" 2>/dev/null
 }
+# injected body decoded from the JSON (test data has no quotes/backslashes), up to the marker if any
+hl_body() {
+    local c="${1#*do NOT re-read the whole repo:\\n\\n}"
+    c="${c%%\\n\[handover truncated*}"; c="${c%%\"\}*}"
+    printf '%s' "${c//\\n/$'\n'}"
+}
 big="$TMP/hl-big.md"; : > "$big"
 i=0; while [ $i -lt 400 ]; do printf 'line %04d aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' $i >> "$big"; i=$((i+1)); done
 out="$(hl_run "$big")"
 if printf '%s' "$out" | grep -q '\[handover truncated at 8000 bytes: read .*HANDOFF.md for the rest\]' \
    && ! printf '%s' "$out" | grep -q 'line 0399' && printf '%s' "$out" | grep -q 'line 0100' \
-   && printf '%s' "$out" | grep -q '^{.*}$'; then
+   && printf '%s' "$out" | grep -q '^{.*}$' && printf '%s' "$out" | json_ok \
+   && [ "$(hl_body "$out" | LC_ALL=C wc -c)" -le 8000 ] \
+   && grep -qxF "$(hl_body "$out" | tail -n 1)" "$big"; then
     pass "7c 20KB handover truncated with marker naming the path"
 else
     fail "7c 20KB handover truncation" "$out"
@@ -1342,7 +1350,7 @@ fi
 small="$TMP/hl-small.md"; : > "$small"
 i=0; while [ $i -lt 40 ]; do printf 'line %04d aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' $i >> "$small"; i=$((i+1)); done
 out="$(hl_run "$small")"
-if ! printf '%s' "$out" | grep -q 'truncated' && printf '%s' "$out" | grep -q 'line 0039'; then
+if ! printf '%s' "$out" | grep -q 'truncated' && printf '%s' "$out" | [ "$(hl_body "$out")" = "$(cat "$small")" ]; then
     pass "7c 2KB handover injected unchanged"
 else
     fail "7c 2KB handover" "$out"
@@ -1350,11 +1358,29 @@ fi
 mb="$TMP/hl-mb.md"; : > "$mb"
 i=0; while [ $i -lt 300 ]; do printf 'árvíztűrő tükörfúrógép %04d őőőőőűűűűű\n' $i >> "$mb"; i=$((i+1)); done
 out="$(hl_run "$mb")"
-if printf '%s' "$out" | grep -q 'handover truncated' && printf '%s' "$out" | LC_ALL=C grep -qv $'[\x80-\xbf]$' \
+if printf '%s' "$out" | grep -q 'handover truncated' \
    && [ "$(printf '%s' "$out" | iconv -f UTF-8 -t UTF-8 2>&1 >/dev/null | wc -c)" -eq 0 ]; then
     pass "7c multibyte handover truncated without splitting a character"
 else
     fail "7c multibyte truncation" "$out"
+fi
+
+# 7c: over-long first line still injects; a line ending exactly at byte 8000 is kept
+long="$TMP/hl-long.md"; head -c 9000 /dev/zero | tr '\0' 'x' > "$long"; printf '\nnext\n' >> "$long"
+out="$(hl_run "$long")"
+if printf '%s' "$out" | grep -q 'handover truncated' && printf '%s' "$out" | grep -q 'xxxxxxxx'; then
+    pass "7c over-long first line still injected"
+else
+    fail "7c over-long first line" "${out:0:200}"
+fi
+edge="$TMP/hl-edge.md"; : > "$edge"
+i=0; while [ $i -lt 99 ]; do printf '%079d\n' $i >> "$edge"; i=$((i+1)); done
+printf 'EDGE%076d\nmore\nmore\n' 0 >> "$edge"
+out="$(hl_run "$edge")"
+if printf '%s' "$out" | grep -q 'EDGE' && ! printf '%s' "$out" | grep -q 'more'; then
+    pass "7c line ending at byte 8000 is kept"
+else
+    fail "7c byte-8001 newline" "${out:0:200}"
 fi
 
 # case 8: the claude shim was never invoked -- checked last, so it covers

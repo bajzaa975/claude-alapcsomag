@@ -16,7 +16,7 @@
 # HARD RULE: never silently load a handover written for a DIFFERENT task. Loading the wrong one
 # is the bug this file exists to prevent — when in doubt, list what is there and load nothing.
 #
-# DEPENDENCY-FREE: needs no jq, python or node — only bash, sed, awk, tr, cut, find, stat, date.
+# DEPENDENCY-FREE: needs no jq, python or node — only bash, sed, awk, tr, cut, head, wc, find, stat, date.
 # git is consulted for the branch name, but EVERY failure (no repo, detached HEAD, "dubious
 # ownership" on a root-owned repo, git not installed) falls back to the "default" slug.
 
@@ -188,7 +188,11 @@ ctx_body=$(awk '
 # Cap the injected handover: it is re-paid on every session start. Cut at the last full line, so a
 # multibyte character is never split.
 if [ "$(printf '%s' "$ctx_body" | wc -c)" -gt "$HANDOFF_CAP_BYTES" ]; then
-    ctx_body=$(printf '%s\n' "$ctx_body" | head -c "$(( HANDOFF_CAP_BYTES + 1 ))" | sed '$d')
+    trunc=$(printf '%s\n' "$ctx_body" | LC_ALL=C awk -v cap="$HANDOFF_CAP_BYTES" \
+        '{ if (n + length($0) > cap) exit; print; n += length($0) + 1 }')
+    # First line alone exceeds the cap: no full line fits, so hard-cut (dropping a split character).
+    [ -z "$trunc" ] && trunc=$(printf '%s' "$ctx_body" | head -c "$HANDOFF_CAP_BYTES" | { iconv -c -f UTF-8 -t UTF-8 2>/dev/null || cat; })
+    ctx_body=$trunc
     ctx_body=$(printf '%s\n[handover truncated at %s bytes: read %s for the rest]' \
         "$ctx_body" "$HANDOFF_CAP_BYTES" "$f")
 fi
