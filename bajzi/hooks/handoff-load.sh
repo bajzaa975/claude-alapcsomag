@@ -22,6 +22,8 @@
 
 set -uo pipefail
 
+HANDOFF_CAP_BYTES=8000   # max handover bytes injected as additionalContext
+
 input=$(cat 2>/dev/null || true)
 
 cwd=$(printf '%s' "$input" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
@@ -182,6 +184,14 @@ ctx_body=$(awk '
     !skip                        { print }
 ' "$f" 2>/dev/null)
 [ -z "$ctx_body" ] && ctx_body=$(cat "$f")
+
+# Cap the injected handover: it is re-paid on every session start. Cut at the last full line, so a
+# multibyte character is never split.
+if [ "$(printf '%s' "$ctx_body" | wc -c)" -gt "$HANDOFF_CAP_BYTES" ]; then
+    ctx_body=$(printf '%s\n' "$ctx_body" | head -c "$(( HANDOFF_CAP_BYTES + 1 ))" | sed '$d')
+    ctx_body=$(printf '%s\n[handover truncated at %s bytes: read %s for the rest]' \
+        "$ctx_body" "$HANDOFF_CAP_BYTES" "$f")
+fi
 
 ctx_json=$(printf 'The contents of %s (the previous session handover for this task) — continue from this, do NOT re-read the whole repo:\n\n%s' \
     "$f" "$ctx_body" | json_escape)

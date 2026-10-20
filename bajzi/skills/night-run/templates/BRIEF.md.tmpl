@@ -853,7 +853,8 @@ morning cannot use.
    story stands, what is done, the EXACT next step, decisions and pitfalls,
    affected file paths, the worktree path and branch, and the park reason if you
    parked. Create the directory if missing:
-   `mkdir -p {{BASE}}/runtime/handoff`.
+   `mkdir -p {{BASE}}/runtime/handoff`. Never write a token, key, password or
+   other secret into the handoff or notes — name where it lives instead.
 
    **The id is in the filename for a reason.** A single shared `night.md` is
    rewritten by every story of the night, so the last story to finish destroys

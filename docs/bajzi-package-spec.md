@@ -815,6 +815,14 @@ blocks). Tests: `mode.sh` case 12t (the causes: 12t2 off-list, 12t4/12t4b no-all
 **Config knobs**: `BAJZI_SAVER_LAUNCHER` (default `glm`) — the command L1/L2 check is on `PATH`
 before offering the saver block at all; `CC_PEAK_LOG` (default `~/.claude/glm-peak-refusals.log`).
 
+**handoff-load.sh size cap**: the handover injected as `additionalContext` (after the PROMPT
+section is stripped) is capped at `HANDOFF_CAP_BYTES` (8000, top of the script). A longer one is cut
+at the last full line within the cap (never mid-character) and followed by
+`[handover truncated at 8000 bytes: read <path> for the rest]`; shorter ones are injected unchanged.
+The `systemMessage` is unaffected. `/bajzi:handoff` and the night BRIEF tell sessions never to write
+secrets into a handover (it is re-injected every session; `runtime/` is never secret-scanned).
+Tests: `mode.sh` case 7c.
+
 **Tests**: `bash bajzi/skills/mode/tests/mode.sh` (day-run, saver and dispatch-guard cases in one
 suite).
 
