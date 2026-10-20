@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## Unreleased
+- skills: new interview skills `bajzi:grilling` (model-invocable; numbered question rounds, decisions written to a record file with Proof lines, `Grilled: grilling <date> (Q1-Qn)` header), `/bajzi:grill-me` (user entry to it) and `/bajzi:respec-cards` (owner-approved spec cards; `Grilled: respec-cards <date> (cards NN-MM)` header). grilling and grill-me are adapted from https://github.com/mattpocock/skills (MIT, (c) 2026 Matt Pocock); see `bajzi/skills/grilling/NOTICE.md`.
+
 ## 1.22.0
 - hooks: new PostToolUse security-pattern reminders for Edit/Write/MultiEdit/NotebookEdit: 16 rules (shell/eval/unsafe-deserialization calls, HTML and SQL string building, AWS key ids, private-key blocks, hardcoded passwords, TLS verify off, chmod 777, `${{ github.event.* }}` in workflow `run:`) scan only the new text and add one reminder per rule per file per session. Remind-only (never blocks), no LLM call, fails open; `.md/.mdx/.txt/.rst` files skip the code rules but keep the secret rules.
 - hooks: new PostToolUse read nudge: the first whole-file Read (no offset/limit) of a code file over 300 lines adds one reminder per file per session pointing at symbol lookup, `rtk read -l aggressive` or a sub-agent. Exempt: `runtime/briefs/` and non-code files. Remind-only, fails open.

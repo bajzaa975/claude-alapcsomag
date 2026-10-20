@@ -26,7 +26,7 @@
   "plugins": [
     {
       "id": "bajzi@bajzi-plugins",
-      "why": "own: setup/project-setup/handoff/autopilot/mode/night-run/implement/review/fix/debt/radar/which/modszertan/agents + hooks (HANDOFF reload, status line, context/secret/injection guards). agents/: task-class agent definitions (reviewer, fixer, implementer, implementer-risk); implement/review/fix/debt skills orchestrate them through lib/findings-cli.js"
+      "why": "own: setup/project-setup/handoff/autopilot/mode/night-run/implement/review/fix/debt/radar/which/modszertan/grilling/grill-me/respec-cards/agents + hooks (HANDOFF reload, status line, context/secret/injection guards). agents/: task-class agent definitions (reviewer, fixer, implementer, implementer-risk); implement/review/fix/debt skills orchestrate them through lib/findings-cli.js"
     },
     {
       "id": "cache-timer@bajzi-plugins",

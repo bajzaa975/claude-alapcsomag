@@ -41,7 +41,7 @@ source, installs it with a skill and reports drift with a read-only check.
   profile, §6.10).
 - Agents and skills for a review/fix loop with a two-round cap and a findings format (§6.12).
 - `/bajzi:night-run`, an unattended multi-hour story runner (§6.2 night-run subsections, §2).
-- `/bajzi:radar` (§6.14), `/bajzi:which` (§6.17) and a few small skills (§6.18).
+- `/bajzi:radar` (§6.14), `/bajzi:which` (§6.17) `/bajzi:grill-me` and `/bajzi:respec-cards` (interview skills, §6.18) and a few small skills (§6.18).
 
 **Optional, not part of the package:** an external orchestrator may launch sessions and read the
 session status records (§6.5, §6.11).
@@ -57,6 +57,7 @@ the findings; Tier 3 = the gate only, e.g. docs).
 
 | I want to change… | File(s) : function | Tests | Tier | Gotcha |
 |---|---|---|---|---|
+| Interview skills (`bajzi:grilling`, `/bajzi:grill-me`, `/bajzi:respec-cards`) | `bajzi/skills/grilling/SKILL.md`, `bajzi/skills/grilling/NOTICE.md`, `bajzi/skills/grill-me/SKILL.md`, `bajzi/skills/respec-cards/SKILL.md`, `bajzi/skills/respec-cards/prep-prompt.md` | `node --test bajzi/skills/grilling/tests/grilling.test.js` | 3 | The `Grilled:` and `NEVER RE-ASK` line formats are machine-checked markers; do not change them. |
 | Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`, saver-guard on `Edit\|Write\|MultiEdit\|NotebookEdit\|Agent\|Task\|Bash\|PowerShell`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`, session-signal on every tool, never any output, §6.5); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
 | Which hooks fail closed (`"onFailure": "block"`) | `bajzi/hooks/hooks.json`: only the PreToolUse `.*` -> `pre-tool.js` entry (timeout 10); `dispatch-guard.sh` stays fail-open (timeout 5) | `node --test bajzi/hooks/node/tests/hooks-onfailure.test.js` (also pins the `pre-tool.js` exit codes); mode.sh 13m pins the dispatch-guard wiring | 1 | §5.3 "Fail-closed wiring". Every normal path of `pre-tool.js` must exit 0 (or 2), else every tool call blocks. Never add the key to a non-guard entry. |
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` (runs from `pre-tool.js`/`post-tool.js`) | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in §6.6: keep the doc in sync. |
@@ -1869,7 +1870,12 @@ narrow list above (also under `CLAUDE_CONFIG_DIR`, also in the peak window outsi
 | `/bajzi:mode` (`bajzi/skills/mode/SKILL.md`) | Switches day-run mode on or off (`~/.claude/bajzi-mode`, `<cwd>/runtime/bajzi-mode`) and reports the mode and the saver level (§6.1, §6.3, §7.1). |
 | `/bajzi:autopilot` (`bajzi/skills/autopilot/SKILL.md`) | An autonomous session: the user is away and it works unsupervised, carries a list of tasks through without questions, keeps a decision log and writes a closing report. The multi-hour queue-driven variant is `/bajzi:night-run`. |
 | `/bajzi:modszertan` (`bajzi/skills/modszertan/SKILL.md`) | Selects or changes the repo's leading development methodology, written to `.claude/METHODOLOGY` (also written by `/bajzi:project-setup`, §6.10); `methodology-guard.sh` nags at SessionStart when no decision exists (§5.3). |
+| `bajzi:grilling` (`bajzi/skills/grilling/SKILL.md`) | Model-invocable interview: walks a design tree in numbered rounds (Q numbers global per session), recommends an answer per question, writes each settled decision plus a Proof line to the record file (`## Decisions` of the spec/plan, else `runtime/handoff/<topic>.md`) before the next round. Adapted from mattpocock/skills (MIT); see `NOTICE.md`. |
+| `/bajzi:grill-me` (`bajzi/skills/grill-me/SKILL.md`) | User-only entry (`disable-model-invocation`), typed as `/bajzi:grill-me <plan, decision or idea>`; calls `bajzi:grilling` by its plugin name. |
+| `/bajzi:respec-cards` (`bajzi/skills/respec-cards/SKILL.md`, `prep-prompt.md`) | User-only (`disable-model-invocation`), typed as `/bajzi:respec-cards`: specifies a system as owner-approved cards (modes, card map, question contract, answers files, prep-note worker prompt). |
 | `noise-filter.sh` / `noise-run.sh` | A `PreToolUse(Bash)` output compressor, unrelated to the guards (§5.3). |
+
+**Grilled: marker.** Two exact header lines record that a spec or plan was interviewed: `Grilled: grilling <YYYY-MM-DD> (Q1-Qn)` (written by `bajzi:grilling` directly under the spec/plan title) and `Grilled: respec-cards <YYYY-MM-DD> (cards NN-MM)` (written by `/bajzi:respec-cards` when cards are LOCKED). The card answers files end with `## CARD NN CLOSED (<date>) ... NEVER RE-ASK`. A future night-run gate greps these lines, so their format must not change. These skills are not in bajzi-cowork; `grill-me` calls `bajzi:grilling` by its plugin name.
 
 ### 6.19 Security-pattern reminders — technical
 

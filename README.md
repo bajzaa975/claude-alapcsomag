@@ -197,8 +197,11 @@ Check the install with `claude plugin list`.
 | `mode` | `/bajzi:mode` | Switches between day-run (autonomous, model-routed) and normal mode, or reports which is active. |
 | `modszertan` | `/bajzi:modszertan` | Selects or changes the repo's leading methodology (GSD, superpowers or neither). |
 | `night-run` | `/bajzi:night-run` | Plans an unattended multi-hour overnight run: preflight, queue, brief, approval gate, launch. |
+| `grill-me` | `/bajzi:grill-me <plan, decision or idea>` | A relentless interview to sharpen a plan or design; runs `bajzi:grilling`. |
+| `grilling` | (model-invoked only) | Numbered interview rounds that record each settled decision with a Proof line and mark the spec `Grilled:`. Adapted from mattpocock/skills (MIT). |
 | `project-setup` | `/bajzi:project-setup [--check]` | Applies or checks the repo's `.claude/project-profile.json`: project plugins, MCPs, methodology, instruction files, pre-commit gate. |
 | `radar` | `/bajzi:radar [now\|install]` | Biweekly read-only review of your Claude setup (plugins, Claude news, methodology, usage); adopt or decline its items. |
+| `respec-cards` | `/bajzi:respec-cards` | Specifies or re-specifies a system as owner-approved cards, interviewing question by question. |
 | `review` | `/bajzi:review <slice> <range>` | Reviews a slice's commit range through the reviewer agent and applies the close policy and debt cap on round 2. |
 | `setup` | `/bajzi:setup [--check]` | Sets up a Claude Code machine to the manifest's desired state, or only checks it for drift. |
 | `which` | `/bajzi:which <intent>` | Names the installed skill or slash command that fits what you want to do, with exact syntax and where it lives. |
