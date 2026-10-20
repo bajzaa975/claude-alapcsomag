@@ -398,9 +398,8 @@ test('brief review: known line lists existing debt/owner files; round 1, not deb
   g('init', '-q'); fs.writeFileSync(path.join(d, 'a'), '1'); g('add', '.'); g('commit', '-qm', 'a');
   fs.writeFileSync(path.join(d, 'a'), '2'); g('commit', '-qam', 'b');
   const brief = (s, r = '1') => fs.readFileSync(path.join(d, execFileSync('node', [cli, 'brief', 'review', s, r, 'HEAD~1..HEAD'], { cwd: d, encoding: 'utf8' }).trim()), 'utf8');
-  const tail = ' -- Read them; do not re-raise a recorded minor/nit at the same path.';
   assert.doesNotMatch(brief('s1'), /^known:/m);
-  const dir = path.join(d, F.DIR || 'runtime/findings');
+  const dir = path.join(d, 'runtime/findings');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'debt.md'), 'x');
   let b = brief('s1');
@@ -414,7 +413,6 @@ test('brief review: known line lists existing debt/owner files; round 1, not deb
   assert.doesNotMatch(brief('debt'), /^known:/m);
   fs.writeFileSync(path.join(dir, 's1-r1.md'), 'x'); fs.writeFileSync(path.join(dir, 's1-r1.report.md'), 'x');
   assert.doesNotMatch(brief('s1', '2'), /^known:/m);
-  assert.ok(tail);
   fs.rmSync(d, { recursive: true, force: true });
 });
 

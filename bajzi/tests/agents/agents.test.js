@@ -293,6 +293,7 @@ test('reviewer pins the known-debt rule', () => {
   assert.match(body, /omitted when its severity would be minor or nit/);
   assert.match(body, /blocker or major is ALWAYS reported even if recorded \(never suppressed\)/);
   assert.match(body, /already recorded in <file>/);
+  assert.match(body, /entry marked RESOLVED does not count as recorded/);
 });
 
 test('reviewer pins the policy checks rule', () => {
