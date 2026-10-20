@@ -63,11 +63,39 @@ test('benign set: zero hits', () => {
   for (const [file, text] of benign) assert.deepStrictEqual(scanText(text, file).map(r => r.id), [], text);
 });
 
-test('extension filter: JS rule silent on .py, doc files skipped for every rule', () => {
+test('extension filter: JS rule silent on .py, doc files skip code rules', () => {
   assert.deepStrictEqual(scanText('el.innerHTML = x', 'a.py'), []);
   assert.deepStrictEqual(scanText('subprocess.run(c, shell=True)', 'a.js'), []);
-  assert.deepStrictEqual(scanText(`${PEM}\n${PW}\nchmod 777 x`, 'README.md'), []);
+  assert.deepStrictEqual(scanText('el.innerHTML = x; chmod 777 x', 'README.md'), []);
   assert.deepStrictEqual(scanText('eval(x)', 'notes.txt'), []);
+});
+
+test('doc files still get secret rules', () => {
+  const ids = f => scanText(`${PEM}
+${PW}
+${AWS.length ? `k = "${AWS}"` : ''}
+eval(x)
+el.innerHTML = x`, f).map(r => r.id).sort();
+  const want = ['aws-key-id', 'hardcoded-password', 'private-key-block'];
+  assert.deepStrictEqual(ids('README.md'), want);
+  assert.deepStrictEqual(ids('notes.txt'), want);
+});
+
+test('node-exec variants and innerHTML append', () => {
+  assert.ok(scanText('cp.exec(`ls ${d}`)', 'a.js').some(r => r.id === 'node-exec-interpolated'));
+  assert.ok(scanText("require('child_process').execSync(`git ${x}`)", 'a.js').some(r => r.id === 'node-exec-interpolated'));
+  assert.ok(scanText('el.innerHTML += userHtml', 'a.js').some(r => r.id === 'html-injection'));
+});
+
+test('writeSeen failure leaves no tmp file and still returns the reminder', () => {
+  const fs = require('node:fs');
+  const dir = tmpDir('bajzi-sp-');
+  const orig = fs.renameSync;
+  fs.renameSync = () => { throw new Error('boom'); };
+  let r;
+  try { r = decide({ session_id: 'rn', tool_name: 'Edit', tool_input: { file_path: 'a.js', new_string: 'eval(x)' } }, dir); } finally { fs.renameSync = orig; }
+  assert.ok(r);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
 });
 
 test('dedup: a second identical edit is silent, another file is not', () => {

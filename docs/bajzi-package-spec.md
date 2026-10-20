@@ -1848,11 +1848,11 @@ call and fails open: any exception or unreadable state means no output, and the 
 py-shell-injection, go-exec-shell, eval, new-function, pickle-load, yaml-load, torch-load, html-injection, sql-concat,
 aws-key-id, private-key-block, hardcoded-password, tls-verify-off, chmod-777, gha-event-in-run (a line scan for
 `${{ github.event.* }}` inside `run:`, only under `.github/workflows/`). The set is inspired by the
-security-guidance plugin (Apache-2.0); regexes and texts are ours. Every regex uses bounded quantifiers; scanning 200 KB
+security-guidance plugin (Apache-2.0); regexes and texts are ours. No regex nests unbounded groups; scanning 200 KB
 takes well under 100 ms.
 
 **Scope**: only the new text (`new_string`, `content`, `edits[].new_string`, `new_source`). The extension filter
-applies to `tool_input.file_path` (`notebook_path` for notebooks); `.md/.mdx/.txt/.rst` files are skipped for all rules.
+applies to `tool_input.file_path` (`notebook_path` for notebooks); `.md/.mdx/.txt/.rst` files are skipped for code rules; the secret rules (aws-key-id, private-key-block, hardcoded-password) still apply. A failed state write only loses dedup (tmp file removed, reminder still returned).
 
 **Output**: one block `[bajzi:security-patterns] Possible security issue in <file> (<ids>). Check before moving on:`
 plus one `- <id>: <reminder>` line per rule. **Dedup**: each rule fires once per session per file; state in

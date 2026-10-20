@@ -1,6 +1,6 @@
 'use strict';
 // Rule table for security-patterns.js; the rule set is inspired by the security-guidance plugin (Apache-2.0), regexes and texts are our own.
-// Every regex uses bounded quantifiers only (no nested/overlapping unbounded groups): linear on 200 KB.
+// No regex nests or overlaps unbounded groups (\s*, {8,} are single-class runs): linear on 200 KB, pinned by the perf test.
 const JS = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte'];
 const PY = ['.py', '.pyi', '.ipynb'];
 const DOC = ['.md', '.mdx', '.txt', '.rst'];
@@ -25,7 +25,7 @@ function ghaEventInRun(text) {
 }
 
 const RULES = [
-  { id: 'node-exec-interpolated', exts: JS, re: /(?:child_process\.|(?<![\w.$]))exec(?:Sync)?\(\s*(?:`[^`\n]{0,300}\$\{|["'][^"'\n]{0,300}["']\s*\+)/,
+  { id: 'node-exec-interpolated', exts: JS, re: /(?<![\w$])exec(?:Sync)?\(\s*(?:`[^`\n]{0,300}\$\{|["'][^"'\n]{0,300}["']\s*\+)/,
     msg: 'A shell command is built from interpolated input; use execFile/spawn with an args array so input is never parsed by a shell.' },
   { id: 'py-shell-injection', exts: PY, re: /\bshell\s*=\s*True\b|\bos\.system\s*\(|\bsubprocess\.\w+\(\s*(?:f["']|["'][^"'\n]{0,200}["']\s*[+%])/,
     msg: 'Shell execution from a built string; pass an argument list without shell=True.' },
@@ -41,15 +41,15 @@ const RULES = [
     msg: 'yaml.load can construct arbitrary objects; use yaml.safe_load.' },
   { id: 'torch-load', exts: PY, re: /\btorch\.load\s*\((?![^)\n]{0,120}weights_only\s*=\s*True)/,
     msg: 'torch.load unpickles by default; pass weights_only=True for plain tensors.' },
-  { id: 'html-injection', exts: JS, re: /\.(?:inner|outer)HTML\s*=(?!=)|\binsertAdjacentHTML\s*\(|\bdangerouslySetInnerHTML\b|\bdocument\.write(?:ln)?\s*\(/,
+  { id: 'html-injection', exts: JS, re: /\.(?:inner|outer)HTML\s*\+?=(?!=)|\binsertAdjacentHTML\s*\(|\bdangerouslySetInnerHTML\b|\bdocument\.write(?:ln)?\s*\(/,
     msg: 'Raw HTML sinks enable XSS when fed untrusted text; use textContent or sanitize the markup first.' },
   { id: 'sql-concat', exts: null, re: /["'`]\s*(?:SELECT\b[^"'`\n]{0,200}\bFROM|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b[^;\n]{0,200}?(?:\$\{|["'`]\s*\+|["']\s*%\s*[\w(])|\bf["'](?:SELECT|INSERT|UPDATE|DELETE)\b[^"'\n]{0,200}\{/i,
     msg: 'SQL assembled from variables is injectable; use placeholders with bound parameters.' },
-  { id: 'aws-key-id', exts: null, re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/,
+  { id: 'aws-key-id', exts: null, doc: true, re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/,
     msg: 'This looks like an AWS access key id; keep credentials in the environment or a secret store, not in code.' },
-  { id: 'private-key-block', exts: null, re: /-----BEGIN (?:[A-Z]{1,10} ){0,2}PRIVATE KEY-----/,
+  { id: 'private-key-block', exts: null, doc: true, re: /-----BEGIN (?:[A-Z]{1,10} ){0,2}PRIVATE KEY-----/,
     msg: 'A private key block is being written into a file; load keys from a secret store instead.' },
-  { id: 'hardcoded-password', exts: null, re: /\b(?:password|passwd|pwd|secret|api_?key|auth_?token)\w{0,20}\s*[:=]\s*["'][^"'\s]{8,}["']/i,
+  { id: 'hardcoded-password', exts: null, doc: true, re: /\b(?:password|passwd|pwd|secret|api_?key|auth_?token)\w{0,20}\s*[:=]\s*["'][^"'\s]{8,}["']/i,
     msg: 'A credential is hardcoded as a literal; read it from configuration or the environment.' },
   { id: 'tls-verify-off', exts: null, re: /\bverify\s*=\s*False\b|\brejectUnauthorized\s*:\s*false\b|\bNODE_TLS_REJECT_UNAUTHORIZED\s*[=:]\s*["']?0\b|\bInsecureSkipVerify\s*:\s*true\b/,
     msg: 'Certificate verification is switched off, which allows man-in-the-middle attacks; fix the trust store instead.' },
@@ -65,11 +65,11 @@ function extOf(p) {
   return m ? m[0].toLowerCase() : '';
 }
 
-// Rules that fire on `text` for file `file`. Doc-like files never match.
+// Rules that fire on `text` for file `file`. Doc-like files only get the secret rules (doc: true).
 function scanText(text, file) {
   const ext = extOf(file);
-  if (DOC.includes(ext)) return [];
-  return RULES.filter(r => (!r.exts || r.exts.includes(ext)) && (!r.pathRe || r.pathRe.test(file)) && r.re.test(text));
+  const isDoc = DOC.includes(ext);
+  return RULES.filter(r => (!isDoc || r.doc) && (!r.exts || r.exts.includes(ext)) && (!r.pathRe || r.pathRe.test(file)) && r.re.test(text));
 }
 
 module.exports = { RULES, scanText, extOf };

@@ -27,8 +27,12 @@ function readSeen(p) {
 
 function writeSeen(p, seen) {
   const tmp = `${p}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ seen: [...seen] }), { flag: 'wx' });
-  fs.renameSync(tmp, p);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ seen: [...seen] }), { flag: 'wx' });
+    fs.renameSync(tmp, p);
+  } catch {
+    try { fs.unlinkSync(tmp); } catch { /* nothing to clean up */ }
+  } // a failed state write only loses dedup; the reminder is still returned
 }
 
 function decide(input, dir = os.tmpdir()) {
