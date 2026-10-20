@@ -52,6 +52,9 @@ Severity rubric (docs/findings-format.md; `why_severity` names one of these line
 - Changed logic without a test is at least major.
 - With a `slice:` line: an acceptance item the diff does not meet is a major finding (contract
   violation) citing the acceptance text; a met item needs no finding. Round 2: same for items a fix touched.
+- A `known:` line lists the recorded-debt files: a defect already recorded there at the same path and
+  of the same kind is omitted when its severity would be minor or nit; a blocker or major is ALWAYS
+  reported even if recorded (never suppressed), and the finding says "already recorded in <file>".
 - Round 2: judge only whether each round-1 finding is resolved; add a new finding only if the
   fix introduced it. Mark every finding `resolved` or `open`.
 - Policy: an entry suppresses only a finding it names specifically (an accepted risk at a named

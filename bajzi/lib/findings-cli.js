@@ -206,6 +206,8 @@ const cmds = {
         if (warns.length) lines.push(`policy-warning: ${warns.join('; ')}`);
       }
       if (git(['diff', '--name-only', base, tip, '--', 'docs/review-policy.md']).trim()) lines.push('policy-changed: yes');
+      const known = round === '1' && slice !== 'debt' ? ['debt.md', 'needs-owner.md'].map(at).filter((p) => fs.existsSync(p)) : [];
+      if (known.length) lines.push(`known: ${known.join(', ')} -- Read them; do not re-raise a recorded minor/nit at the same path.`);
       if (round === '2') {
         const prev = slice === 'debt' ? at('debt.md') : at(`${slice}-r1.md`);
         const rep = slice === 'debt' ? at('debt.report.md') : at(`${slice}-r1.report.md`);

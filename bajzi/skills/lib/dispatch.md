@@ -56,7 +56,7 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
 `FC brief review <slice> <1|2> <base>..<tip>` resolves both ends to full SHAs, writes the complete
 `git diff` to `runtime/briefs/<slice>-r<round>.diff`, then writes the brief and prints its path.
 The brief holds: the `slice_id/round/range` line (SHAs), the code-review-graph marker line (guard
-R1), the diff path, the `slice:` line (`runtime/slices/<slice>.md`, only when that file exists and the slice is not `debt`), the `policy:` line (`docs/review-policy.md` as of the range base, copied to `runtime/briefs/<slice>-r<round>.policy.md`, only when it exists there) and `policy-changed: yes` (when the diff touches it), in round 2 the round-1 file and fixer report paths (`debt.md` /
+R1), the diff path, the `slice:` line (`runtime/slices/<slice>.md`, only when that file exists and the slice is not `debt`), the `policy:` line (`docs/review-policy.md` as of the range base, copied to `runtime/briefs/<slice>-r<round>.policy.md`, only when it exists there) and `policy-changed: yes` (when the diff touches it), in round 1 for a non-`debt` slice the `known:` line (the existing ones of `debt.md` and `needs-owner.md` in the findings directory; the reviewer omits a recorded minor/nit at the same path), in round 2 the round-1 file and fixer report paths (`debt.md` /
 `debt.report.md` for slice `debt`), and the changed-file list. So it stays small whatever the
 diff size; over 24000 chars it exits 2 (split the slice). Round 1 when `<slice>-r2.md` exists
 exits 3 (STOP: the slice had its two rounds). `FC brief calibrate` writes

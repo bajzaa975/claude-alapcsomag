@@ -1456,6 +1456,12 @@ file. When the range's diff touches the file the brief adds `policy-changed: yes
 rates that a major finding unless the slice acceptance names the change. An entry suppresses only a
 finding it names specifically, never a blocker; generic entries are ignored.
 
+Known debt: in round 1 for a slice other than `debt`, `brief review` adds `known: <paths> -- Read them; do not
+re-raise a recorded minor/nit at the same path.`, listing whichever of `debt.md` and `needs-owner.md` exist in the
+findings directory (no line when neither exists; none in round 2). The reviewer omits a defect already recorded
+there at the same path and kind when it would be minor or nit; a blocker or major is always reported, saying
+"already recorded in <file>".
+
 The policy may also carry `## Checks` (one concern per bullet, `<name>: <pass/fail criterion> [paths: <glob>]`,
 at most 10; the reviewer evaluates each check whose glob matches a changed file, no glob = every diff; a failed
 check is a major finding `contract/interface violation (project check <name>)`; a check not decidable from the

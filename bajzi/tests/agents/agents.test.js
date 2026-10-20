@@ -287,6 +287,14 @@ test('reviewer pins the review-policy rules', () => {
   assert.match(body, /base version/);
 });
 
+test('reviewer pins the known-debt rule', () => {
+  const body = read('reviewer.md').replace(/\s+/g, ' ');
+  assert.match(body, /`known:` line/);
+  assert.match(body, /omitted when its severity would be minor or nit/);
+  assert.match(body, /blocker or major is ALWAYS reported even if recorded \(never suppressed\)/);
+  assert.match(body, /already recorded in <file>/);
+});
+
 test('reviewer pins the policy checks rule', () => {
   const body = read('reviewer.md').replace(/\s+/g, ' ');
   assert.match(body, /`## Checks`/);

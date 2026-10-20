@@ -389,6 +389,35 @@ test('brief review: slice line only when the slice file exists and slice is not 
   fs.rmSync(d, { recursive: true, force: true });
 });
 
+test('brief review: known line lists existing debt/owner files; round 1, not debt', () => {
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const { execFileSync } = require('child_process');
+  const cli = path.join(__dirname, '..', 'findings-cli.js');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'known-'));
+  const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: d, encoding: 'utf8' });
+  g('init', '-q'); fs.writeFileSync(path.join(d, 'a'), '1'); g('add', '.'); g('commit', '-qm', 'a');
+  fs.writeFileSync(path.join(d, 'a'), '2'); g('commit', '-qam', 'b');
+  const brief = (s, r = '1') => fs.readFileSync(path.join(d, execFileSync('node', [cli, 'brief', 'review', s, r, 'HEAD~1..HEAD'], { cwd: d, encoding: 'utf8' }).trim()), 'utf8');
+  const tail = ' -- Read them; do not re-raise a recorded minor/nit at the same path.';
+  assert.doesNotMatch(brief('s1'), /^known:/m);
+  const dir = path.join(d, F.DIR || 'runtime/findings');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'debt.md'), 'x');
+  let b = brief('s1');
+  assert.match(b, /^known: \S*debt\.md -- Read them; do not re-raise a recorded minor\/nit at the same path\.$/m);
+  assert.doesNotMatch(b, /needs-owner/); assert.match(b, /^GRAPH: /m);
+  fs.writeFileSync(path.join(dir, 'needs-owner.md'), 'x');
+  assert.match(brief('s1'), /^known: \S*debt\.md, \S*needs-owner\.md/m);
+  fs.rmSync(path.join(dir, 'debt.md'));
+  assert.match(brief('s1'), /^known: \S*needs-owner\.md -- /m);
+  fs.writeFileSync(path.join(dir, 'debt.md'), 'x');
+  assert.doesNotMatch(brief('debt'), /^known:/m);
+  fs.writeFileSync(path.join(dir, 's1-r1.md'), 'x'); fs.writeFileSync(path.join(dir, 's1-r1.report.md'), 'x');
+  assert.doesNotMatch(brief('s1', '2'), /^known:/m);
+  assert.ok(tail);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
 test('brief review: review-policy is read at the base commit; policy-changed when the diff touches it', () => {
   const fs = require('fs'); const os = require('os'); const path = require('path');
   const { execFileSync } = require('child_process');
