@@ -444,6 +444,12 @@ test('brief review: round 2 fix diff (ancestor, rewritten, equal, round 1, debt)
   g('checkout', '-q', '-b', 'alt', base); w('a', 'z\n'); g('commit', '-qam', 'alt');
   assert.match(brief('s1', '2', `${base}..HEAD`), /^fix diff: n\/a$/m); // r1 tip not an ancestor
   assert.match(brief('debt', '2', `${base}..HEAD`), /^fix diff: n\/a$/m);
+  w('runtime/findings/s1-r1.md', `# Findings\nrange: ${base}..${'0'.repeat(40)}\n`); // unknown commit
+  assert.match(brief('s1', '2', `${base}..HEAD`), /^fix diff: n\/a$/m);
+  w('runtime/findings/s1-r1.md', '# Findings\n'); // no range line
+  assert.match(brief('s1', '2', `${base}..HEAD`), /^fix diff: n\/a$/m);
+  w('runtime/findings/s1-r1.md', `# Findings\nrange: ${base}..${r1}\n`);
+  assert.doesNotMatch(b, /Read all of it/); // fix diff present: no conflicting full-diff instruction
   fs.rmSync(d, { recursive: true, force: true });
 });
 

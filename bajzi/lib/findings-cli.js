@@ -224,6 +224,7 @@ const cmds = {
               const fix = git(['diff', r1tip, tip]);
               const fp = path.posix.join(BRIEFS, `${slice}-r2.fix.diff`);
               fs.writeFileSync(fp, fix);
+              lines[2] = lines[2].replace(' Read all of it, in chunks if long.', ' Read it only where a round-1 location is not in the fix diff.');
               fixLine = `fix diff: ${fp} -- the fixer's changes only (${fix.split('\n').length} lines). Read it first; read the full diff only where a round-1 location is not in it.`;
             }
           } catch { /* unparsable: n/a */ }
