@@ -423,3 +423,30 @@ test('brief review: review-policy is read at the base commit; policy-changed whe
   assert.match(b, /^policy: /m); assert.doesNotMatch(b, /policy-changed/);
   fs.rmSync(d, { recursive: true, force: true });
 });
+
+test('brief review: always-read listing, missing paths skipped, caps warn, base-vs-tip', () => {
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const { execFileSync } = require('child_process');
+  const cli = path.join(__dirname, '..', 'findings-cli.js');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'policy2-'));
+  const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: d, encoding: 'utf8' });
+  const brief = () => {
+    const p = execFileSync('node', [cli, 'brief', 'review', 's1', '1', 'HEAD~1..HEAD'], { cwd: d, encoding: 'utf8' }).trim();
+    return fs.readFileSync(path.join(d, p), 'utf8');
+  };
+  fs.mkdirSync(path.join(d, 'docs'));
+  for (const f of ['a', 'b', 'c', 'd', 'e', 'f']) fs.writeFileSync(path.join(d, f), f);
+  const checks = Array.from({ length: 12 }, (_, i) => `- chk${i}: must hold`).join('\n');
+  fs.writeFileSync(path.join(d, 'docs/review-policy.md'),
+    `## Checks\n${checks}\n\n## Always read\n- a\n- \`missing\`\n- b\n- c\n- d\n- e\n- f\n`);
+  g('init', '-q'); g('add', '.'); g('commit', '-qm', 'c0');
+  // tip tries to add a path and drop the policy contents: base wins
+  fs.writeFileSync(path.join(d, 'docs/review-policy.md'), '## Always read\n- f\n'); g('commit', '-qam', 'c1');
+  const b = brief();
+  assert.match(b, /^always read: a, b, c, d$/m); // first 5 entries = a, missing, b, c, d; missing skipped
+  assert.match(b, /^policy-warning: 12 checks entries \(cap 10\), extra entries ignored; 7 always read entries \(cap 5\), extra entries ignored$/m);
+  assert.match(b, /^policy-changed: yes$/m);
+  const pol = fs.readFileSync(path.join(d, 'runtime/briefs/s1-r1.policy.md'), 'utf8');
+  assert.match(pol, /chk9:/); assert.doesNotMatch(pol, /chk10:/);
+  fs.rmSync(d, { recursive: true, force: true });
+});

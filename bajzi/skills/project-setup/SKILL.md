@@ -68,4 +68,4 @@ key, newer version, invalid value): print the reasons, change nothing.
   gate is already there (move it away first). `tools` (subset of the five) narrows what the gate
   runs; `baseline` defaults to `.gate-baseline.json`. Contract: `docs/gate.md` in the bajzi repo.
 
-Optional `docs/review-policy.md` (never created here): accepted risks and trusted inputs for the reviewer; format in the bajzi spec §6.12.
+Optional `docs/review-policy.md` (never created here): accepted risks and trusted inputs for the reviewer; format in the bajzi spec §6.12. It may also hold `## Checks`, `## Path instructions` and `## Always read` sections (same section).

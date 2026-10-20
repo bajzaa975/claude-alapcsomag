@@ -1444,6 +1444,15 @@ file. When the range's diff touches the file the brief adds `policy-changed: yes
 rates that a major finding unless the slice acceptance names the change. An entry suppresses only a
 finding it names specifically, never a blocker; generic entries are ignored.
 
+The policy may also carry `## Checks` (one concern per bullet, `<name>: <pass/fail criterion> [paths: <glob>]`,
+at most 10; the reviewer evaluates each check whose glob matches a changed file, no glob = every diff; a failed
+check is a major finding `contract/interface violation (project check <name>)`; a check not decidable from the
+diff is not a finding), `## Path instructions` (`<glob>: <instruction>` bullets applied only to changed files
+matching the glob) and `## Always read` (repo-relative paths, at most 5). `brief review` lists the always-read
+paths that exist at the BASE commit as `always read: <paths>`; over the caps (10 checks, 5 paths) it passes
+only the first N and adds `policy-warning: <what was over the cap, extra entries ignored>`. Base version only,
+as above: changing the policy file in the reviewed range is major.
+
 | Skill | Steps (findings-cli.js subcommand in brackets) |
 |---|---|
 | `/bajzi:implement <slice>` | debt cap [`check`, exit 4 refuses the slice] → agent lookup from the slice's `tier:` [`slice`: 1 → `implementer-risk`, 2/3 → `implementer`] → dispatch the slice file verbatim → `BLOCKED` stops; `DONE` with a path outside `files:` stops → test (`test: none` prints `test: skip`: no run, the gate still runs) → commit by path → prints the range; slice id `debt` is reserved (exit 2) |

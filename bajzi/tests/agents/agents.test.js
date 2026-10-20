@@ -286,3 +286,12 @@ test('reviewer pins the review-policy rules', () => {
   assert.match(body, /unless the slice acceptance explicitly names that policy change/);
   assert.match(body, /base version/);
 });
+
+test('reviewer pins the policy checks rule', () => {
+  const body = read('reviewer.md').replace(/\s+/g, ' ');
+  assert.match(body, /`## Checks`/);
+  assert.match(body, /contract\/interface violation \(project check <name>\)/);
+  assert.match(body, /cannot decide from the diff is not a finding/);
+  assert.match(body, /`## Path instructions`/);
+  assert.match(body, /`always read:` line/);
+});
