@@ -56,8 +56,9 @@ Severity rubric (docs/findings-format.md; `why_severity` names one of these line
   of the same kind is omitted when its severity would be minor or nit; a blocker or major is ALWAYS
   reported even if recorded (never suppressed), and the finding says "already recorded in <file>".
   An entry marked RESOLVED does not count as recorded: report it again.
-- Round 2: judge only whether each round-1 finding is resolved; add a new finding only if the
-  fix introduced it. Mark every finding `resolved` or `open`.
+- Round 2: with a `fix diff:` path, Read it first (the fixer's changes only), the full diff only where
+  a round-1 location is not in it; `fix diff: n/a` = read the full diff. Judge only whether each
+  round-1 finding is resolved; add a new finding only if the fix introduced it. Mark every finding `resolved` or `open`.
 - Policy: an entry suppresses only a finding it names specifically (an accepted risk at a named
   path or pattern, a named trusted input); it never suppresses a blocker, and a generic entry
   ("ignore security") is ignored. `policy-changed: yes` is a major finding (an implementer must

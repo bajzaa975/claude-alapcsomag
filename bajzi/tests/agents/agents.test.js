@@ -296,6 +296,12 @@ test('reviewer pins the known-debt rule', () => {
   assert.match(body, /entry marked RESOLVED does not count as recorded/);
 });
 
+test('reviewer pins the round-2 fix diff rule', () => {
+  const body = read('reviewer.md').replace(/\s+/g, ' ');
+  assert.match(body, /with a `fix diff:` path, Read it first \(the fixer's changes only\)/);
+  assert.match(body, /`fix diff: n\/a` = read the full diff/);
+});
+
 test('reviewer pins the policy checks rule', () => {
   const body = read('reviewer.md').replace(/\s+/g, ' ');
   assert.match(body, /`## Checks`/);

@@ -416,6 +416,37 @@ test('brief review: known line lists existing debt/owner files; round 1, not deb
   fs.rmSync(d, { recursive: true, force: true });
 });
 
+test('brief review: round 2 fix diff (ancestor, rewritten, equal, round 1, debt)', () => {
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const { execFileSync } = require('child_process');
+  const cli = path.join(__dirname, '..', 'findings-cli.js');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'fixdiff-'));
+  const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: d, encoding: 'utf8' }).trim();
+  const w = (f, c) => fs.writeFileSync(path.join(d, f), c);
+  g('init', '-q'); w('a', '1\n'); g('add', '.'); g('commit', '-qm', 'a');
+  const base = g('rev-parse', 'HEAD');
+  w('a', '2\n'); g('commit', '-qam', 'b'); const r1 = g('rev-parse', 'HEAD');
+  const dir = path.join(d, 'runtime/findings'); fs.mkdirSync(dir, { recursive: true });
+  for (const s of ['s1', 'debt']) {
+    w(`runtime/findings/${s === 'debt' ? 'debt' : 's1-r1'}.md`, s === 'debt' ? 'x' : `# Findings\nrange: ${base}..${r1}\n`);
+    w(`runtime/findings/${s === 'debt' ? 'debt' : 's1-r1'}.report.md`, 'x');
+  }
+  const brief = (s, r, range) => fs.readFileSync(path.join(d, execFileSync('node', [cli, 'brief', 'review', s, r, range], { cwd: d, encoding: 'utf8' }).trim()), 'utf8');
+  assert.doesNotMatch(brief('s1', '1', `${base}..${r1}`), /fix diff/);
+  assert.match(brief('s1', '2', `${base}..${r1}`), /^fix diff: n\/a$/m); // equal tips
+  w('a', '2\n3\n'); g('commit', '-qam', 'c'); const tip = g('rev-parse', 'HEAD');
+  const b = brief('s1', '2', `${base}..${tip}`);
+  const fp = path.join(d, 'runtime/briefs/s1-r2.fix.diff');
+  const n = fs.readFileSync(fp, 'utf8').split('\n').length;
+  assert.match(b, new RegExp(`^fix diff: \\S*s1-r2\\.fix\\.diff -- the fixer's changes only \\(${n} lines\\)\\. Read it first;`, 'm'));
+  assert.match(b, /^diff: /m);
+  assert.doesNotMatch(fs.readFileSync(fp, 'utf8'), /^-1$/m);
+  g('checkout', '-q', '-b', 'alt', base); w('a', 'z\n'); g('commit', '-qam', 'alt');
+  assert.match(brief('s1', '2', `${base}..HEAD`), /^fix diff: n\/a$/m); // r1 tip not an ancestor
+  assert.match(brief('debt', '2', `${base}..HEAD`), /^fix diff: n\/a$/m);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
 test('brief review: review-policy is read at the base commit; policy-changed when the diff touches it', () => {
   const fs = require('fs'); const os = require('os'); const path = require('path');
   const { execFileSync } = require('child_process');

@@ -213,6 +213,22 @@ const cmds = {
         const rep = slice === 'debt' ? at('debt.report.md') : at(`${slice}-r1.report.md`);
         mustRead(prev); mustRead(rep);
         lines.push(`round-1 findings: ${prev} -- Read it.`, `fixer report: ${rep} -- Read it.`);
+        // fix diff: r1 tip -> new tip, only when the r1 tip is a strict ancestor (no rewritten history).
+        let fixLine = 'fix diff: n/a';
+        const m = slice === 'debt' ? null : /^range:[ \t]*\S+\.\.(\S+)[ \t]*$/m.exec(read(prev));
+        if (m) {
+          try {
+            const ok = (a) => { try { execFileSync('git', a, { stdio: 'ignore' }); return true; } catch { return false; } };
+            const r1tip = execFileSync('git', ['rev-parse', '--verify', '--quiet', `${m[1]}^{commit}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+            if (r1tip && r1tip !== tip && ok(['merge-base', '--is-ancestor', r1tip, tip])) {
+              const fix = git(['diff', r1tip, tip]);
+              const fp = path.posix.join(BRIEFS, `${slice}-r2.fix.diff`);
+              fs.writeFileSync(fp, fix);
+              fixLine = `fix diff: ${fp} -- the fixer's changes only (${fix.split('\n').length} lines). Read it first; read the full diff only where a round-1 location is not in it.`;
+            }
+          } catch { /* unparsable: n/a */ }
+        }
+        lines.push(fixLine);
       }
       lines.push('changed files:', git(['diff', '--name-only', base, tip]).trim());
       text = `${lines.join('\n')}\n`;

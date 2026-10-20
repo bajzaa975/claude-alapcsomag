@@ -1464,7 +1464,13 @@ Known debt: in round 1 for a slice other than `debt`, `brief review` adds `known
 re-raise a recorded minor/nit at the same path.`, listing whichever of `debt.md` and `needs-owner.md` exist in the
 findings directory (no line when neither exists; none in round 2). The reviewer omits a defect already recorded
 there at the same path and kind when it would be minor or nit; a blocker or major is always reported, saying
-"already recorded in <file>".
+"already recorded in <file>". An entry marked RESOLVED does not count as recorded: the reviewer reports it again.
+
+Round 2 reads the fix first: `brief review <slice> 2` reads the `range:` line of the round-1 findings file
+(`debt.md` has none: slice `debt` skips this) and, when the round-1 tip is a strict ancestor of the new tip,
+writes `git diff <r1 tip> <tip>` to `runtime/briefs/<slice>-r2.fix.diff` and adds `fix diff: <path> -- the fixer's
+changes only (<n> lines). Read it first; ...`. Equal tips, rewritten history (not an ancestor) or a missing or
+unparsable range line give `fix diff: n/a`; the full `diff:` line stays in every case and the size limit is unchanged.
 
 The policy may also carry `## Checks` (one concern per bullet, `<name>: <pass/fail criterion> [paths: <glob>]`,
 at most 10; the reviewer evaluates each check whose glob matches a changed file, no glob = every diff; a failed
