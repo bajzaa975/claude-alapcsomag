@@ -75,7 +75,7 @@ function validateAgent(content, name) {
 
   const trimmedBody = body.replace(/^\r?\n+/, '').replace(/\r?\n+$/, '');
   const bodyLines = trimmedBody === '' ? [] : trimmedBody.split(/\r?\n/);
-  const maxLines = MAX_BODY_LINES_BY_AGENT[name] || MAX_BODY_LINES;
+  const maxLines = Object.hasOwn(MAX_BODY_LINES_BY_AGENT, name) ? MAX_BODY_LINES_BY_AGENT[name] : MAX_BODY_LINES;
   if (bodyLines.length > maxLines) {
     return { ok: false, why: `body is ${bodyLines.length} lines, max ${maxLines}` };
   }
@@ -185,22 +185,57 @@ test('reviewer rubric lines match docs/findings-format.md verbatim', () => {
   for (const l of lines) assert.ok(body.includes(l), `reviewer.md lacks: ${l}`);
 });
 
+// Checks the Checklist section of a reviewer body; returns an error string or null.
+function checkChecklist(body) {
+  const lines = body.split(/\r?\n/);
+  const i = lines.indexOf('# Checklist');
+  if (i < 0) return 'missing # Checklist heading';
+  let end = lines.findIndex((l, k) => k > i && /^# /.test(l));
+  if (end < 0) end = lines.length;
+  if (end - i > 40) return `Checklist is ${end - i} lines, max 40`;
+  const sec = lines.slice(i, end);
+  const s = sec.indexOf('Security:'), f = sec.indexOf('Silent failures:'), d = sec.indexOf('Do NOT flag:');
+  if (s < 0 || f <= s || d <= f) return 'Checklist needs Security:, Silent failures:, Do NOT flag: in that order';
+  const parts = [
+    [sec.slice(s, f), [/Injection/, /Secrets/, /deserialization/, /authorization/, /Temp files/]],
+    [sec.slice(f, d), [/swallowed exception/, /\|\| true/, /fallback or default/, /Optional chaining/, /retry loop/]],
+    [sec.slice(d), [/Denial of service/, /Trusted inputs/, /Parameterized SQL/, /already existed outside the diff/, /Theoretical issues/]],
+  ];
+  for (const [part, res] of parts) {
+    for (const re of res) if (!re.test(part.join('\n'))) return `${re} not in its own sub-list`;
+  }
+  return null;
+}
+
 // The review checklist is inline in the reviewer (a separate file is unreachable from other cwds).
 test('reviewer body pins the Checklist, the source/sink/path rule and the DO-NOT-flag list', () => {
   const body = read('reviewer.md');
+  assert.strictEqual(checkChecklist(body), null);
+  assert.match(body, /security finding names the source .*, the sink .*and the path between them/s);
+});
+
+test('fixture: checklist check rejects a last-heading overlong section and a misplaced exclusion', () => {
+  const body = read('reviewer.md').replace(/\r\n/g, '\n');
   const lines = body.split(/\r?\n/);
   const i = lines.indexOf('# Checklist');
-  assert.ok(i >= 0, 'missing # Checklist heading');
-  const j = lines.findIndex((l, k) => k > i && /^# /.test(l));
-  assert.ok(j - i <= 40, `Checklist is ${j - i} lines, max 40`);
-  assert.match(body, /security finding names the source .*, the sink .*and the path between them/s);
-  assert.match(body, /^Do NOT flag:$/m);
-  for (const re of [/Denial of service/, /Trusted inputs/, /Parameterized SQL/, /already existed outside the diff/, /Theoretical issues/]) {
-    assert.match(body, re);
-  }
-  for (const re of [/Injection/, /Secrets/, /deserialization/, /authorization/, /Temp files/, /swallowed exception/, /\|\| true/, /fallback or default/, /Optional chaining/, /retry loop/]) {
-    assert.match(body, re);
-  }
+  const checklistLast = lines.slice(0, i).concat(lines.slice(i, lines.indexOf('# Never')),
+    Array(45).fill('- filler'));
+  assert.match(checkChecklist(checklistLast.join('\n')), /max 40/);
+  const moved = body.replace('- Parameterized SQL.\n', '').replace('Silent failures:\n', '- Parameterized SQL.\nSilent failures:\n');
+  assert.notStrictEqual(moved, body);
+  assert.match(checkChecklist(moved), /Parameterized SQL/);
+});
+
+// Per-agent body-length cap: reviewer 100, every other name (incl. built-in property names) 60.
+function agentWith(name, n) {
+  const filler = Array(Math.max(0, n - 4)).fill('x');
+  return `---\nname: ${name}\ndescription: d\nmodel: sonnet\ntools: Read\n---\n${['# Input', '# Output', '# Rules', '# Never', ...filler].join('\n')}\n`;
+}
+test('fixture: per-agent body-length cap', () => {
+  assert.match(validateAgent(agentWith('reviewer', 101), 'reviewer').why, /max 100/);
+  assert.deepStrictEqual(validateAgent(agentWith('reviewer', 80), 'reviewer'), { ok: true });
+  assert.match(validateAgent(agentWith('fixer', 61), 'fixer').why, /max 60/);
+  assert.match(validateAgent(agentWith('toString', 61), 'toString').why, /max 60/);
 });
 
 // implementer-risk is implementer plus exactly one inserted block (the Tier-1 rule) and a
