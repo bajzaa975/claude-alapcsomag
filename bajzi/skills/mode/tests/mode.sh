@@ -1374,7 +1374,7 @@ else
     fail "7c over-long first line" "${out:0:200}"
 fi
 # 7c: over-long multibyte first line: hard cut must not split a character, must not leak line 2
-mbl="$TMP/hl-mbl.md"; { printf 'x'; i=0; while [ $i -lt 5000 ]; do printf 'Å'; i=$((i+1)); done; printf '
+mbl="$TMP/hl-mbl.md"; { printf 'x'; i=0; while [ $i -lt 5000 ]; do printf 'ő'; i=$((i+1)); done; printf '
 next
 '; } > "$mbl"
 out="$(hl_run "$mbl")"; body="$(hl_body "$out")"
