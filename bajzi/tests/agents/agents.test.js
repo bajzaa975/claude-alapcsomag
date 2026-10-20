@@ -295,3 +295,11 @@ test('reviewer pins the policy checks rule', () => {
   assert.match(body, /`## Path instructions`/);
   assert.match(body, /`always read:` line/);
 });
+
+test('spec §6.12 lens sentence carries the reviewer lens severities', () => {
+  const spec = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'docs', 'bajzi-package-spec.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(spec, /a test that cannot fail is minor unless it is the only test of changed logic, then major/);
+  assert.match(spec, /a comment or docstring the changed code contradicts is a nit/);
+  assert.match(spec, /a completed TODO left in place is a nit/);
+  assert.match(spec, /an invalid-constructible type is major when it guards money, security or persisted data, else minor/);
+});
