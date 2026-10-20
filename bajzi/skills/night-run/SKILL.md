@@ -514,13 +514,13 @@ Before you defer or drop ANY candidate story because of a NIGHT-RULES restrictio
 pending outside answer (advisor, accountant, lawyer, owner), list every such story in ONE
 table and ask the owner ONCE:
 
-| story | restriction | source line | recommendation |
-|---|---|---|---|
+| # | story | restriction | source line | recommendation |
+|---|---|---|---|---|
 
 `source line` quotes the NIGHT-RULES section and line (or the card line) that restricts it;
 `recommendation` is your call per row: `build`, `build with the spec default as config` or
 `defer`. One table with every row, one question — never one question per story, never a
-second round. When no candidate is restricted there is no question; say "no restricted
+second round. The owner's reply `yes` accepts every row's recommendation; `yes except <n>: <answer>` overrides single rows. When no candidate is restricted there is no question; say "no restricted
 candidates" at the gate. The owner's answer per row is RECORDED: PHASE D item 3 quotes it
 next to every deferral, and that quote is what the PHASE D refusal checks.
 
@@ -1499,6 +1499,9 @@ it always belongs to the newest run that started. (A `--report` or `--smoke` run
 own, so read `watch.log` for what happened to it. Check its CONTENTS, not just its presence
 — an epoch older than this run's `started_epoch` is a marker the runner never cleared (the
 watcher ignores it for exactly that reason).
+
+In the narrative, a PARKED or BLOCKED entry that an owner answer would unpark ends with one line
+`<n>. <question> -> recommended: <answer> (<why, <= 1 sentence>)`; `yes` accepts all, `yes except <n>: <answer>` overrides rows.
 
 **Token usage.** If `~/.claude/worker-mode` is `glm` and `worker` is on PATH, run
 `worker --usage $RUN_DATE` and add its last two lines to the morning report under a

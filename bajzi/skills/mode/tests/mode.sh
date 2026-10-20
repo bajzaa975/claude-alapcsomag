@@ -258,6 +258,7 @@ if [ "$rules_lines" -le 48 ] && [ "$rules_bytes" -le 4800 ]; then
 else
     fail "7 DAY-RUN-RULES.md size budget" "$rules_lines lines $rules_bytes bytes"
 fi
+grep -qF -- '-> recommended:' "$RULES_MD" && pass "7 rules keep: owner-question format" || fail "7 owner-question format" "missing"
 grep -q 'Sub-agent tiers below are fixed regardless of ORCH' "$RULES_MD" && pass "7 rules keep: sub-agent tiers fixed regardless of ORCH" || fail "7 tiers-fixed rule" "missing"
 for kp in 'two verdicts per task: spec compliance, quality' 'STARTUP INJECTIONS: keep SessionStart hook output small' 'REVIEW LOOP, every development' 'DIRECT-EDIT THRESHOLD, all four' 'ESCALATION LADDER' 'FABLE DEPLETION' 'Only three questions allowed' 'Day-run never merges' '## Owner tasks'; do
     grep -qF -- "$kp" "$RULES_MD" && pass "7 rules keep: $kp" || fail "7 rule missing" "$kp"
