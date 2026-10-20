@@ -30,7 +30,8 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    rewriting git history, permanently deleting a branch/file, handling secrets/credentials in any way,
    modifying CI config (.github/), DB migration on live data, MAJOR version bump of a dependency,
    changing the task's original goal/scope. If you run into one of these: record it in
-   DECISIONS.md marked **BLOCKED**, and continue with the next task.
+   DECISIONS.md marked **BLOCKED**, and continue with the next task. When an owner answer would unpark it, the entry ends with
+   one line `<n>. <question> -> recommended: <answer> (<why, <= 1 sentence>)`.
 4. **STUCK RULE:** at most 3 fix attempts per error; after that the item is **PARKED**
    (state + what you tried into DECISIONS.md), and you move on. A parked item does not stop
    the whole run.
@@ -40,7 +41,9 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    (listing the remaining items under "NOT STARTED").
 6. **CLOSING REPORT:** at the end of the run write `runtime/AUTOPILOT-REPORT.md`: completed items
    (with test status), a summary of the decisions made on the user's behalf (referencing DECISIONS.md),
-   PARKED and BLOCKED items, and a "LET'S REVIEW THIS TOGETHER" list in priority order.
+   PARKED and BLOCKED items, and a "LET'S REVIEW THIS TOGETHER" list in priority order, numbered in the same
+   `<n>. <question> -> recommended: <answer> (<why>)` format, all in ONE round: the owner's `yes`
+   accepts every recommendation, `yes except <n>: <answer>` overrides single rows.
    Give a terse extract of the same in the chat.
    - If `~/.claude/worker-mode` is `glm` and `worker` is on PATH, run `worker --usage
      <session start ISO>` and include its last two lines under a "Token usage (GLM vs

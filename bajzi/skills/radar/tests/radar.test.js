@@ -504,3 +504,13 @@ test('run Context: night lessons lists in-window summaries newest first (max 5),
   assert.ok(!l.includes(old) && !l.includes('SECRET'));
   assert.ok((await go(e)).split('\n').includes('- declined list: ' + path.join(e.state, 'declined.md')));
 });
+
+test('run Context: night lessons on the real night-run layout (one project, lessons/<date>/ per night) lists both nights', async () => {
+  const sk = fs.readFileSync(path.join(__dirname, '..', '..', 'night-run', 'SKILL.md'), 'utf8');
+  assert.ok(sk.includes('`{{SUMMARY_FILE}}` =\n  `<night dir>/lessons/<RUN_DATE>/night-watch-summary.md`'), 'night-run renders a per-night summary path');
+  const e = runEnv();
+  const mk = (n, d) => { const p = path.join(e.home, 'night-runs', 'proj', 'lessons', n, 'night-watch-summary.md'); write(p, 'x'); setM(p, new Date(d)); return p; };
+  const a = mk('2026-09-21', '2026-09-22T05:00:00Z'), b = mk('2026-09-23', '2026-09-24T05:00:00Z');
+  const s = {}; await R.run({ state: e.state, now: NOW, claude: okClaude(s), exec: e.exec, home: e.home, projectsDir: e.f.projects });
+  assert.ok(s.prompt.split('\n').includes('- night lessons: ' + [b, a].join(', ')));
+});

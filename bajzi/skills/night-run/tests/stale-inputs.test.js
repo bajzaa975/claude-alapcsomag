@@ -431,7 +431,7 @@ test('BRIEF head comment admits the live tokens in the variant blocks', () => {
   has(head, 'except the variant blocks below, which hold live tokens');
 });
 
-test('door-blast: BRIEF PR body requires Door and Blast radius; PHASE F lists one-way first, missing = unknown', () => {
+test('BRIEF PR body requires Door and Blast radius; PHASE F lists one-way first, missing = unknown', () => {
   const i5 = BRIEF.indexOf('5. **One PR per story');
   const b = flat(BRIEF.slice(i5, BRIEF.indexOf('\n---', i5)));
   has(b, '`Door: one-way`');

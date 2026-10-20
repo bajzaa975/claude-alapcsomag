@@ -73,6 +73,10 @@ Owner-session: <this session's name and ref, e.g. session-96 [b69cb7]>
 
 The `## Where we are` … `## Affected files` part must be at most ~40 lines.
 
+**Never write a token, key, password or other secret into a handover** — name where it lives
+instead (e.g. "the Z.ai key in the env file"). The handover is re-injected every session and
+`runtime/` is never secret-scanned.
+
 ## The SUGGESTED OPENING PROMPT section — mandatory rules
 
 The `## SUGGESTED OPENING PROMPT` section must contain **exactly one triple-backtick code block**,

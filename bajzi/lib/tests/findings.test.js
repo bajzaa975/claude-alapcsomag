@@ -516,3 +516,21 @@ test('brief review: always-read listing, missing paths skipped, caps warn, base-
   assert.doesNotMatch(pol, /^- (f|`missing`)$/m);
   fs.rmSync(d, { recursive: true, force: true });
 });
+
+test('dispatch.md "The brief holds:" names every line prefix brief review emits', () => {
+  const fs = require('fs'); const path = require('path');
+  const root = path.join(__dirname, '..', '..');
+  const src = fs.readFileSync(path.join(root, 'lib', 'findings-cli.js'), 'utf8');
+  const block = src.slice(src.indexOf('const lines = [', src.indexOf("kind === 'review'")), src.indexOf('text = `${lines.join'));
+  const emitted = [...new Set([...block.matchAll(/[`']([A-Za-z][\w -]*?):[ `'$]/g)].map((m) => m[1]))].sort();
+  const names = {
+    'slice_id': '`slice_id/round/range` line', 'GRAPH': 'code-review-graph marker line', 'diff': 'the diff path',
+    'slice': '`slice:` line', 'policy': '`policy:` line', 'always read': '`always read:`', 'policy-warning': '`policy-warning:`',
+    'policy-changed': '`policy-changed: yes`', 'known': '`known:` line', 'round-1 findings': 'round-1 file',
+    'fixer report': 'fixer report paths', 'fix diff': '`fix diff:` line', 'changed files': 'changed-file list',
+  };
+  assert.deepStrictEqual(emitted, Object.keys(names).sort());
+  const d = fs.readFileSync(path.join(root, 'skills', 'lib', 'dispatch.md'), 'utf8').replace(/\s+/g, ' ');
+  const s = d.slice(d.indexOf('The brief holds:'), d.indexOf('So it stays small'));
+  for (const [k, phrase] of Object.entries(names)) assert.ok(s.includes(phrase), `${k}: ${phrase}`);
+});

@@ -231,7 +231,8 @@ function sinceOf(state, now, reps) {
   return reps.length ? reps[0].mtimeMs : now - 14 * DAY;
 }
 
-// <home>/night-runs/*/**/night-watch-summary.md (depth <= 4 below each run dir) with mtime >= since,
+// <home>/night-runs/<project>/lessons/<RUN_DATE>/night-watch-summary.md (one per night; the walk takes any
+// night-watch-summary.md down to depth 4 below each project dir) with mtime >= since,
 // newest first, at most 5. Paths only: the session Reads them (untrusted data, prompt.md Trust).
 function nightLessons(home, since) {
   const out = [];

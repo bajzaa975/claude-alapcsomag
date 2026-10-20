@@ -695,7 +695,8 @@ Then write into `~/night-runs/<project>/`:
   `{{PROMPT_TEMPLATE}}` = `run.sh prompt_for` (say so; it is not a file), `{{LAUNCH_LINE}}` = the runner-only
   command (`for v in $(compgen -e); do case "$v" in ANTHROPIC_*|CC_ROUTER_*|CC_WORKER_MODE|CLAUDE_CODE_SUBAGENT_MODEL|CLAUDECODE|CLAUDE_CODE_SESSION_ID|CLAUDE_CODE_BRIDGE_SESSION_ID|CLAUDE_CODE_MESSAGING_SOCKET|CLAUDE_CODE_MESSAGING_TOKEN|CLAUDE_CODE_CHILD_SESSION|CLAUDE_CODE_SESSION_ATTENDED|CLAUDE_CODE_ENTRYPOINT|CLAUDE_CODE_EXECPATH|CLAUDE_PID|CLAUDE_EFFORT|BAJZI_SESSION_LEVEL|BAJZI_SPLIT|BAJZI_SANDBOX) unset "$v";; esac; done; CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000 setsid nohup bash "<RUN_SH>" --config "<NIGHT_DIR>/config.env" --deadline "<DEADLINE>" --date "<RUN_DATE>" </dev/null >> "<NIGHT_DIR>/logs/console.log" 2>&1 &`, the same RUN_SH
   as launch.sh and the same env scrub, character for character: a triage or supervisor tick is a Claude session, and the relaunched runner must not inherit its identity; never `launch.sh`, which is the PHASE E launch command and re-installs settings), `{{LEVEL}}` = 0, `{{STATE_FILE}}` = `<night dir>/night-watch-state.md`, `{{SUMMARY_FILE}}` =
-  `<night dir>/night-watch-summary.md`, `{{ESCALATION_MODEL}}` = entry [0] of the reviewer allow-list,
+  `<night dir>/lessons/<RUN_DATE>/night-watch-summary.md` (`<RUN_DATE>` = launch.sh's `{{RUN_DATE}}`; one file per night, so
+  radar sees every night's Lessons; the watcher's Write creates the directory), `{{ESCALATION_MODEL}}` = entry [0] of the reviewer allow-list,
   `{{ALLOWLIST}}` = the four lines below verbatim. Leave `{{EVENT}}` and `{{FACTS}}` in place: the
   watchdog fills them per tick.
   ```
@@ -1361,7 +1362,7 @@ record is checked (model prefix, permission mode bypassPermissions) and a mismat
 BASE or settings file, or an unsupported `WATCH_TRIAGE_MODEL` (only `sonnet`/`opus`/`haiku` or a full
 `claude-*` id) logs `TICK MISCONFIGURED` and no claude result reaches `triage.log`; a run without a
 result line or a non-zero exit logs `TICK FAILED`. It appends one line per tick to
-`night-watch-state.md`. The last tick, on the queue end, writes `night-watch-summary.md` with a Lessons
+`night-watch-state.md`. The last tick, on the queue end, writes `lessons/<RUN_DATE>/night-watch-summary.md` (one per night) with a Lessons
 section. It never polls, and it never just logs "no status file" and waits for morning: the brief tells
 it to diagnose and act.
 

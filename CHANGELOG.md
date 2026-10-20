@@ -13,6 +13,7 @@ Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](doc
 - ask: every owner question in autopilot (DECISIONS and report), night-run (restriction table, morning report) and day-run's three questions is `<n>. <question> -> recommended: <answer> (<why>)` in ONE round; `yes` accepts all, `yes except <n>: <answer>` overrides rows.
 - night-run: new `ci-tail.sh`: on a red `pull_request` run the story reads a redacted last-80-line failure tail (ANSI stripped, token-shaped strings redacted) instead of the raw log, dispatches one fixer, and a second red run parks the story with a `CI failure tail:` section in the PR body. The night settings allow exactly that script path; the `gh run view --log` ban stays.
 - night-run: story PRs carry `Door: one-way|two-way` and `Blast radius: <one line>` body lines; the morning report lists one-way PRs first and treats a missing line as `Door: unknown` (like one-way).
+- night-run: the watcher writes its morning summary per night, `<NIGHT_DIR>/lessons/<RUN_DATE>/night-watch-summary.md`, instead of overwriting one file.
 - radar: the context carries paths of up to 5 recent night-watch summaries (`night lessons`); the session reads them as untrusted data, reports a lesson recurring in 2+ nights and applies a retro lens (a repeatedly broken rule becomes a deterministic check, an unused rule is deleted).
 
 ## 1.21.0

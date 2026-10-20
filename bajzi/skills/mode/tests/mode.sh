@@ -1356,7 +1356,7 @@ else
     fail "7c 2KB handover" "$out"
 fi
 mb="$TMP/hl-mb.md"; : > "$mb"
-i=0; while [ $i -lt 300 ]; do printf 'árvíztűrő tükörfúrógép %04d őőőőőűűűűű\n' $i >> "$mb"; i=$((i+1)); done
+i=0; while [ $i -lt 300 ]; do printf '\303\241rv\303\255zt\305\261r\305\221 t\303\274k\303\266rf\303\272r\303\263g\303\251p %04d \305\221\305\221\305\221\305\221\305\221\305\261\305\261\305\261\305\261\305\261\n' $i >> "$mb"; i=$((i+1)); done
 out="$(hl_run "$mb")"
 if printf '%s' "$out" | grep -q 'handover truncated' \
    && [ "$(printf '%s' "$out" | iconv -f UTF-8 -t UTF-8 2>&1 >/dev/null | wc -c)" -eq 0 ]; then
@@ -1374,7 +1374,7 @@ else
     fail "7c over-long first line" "${out:0:200}"
 fi
 # 7c: over-long multibyte first line: hard cut must not split a character, must not leak line 2
-mbl="$TMP/hl-mbl.md"; { printf 'x'; i=0; while [ $i -lt 5000 ]; do printf 'ő'; i=$((i+1)); done; printf '\nnext\n'; } > "$mbl"
+mbl="$TMP/hl-mbl.md"; { printf 'x'; i=0; while [ $i -lt 5000 ]; do printf '\305\221'; i=$((i+1)); done; printf '\nnext\n'; } > "$mbl"
 out="$(hl_run "$mbl")"; body="$(hl_body "$out")"
 if [ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -le 8000 ] && [ -n "$body" ] \
    && [ "$(printf '%s' "$body" | iconv -f UTF-8 -t UTF-8 2>&1 >/dev/null | wc -c)" -eq 0 ] \
