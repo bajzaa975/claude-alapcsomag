@@ -47,7 +47,7 @@ function fakes(tools) {
     ].join('\n'));
     if (WIN) fs.writeFileSync(path.join(bin, name + '.cmd'), `@node "%~dp0${name}.js" %*\r\n`);
     else {
-      fs.writeFileSync(path.join(bin, name), `#!/bin/sh\nexec node "$(dirname "$0")/${name}.js" "$@"\n`);
+      fs.writeFileSync(path.join(bin, name), `#!/bin/sh\nexec node "$0.js" "$@"\n`);
       fs.chmodSync(path.join(bin, name), 0o755);
     }
   }
@@ -231,6 +231,7 @@ test('pathspec commit (`git commit -- <file>`): ratchet rewrite deferred, index 
   git(r, 'config', 'core.hooksPath', '.githooks');
   fs.mkdirSync(path.join(r, '.githooks'));
   fs.copyFileSync(GATE, path.join(r, '.githooks', 'pre-commit'));
+  fs.chmodSync(path.join(r, '.githooks', 'pre-commit'), 0o755); // git ignores a non-executable hook on Linux
   fs.writeFileSync(path.join(r, 'a.py'), 'x=2\n');
   const bin = fakes({ gitleaks: CLEAN, ruff: CLEAN, pyright: pyright(2) });
   const c = spawnSync('git', ['commit', '-q', '-m', 'only', '--', 'a.py'], { cwd: r, env: env(minimalPath(bin)), encoding: 'utf8' });
