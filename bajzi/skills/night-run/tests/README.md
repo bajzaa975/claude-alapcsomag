@@ -13,7 +13,7 @@ bash tests/deny-run-tree.sh     # ~1 s    (SKILL.md PHASE C rules check on the r
 bash tests/branch-namespace.sh  # ~5 s    (BRANCH_NAMESPACE: run.sh --dry-run prompt, BRIEF/settings render, exit 2 on a bad value in run.sh and supervise.sh)
 bash tests/branch-lock.sh       # ~2 min, Linux only for the non-dry cases (BRANCH_LOCK_CMD: config refusals, acquire/held/error/hang, worktree cases, leftover release, heartbeat, release on every exit path)
 bash tests/triage.sh           # ~45 s on Git Bash (night-watch.sh tier-1 tick vs a fake claude: argv, cwd, init-record check)
-bash tests/ci-tail.sh          # ~1 s    (ci-tail.sh vs a fake gh: 80-line cap, ANSI strip, token redaction, exit codes)
+bash tests/ci-tail.sh          # ~1 s    (ci-tail.sh vs a fake gh: 80-line cap, ANSI strip, token redaction, exit codes, failing pipeline stage)
 bash tests/supervise.sh        # ~4 min on Git Bash (supervise.sh 30-minute supervisor + its gate vs a fake claude, gh and flock; run.sh SUPERVISE* validation + spawn)
 node --test tests/glm-preflight.test.js   # ~2 s (PHASE A steps 7-8 + their templates; no glm, worker or claude)
 node --test tests/stale-inputs.test.js     # ~1 s (launch.sh.tmpl render + `bash -n`, PHASE A fresh BASE + REQUIRED_CHECK, PHASE C re-render, PHASE D SHA gate; no git, gh or claude)

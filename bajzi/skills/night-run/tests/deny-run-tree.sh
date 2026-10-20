@@ -123,9 +123,9 @@ raise SystemExit(0 if any((m := rule.fullmatch(r)) and any(ns["rx"](ns["path"](m
 PY
   )
 }
-bash_denied(){ # <name> <command>: rc 0 if a Bash(...) deny in $T/<name>.json matches <command>, with the measured
+bash_perm(){ # <name> <command> [deny|allow]: rc 0 if a Bash(...) rule in that list (default deny) of $T/<name>.json matches <command>, with the measured
                # Bash-rule semantics (anchored, every '*' is '.*' and crosses spaces, ':*' = ' *', the rest literal)
-  (cd "$T" && KEY=${KEY:-deny} py - "$1.json" "$2" <<'PY'
+  (cd "$T" && KEY=${3:-deny} py - "$1.json" "$2" <<'PY'
 import json, os, re, sys
 def rx(b):
     b = b[:-2] + " *" if b.endswith(":*") else b
@@ -135,6 +135,7 @@ raise SystemExit(0 if any(rx(b).match(sys.argv[2]) for b in deny) else 1)
 PY
   )
 }
+bash_denied(){ bash_perm "$1" "$2" deny; }
 post(){ # <file> <NIGHT-RULES fixture>: re-run the SKILL.md post-render step on an already rendered $T/<file>;
         # with $ADDON set it is copied to <NIGHT_DIR>/addon-allow.txt and passed, else no last argument is given
   [ -z "${ADDON:-}" ] || cp "$T/$ADDON" "$NIGHT/addon-allow.txt"
@@ -427,10 +428,10 @@ a = [r for r in json.load(open(sys.argv[1]))["permissions"]["allow"] if "ci-tail
 sys.exit(0 if a == ['Bash(bash "%s" "%s" *)' % (sys.argv[2], sys.argv[3])] else 1)
 PY
 ); check $? "exactly one ci-tail allow rule, no '*' before the run-id"
-KEY=allow bash_denied citail "bash \"$CT\" \"$NIGHT\" 123"; check $? "the brief's ci-tail command matches the allow rule"
+bash_perm citail "bash \"$CT\" \"$NIGHT\" 123" allow; check $? "the brief's ci-tail command matches the allow rule"
 for c in "bash -c 'x' ci-tail.sh $NIGHT 1" "bash -c 'x' ci-tail.sh \"$NIGHT\" 1" \
          "bash /other/evil-ci-tail.sh $NIGHT 1" "bash \"/other/evil-ci-tail.sh\" \"$NIGHT\" 1"; do
-  KEY=allow bash_denied citail "$c"; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
+  bash_perm citail "$c" allow; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
 done
 
 # --- (E) the supervisor's own settings: the night file minus THIS night's state-file deny ----------
