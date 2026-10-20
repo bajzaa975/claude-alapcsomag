@@ -479,7 +479,7 @@ test('prompt.md carries the pinned sources, the untrusted-web rule and the outpu
   const p = fs.readFileSync(path.join(__dirname, '..', 'prompt.md'), 'utf8');
   for (const s of ['https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md', 'https://platform.claude.com/docs/en/release-notes/overview',
     'https://www.anthropic.com/news', 'https://www.anthropic.com/engineering', 'https://api.github.com/repos/obra/superpowers/releases',
-    '# bajzi radar - <YYYY-MM-DD>', 'deliberately_skipped', 'declined.md', 'Considered and dropped', 'Nothing worth changing', 'untrusted']) {
+    '# bajzi radar - <YYYY-MM-DD>', 'deliberately_skipped', 'declined.md', 'Considered and dropped', 'Nothing worth changing', 'untrusted', 'night lessons', 'deterministic check', 'proposed for deletion']) {
     assert.ok(p.includes(s), s);
   }
 });
@@ -502,4 +502,5 @@ test('run Context: night lessons lists in-window summaries newest first (max 5),
   const l = line(await go(e));
   assert.strictEqual(l, '- night lessons: ' + ins.slice(1).reverse().join(', '));
   assert.ok(!l.includes(old) && !l.includes('SECRET'));
+  assert.ok((await go(e)).split('\n').includes('- declined list: ' + path.join(e.state, 'declined.md')));
 });

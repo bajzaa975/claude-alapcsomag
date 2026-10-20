@@ -342,7 +342,7 @@ async function attempt({ state, now = new Date(), claude = realClaude, exec = re
     `- state dir: ${state}`,
     `- last reports: ${reps.slice(0, 2).map(r => r.path).join(', ') || 'none'}`,
     `- night lessons: ${nightLessons(home, since).join(', ') || 'none'}`,
-    `- declined list:${path.join(state, 'declined.md')}`,
+    `- declined list: ${path.join(state, 'declined.md')}`,
     `- owner rule files: ${path.join(home, '.claude', 'CLAUDE.md')}, ${path.join(home, '.claude', 'RTK.md')}`,
     root ? `- installed bajzi root: ${root}; its manifest: ${path.join(root, 'skills', 'setup', 'manifest.json')}`
       : '- installed bajzi root: NOT FOUND in installed_plugins.json',
