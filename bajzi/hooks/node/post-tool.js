@@ -11,6 +11,7 @@ const { readInput, addContext, runChecks, runHook } = require('./lib/hook-io');
 const CHECKS = [
   ['context-guard', () => true, () => require('./context-guard')],
   ['injection-scan', t => /^(?:Read|WebFetch|WebSearch)$|^mcp__/.test(t), () => require('./injection-scan')],
+  ['security-patterns', t => /^(?:Edit|Write|MultiEdit|NotebookEdit)$/.test(t), () => require('./security-patterns')],
   // Status records (spec §6.5): Artifact append + the resume rule. Never returns a context.
   ['session-signal', () => true, () => require('./session-signal')],
 ];
