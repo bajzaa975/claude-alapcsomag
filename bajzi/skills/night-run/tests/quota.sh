@@ -121,12 +121,15 @@ check "$([ -s "$ND/finished" ] && echo 0 || echo 1)" "(C) the run wrote 'finishe
 
 # ============================== (D) a named zone, and a wait the deadline bars =
 echo
-echo "== (D) 'resets 11:05pm (Europe/Budapest)' parsed exactly; no wait past the deadline =="
+# The reset is two hours ahead of the clock, not a fixed time of day: a fixed
+# "11:05pm" fell inside run.sh's 15-minute past grace (or within the 3-minute
+# deadline) once a day, and the test then saw a correct wait as a failure.
+want=$(( ( $(date +%s) + 7200 ) / 60 * 60 ))
+at=$(TZ=Europe/Budapest date -d "@$want" +%-I:%M%P)
+echo "== (D) 'resets $at (Europe/Budapest)' parsed exactly; no wait past the deadline =="
 setup D 'QUOTA_MARGIN_SEC="5"'
 nr_queue "$ND" Z1 Z2
-nr_plan "$ND/fake" "raw:You've hit your session limit · resets 11:05pm (Europe/Budapest)" "ok"
-want=$(date -d 'TZ="Europe/Budapest" 11:05pm' +%s)
-[ "$want" -le "$(date +%s)" ] && want=$(date -d 'TZ="Europe/Budapest" tomorrow 11:05pm' +%s)
+nr_plan "$ND/fake" "raw:You've hit your session limit · resets $at (Europe/Budapest)" "ok"
 want=$(date -u -d "@$want" +%FT%TZ)
 dl=$(date -d '+3 minutes' +%H:%M)
 t0=$(date +%s)
