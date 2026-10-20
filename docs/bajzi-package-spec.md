@@ -1535,15 +1535,16 @@ and, through its `claude plugin marketplace update` pre-step, the marketplace cl
   `skills/*/SKILL.md` under each installPath); each failure becomes a `FAILED (...)` line in the
   context, never fatal. Prompt = `prompt.md` + a context block (date,
   since, state dir, `night lessons` = paths (never text) of up to 5 `~/night-runs/*/**/night-watch-summary.md`
-  (depth-limited) with mtime ≥ since, newest first, else `none`; prompt.md item 8 has the session Read them as
-  untrusted data and report a lesson recurring in 2+ nights; item 9 adds the retro lens: a repeatedly broken
-  rule → the deterministic check that would replace it, an unused rule → delete; no extra LLM call),
+  (depth-limited) with mtime ≥ since, newest first, else `none`,
   the last 2 reports, `declined.md`, `~/.claude/CLAUDE.md`, `~/.claude/RTK.md`,
   the installed bajzi root = `installed_plugins.json` `bajzi@bajzi-plugins[0].installPath` and its
   `skills/setup/manifest.json`, the marketplace clone `~/.claude/plugins/marketplaces/bajzi-plugins`
   with its `docs/bajzi-package-spec.md` and `bajzi/skills/mode/DAY-RUN-RULES.md`, the catalog glob,
   the `installed_plugins.json` path, so the installPaths survive a failed `plugin list`)
-  + the digest. The context carries paths; the session Reads them itself.
+  + the digest. The context carries paths; the session Reads them itself. prompt.md item 8 has the
+  session Read the night lessons as untrusted data and report a lesson recurring in 2+ nights; item 9
+  adds the retro lens: a repeatedly broken rule → the deterministic check that would replace it, an
+  unused rule → delete; no extra LLM call.
 - **Read-only boundary** (`claudeArgs`, `realClaude`): `claude -p --model opus --permission-mode
   dontAsk --tools Read Glob Grep WebFetch WebSearch --allowedTools Read Glob Grep WebSearch
   WebFetch(domain:<h>)… --setting-sources '' --settings {"disableAllHooks":true} --strict-mcp-config
