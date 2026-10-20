@@ -8,6 +8,7 @@ set -u
 ND=$1 RID=$2
 command -v gh >/dev/null 2>&1 || { echo "ci-tail.sh: gh not found" >&2; exit 1; }
 RAW=$(gh run view "$RID" --log-failed 2>/dev/null) || { echo "ci-tail.sh: gh run view failed" >&2; exit 1; }
+[ -n "$RAW" ] || { echo "ci-tail.sh: empty log" >&2; exit 1; }
 ESC=$(printf '\033')
 N='[A-Za-z0-9_.-]*([Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Kk][Ee][Yy])[A-Za-z0-9_.-]*'
 mkdir -p "$ND/ci" || exit 1
@@ -19,6 +20,6 @@ printf '%s\n' "$RAW" | tr -d '\r' | sed -E \
   -e 's/Bearer +[^ ]+/[REDACTED]/g' \
   -e 's/(AKIA|ASIA)[0-9A-Z]{16}/[REDACTED]/g' \
   -e "s/(\"$N\" *: *)\"[^\"]*\"/\1\"[REDACTED]\"/g" \
-  -e "s/($N)=(\"[^\"]*\"|[^ ]+)/\1=[REDACTED]/g" \
+  -e "s/($N)=(\"[^\"]*\"|'[^']*'|[^ ]+)/\1=[REDACTED]/g" \
   | tail -n 80 > "$OUT.tmp" && mv "$OUT.tmp" "$OUT" || { rm -f "$OUT.tmp"; exit 1; }
 echo "$OUT"

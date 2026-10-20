@@ -30,6 +30,7 @@ E=$(printf '\033'); A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   echo "t7 MY_TO""KEN=hunter2 rest"
   echo "t8 {\"api_to""ken\": \"hunter3\"}"
   echo "t9 DB_PASS""WORD=\"hunter 4\""
+  echo "t10 DB_PASS""WORD='hunter 5 tail'"
 } > "$S/log"
 OUT=$(bash "$CT" "$S/nd" 123) ; rc=$?
 [ $rc = 0 ] && [ "$OUT" = "$S/nd/ci/123.txt" ] && [ -f "$OUT" ] && ok "path printed, file written" || bad "path/file rc=$rc out=$OUT"
@@ -37,13 +38,16 @@ OUT=$(bash "$CT" "$S/nd" 123) ; rc=$?
 grep -q 'line 1$' "$OUT" && bad "old lines kept" || ok "head dropped"
 grep -q "$E" "$OUT" && bad "ANSI left" || ok "ANSI stripped"
 grep -q 'red text' "$OUT" && ok "text kept" || bad "text lost"
-for n in 1 2 3 4 5 6 7 8 9; do
+for n in 1 2 3 4 5 6 7 8 9 10; do
   l=$(grep "^t$n " "$OUT")
-  case "$l" in *"[REDACTED]"*) case "$l" in *"$A"*|*hunter*|*abc.def*|*0123456789ABCDEF*) bad "t$n leaked: $l";; *) ok "t$n redacted";; esac;; *) bad "t$n not redacted: $l";; esac
+  case "$l" in *"[REDACTED]"*) case "$l" in *"$A"*|*hunter*|*tail*|*abc.def*|*0123456789ABCDEF*) bad "t$n leaked: $l";; *) ok "t$n redacted";; esac;; *) bad "t$n not redacted: $l";; esac
 done
 bash "$CT" "$S/nd" 12x >/dev/null 2>&1; [ $? = 2 ] && ok "bad run-id exit 2" || bad "bad run-id"
 bash "$CT" "$S/nd" "" >/dev/null 2>&1; [ $? = 2 ] && ok "empty run-id exit 2" || bad "empty run-id"
 bash "$CT" "$S/none" 5 >/dev/null 2>&1; [ $? = 2 ] && ok "missing dir exit 2" || bad "missing dir"
 FAKE_GH_FAIL=1 bash "$CT" "$S/nd" 456 >/dev/null 2>&1; rc=$?
 [ $rc = 1 ] && [ ! -e "$S/nd/ci/456.txt" ] && ok "gh failure exit 1, no file" || bad "gh failure rc=$rc"
+: > "$S/empty"
+FAKE_GH_LOG="$S/empty" bash "$CT" "$S/nd" 789 >/dev/null 2>&1; rc=$?
+[ $rc = 1 ] && [ ! -e "$S/nd/ci/789.txt" ] && ok "empty log exit 1, no file" || bad "empty log rc=$rc"
 exit $FAILED
