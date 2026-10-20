@@ -21,7 +21,9 @@ function decide(input, dir = os.tmpdir()) {
   if (typeof file !== 'string' || ti.offset != null || ti.limit != null) return null;
   if (!CODE_EXT.test(file) || /(?:^|\W)runtime\Wbriefs\W/.test(file) || !safeId(input.session_id)) return null;
   const resp = input.tool_response !== undefined ? input.tool_response : input.tool_output;
-  const n = collectText(resp).replace(/\n+$/, '').split('\n').length;
+  const f = resp && resp.file;
+  const body = f && typeof f.content === 'string' ? f.content : collectText(resp);
+  const n = body.replace(/\n+$/, '').split('\n').length;
   if (n <= MAX_LINES) return null;
   const p = path.join(dir, `bajzi-readnudge-${input.session_id}.json`);
   const seen = readSeen(p);
