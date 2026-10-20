@@ -125,11 +125,20 @@ echo
 # "11:05pm" fell inside run.sh's 15-minute past grace (or within the 3-minute
 # deadline) once a day, and the test then saw a correct wait as a failure.
 # Never in local 02:xx: on the autumn DST night that hour happens twice, and a
-# bare "2:30am" names two instants.
-want=$(( ( $(date +%s) + 7200 ) / 60 * 60 ))
-[ "$(TZ=Europe/Budapest date -d "@$want" +%H)" = 02 ] && want=$(( want + 3600 ))
+# bare "2:30am" names two instants. A loop, not one +1 h: the first 02:xx plus
+# an hour is the second one.
+d_reset(){ # <now epoch> -> the (D) reset epoch
+  local e=$(( ( $1 + 7200 ) / 60 * 60 ))
+  while [ "$(TZ=Europe/Budapest date -d "@$e" +%H)" = 02 ]; do e=$(( e + 3600 )); done
+  echo "$e"
+}
+want=$(d_reset "$(date +%s)")
 at=$(TZ=Europe/Budapest date -d "@$want" +%-I:%M%P)
 echo "== (D) 'resets $at (Europe/Budapest)' parsed exactly; no wait past the deadline =="
+for t in 2026-10-24T22:30Z 2026-10-24T23:30Z; do # the two runs the autumn night would hit
+  check "$([ "$(TZ=Europe/Budapest date -d "@$(d_reset "$(date -d "$t" +%s)")" +%H)" != 02 ] && echo 0 || echo 1)" \
+    "(D) a run at $t never announces a 02:xx Budapest reset"
+done
 setup D 'QUOTA_MARGIN_SEC="5"'
 nr_queue "$ND" Z1 Z2
 nr_plan "$ND/fake" "raw:You've hit your session limit · resets $at (Europe/Budapest)" "ok"
