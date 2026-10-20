@@ -2243,8 +2243,8 @@ Current versions (the `release.test.js` row reads the first line below):
 
 | Release unit | Current version | Where the version lives |
 |---|---|---|
-| bajzi plugin release | 1.21.0 | `bajzi/.claude-plugin/plugin.json` `version` and `.claude-plugin/marketplace.json` `plugins[0].version` (they must be equal) |
-| `bajzi-cowork` variant | 1.21.0 | generated: `node tools/build-cowork.js` restamps `bajzi-cowork/.claude-plugin/plugin.json` and its marketplace entry |
+| bajzi plugin release | 1.22.0 | `bajzi/.claude-plugin/plugin.json` `version` and `.claude-plugin/marketplace.json` `plugins[0].version` (they must be equal) |
+| `bajzi-cowork` variant | 1.22.0 | generated: `node tools/build-cowork.js` restamps `bajzi-cowork/.claude-plugin/plugin.json` and its marketplace entry |
 | `cache-timer`, `nightrun-pane` mods | 0.1.0 | each mod's own `.claude-plugin/plugin.json` and its marketplace entry |
 
 Steps for a bajzi release (details and the reinstall are in §8.3):

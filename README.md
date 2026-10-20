@@ -12,8 +12,8 @@ Marketplace name: `bajzi-plugins` (GitHub: `bajzaa975/claude-alapcsomag`). Full 
 
 | Plugin | Version | What it is |
 |---|---|---|
-| `bajzi` | 1.21.0 | The full Claude Code package: skills, hooks, agents, launchers, status line. |
-| `bajzi-cowork` | 1.21.0 | Skills-only subset for claude.ai / Cowork (no hooks, no `bin/`). |
+| `bajzi` | 1.22.0 | The full Claude Code package: skills, hooks, agents, launchers, status line. |
+| `bajzi-cowork` | 1.22.0 | Skills-only subset for claude.ai / Cowork (no hooks, no `bin/`). |
 | `cache-timer` | 0.1.0 | Optional mod: status line entry with the minutes left on the prompt cache. |
 | `nightrun-pane` | 0.1.0 | Optional mod: a `/nightrun` pane for an external orchestrator's night run. |
 
