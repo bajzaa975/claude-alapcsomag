@@ -182,27 +182,23 @@ const cmds = {
       const warns = [];
       let always = [];
       if (policy !== null) {
-        // caps: keep the first N bullets of a section, report the rest as ignored
-        const cap = (head, n) => {
-          const out = []; let inSec = false; let seen = 0;
+        // cap: keep the first n top-level bullets of a section with their continuation lines; ok() drops an entry silently.
+        const cap = (head, n, ok = () => true) => {
+          const out = []; const kept = []; let inSec = false; let seen = 0; let drop = false;
           for (const l of policy.split('\n')) {
-            if (/^##\s/.test(l)) inSec = l.replace(/^##\s+/, '').trim().toLowerCase() === head;
-            if (inSec && /^\s*[-*]\s/.test(l) && ++seen > n) continue;
+            if (/^##\s/.test(l)) { inSec = l.replace(/^##\s+/, '').trim().toLowerCase() === head; drop = false; } else if (inSec) {
+              const m = /^[-*]\s+`?([^`\s]*)`?/.exec(l);
+              if (m) { drop = ++seen > n || !ok(m[1]); if (!drop) kept.push(m[1]); }
+              if (drop && (m || l.trim())) continue;
+            }
             out.push(l);
           }
           if (seen > n) warns.push(`${seen} ${head} entries (cap ${n}), extra entries ignored`);
           policy = out.join('\n');
-          return seen;
+          return kept;
         };
         cap('checks', 10);
-        let inAr = false;
-        for (const l of policy.split('\n')) {
-          if (/^##\s/.test(l)) inAr = l.replace(/^##\s+/, '').trim().toLowerCase() === 'always read';
-          const m = inAr && /^\s*[-*]\s+`?([^`\s]+)`?/.exec(l);
-          if (m) always.push(m[1]);
-        }
-        if (always.length > 5) { warns.push(`${always.length} always read entries (cap 5), extra entries ignored`); always = always.slice(0, 5); }
-        always = always.filter((p) => { try { execFileSync('git', ['cat-file', '-e', `${base}:${p}`], { stdio: 'ignore' }); return true; } catch { return false; } });
+        always = cap('always read', 5, (p) => { try { execFileSync('git', ['cat-file', '-e', `${base}:${p}`], { stdio: 'ignore' }); return true; } catch { return false; } });
         const pp = path.posix.join(BRIEFS, `${slice}-r${round}.policy.md`);
         fs.writeFileSync(pp, policy);
         lines.push(`policy: ${pp} -- Read it; do not flag what it lists as accepted.`);
