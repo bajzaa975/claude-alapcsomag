@@ -1350,7 +1350,7 @@ fi
 small="$TMP/hl-small.md"; : > "$small"
 i=0; while [ $i -lt 40 ]; do printf 'line %04d aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' $i >> "$small"; i=$((i+1)); done
 out="$(hl_run "$small")"
-if ! printf '%s' "$out" | grep -q 'truncated' && printf '%s' "$out" | [ "$(hl_body "$out")" = "$(cat "$small")" ]; then
+if ! printf '%s' "$out" | grep -q 'truncated' && [ "$(hl_body "$out")" = "$(cat "$small")" ]; then
     pass "7c 2KB handover injected unchanged"
 else
     fail "7c 2KB handover" "$out"
@@ -1373,6 +1373,17 @@ if printf '%s' "$out" | grep -q 'handover truncated' && printf '%s' "$out" | gre
 else
     fail "7c over-long first line" "${out:0:200}"
 fi
+# 7c: over-long multibyte first line: hard cut must not split a character, must not leak line 2
+mbl="$TMP/hl-mbl.md"; { printf 'x'; i=0; while [ $i -lt 5000 ]; do printf 'Å'; i=$((i+1)); done; printf '
+next
+'; } > "$mbl"
+out="$(hl_run "$mbl")"; body="$(hl_body "$out")"
+if [ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -le 8000 ] && [ -n "$body" ]    && [ "$(printf '%s' "$body" | iconv -f UTF-8 -t UTF-8 2>&1 >/dev/null | wc -c)" -eq 0 ]    && ! printf '%s' "$body" | grep -q 'next'; then
+    pass "7c over-long multibyte first line hard-cut on a character boundary"
+else
+    fail "7c over-long multibyte first line" "${out:0:200}"
+fi
+
 edge="$TMP/hl-edge.md"; : > "$edge"
 i=0; while [ $i -lt 99 ]; do printf '%079d\n' $i >> "$edge"; i=$((i+1)); done
 printf 'EDGE%076d\nmore\nmore\n' 0 >> "$edge"
