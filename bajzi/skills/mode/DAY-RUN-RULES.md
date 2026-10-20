@@ -19,7 +19,7 @@ ROUTING TABLE, task class -> model, effort:
 EFFORT: pass the row's effort as the Agent tool's `effort` parameter on every Claude dispatch (GLM `glm -p` has none); never change the
 owner's session effort. PACING: briefs for locate/map, tests, long-file read, implement and fix end with: "Time matters here: do not
 spend time that can be avoided, and the earlier a correct result is obtained, the better." Never in review or debugging briefs.
-ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 -> opus r3 -> ORCH r4 -> park. Climb on the FIRST failure. An identical
+ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 (new sub-agent) -> opus r3 -> ORCH r4 -> park. Climb on the FIRST failure. An identical
 blocking finding twice with no diff change parks now.
 REVIEW LOOP, every development: implement -> REVIEWER review (two verdicts per task: spec compliance, quality) -> FIXER (never the reviewer, never ORCH) -> NEW review, until CLEAN; then
 a final REVIEWER whole-branch review. One fix wave is not a loop. Use /bajzi:review and /bajzi:fix; dispatch-guard enforces briefs (R1-R3).
