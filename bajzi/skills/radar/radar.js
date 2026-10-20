@@ -231,6 +231,24 @@ function sinceOf(state, now, reps) {
   return reps.length ? reps[0].mtimeMs : now - 14 * DAY;
 }
 
+// <home>/night-runs/*/**/night-watch-summary.md (depth <= 4 below each run dir) with mtime >= since,
+// newest first, at most 5. Paths only: the session Reads them (untrusted data, prompt.md Trust).
+function nightLessons(home, since) {
+  const out = [];
+  const walk = (d, depth) => {
+    for (const e of ls(d)) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory() && depth < 4) walk(p, depth + 1);
+      else if (e.isFile() && e.name === 'night-watch-summary.md') {
+        const m = mtime(p);
+        if (m !== null && m >= since) out.push({ p, m });
+      }
+    }
+  };
+  for (const r of ls(path.join(home, 'night-runs'))) if (r.isDirectory()) walk(path.join(home, 'night-runs', r.name), 1);
+  return out.sort((a, b) => b.m - a.m).slice(0, 5).map(x => x.p);
+}
+
 function bajziRoot(home) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'plugins', 'installed_plugins.json'), 'utf8'));
@@ -323,7 +341,8 @@ async function attempt({ state, now = new Date(), claude = realClaude, exec = re
     `- since: ${iso(since)}`,
     `- state dir: ${state}`,
     `- last reports: ${reps.slice(0, 2).map(r => r.path).join(', ') || 'none'}`,
-    `- declined list: ${path.join(state, 'declined.md')}`,
+    `- night lessons: ${nightLessons(home, since).join(', ') || 'none'}`,
+    `- declined list:${path.join(state, 'declined.md')}`,
     `- owner rule files: ${path.join(home, '.claude', 'CLAUDE.md')}, ${path.join(home, '.claude', 'RTK.md')}`,
     root ? `- installed bajzi root: ${root}; its manifest: ${path.join(root, 'skills', 'setup', 'manifest.json')}`
       : '- installed bajzi root: NOT FOUND in installed_plugins.json',

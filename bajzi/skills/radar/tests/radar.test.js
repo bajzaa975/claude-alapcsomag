@@ -489,3 +489,17 @@ test('SKILL.md: name radar, the three entry points, the seen step', () => {
   assert.match(s, /^---\nname: radar\ndescription: .+\n---\n/);
   for (const x of ['/bajzi:radar now', '/bajzi:radar install', 'radar.js" seen', 'radar.js" run', 'radar.js" install-task', 'declined.md']) assert.ok(s.includes(x), x);
 });
+
+test('run Context: night lessons lists in-window summaries newest first (max 5), omits old ones, none without; missing dir ok', async () => {
+  const go = async e => { const s = {}; await R.run({ state: e.state, now: NOW, claude: okClaude(s), exec: e.exec, home: e.home, projectsDir: e.f.projects }); return s.prompt; };
+  const line = p => p.split('\n').find(l => l.startsWith('- night lessons: '));
+  const e0 = runEnv();
+  assert.strictEqual(line(await go(e0)), '- night lessons: none');
+  const e = runEnv();
+  const mk = (n, d) => { const p = path.join(e.home, 'night-runs', 'proj', n, 'night-watch-summary.md'); write(p, 'SECRET'); setM(p, new Date(d)); return p; };
+  const old = mk('old', '2026-08-01T00:00:00Z');
+  const ins = [1, 2, 3, 4, 5, 6].map(i => mk('n' + i, `2026-09-2${i}T00:00:00Z`));
+  const l = line(await go(e));
+  assert.strictEqual(l, '- night lessons: ' + ins.slice(1).reverse().join(', '));
+  assert.ok(!l.includes(old) && !l.includes('SECRET'));
+});
