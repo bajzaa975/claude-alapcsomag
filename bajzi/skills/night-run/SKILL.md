@@ -1433,6 +1433,10 @@ night PARKED is re-reviewed, not waved through because it is morning; run the po
 invariants after each merge; clean up worktrees with `worktree-cleanup.sh` (`references/worktrees.md`), KEEPING anything dirty,
 unpushed or parked.
 
+**Review order by reversibility.** List `Door: one-way` PRs first in the review order and quote each
+PR's `Door:` and `Blast radius:` lines next to it in the report. A PR body missing the lines is listed
+as `Door: unknown` and treated like one-way; never guess the value.
+
 **List the night's open review-queue items (a GLM night, L2/L3).** Every story of such a night leaves its
 review in `<BASE>/runtime/review-queue/<id>.md` and its PR open; `<BASE>` is the `config.env` value. Run
 `grep -lE '^status:[ \t]*(open|pending)' <BASE>/runtime/review-queue/*.md` and list every hit in the

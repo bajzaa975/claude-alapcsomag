@@ -430,3 +430,13 @@ test('BRIEF head comment admits the live tokens in the variant blocks', () => {
   const head = flat(BRIEF.slice(0, BRIEF.indexOf('\n-->')));
   has(head, 'except the variant blocks below, which hold live tokens');
 });
+
+test('door-blast: BRIEF PR body requires Door and Blast radius; PHASE F lists one-way first, missing = unknown', () => {
+  const b = flat(BRIEF);
+  has(b, '`Door: one-way`');
+  has(b, '`Door: two-way`');
+  has(b, '`Blast radius:');
+  const f = flat(SKILL.slice(SKILL.indexOf('## PHASE F')));
+  has(f, 'List `Door: one-way` PRs first');
+  has(f, 'listed as `Door: unknown` and treated like one-way');
+});

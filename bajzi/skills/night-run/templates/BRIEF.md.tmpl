@@ -475,7 +475,10 @@ uncommitted work once.
 5. **One PR per story, and at most one open at a time**, into
    `{{BASE_BRANCH}}`: `gh pr create --base {{BASE_BRANCH}}`. PR body in English:
    what, why, evidence (test command and counts), non-blocking review findings,
-   and what is left for the owner.
+   and what is left for the owner. The body also carries two required lines:
+   `Door: one-way` (hard to undo: data migration or deletion, public API/CLI/file-format
+   change, release/publish, history rewrite, anything touching secrets) or `Door: two-way`
+   (a revert undoes it), and `Blast radius: <who or what breaks if this is wrong, one line>`.
 
 ---
 

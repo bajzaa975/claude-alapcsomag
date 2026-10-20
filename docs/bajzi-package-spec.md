@@ -445,6 +445,8 @@ Step 7, at every level, blocks on a user-level `Read`/`Edit` deny ending in `.en
 `.env.**`, with or without `**/` (it also denies the tracked `.env.example`) or a bracket class on an env name (measured inverted) and
 prints the explicit env-name replacement; the user edits the settings, never the skill. At L2/L3 the night is a GLM night: PHASE C/D and PHASE F behaviour is in "Night-run GLM night" in §6.2 (L2/L3 stories queue their review in `<BASE>/runtime/review-queue/<id>.md`).
 
+Night-run story PRs carry two model-written body lines (BRIEF rule 5): `Door: one-way|two-way` and `Blast radius: <one line>`. PHASE F lists one-way PRs first and quotes both lines; a body missing them is `Door: unknown`, treated like one-way. No runner change; `## Stories` facts stay model-free.
+
 ### 6.2 The `glm` / `worker` / `ccr` shims — technical
 
 `bajzi/bin/cc-router.js` (`VERSION = '1.2.0'`),
