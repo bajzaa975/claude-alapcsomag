@@ -22,7 +22,7 @@ const ALLOWED_TOOLS = [
 ];
 const REQUIRED_HEADINGS = ['# Input', '# Output', '# Rules', '# Never'];
 const MAX_BODY_LINES = 60;
-const MAX_BODY_LINES_BY_AGENT = { reviewer: 100 }; // the reviewer carries the review checklist
+const MAX_BODY_LINES_BY_AGENT = { reviewer: 140 }; // the reviewer carries the review checklist
 // The mandatory frontmatter keys; optional keys are listed below, any other key is refused.
 const ALLOWED_KEYS = ['name', 'description', 'model', 'tools'];
 const OPTIONAL_KEYS = ['effort']; // optional, values low|medium|high|xhigh|max
@@ -199,6 +199,7 @@ function checkChecklist(body) {
   const parts = [
     [sec.slice(s, f), [/Injection/, /Secrets/, /deserialization/, /authorization/, /Temp files/]],
     [sec.slice(f, d), [/swallowed exception/, /\|\| true/, /fallback or default/, /Optional chaining/, /retry loop/]],
+    [sec.slice(f, d), [/cannot fail/, /regression/, /contradicts/, /TODO/, /invalid instance/]],
     [sec.slice(d), [/Denial of service/, /Trusted inputs/, /Parameterized SQL/, /already existed outside the diff/, /Theoretical issues/]],
   ];
   for (const [part, res] of parts) {
@@ -226,13 +227,13 @@ test('fixture: checklist check rejects a last-heading overlong section and a mis
   assert.match(checkChecklist(moved), /Parameterized SQL/);
 });
 
-// Per-agent body-length cap: reviewer 100, every other name (incl. built-in property names) 60.
+// Per-agent body-length cap: reviewer 140, every other name (incl. built-in property names) 60.
 function agentWith(name, n) {
   const filler = Array(Math.max(0, n - 4)).fill('x');
   return `---\nname: ${name}\ndescription: d\nmodel: sonnet\ntools: Read\n---\n${['# Input', '# Output', '# Rules', '# Never', ...filler].join('\n')}\n`;
 }
 test('fixture: per-agent body-length cap', () => {
-  assert.match(validateAgent(agentWith('reviewer', 101), 'reviewer').why, /max 100/);
+  assert.match(validateAgent(agentWith('reviewer', 141), 'reviewer').why, /max 140/);
   assert.deepStrictEqual(validateAgent(agentWith('reviewer', 80), 'reviewer'), { ok: true });
   assert.match(validateAgent(agentWith('fixer', 61), 'fixer').why, /max 60/);
   assert.match(validateAgent(agentWith('toString', 61), 'toString').why, /max 60/);

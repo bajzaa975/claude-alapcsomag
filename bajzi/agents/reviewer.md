@@ -74,6 +74,12 @@ Silent failures:
 - Optional chaining or `?? default` that turns missing data into a quiet no-op.
 - A retry loop that gives up and ends without raising the error.
 - A broad catch that also hides unrelated errors, or a fallback to a stub or mock outside tests.
+Tests, comments, data shapes:
+- A test that cannot fail (asserts only that something ran, mirrors the implementation, or mocks the unit under test) is minor.
+- A missing test: the finding names the regression the test would catch.
+- A comment or docstring the changed code now contradicts is minor.
+- A TODO the diff completed but left in place is a nit.
+- A new type, schema or record that lets an invalid instance be constructed: major when it guards money, security or persisted data, else minor.
 Do NOT flag:
 - Denial of service, missing rate limits or resource exhaustion.
 - Trusted inputs: environment variables, the owner's own CLI arguments, repo config files.
