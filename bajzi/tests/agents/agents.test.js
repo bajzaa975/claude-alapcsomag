@@ -262,3 +262,9 @@ test('implementer.md and implementer-risk.md bodies differ only in the Tier-1 bl
   assert.ok(inserted.length > 0, 'implementer-risk.md has no inserted Tier-1 block');
   assert.ok(inserted.some((l) => /Tier 1/.test(l)), `inserted block does not mention Tier 1: ${inserted.join(' / ')}`);
 });
+
+test('reviewer judges the slice acceptance items (slice: line, major finding)', () => {
+  const body = read('reviewer.md');
+  assert.match(body, /`slice:` line/);
+  assert.match(body, /acceptance item the diff does not meet is a major finding \(contract/);
+});

@@ -1426,7 +1426,9 @@ and dispatches through the shared template `bajzi/skills/lib/dispatch.md`: write
 (`findings-cli.js log`), save the agent's final message verbatim. A guard deny stops the skill
 with the rule id; it never retries with a trimmed brief. Exception: a refusal whose reason starts `saver-guard:` (L2/L3 on Claude) is not a stop: the skill writes the agent body (no frontmatter), `---` and the brief to `runtime/briefs/<slice>-<class>.glm.txt` and runs `glm -p --permission-mode bypassPermissions < <file>` (`cc-router.js` passes args straight to `claude`; observed: under `acceptEdits` a headless worker edits files but its compound Bash call, the slice's test command, is refused with "contains multiple operations", under `bypassPermissions` both succeed, user/project deny rules still apply; no per-command `--allowedTools` because slice test commands vary), logs `glm:<agent>` (`FC log` always writes a `glm:` allow line even with the dispatch guard's gate open, as the hook never sees the Bash call), and on exit 75 re-dispatches the original Agent call (the guard allows writes in the peak window, a counted Claude fallback at L2 and L3 alike; SAVER-L3.md keeps the no-fallback rule only for a session that itself runs on GLM); other non-zero exits STOP. Tier 1 slices use `bajzi:implementer-risk`, which the guard allows. Reviewer briefs come from
 `findings-cli.js brief`: the full `git diff` goes to `runtime/briefs/<slice>-r<n>.diff` and the
-brief carries PATHS (diff, round-1 file, fixer report, `debt.md`), resolved SHAs and the graph
+brief carries PATHS (diff, round-1 file, fixer report, `debt.md`, and the slice spec as a
+`slice: runtime/slices/<slice>.md` line when that file exists and the slice is not `debt`; the reviewer
+treats an unmet acceptance item as a major contract-violation finding), resolved SHAs and the graph
 marker line, so it stays far under the guard's R3 cap whatever the diff size; the reviewer has
 Read and reads the files in full. The calibrate brief carries the single-file opt-out line
 `GRAPH: n/a single-file runtime/findings/debt.blind.md`, because R1 lets a `bajzi:reviewer` brief

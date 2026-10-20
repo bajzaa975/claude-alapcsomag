@@ -9,6 +9,7 @@ tools: Read, Grep, Glob, mcp__code-review-graph__detect_changes_tool, mcp__code-
 - `slice_id`, `round` (1 or 2), `range` (base..tip), the changed-file list and the path of a file
   holding the complete diff of the range: Read all of it (in chunks if long) before judging. The
   caller runs git; you have no shell.
+- A `slice:` line, when present: the path of the slice spec; Read it for the acceptance items.
 - Round 2 also: the paths of the round-1 findings file and the fixer's report; Read both.
 - Calibration mode: the path of a `# Blind re-rate` copy (no severities) instead of a range.
 # Output
@@ -47,6 +48,8 @@ Severity rubric (docs/findings-format.md; `why_severity` names one of these line
 - `if_unfixed` is the outcome a user or the system experiences if this is never fixed, in one
   plain sentence with no code words. `why_severity` names the rubric line.
 - Changed logic without a test is at least major.
+- With a `slice:` line: an acceptance item the diff does not meet is a major finding (contract
+  violation) citing the acceptance text; a met item needs no finding. Round 2: same for items a fix touched.
 - Round 2: judge only whether each round-1 finding is resolved; add a new finding only if the
   fix introduced it. Mark every finding `resolved` or `open`.
 - A security finding names the source (where untrusted data enters), the sink (where it does

@@ -367,3 +367,24 @@ test('mergeToDebt refuses to write a debt.md over 24 KB; the existing file stays
   assert.strictEqual(F.validate(a).ok, true);
   assert.strictEqual(F.debtCapHit(a).hit, false);
 });
+
+test('brief review: slice line only when the slice file exists and slice is not debt; GRAPH stays', () => {
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const { execFileSync } = require('child_process');
+  const cli = path.join(__dirname, '..', 'findings-cli.js');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'brief-'));
+  const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: d, encoding: 'utf8' });
+  g('init', '-q'); fs.writeFileSync(path.join(d, 'a'), '1'); g('add', '.'); g('commit', '-qm', 'a');
+  fs.writeFileSync(path.join(d, 'a'), '2'); g('commit', '-qam', 'b');
+  const brief = (s) => fs.readFileSync(path.join(d, execFileSync('node', [cli, 'brief', 'review', s, '1', 'HEAD~1..HEAD'], { cwd: d, encoding: 'utf8' }).trim()), 'utf8');
+  assert.doesNotMatch(brief('s1'), /^slice:/m);
+  fs.mkdirSync(path.join(d, 'runtime/slices'), { recursive: true });
+  for (const s of ['s1', 'debt']) fs.writeFileSync(path.join(d, `runtime/slices/${s}.md`), 'x');
+  const b = brief('s1');
+  assert.match(b, /^slice: runtime\/slices\/s1\.md -- Read it; check every acceptance item against the diff\.$/m);
+  assert.match(b, /^GRAPH: /m);
+  const dbt = brief('debt');
+  assert.doesNotMatch(dbt, /^slice:/m);
+  assert.match(dbt, /^GRAPH: /m);
+  fs.rmSync(d, { recursive: true, force: true });
+});

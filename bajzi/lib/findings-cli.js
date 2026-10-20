@@ -170,6 +170,10 @@ const cmds = {
         `GRAPH: use code-review-graph detect_changes_tool with base ${base}, then get_review_context_tool per changed symbol.`,
         `diff: ${diffPath} -- the complete git diff of the range (${diff.split('\n').length} lines). Read all of it, in chunks if long.`,
       ];
+      const sliceFile = path.posix.join('runtime/slices', `${slice}.md`);
+      if (slice !== 'debt' && fs.existsSync(sliceFile)) {
+        lines.push(`slice: ${sliceFile} -- Read it; check every acceptance item against the diff.`);
+      }
       if (round === '2') {
         const prev = slice === 'debt' ? at('debt.md') : at(`${slice}-r1.md`);
         const rep = slice === 'debt' ? at('debt.report.md') : at(`${slice}-r1.report.md`);
