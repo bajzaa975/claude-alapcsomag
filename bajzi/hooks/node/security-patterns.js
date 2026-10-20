@@ -70,4 +70,4 @@ function main() {
 
 if (require.main === module) main(); else loadLibs();
 
-module.exports = { check, decide, newText, SCANNED };
+module.exports = { check, decide, newText, SCANNED, readSeen, writeSeen };

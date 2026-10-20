@@ -66,6 +66,7 @@ the findings; Tier 3 = the gate only, e.g. docs).
 | Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js` `matchProtected` `commandReadsProtected`; `manifest.json` `secret_patterns` (runs from `pre-tool.js`) | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | Globs, brace lists, PowerShell comma arrays and `rtk` wrappers must all stay covered (§6.7). The pipe-into-reader rule must fire only when a downstream pipeline stage (any, not just the next) reads paths from stdin (§6.7). |
 | Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js` `REGEX_RULES` `scan` `RULE_IDS` (17 ids) `sanitize`; `bajzi/hooks/node/injection-scan.js` `decide` (runs from `post-tool.js`) | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Warn-only by design — `addContext` only, never `deny()`; never wire it to block. Every rule regex avoids the `\s*X?\s*` quadratic shape (§6.8); excerpts/source run through `sanitize()`. |
 | Security-pattern reminders | `bajzi/hooks/node/lib/security-rules.js` `RULES` `scanText`; `bajzi/hooks/node/security-patterns.js` `decide` (runs from `post-tool.js`) | `node --test bajzi/hooks/node/tests/security-patterns.test.js` | 2 | Remind-only, never `deny()`, no LLM call; scans NEW text only; bounded regexes (§6.19). |
+| Read nudge | `bajzi/hooks/node/read-nudge.js` `decide` (runs from `post-tool.js`; reuses `readSeen`/`writeSeen` from `security-patterns.js`) | `node --test bajzi/hooks/node/tests/read-nudge.test.js` | 2 | Remind-only, never `deny()`; once per file per session; exempt `runtime/briefs/`, non-code files, Reads with offset/limit (§6.20). |
 | Saver level resolution (which level a session runs at; per session vs machine default) | `bajzi/hooks/lib-saver-level.sh` `saver_resolve <cwd> [<session_id>]` (+ `saver_safe_id`, `saver_read_word`, `saver_session_id`), called by `day-run-mode.sh`, `dispatch-guard.sh`, `routing-counter.sh` with the payload's `session_id`; its node port `bajzi/hooks/node/lib/saver-level.js` `resolveLevel({env, home, sessionId})` (`statusline.js` `render`); the writer and the shim's own resolution `bajzi/bin/cc-router.js` `resolveMode`/`writeLevel`; `bajzi/skills/mode/SKILL.md` (the skill's read) | `bash bajzi/hooks/tests/saver-level-parity.sh`; `node --test bajzi/hooks/node/tests/saver-level.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/bin/tests/*.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (case 17) | 1 | Four resolvers (bash, node, cc-router, the skill's prose) must agree on the order `CC_WORKER_MODE` > `<status dir>/<session_id>.level` > `BAJZI_SESSION_LEVEL` > `~/.claude/worker-mode` > `claude` (non-Anthropic forces `tight`) and on the read (first line, BOM, whitespace, lowercase); the parity script runs bash and node on the same session fixtures. `cc-router.js` is installed alone, so it inlines `SAFE_ID` and the status dir (a test compares them with `session-status.js`). Day-run on/off (`bajzi-mode`) stays machine-wide. |
 | Saver-level routing table (task class → model) | `bajzi/skills/mode/DAY-RUN-RULES.md` (the table), injected by `bajzi/hooks/day-run-mode.sh` (rules read, `head -80`), gate/level from `bajzi/hooks/lib-saver-level.sh:saver_resolve` | `bash bajzi/skills/mode/tests/mode.sh` | 2 for wording, **1** for the gate/level logic itself | The `head -80` cap (`day-run-mode.sh` rules read) must stay above the file's real line count (currently 48 lines, 4708 bytes; case 7 caps the file at 48 lines and 4800 bytes) or the tail silently drops with no error. The table says REVIEWER, never a model id: the hook appends the REVIEWER MODELS line (next row). |
 | Reviewer allow-list (who may review; the launch default) | `~/.claude/bajzi/config.json` `reviewer_models` (the user, or `/bajzi:setup` from `manifest.json` `bajzi_config`); validator `bajzi/hooks/node/lib/reviewer-models.js:load`; readers `bajzi/hooks/day-run-mode.sh` (REVIEWER MODELS line), `bajzi/hooks/routing-counter.sh` (reviewer served-model check via `reviewer-models.js:offListServed`), `bajzi/skills/setup/check.js:checkAll`, `bajzi/skills/night-run/SKILL.md` (`MODEL`, `{{REVIEWER_MODEL}}`) | `node --test bajzi/hooks/node/tests/reviewer-models.test.js bajzi/skills/setup/tests/check.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (cases 12t, 15) | 1 | The validator is the one place that judges the list (the id regex and the whole-list-invalid rule); any other tool that reads the file must apply the same rules. Never add a default id to code: the manifest is the only default. A reviewer swap is a config edit; a manifest edit also changes the default every `/bajzi:setup` writes. |
@@ -1861,6 +1862,24 @@ session id = no output.
 
 **Tests**: `bajzi/hooks/node/tests/security-patterns.test.js` — one positive per rule, benign set, extension filter,
 dedup, tool shapes, fail-open, end to end through `post-tool.js`, 200 KB perf. Secret-like samples are assembled at runtime.
+
+### 6.20 Read nudge — technical
+
+`bajzi/hooks/node/read-nudge.js`, one `CHECKS` row in `post-tool.js` for tool `Read`. It reminds Claude once that a
+whole-file Read of a large code file has cheaper routes. Never blocks (`addContext` only), fails open: any error means no
+output and the other checks still run.
+
+**Fires when**: `tool_input` has no `offset` and no `limit`, the path has a code extension (js/jsx/mjs/cjs/ts/tsx/py/sh/
+ps1/go/rs/java/cs/rb/php/c/h/cpp/hpp/kt/swift/lua/sql) and the returned text has more than 300 lines. **Exempt**: paths
+under `runtime/briefs/` (review diffs are meant to be read whole) and non-code files (.md/.json/.txt/.log/.diff).
+
+**Output**: `[bajzi:read-nudge] <file> was read whole (<n> lines). Cheaper next time: token-savior find_symbol /
+get_function_source, `rtk read -l aggressive`, or a sub-agent for whole-file reads.` **Dedup**: once per file per
+session; state `<tmpdir>/bajzi-readnudge-<session_id>.json` via `readSeen`/`writeSeen` exported from
+`security-patterns.js` (same atomic tmp+rename). No valid session id = no output.
+
+**Tests**: `bajzi/hooks/node/tests/read-nudge.test.js` — 301 vs 300 lines, offset/limit, .md, `runtime/briefs/`,
+once per session, end to end through `post-tool.js`.
 
 
 ## 7. Shared state files
