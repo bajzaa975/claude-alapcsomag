@@ -85,9 +85,9 @@ Silent failures:
 - A retry loop that gives up and ends without raising the error.
 - A broad catch that also hides unrelated errors, or a fallback to a stub or mock outside tests.
 Tests, comments, data shapes:
-- A test that cannot fail (asserts only that something ran, mirrors the implementation, or mocks the unit under test) is minor.
+- A test that cannot fail (asserts only that something ran, mirrors the implementation, or mocks the unit under test) is minor, unless it is the only test of changed logic (then major).
 - A missing test: the finding names the regression the test would catch.
-- A comment or docstring the changed code now contradicts is minor.
+- A comment or docstring the changed code now contradicts is a nit.
 - A TODO the diff completed but left in place is a nit.
 - A new type, schema or record that lets an invalid instance be constructed: major when it guards money, security or persisted data, else minor.
 Do NOT flag:

@@ -199,7 +199,7 @@ function checkChecklist(body) {
   const parts = [
     [sec.slice(s, f), [/Injection/, /Secrets/, /deserialization/, /authorization/, /Temp files/, /TLS verification/, /weak hashing/, /CSRF/, /substring or unanchored/, /sibling/, /exposes more fields/]],
     [sec.slice(f, d), [/swallowed exception/, /\|\| true/, /fallback or default/, /Optional chaining/, /retry loop/]],
-    [sec.slice(f, d), [/cannot fail/, /regression/, /contradicts/, /TODO/, /invalid instance/]],
+    [sec.slice(sec.indexOf('Tests, comments, data shapes:'), d), [/^Tests, comments, data shapes:$/m, /cannot fail.*is minor, unless it is the only test of changed logic/, /regression/, /contradicts.*is a nit/, /TODO.*is a nit/, /invalid instance.*major.*else minor/]],
     [sec.slice(d), [/Denial of service/, /Trusted inputs/, /Parameterized SQL/, /already existed outside the diff/, /Theoretical issues/, /serves no HTTP/, /telemetry keys/, /intended feature/, /internal-only/, /workflow_dispatch/]],
   ];
   for (const [part, res] of parts) {
@@ -225,6 +225,12 @@ test('fixture: checklist check rejects a last-heading overlong section and a mis
   const moved = body.replace('- Parameterized SQL.\n', '').replace('Silent failures:\n', '- Parameterized SQL.\nSilent failures:\n');
   assert.notStrictEqual(moved, body);
   assert.match(checkChecklist(moved), /Parameterized SQL/);
+  const noHeading = body.replace('Tests, comments, data shapes:\n', '');
+  assert.notStrictEqual(noHeading, body);
+  assert.match(checkChecklist(noHeading), /not in its own sub-list/);
+  const noSeverity = body.replace('is minor, unless', 'unless');
+  assert.notStrictEqual(noSeverity, body);
+  assert.match(checkChecklist(noSeverity), /cannot fail/);
 });
 
 // Per-agent body-length cap: reviewer 140, every other name (incl. built-in property names) 60.
