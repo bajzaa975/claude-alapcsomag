@@ -388,3 +388,38 @@ test('brief review: slice line only when the slice file exists and slice is not 
   assert.match(dbt, /^GRAPH: /m);
   fs.rmSync(d, { recursive: true, force: true });
 });
+
+test('brief review: review-policy is read at the base commit; policy-changed when the diff touches it', () => {
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const { execFileSync } = require('child_process');
+  const cli = path.join(__dirname, '..', 'findings-cli.js');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'policy-'));
+  const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: d, encoding: 'utf8' });
+  const brief = (range) => {
+    const p = execFileSync('node', [cli, 'brief', 'review', 's1', '1', range], { cwd: d, encoding: 'utf8' }).trim();
+    return fs.readFileSync(path.join(d, p), 'utf8');
+  };
+  g('init', '-q'); fs.writeFileSync(path.join(d, 'a'), '1'); g('add', '.'); g('commit', '-qm', 'c0');
+  fs.writeFileSync(path.join(d, 'a'), '2'); g('commit', '-qam', 'c1');
+  // no policy anywhere: brief unchanged
+  let b = brief('HEAD~1..HEAD');
+  assert.doesNotMatch(b, /^policy/m); assert.match(b, /^GRAPH: /m);
+  assert.ok(!fs.existsSync(path.join(d, 'runtime/briefs/s1-r1.policy.md')));
+  // tip-only policy: no policy line, but policy-changed
+  fs.mkdirSync(path.join(d, 'docs'));
+  fs.writeFileSync(path.join(d, 'docs/review-policy.md'), 'TIP');
+  g('add', '.'); g('commit', '-qm', 'c2');
+  b = brief('HEAD~1..HEAD');
+  assert.doesNotMatch(b, /^policy: /m); assert.match(b, /^policy-changed: yes$/m);
+  // base has policy, tip changed it: base content wins
+  fs.writeFileSync(path.join(d, 'docs/review-policy.md'), 'CHANGED'); g('commit', '-qam', 'c3');
+  b = brief('HEAD~1..HEAD');
+  assert.match(b, /^policy: runtime\/briefs\/s1-r1\.policy\.md -- Read it; do not flag what it lists as accepted\.$/m);
+  assert.match(b, /^policy-changed: yes$/m); assert.match(b, /^GRAPH: /m);
+  assert.strictEqual(fs.readFileSync(path.join(d, 'runtime/briefs/s1-r1.policy.md'), 'utf8'), 'TIP');
+  // base has policy, diff does not touch it
+  fs.writeFileSync(path.join(d, 'a'), '3'); g('commit', '-qam', 'c4');
+  b = brief('HEAD~1..HEAD');
+  assert.match(b, /^policy: /m); assert.doesNotMatch(b, /policy-changed/);
+  fs.rmSync(d, { recursive: true, force: true });
+});

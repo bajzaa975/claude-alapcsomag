@@ -1428,11 +1428,21 @@ with the rule id; it never retries with a trimmed brief. Exception: a refusal wh
 `findings-cli.js brief`: the full `git diff` goes to `runtime/briefs/<slice>-r<n>.diff` and the
 brief carries PATHS (diff, round-1 file, fixer report, `debt.md`, and the slice spec as a
 `slice: runtime/slices/<slice>.md` line when that file exists and the slice is not `debt`; the reviewer
-treats an unmet acceptance item as a major contract-violation finding), resolved SHAs and the graph
+treats an unmet acceptance item as a major contract-violation finding; and a `policy:` line, see
+below), resolved SHAs and the graph
 marker line, so it stays far under the guard's R3 cap whatever the diff size; the reviewer has
 Read and reads the files in full. The calibrate brief carries the single-file opt-out line
 `GRAPH: n/a single-file runtime/findings/debt.blind.md`, because R1 lets a `bajzi:reviewer` brief
 without a commit range through only with that opt-out on a `.blind.md` copy. Implement and fixer briefs carry their content inline.
+
+Review policy (optional `docs/review-policy.md`, never created by default): short markdown with
+`## Trusted inputs` and `## Accepted risks`; each bullet = what + where + why. `brief review` reads
+it at the range BASE commit (`git show <base>:docs/review-policy.md`), so the diff under review cannot
+change it, writes that version to `runtime/briefs/<slice>-r<round>.policy.md` and adds
+`policy: <path> -- Read it; do not flag what it lists as accepted.`; absent at base = no line, no
+file. When the range's diff touches the file the brief adds `policy-changed: yes`, and the reviewer
+rates that a major finding unless the slice acceptance names the change. An entry suppresses only a
+finding it names specifically, never a blocker; generic entries are ignored.
 
 | Skill | Steps (findings-cli.js subcommand in brackets) |
 |---|---|

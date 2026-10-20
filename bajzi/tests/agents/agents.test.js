@@ -269,3 +269,14 @@ test('reviewer judges the slice acceptance items (slice: line, major finding)', 
   assert.match(body, /`slice:` line/);
   assert.match(body, /acceptance item the diff does not meet is a major finding \(contract/);
 });
+
+test('reviewer pins the review-policy rules', () => {
+  const body = read('reviewer.md').replace(/\s+/g, ' ');
+  assert.match(body, /`policy:` line/);
+  assert.match(body, /suppresses only a finding it names specifically/);
+  assert.match(body, /never suppresses a blocker/);
+  assert.match(body, /generic entry/);
+  assert.match(body, /`policy-changed: yes` is a major finding/);
+  assert.match(body, /unless the slice acceptance explicitly names that policy change/);
+  assert.match(body, /base version/);
+});

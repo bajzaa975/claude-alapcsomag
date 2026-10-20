@@ -174,6 +174,17 @@ const cmds = {
       if (slice !== 'debt' && fs.existsSync(sliceFile)) {
         lines.push(`slice: ${sliceFile} -- Read it; check every acceptance item against the diff.`);
       }
+      // review-policy: read at the BASE commit so the diff under review cannot change it.
+      let policy = null;
+      try {
+        policy = execFileSync('git', ['show', `${base}:docs/review-policy.md`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      } catch { /* absent at base: no policy line */ }
+      if (policy !== null) {
+        const pp = path.posix.join(BRIEFS, `${slice}-r${round}.policy.md`);
+        fs.writeFileSync(pp, policy);
+        lines.push(`policy: ${pp} -- Read it; do not flag what it lists as accepted.`);
+      }
+      if (git(['diff', '--name-only', base, tip, '--', 'docs/review-policy.md']).trim()) lines.push('policy-changed: yes');
       if (round === '2') {
         const prev = slice === 'debt' ? at('debt.md') : at(`${slice}-r1.md`);
         const rep = slice === 'debt' ? at('debt.report.md') : at(`${slice}-r1.report.md`);
