@@ -2,7 +2,7 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-## Unreleased
+## 1.25.0
 - Changed: night-run: docs/BACKLOG.md is no longer read; stories come from add-on queues and approved plans
 
 ## 1.24.0
