@@ -2,7 +2,7 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-## Unreleased
+## 1.24.0
 - project-setup: size L + hosting github now checks the CI rule: `--check` reports `DRIFT kit-ci .github/workflows` until a `*.yml`/`*.yaml` workflow exists; apply never writes `.github/` and prints a `TODO kit-ci` line telling the session to write a stack-fitting workflow.
 - night-run: an approved plan file (Status APPROVED, an unchecked step) is the unit of work: PHASE B takes approved plans before open PRs and parked retries, `docs/BACKLOG.md` is a legacy fallback; the story note is `PLAN: <path> :: <criteria>` and the session generates slices from the plan (`docs/slice-format.md`, Plan -> slices) and ticks its checkboxes.
 - Texts agree with the global-rules handoff path, English default and 40/50 context thresholds.
