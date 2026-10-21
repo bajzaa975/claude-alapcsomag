@@ -466,13 +466,15 @@ uncommitted work once.
 1. Before designing anything, follow the add-on rules (section 6a) and honour
    every recorded decision they point you to; reopening a closed decision at
    night is forbidden — park with reason `review`.
-2. Read only the story's own backlog row and the documents that row or the
+2. Read only the story's own backlog row (for a plan story, the plan file named
+   after `PLAN:` in the criteria) and the documents that row, plan or the
    add-on rules point at. Delegate any read over 300 lines.
 3. **TDD.** Write the failing test first, then the code that makes it pass. The
    review loop in section 4 checks for this, and a slice with no new test is a
    blocking finding.
 4. Update the story's own backlog row in the same PR — honest coding percent,
-   honest testing state. Never another story's row, never owner-only columns.
+   honest testing state. For a plan story, tick the plan's checkboxes for each
+   closed task instead (the plan file is the progress record). Never another story's row, never owner-only columns.
 5. **One PR per story, and at most one open at a time**, into
    `{{BASE_BRANCH}}`: `gh pr create --base {{BASE_BRANCH}}`. PR body in English:
    what, why, evidence (test command and counts), non-blocking review findings,
@@ -860,7 +862,7 @@ morning cannot use.
    `{{BASE}}/runtime/AUTOPILOT-REPORT.md`. Append, never rewrite: other stories
    own the sections above yours. Include: story id, PR number, merged or open,
    test command and counts, review rounds and final verdict, non-blocking
-   findings, backlog row change, and anything the owner must look at.
+   findings, plan / backlog progress, and anything the owner must look at.
 2. **Handoff** — REWRITE `{{BASE}}/runtime/handoff/night-<id>.md`, YOUR story's
    own file, named for your queue id. At most 40 lines, in English: where this
    story stands, what is done, the EXACT next step, decisions and pitfalls,

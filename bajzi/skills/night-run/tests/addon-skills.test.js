@@ -78,10 +78,9 @@ test('PHASE A step 9 writes addon-checks.txt and addon-allow.txt afresh; run.sh 
 
 test('PHASE B: add-on queues first, docs/BACKLOG.md after; `# exclusive` makes them the only story source', () => {
   const b = slice(SKILL, '## PHASE B — Collect', '## PHASE C — Plan');
-  const q = b.indexOf('1. The add-on queues'), bl = b.indexOf('2. `docs/BACKLOG.md`');
-  assert.ok(q >= 0 && bl > q, 'add-on queues are source 1, docs/BACKLOG.md source 2');
+  const q = b.indexOf('1. The add-on queues'), bl = b.indexOf('`docs/BACKLOG.md` (size S/M/L');
+  assert.ok(q >= 0 && bl > q, 'add-on queues are source 1, docs/BACKLOG.md the legacy fallback after the sources');
   has(b, 'run FIRST, in `ADDON_SKILLS` order');
-  has(b, 'With no add-on queue it is the primary source');
   has(ADDON, 'A block whose first line is `# exclusive`');
   has(b, 'An `addon-queue` block whose first line is `# exclusive` makes the add-on queues the ONLY source of candidate stories');
   has(b, '`docs/BACKLOG.md` then contributes sizing and dependency data only');

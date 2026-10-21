@@ -498,12 +498,22 @@ Sources, in precedence order:
    stories: `docs/BACKLOG.md` then contributes sizing and dependency data only, never a row of
    its own, while open PRs (source 3, FOLLOW-UP) and parked retries (source 4) still come in.
    One such block among several add-ons is enough.
-2. `docs/BACKLOG.md` — size S/M/L, coding %, testing state, `depends-on`. With no add-on
-   queue it is the primary source; after one, it gives those candidates their sizing and
-   dependency data, and its own open rows come after them (none under `# exclusive`).
+2. Approved plans — one story per plan file. An approved plan is a markdown file under
+   `docs/superpowers/plans/` or `docs/plans/` whose first 30 lines have a status line matching
+   `^\**Status:\**.*APPROVED` (case-insensitive), whose status line does not contain `BLOCKED`,
+   and which still has at least one unchecked step (`- [ ]`). Queue line: `id` = the plan file
+   stem (same shortening and sanitizing as any queue id), note =
+   `PLAN: <repo-relative plan path> :: <one-line acceptance from the plan's Goal>`; an empty
+   criteria part is BLOCKED-criteria as for any story. The session generates the slices from the
+   plan (`docs/slice-format.md`, section Plan -> slices).
 3. `gh pr list --state open` — PRs left open by earlier runs, as FOLLOW-UP items, never new stories.
 4. The previous `~/night-runs/<project>/REPORT-<date>.md` — its PARKED and BLOCKED entries,
    each with the reason that parked it, as retry candidates.
+
+`docs/BACKLOG.md` (size S/M/L, coding %, testing state, `depends-on`) is a legacy fallback: its
+rows are read as stories only when no approved plan exists, and then the report says
+"BACKLOG.md used as legacy fallback: convert its rows to approved plans". Under `# exclusive`,
+or next to plans, it gives sizing and dependency data only.
 
 Then find every candidate `docs/NIGHT-RULES.md` restricts (forbidden story ids, anything
 touching a forbidden path, anything the migration policy reserves for daylight) and every

@@ -35,6 +35,21 @@ test: node --test
 (sonnet). The skill passes only the slice spec — not surrounding context — so the
 Tier-1 → opus rule is a lookup against the file, never something the orchestrator has to remember.
 
+## Plan -> slices
+
+A session turns an approved plan file into slices by this rule (no script):
+
+- One slice per plan task (`### Task N` heading).
+- id `<plan-stem>-t<N>`, lowercase, inside the id regex; truncate the stem so the id fits 64 chars.
+- `tier` 1 when the task touches locks, concurrency, quotas, auth, money, migrations or
+  destructive scripts, else 2 (docs-only task: 3).
+- `files` = the task's Files list (create/modify/test).
+- `acceptance` = the task's expected result / goal line.
+- `test` = the task's test command (`none` when it has none).
+- Two tasks touching the same file run sequentially, never in parallel.
+- A task without a Files list is BLOCKED.
+- Each closed task gets its checkbox ticked in the plan file.
+
 ## Agent report
 
 This is the one canonical report format; the agent bodies (`bajzi/agents/implementer*.md`) and

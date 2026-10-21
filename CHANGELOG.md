@@ -3,6 +3,7 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+- night-run: an approved plan file (Status APPROVED, an unchecked step) is the unit of work: PHASE B takes approved plans before open PRs and parked retries, `docs/BACKLOG.md` is a legacy fallback; the story note is `PLAN: <path> :: <criteria>` and the session generates slices from the plan (`docs/slice-format.md`, Plan -> slices) and ticks its checkboxes.
 - Texts agree with the global-rules handoff path, English default and 40/50 context thresholds.
 - project-setup: start assessment (one round, five questions) writes `size`, `hosting` (and `gate` for M/L) into the profile when missing; owner-approved size upgrade; README documents sizes, hosting and the pre-push guard limits.
 - project-setup: profile keys `"size"` (XS|S|M|L) and `"hosting"` (local|github). Apply runs `git init` + `core.hooksPath .githooks` in a non-git folder, writes the per-size kit block into `.claude/CLAUDE.md`, the size's scaffold stubs and a `runtime/` ignore line, and installs `.githooks/pre-push` for hosting local. Additive: a bigger size only adds, owner files stay byte-identical. Refuses before any write on a foreign `.githooks/pre-push`, a foreign `core.hooksPath`, a nested repo or git that cannot run (not on PATH, dubious ownership); a damaged kit/instructions block (end marker lost) is never cut on a later rewrite; a CRLF `.claude/CLAUDE.md` is not kit drift. The `gate-hookspath` drift kind is now `hookspath`.
