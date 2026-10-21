@@ -1319,7 +1319,7 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
   `XS`/`S`/`M`/`L`, a `hosting` other than `local`/`github`, a `size` without `hosting`, and a
   `size` M or L without `gate`, are refused, each with a named reason. `profile.js:plan` → the
   missing actions (`git-init`, `methodology`, `mcp`, `marketplace`, `plugin`, `skill`, `instructions`,
-  `kit`, `scaffold`, `gitignore`, `hookspath`, `gate`, `gate-mode`, `prepush`, `prepush-mode`);
+  `kit`, `kit-ci`, `scaffold`, `gitignore`, `hookspath`, `gate`, `gate-mode`, `prepush`, `prepush-mode`);
   an empty plan = in the profile state. `profile.js:apply` validates, plans, then runs
   `profile.js:preflight` (invalid `.mcp.json`, missing skill source, a non-link already at the
   skill target, missing instruction file, `core.hooksPath` not `.githooks` when the profile has

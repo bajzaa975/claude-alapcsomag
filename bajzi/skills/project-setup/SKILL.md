@@ -87,8 +87,8 @@ as in step 3) and run `## Apply`. Upgrades only add files; downgrades delete not
 ```
 
 - `size` -> the cumulative kit (XS rules only; S + git, runtime/ ignore, handoff/tests/plan rules; M + gate
-  required, docs/uat/README.md, docs/DEPLOY.md; L + CHANGELOG.md, docs/rollback.md, docs/definition-of-done.md (L + hosting github: a CI workflow, checked as kit-ci))
-  and the kit block in `.claude/CLAUDE.md` between `<!-- bajzi:project-setup kit begin/end -->`.
+  required, docs/uat/README.md, docs/DEPLOY.md; L + CHANGELOG.md, docs/rollback.md, docs/definition-of-done.md;
+  L + hosting github: a CI workflow, checked as kit-ci) and the kit block in `.claude/CLAUDE.md` between `<!-- bajzi:project-setup kit begin/end -->`.
 - `hosting: local` -> `.githooks/pre-push` refuses GitHub remotes (fails closed: a missing or unreadable profile
   counts as local; it reads the COMMITTED profile at HEAD, so a hosting change takes effect only once the profile
   is committed). A fresh folder gets `git init` and `core.hooksPath .githooks`; an existing repo with another
