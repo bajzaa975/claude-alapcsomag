@@ -36,7 +36,7 @@ Grep all answers files, the decision log, legal research and earlier cards for t
 to §0 with its source; do not ask it. A prior answer that the question contradicts → ask about the
 contradiction, citing the answer.
 
-## Question contract (in the owner's language; everything else in English)
+## Question contract (in English unless the owner asked for another language; everything else in English)
 Each question you send has exactly these parts, in order:
 1. `NN/Qk — ` + the prep's own question ID (never renumber) + one decision in plain business language, no table/column names.
 2. Today's fact in one line ("Today: …" — from code or the plan, with what you verified).

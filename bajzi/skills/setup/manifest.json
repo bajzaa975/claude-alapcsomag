@@ -72,7 +72,7 @@
     },
     {
       "id": "context-mode",
-      "why": "duplication: rtk + Claude Code auto-memory + the bajzi handoff hook already do this, and its SQLite session capture is a second, competing runtime/HANDOFF.md. Cost: six always-on hook types (a node process per event), a SessionStart routing block (~1.5k tok) that argues with our own rtk/subagent rules, plus 11 MCP tool schemas. Recheck: STALLED — last human commit and last release both 2026-06-29 (v1.0.169), the ~100 commits since are all `ci: update install stats` bot commits; 126 issues + 119 PRs open. License is Elastic-2.0 (source-available, not OSI). Also runs `npm install better-sqlite3` from a hook on first use."
+      "why": "duplication: rtk + Claude Code auto-memory + the bajzi handoff hook already do this, and its SQLite session capture is a second, competing runtime/handoff/<branch-slug>.md. Cost: six always-on hook types (a node process per event), a SessionStart routing block (~1.5k tok) that argues with our own rtk/subagent rules, plus 11 MCP tool schemas. Recheck: STALLED — last human commit and last release both 2026-06-29 (v1.0.169), the ~100 commits since are all `ci: update install stats` bot commits; 126 issues + 119 PRs open. License is Elastic-2.0 (source-available, not OSI). Also runs `npm install better-sqlite3` from a hook on first use."
     },
     {
       "id": "headroom (headroomlabs-ai/headroom)",
@@ -100,7 +100,7 @@
     },
     {
       "id": "claude-mem",
-      "why": "removed. Windows worker never reachable (see known_pitfalls); cross-session memory is covered by Claude Code auto-memory (MEMORY.md), runtime/HANDOFF.md via the bajzi SessionStart hook. Re-evaluate only on Linux/macOS machines."
+      "why": "removed. Windows worker never reachable (see known_pitfalls); cross-session memory is covered by Claude Code auto-memory (MEMORY.md), runtime/handoff/<branch-slug>.md via the bajzi SessionStart hook. Re-evaluate only on Linux/macOS machines."
     }
   ],
   "gsd": {

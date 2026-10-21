@@ -16,7 +16,7 @@ Sources, in this order:
 CARD <NN> — <name>: <topic list: data, states, rules, who changes it, integrations, legal angles>.
 Output file: <path>/prep-<NN>-<slug>.md
 
-Write the note IN <owner language>, max ~120 lines:
+Write the note in English, max ~120 lines:
 ## 0. Already decided (NOT asked again) — each with its source (answer/card ID/decision line).
 ## 1. Agreed / implemented rules — numbered, one plain-language rule per line, [source:line] and
    "CODE: yes / partly / missing (file:line)".
