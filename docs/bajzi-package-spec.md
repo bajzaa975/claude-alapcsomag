@@ -1355,7 +1355,11 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
   `gitignore` (S, M, L): appends `runtime/` unless a `runtime`, `runtime/`, `/runtime` or
   `/runtime/` line exists. `prepush` (`hosting` `local`): an LF copy of `bajzi/gate/pre-push.js`
   at `.githooks/pre-push` (mode 755, index 100755 when tracked; `prepush-mode` = a tracked 100644
-  entry), never removed later since the hook reads `hosting` at push time. **Additive**: a bigger
+  entry), never removed later since the hook reads `hosting` at push time.
+  `kit-ci` (`size` L + `hosting` github): report-only, planned while `.github/workflows` holds no regular
+  `*.yml`/`*.yaml` file; `apply` never writes under `.github/`, never counts it as applied and prints
+  `TODO kit-ci .github/workflows: ...` (exit code unchanged; `--check` = `DRIFT kit-ci`, `--dry-run` = `WOULD kit-ci`).
+  Size S/M and L with hosting local never plan it. **Additive**: a bigger
   `size` only adds; a smaller one never deletes or overwrites a file.
 - **Start assessment and size upgrade** (SKILL.md, functional): when the profile is missing or has no
   `size` or no `hosting`, `/bajzi:project-setup` asks ONE round of five

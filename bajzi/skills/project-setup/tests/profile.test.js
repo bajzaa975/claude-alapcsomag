@@ -454,3 +454,33 @@ test('kit: appending to an owner .gitignore keeps its content, CRLF style and ad
   P.apply({ size: 'S', hosting: 'github' }, r, { home: home(), run: () => 0 });
   assert.strictEqual(read(r, '.gitignore'), 'node_modules\r\n*.log\r\nruntime/\r\n');
 });
+
+test('kit-ci: L+github without a workflow is DRIFT, report-only on apply; yml clears it; others never plan it', () => {
+  const L = { size: 'L', hosting: 'github', ...GATE };
+  const ci = (pr, ...a) => P.plan(pr, ...a).filter(x => x.kind === 'kit-ci');
+  const r = gitRepo('.githooks');
+  assert.deepStrictEqual(P.check(L, r, { home: home() }).filter(l => /kit-ci/.test(l)), ['DRIFT kit-ci .github/workflows']);
+  fs.mkdirSync(path.join(r, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.claude', 'project-profile.json'), JSON.stringify({ version: 1, ...L }));
+  const out = cli(r, []);
+  assert.match(out.out, /^TODO kit-ci \.github\/workflows: /m);
+  assert.doesNotMatch(out.out, /APPLIED kit-ci/);
+  assert.ok(!fs.existsSync(path.join(r, '.github')));
+  fs.mkdirSync(path.join(r, '.github', 'workflows'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.github', 'workflows', 'README.md'), 'x');
+  assert.strictEqual(ci(L, r, { home: home() }).length, 1);
+  fs.writeFileSync(path.join(r, '.github', 'workflows', 'ci.yml'), 'on: push');
+  assert.strictEqual(ci(L, r, { home: home() }).length, 0);
+  const r2 = gitRepo('.githooks');
+  for (const pr of [{ ...L, hosting: 'local' }, { size: 'M', hosting: 'github', ...GATE }, { size: 'S', hosting: 'github' }]) assert.strictEqual(ci(pr, r2, { home: home() }).length, 0);
+});
+
+test('kit-ci: a run whose only pending action is kit-ci prints the TODO, not "already in the profile state"', () => {
+  const L = { size: 'L', hosting: 'github', ...GATE };
+  const r = gitRepo('.githooks');
+  P.apply(L, r, { home: home(), run: () => 0 });
+  fs.writeFileSync(path.join(r, '.claude', 'project-profile.json'), JSON.stringify({ version: 1, ...L }));
+  const out = cli(r, []);
+  assert.match(out.out, /TODO kit-ci/);
+  assert.doesNotMatch(out.out, /already in the profile state/);
+});

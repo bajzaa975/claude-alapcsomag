@@ -51,6 +51,7 @@ test('sizeBlock M: cumulative up to M, only the -> L trigger', () => {
 test('sizeBlock L: every rule, no triggers section', () => {
   const b = K.sizeBlock('L', 'github');
   for (const r of ['- General repo:', '- Tests for every behaviour change.', '- UAT checklist per release', '- CI required:', '- Done = M + CI green + release notes + rollback plan.']) assert.ok(b.includes(r), r);
+  assert.match(b, /- CI required: .*\.github\/workflows.*kit-ci/);
   assert.doesNotMatch(b, /Size triggers/);
   assert.ok(b.endsWith('- Hosting github: GitHub pushes allowed.\n' + END));
 });

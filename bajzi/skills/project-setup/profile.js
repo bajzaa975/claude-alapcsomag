@@ -214,6 +214,11 @@ function plan(profile, repoRoot, { home = os.homedir() } = {}) {
     const m = indexMode(repoRoot, '.githooks/pre-push');
     if (m && m !== '100755') actions.push({ kind: 'prepush-mode', target: '.githooks/pre-push' });
   }
+  if (profile.size === 'L' && profile.hosting === 'github') {   // report-only: bajzi never writes .github/
+    let ents = [];
+    try { ents = fs.readdirSync(path.join(repoRoot, '.github', 'workflows'), { withFileTypes: true }); } catch { ents = []; }
+    if (!ents.some(e => e.isFile() && /\.ya?ml$/.test(e.name))) actions.push({ kind: 'kit-ci', target: '.github/workflows' });
+  }
   return actions;
 }
 
@@ -276,7 +281,9 @@ function runClaude(args, cwd) {
 function apply(profile, repoRoot, { home = os.homedir(), run = runClaude } = {}) {
   const v = validate(profile);
   if (!v.ok) throw new ProfileError(v.errors);
-  const actions = plan(profile, repoRoot, { home });
+  const all = plan(profile, repoRoot, { home });
+  const todo = all.filter(a => a.kind === 'kit-ci');
+  const actions = all.filter(a => a.kind !== 'kit-ci');
   const errors = preflight(profile, repoRoot, actions);
   if (errors.length) throw new ProfileError(errors);
   const failures = [];
@@ -343,7 +350,7 @@ function apply(profile, repoRoot, { home = os.homedir(), run = runClaude } = {})
       if (code !== 0) failures.push(`plugin ${a.target}: claude exited ${code}`);
     }
   }
-  return { applied: actions, failures };
+  return { applied: actions, todo, failures };
 }
 
 function check(profile, repoRoot, { home = os.homedir() } = {}) {
@@ -382,7 +389,8 @@ function main(argv = process.argv.slice(2), env = process.env) {
     const r = apply(profile, repo, { home });
     for (const a of r.applied) out(`APPLIED ${a.kind} ${a.target}`);
     for (const f of r.failures) out(`FAILED ${f}`);
-    if (!r.applied.length) out('project-setup: already in the profile state');
+    for (const a of r.todo) out(`TODO ${a.kind} ${a.target}: write a CI workflow that runs this repo's tests (see /bajzi:project-setup)`);
+    if (!r.applied.length && !r.todo.length) out('project-setup: already in the profile state');
     return r.failures.length ? 1 : 0;
   } catch (e) {
     if (e instanceof ProfileError) { for (const x of e.errors) out('project-setup: REFUSED: ' + x); return 2; }

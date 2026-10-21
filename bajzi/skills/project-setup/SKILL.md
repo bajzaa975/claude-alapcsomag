@@ -63,6 +63,9 @@ as in step 3) and run `## Apply`. Upgrades only add files; downgrades delete not
    Exit 0 = applied. Exit 1 = the files were applied but a `claude plugin` command failed (the
    `FAILED` lines say which). Exit 2 = REFUSED, nothing was written.
 4. Run the `--check` command above; it must print `project-setup --check: clean`.
+   `TODO kit-ci` / `DRIFT kit-ci`: write one workflow in `.github/workflows/` that runs the repo's own test
+   command and the gate tools on push and pull_request, using the stack's setup action; show it to the owner
+   before committing; rerun --check.
 5. Profile has `gate` and the repo has no baseline file yet (default `.gate-baseline.json`): run
    `node .githooks/pre-commit --init` once (exit 0 = written; 2 = a needed tool is missing, the
    output names its install line).
@@ -84,7 +87,7 @@ as in step 3) and run `## Apply`. Upgrades only add files; downgrades delete not
 ```
 
 - `size` -> the cumulative kit (XS rules only; S + git, runtime/ ignore, handoff/tests/plan rules; M + gate
-  required, docs/uat/README.md, docs/DEPLOY.md; L + CHANGELOG.md, docs/rollback.md, docs/definition-of-done.md)
+  required, docs/uat/README.md, docs/DEPLOY.md; L + CHANGELOG.md, docs/rollback.md, docs/definition-of-done.md (L + hosting github: a CI workflow, checked as kit-ci))
   and the kit block in `.claude/CLAUDE.md` between `<!-- bajzi:project-setup kit begin/end -->`.
 - `hosting: local` -> `.githooks/pre-push` refuses GitHub remotes (fails closed: a missing or unreadable profile
   counts as local; it reads the COMMITTED profile at HEAD, so a hosting change takes effect only once the profile

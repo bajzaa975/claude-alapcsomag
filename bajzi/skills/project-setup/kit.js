@@ -25,7 +25,7 @@ const RULES = {
     'Done = S + gate green + review CLEAN + UAT checklist passed.',
   ],
   L: [
-    'CI required: hosting github -> a CI workflow runs the tests on every push; hosting local -> gate and tests before every push.',
+    'CI required: hosting github -> a workflow in .github/workflows runs the tests on every push (`/bajzi:project-setup --check` reports kit-ci until one exists); hosting local -> gate and tests before every push.',
     'Every release: release notes in CHANGELOG.md and a rollback plan in docs/rollback.md.',
     'Features start from a respec-cards spec (/bajzi:respec-cards) before the plan.',
     'Definition of done: docs/definition-of-done.md.',
