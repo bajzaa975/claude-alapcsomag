@@ -30,13 +30,14 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    rewriting git history, permanently deleting a branch/file, handling secrets/credentials in any way,
    modifying CI config (.github/), DB migration on live data, MAJOR version bump of a dependency,
    changing the task's original goal/scope. If you run into one of these: record it in
-   DECISIONS.md marked **BLOCKED**, and continue with the next task. When an owner answer would unpark it, the entry ends with
-   one line `<n>. <question> -> recommended: <answer> (<why, <= 1 sentence>)`.
+   DECISIONS.md marked **BLOCKED**, and continue with the next task. When an owner answer would
+   unpark it, the entry ends with one line `<n>. <question> -> recommended: <answer> (<why, <= 1 sentence>)`.
 4. **STUCK RULE:** at most 3 fix attempts per error; after that the item is **PARKED**
    (state + what you tried into DECISIONS.md), and you move on. A parked item does not stop
    the whole run.
 5. **CONTEXT DISCIPLINE:** per task/sprint, sub-agents do the heavy work; you update the
-   branch handoff file (`runtime/handoff/<branch-slug>.md`, see /bajzi:handoff) after every closed item. If context goes above ~40%: you do NOT start a new
+   branch handoff file (`runtime/handoff/<branch-slug>.md`, see /bajzi:handoff) after every
+   closed item. If context goes above ~40%: you do NOT start a new
    item — you close out the current one, write the closing report, and stop in a controlled way
    (listing the remaining items under "NOT STARTED").
 6. **CLOSING REPORT:** at the end of the run write `runtime/AUTOPILOT-REPORT.md`: completed items

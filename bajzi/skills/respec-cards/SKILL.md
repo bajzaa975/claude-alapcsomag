@@ -40,9 +40,9 @@ contradiction, citing the answer.
 Each question you send has exactly these parts, in order:
 1. `NN/Qk — ` + the prep's own question ID (never renumber) + one decision in plain business language, no table/column names.
 2. Today's fact in one line ("Today: …" — from code or the plan, with what you verified).
-3. Options (a)(b)(c); the recommended one FIRST and marked "(Recommended)" in the owner's language.
+3. Options (a)(b)(c); the recommended one FIRST and marked "(Recommended)".
 4. `Why:` one line for the recommendation.
-Every label above ("Today", "Recommended", "Why") is written in the owner's language too.
+Every label above ("Today", "Recommended", "Why") follows the same language rule.
 Name actors by name ("<maintainer> merges", "<owner> approves"), never "you/I". One decision per question;
 batches of up to 4 only via the question tool, which shows them one at a time.
 Legal points are NOT questions: read the statute text (not memory), decide, cite it (law + §), and state the

@@ -304,9 +304,9 @@ it alone, reading only the files you name.
 
 Watch your own context usage and degrade deliberately rather than thrashing:
 
-- **at roughly 50%**: stop taking new scope. Finish the current slice. Do not
+- **at roughly 40%**: stop taking new scope. Finish the current slice. Do not
   start another slice, another exploration or another refactor.
-- **at roughly 70%**, or at the FINALIZE instant {{STORY_FINALIZE_EPOCH}},
+- **at roughly 50%**, or at the FINALIZE instant {{STORY_FINALIZE_EPOCH}},
   whichever comes FIRST: finalize exactly as the deadline section at the top of
   this brief prescribes — with `reason=context` when the context threshold fired
   first, `reason=timeout` when the FINALIZE instant did.

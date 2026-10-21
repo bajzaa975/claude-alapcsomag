@@ -33,7 +33,8 @@ all of them give `default`. That is correct, do not try to work around it with s
 **Migration:** if `runtime/HANDOFF.md` (the old single-file path) exists, MOVE it to
 `runtime/handoff/<slug>.md` as part of this write — `git mv` if it is tracked, otherwise `mv`.
 The hook still reads the old path, so nothing breaks if you skip it, but do not leave both.
-Topic notes live in the same folder (`runtime/handoff/<topic>.md`); the branch file must list every topic note it relies on.
+Topic notes live in the same folder (`runtime/handoff/<topic>.md`); the branch file must
+list every topic note it relies on.
 
 **Directory and gitignore (first write):** handovers are session scratch and must never be
 committed. Before writing, run exactly this from the repo root. It creates the directory, and adds
