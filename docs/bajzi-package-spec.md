@@ -1344,7 +1344,10 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
   `git config core.hooksPath .githooks`, before every other step. `kit` (needs `size`): the size
   block (rules cumulative XS..size, the hosting line, the size triggers above the current size;
   none for L) between `<!-- bajzi:project-setup kit begin/end -->` markers in `.claude/CLAUDE.md`;
-  both bajzi blocks are replaced in place (`replaceBlock`), owner text stays byte-identical.
+  both bajzi blocks are replaced in place (`replaceBlock`: the last begin marker pairs with the next
+  end after it, so a damaged block is left alone, never cut), owner text stays byte-identical; the
+  kit drift check ignores CRLF vs LF. Git that cannot run (not on PATH, a dubious-ownership
+  refusal) is a preflight refusal, never a silent `git-init`.
   `scaffold`: M adds `docs/uat/README.md`, `docs/DEPLOY.md`; L adds `CHANGELOG.md`,
   `docs/rollback.md`, `docs/definition-of-done.md` (TODO stubs), created only when absent.
   `gitignore` (S, M, L): appends `runtime/` unless a `runtime`, `runtime/`, `/runtime` or
@@ -1355,7 +1358,8 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
 - **Tests**: `bajzi/skills/project-setup/tests/profile.test.js` (validation, plan, apply,
   preflight refusal, plugin runner, drift, CLI exit codes, the `gate` key and install/refusals,
   `size`/`hosting`: fresh-folder git init, S to M upgrade keeping owner files, foreign pre-push,
-  foreign hooksPath and nested-repo refusals, pre-push drift), `tests/kit.test.js` (size block per
+  foreign hooksPath, nested-repo and no-git refusals, pre-push drift, damaged kit block, CRLF
+  CLAUDE.md, instructions change under a kit block, XS without ignore line, .gitignore append), `tests/kit.test.js` (size block per
   size and hosting, cumulative scaffold lists),
   `bajzi/gate/tests/pre-commit.test.js` (an end-to-end `git commit` through the installed hook), `release.test.js` (plugin and
   marketplace versions agree, no `alapcsomag` reference left, README states the guard limits,

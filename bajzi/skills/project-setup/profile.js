@@ -115,8 +115,10 @@ function instructionBlock(list) {
 }
 
 // Replace the begin..end block in place, or append it when absent; text outside stays byte-identical.
+// The LAST begin marker is paired with the next end after it, so a damaged earlier block (end marker
+// lost) is left alone instead of cutting the owner text up to a later block's end.
 function replaceBlock(text, begin, end, block) {
-  const i = text.indexOf(begin);
+  const i = text.lastIndexOf(begin);
   const j = i >= 0 ? text.indexOf(end, i) : -1;
   if (j > i) return text.slice(0, i) + block + text.slice(j + end.length);
   return (text && !text.endsWith('\n') ? text + '\n' : text) + block + '\n';
@@ -125,10 +127,12 @@ function replaceBlock(text, begin, end, block) {
 const readText = p => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const norm = t => t.replace(/\r\n/g, '\n');
 
-// The git work-tree toplevel containing repoRoot, or '' when repoRoot is not inside one.
+// The git work-tree toplevel containing repoRoot, '' when repoRoot is not inside one, or null when
+// git itself failed (not on PATH, dubious-ownership refusal, ...).
 function gitTop(repoRoot) {
   const r = spawnSync('git', ['-C', repoRoot, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-  return r.status === 0 ? r.stdout.trim() : '';
+  if (r.status === 0) return r.stdout.trim();
+  return !r.error && /not a git repository/i.test(r.stderr || '') ? '' : null;
 }
 
 function sameDir(a, b) {
@@ -181,7 +185,7 @@ function plan(profile, repoRoot, { home = os.homedir() } = {}) {
   }
   if (profile.size) {
     const cur = readText(path.join(repoRoot, '.claude', 'CLAUDE.md')) || '';
-    if (!cur.includes(kit.sizeBlock(profile.size, profile.hosting))) actions.push({ kind: 'kit', target: '.claude/CLAUDE.md' });
+    if (!norm(cur).includes(kit.sizeBlock(profile.size, profile.hosting))) actions.push({ kind: 'kit', target: '.claude/CLAUDE.md' });
     for (const f of kit.scaffold(profile.size)) {
       if (!fs.existsSync(path.join(repoRoot, f.rel))) actions.push({ kind: 'scaffold', target: f.rel, text: f.text });
     }
@@ -238,7 +242,8 @@ function preflight(profile, repoRoot, actions) {
   }
   if (profile.size || profile.hosting) {
     const top = gitTop(repoRoot);
-    if (top && !sameDir(top, repoRoot)) errors.push(`${repoRoot} is inside the git repo ${top}; run project-setup at the repo root`);
+    if (top === null) errors.push(`git could not run in ${repoRoot} (not on PATH, or it refused the folder); fix git first`);
+    else if (top && !sameDir(top, repoRoot)) errors.push(`${repoRoot} is inside the git repo ${top}; run project-setup at the repo root`);
   }
   const hp = actions.find(a => a.kind === 'hookspath');
   if (hp) errors.push(`core.hooksPath is "${hp.value}", the ${profile.gate ? 'gate needs' : 'pre-push hook needs'} ".githooks"; run: git config core.hooksPath .githooks`);

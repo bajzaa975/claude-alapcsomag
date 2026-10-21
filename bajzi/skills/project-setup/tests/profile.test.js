@@ -361,3 +361,64 @@ test('kit: --check reports pre-push content and index-mode drift; apply repairs 
   git(r, 'config', 'core.hooksPath', 'hooks');
   assert.deepStrictEqual(P.check(prof, r, { home: home() }), ['DRIFT hookspath core.hooksPath']);
 });
+
+test('kit: a damaged kit block (begin marker, no end) never swallows owner text on later rewrites', () => {
+  const r = repo();
+  fs.mkdirSync(path.join(r, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.claude', 'CLAUDE.md'), '# Owner\n<!-- bajzi:project-setup kit begin -->\nold kit text\nowner text to keep\n');
+  P.apply({ size: 'S', hosting: 'github' }, r, { home: home(), run: () => 0 });
+  P.apply(Object.assign({ size: 'M', hosting: 'github' }, GATE), r, { home: home(), run: () => 0 });
+  const t = read(r, '.claude/CLAUDE.md');
+  assert.ok(t.includes('owner text to keep'));
+  assert.ok(t.includes(require('../kit').sizeBlock('M', 'github')));
+});
+
+test('kit: refuses before any write when git cannot run (not on PATH)', () => {
+  const r = repo();
+  const before = snapshot(r);
+  const saved = process.env.PATH;
+  process.env.PATH = '';
+  try {
+    assert.throws(() => P.apply({ size: 'S', hosting: 'local' }, r, { home: home(), run: () => 0 }), e => e instanceof P.ProfileError && /git/.test(e.errors.join()));
+  } finally { process.env.PATH = saved; }
+  assert.deepStrictEqual(snapshot(r), before);
+});
+
+test('kit: changing the instructions list keeps the kit block once and unchanged, owner text byte-identical', () => {
+  const r = repo();
+  fs.writeFileSync(path.join(r, 'docs', 'more.md'), '# more\n');
+  fs.mkdirSync(path.join(r, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.claude', 'CLAUDE.md'), '# Owner\nkeep me\n');
+  P.apply({ size: 'S', hosting: 'github', instructions: ['docs/rules.md'] }, r, { home: home(), run: () => 0 });
+  const kitBlock = require('../kit').sizeBlock('S', 'github');
+  P.apply({ size: 'S', hosting: 'github', instructions: ['docs/rules.md', 'docs/more.md'] }, r, { home: home(), run: () => 0 });
+  const t = read(r, '.claude/CLAUDE.md');
+  assert.ok(t.startsWith('# Owner\nkeep me\n'));
+  assert.strictEqual(t.split('bajzi:project-setup kit begin').length, 2);
+  assert.ok(t.includes(kitBlock));
+  assert.ok(t.includes('<!-- bajzi:project-setup instructions begin -->\n@../docs/rules.md\n@../docs/more.md\n<!-- bajzi:project-setup instructions end -->'));
+  assert.strictEqual(t.split('bajzi:project-setup instructions begin').length, 2);
+});
+
+test('kit: a CRLF checkout of .claude/CLAUDE.md is not kit drift', () => {
+  const r = repo();
+  const prof = { size: 'S', hosting: 'local' };
+  P.apply(prof, r, { home: home(), run: () => 0 });
+  const f = path.join(r, '.claude', 'CLAUDE.md');
+  fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/\r?\n/g, '\r\n'));
+  assert.deepStrictEqual(P.check(prof, r, { home: home() }), []);
+});
+
+test('kit: size XS plans the kit block but no runtime ignore line', () => {
+  const r = gitRepo(null);
+  const kinds = P.plan({ size: 'XS', hosting: 'github' }, r, { home: home() }).map(a => a.kind);
+  assert.ok(kinds.includes('kit'));
+  assert.ok(!kinds.includes('gitignore'));
+});
+
+test('kit: appending to an owner .gitignore keeps its content, CRLF style and adds the missing final newline', () => {
+  const r = repo();
+  fs.writeFileSync(path.join(r, '.gitignore'), 'node_modules\r\n*.log');
+  P.apply({ size: 'S', hosting: 'github' }, r, { home: home(), run: () => 0 });
+  assert.strictEqual(read(r, '.gitignore'), 'node_modules\r\n*.log\r\nruntime/\r\n');
+});
