@@ -34,6 +34,14 @@ function withPath(dir, extra = {}) {
   return e;
 }
 
+// node:test skip reason when a command is not on PATH (false = present).
+const missing = (...cmds) => {
+  const gone = cmds.filter(c => spawnSync(c, c === 'ssh' ? ['-V'] : ['-c', 'exit 0'], { env: env() }).error);
+  return gone.length ? `${gone.join(' and ')} not on PATH` : false;
+};
+const NEED_SH = missing('sh');
+const NEED_SSH = missing('sh', 'ssh');
+
 // Resolver map: host -> resolved hostname; a host not in the map fails to resolve.
 const resolver = map => h => (h in map ? { host: map[h] } : { error: `ssh -G ${h} failed` });
 const RES = resolver({ 'github.com': 'github.com', 'ssh.github.com': 'ssh.github.com', 'gh-alias': 'github.com', myserver: 'myserver' });
@@ -180,7 +188,7 @@ test('the committed profile decides, not a working-tree edit', () => {
   assert.ok(x.out.includes(ghLine(url, 'github.com')) && x.out.includes('hosting is "local"'), x.out);
 });
 
-test('ssh aliases are resolved by running ssh -G (fake ssh on PATH)', () => {
+test('ssh aliases are resolved by running ssh -G (fake ssh on PATH)', { skip: NEED_SH }, () => {
   const dir = tmp('bajzi-prepush-fakessh-');
   fs.writeFileSync(path.join(dir, 'ssh'), '#!/bin/sh\ncase "$FAKE_SSH_MODE" in fail) exit 3;; empty) echo "user git"; exit 0;; esac\necho "user git"\necho "hostname github.com"\n');
   fs.chmodSync(path.join(dir, 'ssh'), 0o755);
@@ -196,7 +204,7 @@ test('ssh aliases are resolved by running ssh -G (fake ssh on PATH)', () => {
   }
 });
 
-test('ssh resolution uses git\'s ssh command (core.sshCommand with -F)', () => {
+test('ssh resolution uses git\'s ssh command (core.sshCommand with -F)', { skip: NEED_SSH }, () => {
   const cfg = path.join(tmp('bajzi-prepush-sshcfg-'), 'config');
   fs.writeFileSync(cfg, 'Host work\n  HostName github.com\n');
   const r = repo('{"hosting":"local"}');
@@ -205,6 +213,27 @@ test('ssh resolution uses git\'s ssh command (core.sshCommand with -F)', () => {
   const x = hook(r, ['origin', url]);
   assert.strictEqual(x.code, 1, x.out);
   assert.ok(x.out.includes(ghLine(url, 'github.com')), x.out);
+});
+
+test('ssh command precedence: GIT_SSH_COMMAND over core.sshCommand, then "$GIT_SSH"', { skip: NEED_SH }, () => {
+  const dir = tmp('bajzi-prepush-sshcmd-');
+  const fake = (name, host) => {
+    const p = path.join(dir, name);
+    fs.writeFileSync(p, `#!/bin/sh\necho "hostname ${host}"\n`);
+    fs.chmodSync(p, 0o755);
+    return p.replace(/\\/g, '/');
+  };
+  const gh = fake('ssh-gh', 'github.com');
+  const other = fake('ssh-other', 'elsewhere.example');
+  const url = 'work:o/r.git';
+  const r = repo('{"hosting":"local"}');
+  git(r, 'config', 'core.sshCommand', `"${other}"`);
+  const a = hook(r, ['origin', url], env({ GIT_SSH_COMMAND: `"${gh}"` }));
+  assert.strictEqual(a.code, 1, a.out);
+  assert.ok(a.out.includes(ghLine(url, 'github.com')), a.out);
+  const b = hook(repo('{"hosting":"local"}'), ['origin', url], env({ GIT_SSH: gh }));
+  assert.strictEqual(b.code, 1, b.out);
+  assert.ok(b.out.includes(ghLine(url, 'github.com')), b.out);
 });
 
 test('main fails closed when a git call fails or throws', () => {

@@ -3,8 +3,8 @@
 // bajzi:pre-push -- the bajzi pre-push hosting guard. Source: bajzi/gate/pre-push.js in the bajzi
 // plugin; /bajzi:project-setup copies it verbatim to <repo>/.githooks/pre-push. Edit the source, never the copy.
 //
-// Refuses every push to a GitHub host unless <repo>/.claude/project-profile.json says
-// "hosting": "github". Fails closed: a url whose host cannot be proven non-GitHub is refused.
+// Refuses every push to a GitHub host unless the committed (HEAD) <repo>/.claude/project-profile.json
+// says "hosting": "github"; a working-tree edit never counts. Fails closed: a url whose host cannot be proven non-GitHub is refused.
 // Git calls it as `pre-push <remote-name> <url>` (refs on stdin, not read). Exit 0 allow, 1 refuse.
 const { spawnSync } = require('node:child_process');
 
