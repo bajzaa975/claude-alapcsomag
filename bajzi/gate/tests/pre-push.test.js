@@ -10,18 +10,28 @@ const os = require('node:os');
 const path = require('node:path');
 
 const HOOK = path.join(__dirname, '..', 'pre-push.js');
-const { parseUrl, isGithubHost, decide } = require(HOOK);
+const { parseUrl, isGithubHost, decide, main } = require(HOOK);
 
 const GH = 'bajzi pre-push: REFUSED: ';
 const ghLine = (url, host) => `${GH}${url} is GitHub (${host});`;
 const cannotLine = url => `${GH}cannot verify the host of ${url} (`;
 
 const tmp = p => fs.mkdtempSync(path.join(os.tmpdir(), p));
-const git = (cwd, ...args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+// Isolate every git call from the developer's global and system config.
+const EMPTY_GLOBAL = path.join(tmp('bajzi-prepush-cfg-'), 'gitconfig');
+fs.writeFileSync(EMPTY_GLOBAL, '');
 function env(extra = {}) {
-  const e = {};
-  for (const [k, v] of Object.entries(process.env)) if (k !== 'NODE_TEST_CONTEXT') e[k] = v;
+  const e = { GIT_CONFIG_GLOBAL: EMPTY_GLOBAL, GIT_CONFIG_NOSYSTEM: '1' };
+  for (const [k, v] of Object.entries(process.env)) if (k !== 'NODE_TEST_CONTEXT' && !/^GIT_(CONFIG_GLOBAL|CONFIG_NOSYSTEM|SSH|SSH_COMMAND|SSH_VARIANT)$/i.test(k)) e[k] = v;
   return Object.assign(e, extra);
+}
+const git = (cwd, ...args) => spawnSync('git', args, { cwd, env: env(), encoding: 'utf8' });
+// env() with dir first on PATH (overwrites the existing PATH key, which is "Path" on Windows).
+function withPath(dir, extra = {}) {
+  const e = env(extra);
+  const k = Object.keys(e).find(x => /^path$/i.test(x)) || 'PATH';
+  e[k] = dir + path.delimiter + (e[k] || '');
+  return e;
 }
 
 // Resolver map: host -> resolved hostname; a host not in the map fails to resolve.
@@ -58,7 +68,10 @@ test('unverifiable urls are refused with the cannot-verify line', () => {
 });
 
 test('non-GitHub urls are allowed with no line', () => {
-  for (const url of ['D:/repos/x.git', 'C:\\repos\\x.git', '../bare.git', '/srv/x.git', 'file:///tmp/x.git', 'https://gitlab.com/o/r', 'git@myserver:r.git']) {
+  for (const url of ['D:/repos/x.git', 'C:\\repos\\x.git']) {
+    assert.deepStrictEqual(decide({ hosting: 'local', urls: [url], resolveSsh: RES, platform: 'win32' }), { ok: true, line: '' }, url);
+  }
+  for (const url of ['../bare.git', '/srv/x.git', 'file:///tmp/x.git', 'https://gitlab.com/o/r', 'git@myserver:r.git']) {
     assert.deepStrictEqual(run(url), { ok: true, line: '' }, url);
   }
 });
@@ -84,7 +97,14 @@ test('parseUrl kinds', () => {
   assert.deepStrictEqual(parseUrl('[github.com]:o/r'), { kind: 'ssh', host: 'github.com' });
   assert.deepStrictEqual(parseUrl('HTTPS://u:p@Host.x:8080/r'), { kind: 'host', host: 'Host.x' });
   assert.strictEqual(parseUrl('ext::ssh x').kind, 'unknown');
-  assert.strictEqual(parseUrl('D:\\x').kind, 'local');
+  assert.strictEqual(parseUrl('D:\\x', 'win32').kind, 'local');
+});
+
+test('a drive-letter url is local only on win32; elsewhere it is ssh to that host', () => {
+  assert.deepStrictEqual(parseUrl('g:/o/r', 'win32'), { kind: 'local', host: '' });
+  assert.deepStrictEqual(parseUrl('g:/o/r', 'linux'), { kind: 'ssh', host: 'g' });
+  const d = decide({ hosting: 'local', urls: ['g:/o/r'], resolveSsh: resolver({ g: 'github.com' }), platform: 'darwin' });
+  assert.ok(d.line.startsWith(ghLine('g:/o/r', 'github.com')), d.line);
 });
 
 test('isGithubHost', () => {
@@ -107,8 +127,8 @@ function repo(profile) {
   git(r, 'commit', '-q', '-m', 'init');
   return r;
 }
-const hook = (r, args) => {
-  const x = spawnSync(process.execPath, [HOOK, ...args], { cwd: r, env: env(), encoding: 'utf8' });
+const hook = (r, args, e = env()) => {
+  const x = spawnSync(process.execPath, [HOOK, ...args], { cwd: r, env: e, encoding: 'utf8' });
   return { code: x.status, out: (x.stdout || '') + (x.stderr || '') };
 };
 
@@ -149,6 +169,76 @@ test('a configured remote whose push urls go to GitHub is refused', () => {
   const x = hook(r, ['origin', '../bare.git']);
   assert.strictEqual(x.code, 1, x.out);
   assert.ok(x.out.includes(ghLine('https://github.com/o/r.git', 'github.com')), x.out);
+});
+
+test('the committed profile decides, not a working-tree edit', () => {
+  const r = repo('{"hosting":"local"}');
+  fs.writeFileSync(path.join(r, '.claude', 'project-profile.json'), '{"hosting":"github"}');
+  const url = 'https://github.com/o/r.git';
+  const x = hook(r, ['origin', url]);
+  assert.strictEqual(x.code, 1, x.out);
+  assert.ok(x.out.includes(ghLine(url, 'github.com')) && x.out.includes('hosting is "local"'), x.out);
+});
+
+test('ssh aliases are resolved by running ssh -G (fake ssh on PATH)', () => {
+  const dir = tmp('bajzi-prepush-fakessh-');
+  fs.writeFileSync(path.join(dir, 'ssh'), '#!/bin/sh\ncase "$FAKE_SSH_MODE" in fail) exit 3;; empty) echo "user git"; exit 0;; esac\necho "user git"\necho "hostname github.com"\n');
+  fs.chmodSync(path.join(dir, 'ssh'), 0o755);
+  const r = repo('{"hosting":"local"}');
+  const url = 'gh-alias:o/r.git';
+  const ok = hook(r, ['origin', url], withPath(dir));
+  assert.strictEqual(ok.code, 1, ok.out);
+  assert.ok(ok.out.includes(ghLine(url, 'github.com')), ok.out);
+  for (const mode of ['fail', 'empty']) {
+    const x = hook(r, ['origin', url], withPath(dir, { FAKE_SSH_MODE: mode }));
+    assert.strictEqual(x.code, 1, `${mode}: ${x.out}`);
+    assert.ok(x.out.includes(cannotLine(url)), `${mode}: ${x.out}`);
+  }
+});
+
+test('ssh resolution uses git\'s ssh command (core.sshCommand with -F)', () => {
+  const cfg = path.join(tmp('bajzi-prepush-sshcfg-'), 'config');
+  fs.writeFileSync(cfg, 'Host work\n  HostName github.com\n');
+  const r = repo('{"hosting":"local"}');
+  git(r, 'config', 'core.sshCommand', `ssh -F "${cfg.replace(/\\/g, '/')}"`);
+  const url = 'work:o/r.git';
+  const x = hook(r, ['origin', url]);
+  assert.strictEqual(x.code, 1, x.out);
+  assert.ok(x.out.includes(ghLine(url, 'github.com')), x.out);
+});
+
+test('main fails closed when a git call fails or throws', () => {
+  const r = repo('{"hosting":"local"}');
+  const url = 'https://gitlab.com/o/r';
+  git(r, 'remote', 'add', 'origin', url);
+  const real = (cmd, args, opts) => spawnSync(cmd, args, { ...opts, cwd: opts.cwd || r });
+  const failing = (prefix, result) => (cmd, args, opts) => {
+    if (!args.join(' ').startsWith(prefix)) return real(cmd, args, opts);
+    if (result instanceof Error) throw result;
+    return { stdout: '', ...result };
+  };
+  const runMain = (run, u = url) => {
+    const orig = process.stdout.write;
+    let out = '';
+    process.stdout.write = s => { out += s; return true; };
+    try { return { code: main(['origin', u], env(), run), out }; } finally { process.stdout.write = orig; }
+  };
+  const ssh = 'git@myserver:r.git';
+  const sc = runMain(failing('config --get core.sshCommand', { status: 2 }), ssh);
+  assert.strictEqual(sc.code, 1, sc.out);
+  assert.ok(sc.out.startsWith(`${cannotLine(ssh)}git config core.sshCommand failed)`), sc.out);
+  assert.deepStrictEqual(runMain(real), { code: 0, out: '' });
+  for (const [prefix, result, reason] of [
+    ['ls-remote --get-url', { status: 128 }, 'git ls-remote --get-url failed'],
+    ['config --get-regexp', { status: 2 }, 'git config failed'],
+    ['config --get-regexp', { status: null }, 'git config failed'],
+    ['remote get-url --push', { status: 1 }, 'git remote get-url --push origin failed'],
+    ['ls-remote', new Error('boom'), 'internal error: boom'],
+  ]) {
+    const x = runMain(failing(prefix, result));
+    assert.strictEqual(x.code, 1, `${prefix}: ${x.out}`);
+    assert.ok(x.out.startsWith(`${cannotLine(url)}${reason})`), `${prefix}: ${x.out}`);
+  }
 });
 
 test('missing url argument is refused', () => {

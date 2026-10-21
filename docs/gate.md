@@ -81,23 +81,27 @@ worst result wins. Callers read the exit code only, never the console text (the 
 ## Pre-push hosting guard
 
 Source `bajzi/gate/pre-push.js` (Node, no dependencies, marker `bajzi:pre-push`), installed as
-`.githooks/pre-push`. It refuses every push to a GitHub host unless the repo's
-`.claude/project-profile.json` says `"hosting": "github"` (exact, lowercase). With that value it
+`.githooks/pre-push`. It refuses every push to a GitHub host unless the repo's committed
+`.claude/project-profile.json` (read with `git show HEAD:...`; a working-tree edit does not count) says `"hosting": "github"` (exact, lowercase). With that value it
 exits 0 at once; otherwise every candidate url must be proven non-GitHub.
 
 - **Candidates** (all checked): the url git passed, its `git ls-remote --get-url` form
   (`url.*.insteadOf` applied), and, for a named remote, every `git remote get-url --push --all`
   url (`pushInsteadOf` applied).
 - **Host**: `scheme://[user@]host[:port]/...` (`file` = local; `http`, `https`, `git` = host;
-  `ssh`, `git+ssh`, `ssh+git` = ssh), scp-like `[user@]host:path` = ssh, a Windows drive or other
-  path = local. An ssh host is resolved with `ssh -G <host>` (catches ssh-config aliases that point
-  at github.com). GitHub = `github.com` or any `*.github.com`, case-insensitive, trailing dot ignored.
+  `ssh`, `git+ssh`, `ssh+git` = ssh), scp-like `[user@]host:path` = ssh, a drive path (`X:/`, `X:\`;
+  on Windows only, elsewhere it is scp-like ssh to host `X`) or other path = local. An ssh host is
+  resolved with `<ssh> -G <host>` run through `sh` the way git runs it, where `<ssh>` is git's own
+  ssh command: `GIT_SSH_COMMAND`, else `core.sshCommand`, else `$GIT_SSH`, else `ssh` (catches
+  ssh-config aliases, including a `-F <file>` config, that point at github.com; an ssh that rejects
+  `-G`, such as plink, fails closed). GitHub = `github.com` or any `*.github.com`, case-insensitive, trailing dot ignored.
 - **Fails closed** (refused as "cannot verify"): no or empty url, a remote-helper url
   (`<transport>::<address>`), an unknown scheme, an empty host, `ssh -G` failing or printing no
   hostname, a failing `git ls-remote --get-url` / `git config` / `git remote get-url`, an internal error.
+  A missing, uncommitted or unreadable HEAD profile counts as missing.
   A missing or invalid profile counts as not `"github"`.
 - **Output** (stdout, exit 1): `bajzi pre-push: REFUSED: <url> is GitHub (<host>); ...` or
   `bajzi pre-push: REFUSED: cannot verify the host of <url> (<reason>); ...`. An allowed push
   prints nothing.
 - **Limits**: `git push --no-verify` bypasses it, and a fresh clone runs no hook until
-  `git config core.hooksPath .githooks` is set. It reads the working-tree profile.
+  `git config core.hooksPath .githooks` is set.

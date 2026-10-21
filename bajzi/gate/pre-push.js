@@ -6,8 +6,6 @@
 // Refuses every push to a GitHub host unless <repo>/.claude/project-profile.json says
 // "hosting": "github". Fails closed: a url whose host cannot be proven non-GitHub is refused.
 // Git calls it as `pre-push <remote-name> <url>` (refs on stdin, not read). Exit 0 allow, 1 refuse.
-const fs = require('node:fs');
-const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const PREFIX = 'bajzi pre-push: REFUSED: ';
@@ -23,7 +21,8 @@ function hostOf(auth, withPort) {
   return h;
 }
 
-function parseUrl(url) {
+// platform: git treats "X:/" or "X:\" as a drive path only on Windows; elsewhere it is ssh to host X.
+function parseUrl(url, platform = process.platform) {
   let kind = 'local';
   let host = '';
   const m = SCHEME.exec(url);
@@ -32,7 +31,7 @@ function parseUrl(url) {
     if (kind !== 'local') host = hostOf(m[2], true);
   } else if (HELPER.test(url)) {
     kind = 'unknown';
-  } else if (/^[A-Za-z]:[\\/]/.test(url)) {
+  } else if (platform === 'win32' && /^[A-Za-z]:[\\/]/.test(url)) {
     kind = 'local';
   } else if (url.startsWith('[') && /^\[[^\]]*\]:/.test(url)) {
     // scp-like with a bracketed host: [host]:path or [user@host:port]:path
@@ -52,9 +51,11 @@ function isGithubHost(h) {
   return h === 'github.com' || h.endsWith('.github.com');
 }
 
-// The real hostname ssh would connect to (resolves ssh-config aliases).
-function sshResolve(host) {
-  const r = spawnSync('ssh', ['-G', host], { encoding: 'utf8', timeout: 15000 });
+// The real hostname git's ssh would connect to (resolves ssh-config aliases). cmd is git's ssh
+// command (GIT_SSH_COMMAND / core.sshCommand / "$GIT_SSH" / ssh), run through sh as git does; the
+// host is passed only as an argument. An ssh that rejects -G (plink) fails closed.
+function sshResolve(host, cmd = 'ssh', env = process.env, run = spawnSync) {
+  const r = run('sh', ['-c', `${cmd} "$@"`, 'sh', '-G', host], { env, encoding: 'utf8', timeout: 15000 });
   if (r.error || r.status !== 0) return { error: `ssh -G ${host} failed` };
   const m = /^hostname\s+(\S+)/m.exec(r.stdout || '');
   return m ? { host: m[1] } : { error: `ssh -G ${host} printed no hostname` };
@@ -67,13 +68,13 @@ function hostingLabel(h) {
 const cannot = (url, reason) => ({ ok: false, line: `${PREFIX}cannot verify the host of ${url} (${reason}); hosting is not "github", so the push is refused` });
 
 // hosting: the profile's "hosting" value (undefined = missing, null = unreadable profile).
-function decide({ hosting, urls, resolveSsh = sshResolve }) {
+function decide({ hosting, urls, resolveSsh = sshResolve, platform = process.platform }) {
   if (hosting === 'github') return { ok: true, line: '' };
   const github = (url, host) => ({ ok: false, line: `${PREFIX}${url} is GitHub (${host}); .claude/project-profile.json hosting is ${hostingLabel(hosting)} - set "hosting": "github" to allow it` });
   if (!urls.length) return cannot("''", 'no url');
   for (const url of urls) {
     if (!url) return cannot("''", 'empty url');
-    const p = parseUrl(url);
+    const p = parseUrl(url, platform);
     if (p.kind === 'local') continue;
     if (p.kind === 'unknown') return cannot(url, 'unknown transport or no host');
     if (isGithubHost(p.host)) return github(url, p.host);
@@ -86,9 +87,11 @@ function decide({ hosting, urls, resolveSsh = sshResolve }) {
   return { ok: true, line: '' };
 }
 
-function readHosting(root) {
-  let raw;
-  try { raw = fs.readFileSync(path.join(root, '.claude', 'project-profile.json'), 'utf8'); } catch { return undefined; }
+// The committed (HEAD) profile; a working-tree edit never lifts the guard. Unreadable = missing.
+function readHosting(sh, root) {
+  const r = sh(['show', 'HEAD:.claude/project-profile.json'], root);
+  if (r.status !== 0) return undefined;
+  const raw = r.stdout || '';
   let v;
   try { v = JSON.parse(raw.replace(/^﻿/, '')); } catch { return null; }
   return v && typeof v === 'object' && !Array.isArray(v) ? v.hosting : null;
@@ -96,12 +99,12 @@ function readHosting(root) {
 
 const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-function main(argv = process.argv.slice(2), env = process.env) {
+function main(argv = process.argv.slice(2), env = process.env, run = spawnSync) {
   try {
-    const sh = (args, cwd) => spawnSync('git', args, { cwd, env, encoding: 'utf8' });
+    const sh = (args, cwd) => run('git', args, { cwd, env, encoding: 'utf8' });
     const top = sh(['rev-parse', '--show-toplevel']);
     const root = top.status === 0 && top.stdout.trim() ? top.stdout.trim() : process.cwd();
-    const hosting = readHosting(root);
+    const hosting = readHosting(sh, root);
     if (hosting === 'github') return 0;
     const [name = '', url = ''] = argv;
     let urls = [];
@@ -123,7 +126,18 @@ function main(argv = process.argv.slice(2), env = process.env) {
       urls.push(url);
       urls = [...new Set(urls)];
     }
-    const d = fail || decide({ hosting, urls });
+    let resolveSsh = sshResolve;
+    if (!fail && urls.some(u => parseUrl(u).kind === 'ssh')) {
+      // git's ssh command, in git's order of precedence.
+      let cmd = env.GIT_SSH_COMMAND;
+      if (!cmd) {
+        const c = sh(['config', '--get', 'core.sshCommand'], root);
+        if (c.status > 1 || c.status === null) fail = cannot(url, 'git config core.sshCommand failed');
+        else cmd = (c.status === 0 && c.stdout.trim()) || (env.GIT_SSH ? '"$GIT_SSH"' : 'ssh');
+      }
+      resolveSsh = h => sshResolve(h, cmd, env, run);
+    }
+    const d = fail || decide({ hosting, urls, resolveSsh });
     if (!d.ok) process.stdout.write(d.line + '\n');
     return d.ok ? 0 : 1;
   } catch (e) {

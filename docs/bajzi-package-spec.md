@@ -1532,23 +1532,27 @@ as a verbatim copy at `.githooks/pre-commit` (§6.10); the contract is `docs/gat
 ### 6.13a Pre-push hosting guard — technical
 
 `bajzi/gate/pre-push.js` (Node, no dependencies, marker `bajzi:pre-push`), installed per repo as
-`.githooks/pre-push`; the contract is `docs/gate.md`. It enforces `"hosting"` of
-`.claude/project-profile.json`: only `"github"` (exact) may push to GitHub.
+`.githooks/pre-push`; the contract is `docs/gate.md`. It enforces `"hosting"` of the committed
+`.claude/project-profile.json` (`git show HEAD:.claude/project-profile.json`; failure = missing):
+only `"github"` (exact) may push to GitHub.
 - **Interface**: git runs `pre-push <remote-name> <url>`; stdin is not read. Root =
   `git rev-parse --show-toplevel` (cwd fallback). Exit 0 allow (silent), 1 refuse (one stdout line).
 - **Candidates** (`:main`): `git ls-remote --get-url <url>` (insteadOf), `git remote get-url --push --all <name>`
   when the name differs from the url and `git config --get-regexp ^remote.<name>.` finds keys
-  (pushInsteadOf; a failure there refuses), then the url itself; deduplicated.
-- **Decision** (`:decide({ hosting, urls, resolveSsh })` -> `{ ok, line }`):
+  (pushInsteadOf; a failure there refuses), then the url itself; deduplicated. When a candidate is
+  ssh, git's ssh command is picked in git's order: `GIT_SSH_COMMAND`, `git config --get core.sshCommand`
+  (exit above 1 refuses), `"$GIT_SSH"`, `ssh`. `:main(argv, env, run)` takes an injectable spawn.
+- **Decision** (`:decide({ hosting, urls, resolveSsh, platform })` -> `{ ok, line }`; `:sshResolve(host, cmd, env, run)`
+  runs `sh -c '<cmd> "$@"' sh -G <host>`, the host only as an argument):
 
 | Case | Result |
 |---|---|
 | `hosting === "github"` | allow, nothing checked |
 | no url / empty url | refuse, cannot verify |
-| `file://` or a path (Windows drive, relative, absolute) | local, next url |
+| `file://` or a path (drive `X:/`/`X:\` on win32 only, relative, absolute) | local, next url |
 | `<transport>::<address>`, unknown scheme, empty or `-`-leading host | refuse, cannot verify |
 | `http`/`https`/`git` host is GitHub (`:isGithubHost`) | refuse, GitHub |
-| ssh (`ssh`/`git+ssh`/`ssh+git` scheme, scp-like) host or its `ssh -G` hostname is GitHub | refuse, GitHub |
+| ssh (`ssh`/`git+ssh`/`ssh+git` scheme, scp-like, a drive-letter url off win32) host or its `<ssh> -G` hostname is GitHub | refuse, GitHub |
 | `ssh -G` spawn error, non-zero exit or no `hostname` line | refuse, cannot verify |
 | every url non-GitHub | allow |
 
@@ -1556,8 +1560,11 @@ as a verbatim copy at `.githooks/pre-commit` (§6.10); the contract is `docs/gat
   The hosting label in the GitHub line is `"<value>"`, `missing` (no file or no key) or `invalid`
   (unparsable JSON, not an object, non-string value).
 - **Tests**: `bajzi/gate/tests/pre-push.test.js` — a `decide` matrix with an injected resolver,
-  `parseUrl`/`isGithubHost` cases, policy, insteadOf and push-url cases through the hook in
-  fixture repos, and end-to-end `git push` through `.githooks/pre-push` (`core.hooksPath`) with a
+  `parseUrl`/`isGithubHost` cases (drive letters per platform), policy (committed vs working-tree
+  profile), insteadOf and push-url cases through the hook in fixture repos, `ssh -G` through a fake
+  `ssh` on PATH (alias, failure, no hostname) and through `core.sshCommand` with `-F`, `:main`'s
+  fail-closed git failures via an injected spawn, all with an empty `GIT_CONFIG_GLOBAL` and
+  `GIT_CONFIG_NOSYSTEM`, and end-to-end `git push` through `.githooks/pre-push` (`core.hooksPath`) with a
   fake `GIT_SSH_COMMAND` serving a local bare repo: refused with the REFUSED line and no new refs
   under `"local"`, accepted under `"github"`, and a plain bare remote accepted under `"local"`.
 

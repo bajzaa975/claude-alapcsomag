@@ -3,7 +3,7 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
-- gate: new pre-push hosting guard `bajzi/gate/pre-push.js`: refuses every push to a GitHub host (https, scp-like, ssh, ssh-config aliases via `ssh -G`, insteadOf/pushInsteadOf rewrites) unless `.claude/project-profile.json` says `"hosting": "github"`. Fails closed: a missing/invalid profile, an unresolvable host or an unknown transport refuses.
+- gate: new pre-push hosting guard `bajzi/gate/pre-push.js`: refuses every push to a GitHub host (https, scp-like, ssh, ssh-config aliases via `ssh -G` run through git's own ssh command, insteadOf/pushInsteadOf rewrites) unless the committed (HEAD) `.claude/project-profile.json` says `"hosting": "github"`. Fails closed: a missing/invalid profile, an unresolvable host or an unknown transport refuses.
 
 ## 1.23.0
 - skills: new interview skills `bajzi:grilling` (model-invocable; numbered question rounds, decisions written to a record file with Proof lines, `Grilled: grilling <YYYY-MM-DD> (Q1-Qn)` header), `/bajzi:grill-me` (user entry to it) and `/bajzi:respec-cards` (owner-approved spec cards; `Grilled: respec-cards <YYYY-MM-DD> (cards NN-MM)` header). grilling and grill-me are adapted from https://github.com/mattpocock/skills (MIT, (c) 2026 Matt Pocock); see `bajzi/skills/grilling/NOTICE.md`.
