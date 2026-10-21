@@ -85,3 +85,11 @@ test('marketplace ships bajzi, bajzi-cowork and the two mods', () => {
   const m = JSON.parse(read(path.join(ROOT, '.claude-plugin', 'marketplace.json')));
   assert.deepStrictEqual(m.plugins.map(p => p.name), ['bajzi', 'bajzi-cowork', 'cache-timer', 'nightrun-pane']);
 });
+
+test('project-setup SKILL: start assessment leaves git init to Apply; Apply step 1 exempts the profile and fresh repos', () => {
+  const s = read(path.join(BAJZI, 'skills', 'project-setup', 'SKILL.md'));
+  assert.doesNotMatch(s, /-> `git init` first/);
+  assert.match(s, /do NOT run `git init`/);
+  assert.match(s, /':!\.claude\/project-profile\.json'/);
+  assert.match(s, /no commits/);
+});

@@ -27,7 +27,7 @@ key, newer version, invalid value): print the reasons, change nothing.
 
 Run when `.claude/project-profile.json` is missing or has no `size` or no `hosting`.
 
-1. Not a git work tree -> `git init` first.
+1. Not a git work tree -> do NOT run `git init`; `## Apply` does it (with `core.hooksPath .githooks`).
 2. Ask ONE round, all five at once, each with a recommended answer from what the folder shows:
    1. Is this a general repo for mixed small asks and questions (no single product)? (yes -> XS; skip 2-4)
    2. Will it be deployed anywhere (server, VM, store, another machine), used by anyone else, or handle personal data or money? (yes -> at least M)
@@ -49,8 +49,8 @@ as in step 3) and run `## Apply`. Upgrades only add files; downgrades delete not
 
 ## Apply
 
-1. `git status --short -- .mcp.json .claude/ .githooks/ .gitignore docs/` — if those paths have uncommitted changes, stop
-   and ask the user first.
+1. `git status --short -- .mcp.json .claude/ .githooks/ .gitignore docs/ ':!.claude/project-profile.json'` — if those paths have
+   uncommitted changes, stop and ask the user first. Skip this check when the folder is not a git work tree or has no commits.
 2. Dry run, show the result:
    ```
    node "${CLAUDE_PLUGIN_ROOT}/skills/project-setup/profile.js" --dry-run

@@ -1356,7 +1356,7 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
   entry), never removed later since the hook reads `hosting` at push time. **Additive**: a bigger
   `size` only adds; a smaller one never deletes or overwrites a file.
 - **Start assessment and size upgrade** (SKILL.md, functional): when the profile is missing or has no
-  `size` or no `hosting`, `/bajzi:project-setup` runs `git init` if needed, then ONE round of five
+  `size` or no `hosting`, `/bajzi:project-setup` asks ONE round of five
   questions (general repo -> XS; deployed/shared/personal data or money -> at least M; production
   users with a release cycle -> L; more than one developer, service or repo -> L; may the code go to
   GitHub -> hosting). Size = the highest size any answer gives, none = S; hosting is independent of
