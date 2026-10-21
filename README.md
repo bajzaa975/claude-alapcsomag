@@ -201,7 +201,7 @@ Check the install with `claude plugin list`.
 | `mode` | `/bajzi:mode` | Switches between day-run (autonomous, model-routed) and normal mode, or reports which is active. |
 | `modszertan` | `/bajzi:modszertan` | Selects or changes the repo's leading methodology (GSD, superpowers or neither). |
 | `night-run` | `/bajzi:night-run` | Plans an unattended multi-hour overnight run: preflight, queue, brief, approval gate, launch. |
-| `project-setup` | `/bajzi:project-setup [--check]` | Applies or checks the repo's `.claude/project-profile.json`: project plugins, MCPs, methodology, instruction files, pre-commit gate. A start assessment (five questions) sets project size XS/S/M/L (additive kit; upgrade = change size + rerun) and hosting local/github. |
+| `project-setup` | `/bajzi:project-setup [--check]` | Applies or checks the repo's `.claude/project-profile.json`: project plugins, MCPs, methodology, instruction files, pre-commit gate. A start assessment (five questions) sets project size XS/S/M/L (additive kit; upgrade = change `size`, add `gate` for M/L, rerun) and hosting local/github. |
 | `radar` | `/bajzi:radar [now\|install]` | Biweekly read-only review of your Claude setup (plugins, Claude news, methodology, usage); adopt or decline its items. |
 | `respec-cards` | `/bajzi:respec-cards` | Specifies or re-specifies a system as owner-approved cards, interviewing question by question. |
 | `review` | `/bajzi:review <slice> <range>` | Reviews a slice's commit range through the reviewer agent and applies the close policy and debt cap on round 2. |

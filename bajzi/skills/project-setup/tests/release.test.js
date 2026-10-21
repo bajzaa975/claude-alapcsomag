@@ -107,3 +107,9 @@ test('project-setup SKILL: start assessment leaves git init to Apply; Apply step
   assert.match(s, /':!\.claude\/project-profile\.json'/);
   assert.match(s, /no commits/);
 });
+
+test('both READMEs say upgrading to M/L means adding gate', () => {
+  for (const r of [read(path.join(ROOT, 'README.md')), read(path.join(BAJZI, 'README.md'))]) {
+    assert.match(r, /upgrade = change `?size`?, add `gate` for M\/L, rerun/);
+  }
+});
