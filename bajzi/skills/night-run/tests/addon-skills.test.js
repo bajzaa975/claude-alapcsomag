@@ -83,7 +83,6 @@ test('PHASE B: add-on queues first; `# exclusive` makes them the only source of 
   has(b, 'run FIRST, in `ADDON_SKILLS` order');
   has(ADDON, 'A block whose first line is `# exclusive`');
   has(b, 'An `addon-queue` block whose first line is `# exclusive` makes the add-on queues the ONLY source of candidate new stories');
-  has(b, 'ONLY source of candidate new stories');
   has(b, 'open PRs (source 3, FOLLOW-UP) and parked retries (source 4) still come in');
 });
 

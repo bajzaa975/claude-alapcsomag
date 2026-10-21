@@ -17,6 +17,7 @@ test('PHASE B: four sources, no backlog file, size/depends-on rule, no gate fall
   const idx = ['1. The add-on queues', '2. Approved plans', '3. `gh pr list --state open`', '4. The previous'].map((x) => B.indexOf(x));
   assert.ok(idx.every((i, k) => i >= 0 && (k === 0 || i > idx[k - 1])) && !B.includes('5. '));
   assert.ok(B.includes('No other file (in particular no backlog file) is a story source'));
+  assert.ok(B.includes('come from the add-on queue line or the plan (a `Size: S|M|L` and/or `Depends-on: <id>[, <id>]` line'));
   assert.ok(B.includes('otherwise the story is unsized (budget M) with no dependency'));
   assert.ok(!SKILL.includes('BACKLOG.md') && !SKILL.includes('legacy fallback'));
   assert.ok(!read('templates/BRIEF.md.tmpl').includes('BACKLOG.md'));
@@ -57,7 +58,7 @@ test('BRIEF ticks the plan checkboxes; slice-format has the Plan -> slices rule'
   assert.ok(f.includes('## Plan -> slices') && f.includes('`<plan-stem>-t<N>`') && f.includes('fits 64 chars'));
 });
 
-test('no BACKLOG.md "primary source" claim; approval regex rejects NOT APPROVED / unapproved', () => {
+test('no backlog-file "primary source" claim; approval regex rejects NOT APPROVED / unapproved', () => {
   assert.ok(!SKILL.includes('is the primary source'));
   const rx = new RegExp(String.raw`^\**Status:\**\s*APPROVED\b`, 'i');
   assert.ok(SKILL.includes('`^\\**Status:\\**\\s*APPROVED\\b`') && SKILL.includes('does not contain `BLOCKED` (both case-insensitive)'));
@@ -71,6 +72,17 @@ test('no BACKLOG.md "primary source" claim; approval regex rejects NOT APPROVED 
 test('BRIEF 3.3 names Plan -> slices and implement/review/fix', () => {
   const b = flat(read('templates', 'BRIEF.md.tmpl'));
   const s33 = b.slice(b.indexOf('### 3.3 Work'), b.indexOf('5. **One PR per story'));
-  for (const w of ['Plan -> slices', '/bajzi:implement', '/bajzi:review', '/bajzi:fix', 'section 4 story-level review loop'])
+  for (const w of ['Plan -> slices', '/bajzi:implement', '/bajzi:review', '/bajzi:fix', 'section 4 story-level review loop',
+    "the add-on's own tracker row for an add-on story", 'the plan file named after `PLAN:`',
+    'edit its tracker row', "tick the plan's checkboxes for each closed task (the plan file is the progress record)"])
     assert.ok(s33.includes(w), w);
+});
+
+test('BACKLOG.md is named by no tracked file except CHANGELOG.md and the absence assertions', () => {
+  const root = path.join(DIR, '..', '..', '..');
+  const files = spawnSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
+  const needle = ['BACK', 'LOG.md'].join('');
+  const hits = files.filter((f) => f !== 'CHANGELOG.md' && !/night-run\/tests\/(plan-queue|addon-skills)\.test\.js$/.test(f) && fs.existsSync(path.join(root, f)) &&
+    fs.readFileSync(path.join(root, f), 'utf8').includes(needle));
+  assert.deepStrictEqual(hits, []);
 });

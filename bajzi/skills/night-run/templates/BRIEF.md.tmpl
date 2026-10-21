@@ -466,15 +466,17 @@ uncommitted work once.
 1. Before designing anything, follow the add-on rules (section 6a) and honour
    every recorded decision they point you to; reopening a closed decision at
    night is forbidden — park with reason `review`.
-2. Read only the story's own source (the add-on's own tracker row for an add-on story; for a plan story, the plan file named
-   after `PLAN:` in the criteria) and the documents that row, plan or the
-   add-on rules point at. Delegate any read over 300 lines.
+2. Read only the story's own source (the add-on's own tracker row for an
+   add-on story; for a plan story, the plan file named after `PLAN:` in the
+   criteria) and the documents that row, plan or the add-on rules point at.
+   Delegate any read over 300 lines.
 3. **TDD.** Write the failing test first, then the code that makes it pass. The
    review loop in section 4 checks for this, and a slice with no new test is a
    blocking finding.
-4. Update the story's own source (plan file or add-on tracker row) in the same PR — honest coding percent,
-   honest testing state. For a plan story, tick the plan's checkboxes for each
-   closed task instead (the plan file is the progress record).
+4. Update the story's own source in the same PR. For an add-on story, edit its
+   tracker row: honest coding percent, honest testing state. For a plan story,
+   tick the plan's checkboxes for each closed task (the plan file is the
+   progress record).
    Never another story's row, never owner-only columns.
    A plan story generates slices from the plan (`docs/slice-format.md`, section
    Plan -> slices) and runs each through `/bajzi:implement`, `/bajzi:review` and
