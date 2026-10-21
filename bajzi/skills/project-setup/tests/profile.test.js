@@ -384,6 +384,38 @@ test('kit: refuses before any write when git cannot run (not on PATH)', () => {
   assert.deepStrictEqual(snapshot(r), before);
 });
 
+test('kit: a non-git folder is still detected when git runs with a translated locale', () => {
+  const r = repo();
+  const prof = { size: 'S', hosting: 'local' };
+  const keys = ['LANGUAGE', 'LC_ALL', 'LC_MESSAGES', 'LANG'];
+  const saved = keys.map(k => process.env[k]);
+  Object.assign(process.env, { LANGUAGE: 'de', LC_ALL: 'de_DE.UTF-8', LC_MESSAGES: 'de_DE.UTF-8', LANG: 'de_DE.UTF-8' });
+  // A git without installed translations ignores the locale; simulate one that has them.
+  const cp = require('node:child_process');
+  const real = cp.spawnSync;
+  cp.spawnSync = (cmd, args, opts) => {
+    const res = real(cmd, args, opts);
+    const env = (opts && opts.env) || process.env;
+    if (cmd === 'git' && res.status !== 0 && env.LC_ALL !== 'C' && /not a git repository/i.test(res.stderr || '')) {
+      return Object.assign({}, res, { stderr: 'fatal: Kein Git-Repository (oder irgendeines der Elternverzeichnisse): .git\n' });
+    }
+    return res;
+  };
+  const id = require.resolve('../profile');
+  const orig = require.cache[id];
+  delete require.cache[id];
+  try {
+    const PL = require('../profile');
+    assert.deepStrictEqual(PL.plan(prof, r, { home: home() }).map(a => a.kind)[0], 'git-init');
+    assert.deepStrictEqual(PL.apply(prof, r, { home: home(), run: () => 0 }).failures, []);
+  } finally {
+    cp.spawnSync = real;
+    require.cache[id] = orig;
+    keys.forEach((k, i) => { if (saved[i] === undefined) delete process.env[k]; else process.env[k] = saved[i]; });
+  }
+  assert.ok(fs.existsSync(path.join(r, '.git')));
+});
+
 test('kit: changing the instructions list keeps the kit block once and unchanged, owner text byte-identical', () => {
   const r = repo();
   fs.writeFileSync(path.join(r, 'docs', 'more.md'), '# more\n');

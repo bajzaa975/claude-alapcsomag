@@ -128,9 +128,11 @@ const readText = p => { try { return fs.readFileSync(p, 'utf8'); } catch { retur
 const norm = t => t.replace(/\r\n/g, '\n');
 
 // The git work-tree toplevel containing repoRoot, '' when repoRoot is not inside one, or null when
-// git itself failed (not on PATH, dubious-ownership refusal, ...).
+// git itself failed (not on PATH, dubious-ownership refusal, ...). The C locale keeps git's
+// "not a git repository" message untranslated so the match below holds under any locale.
 function gitTop(repoRoot) {
-  const r = spawnSync('git', ['-C', repoRoot, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  const env = Object.assign({}, process.env, { LC_ALL: 'C', LANGUAGE: 'C' });
+  const r = spawnSync('git', ['-C', repoRoot, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', env });
   if (r.status === 0) return r.stdout.trim();
   return !r.error && /not a git repository/i.test(r.stderr || '') ? '' : null;
 }
