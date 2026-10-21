@@ -10,6 +10,7 @@ const { spawnSync } = require('node:child_process');
 const DIR = path.join(__dirname, '..');
 const read = (...p) => fs.readFileSync(path.join(DIR, ...p), 'utf8').replace(/\r\n/g, '\n');
 const flat = (s) => s.replace(/\s+/g, ' ');
+const NAME = ['BACK', 'LOG.md'].join(''); // built from fragments so this file never names it
 const SKILL = flat(read('SKILL.md'));
 const B = SKILL.slice(SKILL.indexOf('## PHASE B — Collect'), SKILL.indexOf('## PHASE C — Plan'));
 
@@ -19,8 +20,8 @@ test('PHASE B: four sources, no backlog file, size/depends-on rule, no gate fall
   assert.ok(B.includes('No other file (in particular no backlog file) is a story source'));
   assert.ok(B.includes('come from the add-on queue line or the plan (a `Size: S|M|L` and/or `Depends-on: <id>[, <id>]` line'));
   assert.ok(B.includes('otherwise the story is unsized (budget M) with no dependency'));
-  assert.ok(!SKILL.includes('BACKLOG.md') && !SKILL.includes('legacy fallback'));
-  assert.ok(!read('templates/BRIEF.md.tmpl').includes('BACKLOG.md'));
+  assert.ok(!SKILL.includes(NAME) && !SKILL.includes('legacy fallback'));
+  assert.ok(!read('templates/BRIEF.md.tmpl').includes(NAME));
   assert.ok(B.includes('^\\**Status:\\**\\s*APPROVED\\b') && B.includes('does not contain `BLOCKED`') && B.includes('at least one unchecked step (`- [ ]`)'));
   assert.ok(B.includes('PLAN: <repo-relative plan path> :: '));
 });
@@ -78,11 +79,13 @@ test('BRIEF 3.3 names Plan -> slices and implement/review/fix', () => {
     assert.ok(s33.includes(w), w);
 });
 
-test('BACKLOG.md is named by no tracked file except CHANGELOG.md and the absence assertions', () => {
+test('the dropped backlog file is named by no tracked file except CHANGELOG.md', () => {
   const root = path.join(DIR, '..', '..', '..');
-  const files = spawnSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
-  const needle = ['BACK', 'LOG.md'].join('');
-  const hits = files.filter((f) => f !== 'CHANGELOG.md' && !/night-run\/tests\/(plan-queue|addon-skills)\.test\.js$/.test(f) && fs.existsSync(path.join(root, f)) &&
-    fs.readFileSync(path.join(root, f), 'utf8').includes(needle));
+  const ls = spawnSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' });
+  assert.ok(!ls.error && ls.status === 0, `git ls-files failed: ${ls.error || ls.stderr}`);
+  const files = ls.stdout.split('\n').filter(Boolean);
+  assert.ok(files.length > 0, 'git ls-files listed no files');
+  const hits = files.filter((f) => f !== 'CHANGELOG.md' && fs.existsSync(path.join(root, f)) &&
+    fs.readFileSync(path.join(root, f), 'utf8').includes(NAME));
   assert.deepStrictEqual(hits, []);
 });

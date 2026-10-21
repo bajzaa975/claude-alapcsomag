@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const DIR = path.join(__dirname, '..');
 const read = (...p) => fs.readFileSync(path.join(DIR, ...p), 'utf8').replace(/\r\n/g, '\n');
+const NAME = ['BACK', 'LOG.md'].join(''); // built from fragments so this file never names it
 const walk = (d) => fs.readdirSync(d, { withFileTypes: true })
   .flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
 
@@ -79,7 +80,7 @@ test('PHASE A step 9 writes addon-checks.txt and addon-allow.txt afresh; run.sh 
 test('PHASE B: add-on queues first; `# exclusive` makes them the only source of new stories', () => {
   const b = slice(SKILL, '## PHASE B — Collect', '## PHASE C — Plan');
   assert.ok(b.indexOf('1. The add-on queues') >= 0, 'add-on queues are source 1');
-  assert.ok(!SKILL.includes('BACKLOG.md') && !read('templates/BRIEF.md.tmpl').includes('BACKLOG.md'));
+  assert.ok(!SKILL.includes(NAME) && !read('templates/BRIEF.md.tmpl').includes(NAME));
   has(b, 'run FIRST, in `ADDON_SKILLS` order');
   has(ADDON, 'A block whose first line is `# exclusive`');
   has(b, 'An `addon-queue` block whose first line is `# exclusive` makes the add-on queues the ONLY source of candidate new stories');
