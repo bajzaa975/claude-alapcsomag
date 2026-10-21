@@ -3,6 +3,7 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+- project-setup: profile keys `"size"` (XS|S|M|L) and `"hosting"` (local|github). Apply runs `git init` + `core.hooksPath .githooks` in a non-git folder, writes the per-size kit block into `.claude/CLAUDE.md`, the size's scaffold stubs and a `runtime/` ignore line, and installs `.githooks/pre-push` for hosting local. Additive: a bigger size only adds, owner files stay byte-identical. Refuses before any write on a foreign `.githooks/pre-push`, a foreign `core.hooksPath` or a nested repo; the `gate-hookspath` drift kind is now `hookspath`.
 - gate: new pre-push hosting guard `bajzi/gate/pre-push.js`: refuses every push to a GitHub host (https, scp-like, ssh, ssh-config aliases via `ssh -G` run through git's own ssh command, insteadOf/pushInsteadOf rewrites) unless the committed (HEAD) `.claude/project-profile.json` says `"hosting": "github"`. Fails closed: a missing/invalid profile, an unresolvable host or an unknown transport refuses.
 
 ## 1.23.0

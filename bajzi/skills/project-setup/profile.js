@@ -10,7 +10,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const SUPPORTED_VERSION = 1;
-const KEYS = new Set(['version', 'methodology', 'plugins', 'mcpServers', 'skills', 'instructions', 'gate']);
+const KEYS = new Set(['version', 'methodology', 'plugins', 'mcpServers', 'skills', 'instructions', 'gate', 'size', 'hosting']);
 const METHODOLOGIES = new Set(['superpowers', 'gsd', 'none']);
 const BLOCK_BEGIN = '<!-- bajzi:project-setup instructions begin -->';
 const BLOCK_END = '<!-- bajzi:project-setup instructions end -->';
@@ -18,6 +18,11 @@ const GATE_SRC = path.join(__dirname, '..', '..', 'gate', 'pre-commit.js');
 const GATE_DEST = path.join('.githooks', 'pre-commit');
 const GATE_MARKER = 'bajzi:gate';
 const GATE_TOOLS = require(GATE_SRC).TOOLS;
+const PREPUSH_SRC = path.join(__dirname, '..', '..', 'gate', 'pre-push.js');
+const PREPUSH_DEST = path.join('.githooks', 'pre-push');
+const PREPUSH_MARKER = 'bajzi:pre-push';
+const kit = require('./kit');
+const RUNTIME_IGNORES = new Set(['runtime', 'runtime/', '/runtime', '/runtime/']);
 
 class ProfileError extends Error {
   constructor(errors) {
@@ -80,6 +85,10 @@ function validate(profile) {
       if ('baseline' in g && !relOk(g.baseline)) errors.push('gate.baseline must be a relative path inside the repo');
     }
   }
+  if ('size' in profile && !kit.SIZES.includes(profile.size)) errors.push('"size" must be XS, S, M or L');
+  if ('hosting' in profile && profile.hosting !== 'local' && profile.hosting !== 'github') errors.push('"hosting" must be local or github');
+  if ('size' in profile && !('hosting' in profile)) errors.push('"size" needs "hosting" (local or github)');
+  if ((profile.size === 'M' || profile.size === 'L') && !('gate' in profile)) errors.push(`size ${profile.size} needs the "gate" key (the pre-commit gate is part of the M kit)`);
   return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
 }
 
@@ -105,8 +114,31 @@ function instructionBlock(list) {
   return [BLOCK_BEGIN, ...list.map(rel => '@../' + rel.replace(/\\/g, '/')), BLOCK_END].join('\n');
 }
 
+// Replace the begin..end block in place, or append it when absent; text outside stays byte-identical.
+function replaceBlock(text, begin, end, block) {
+  const i = text.indexOf(begin);
+  const j = i >= 0 ? text.indexOf(end, i) : -1;
+  if (j > i) return text.slice(0, i) + block + text.slice(j + end.length);
+  return (text && !text.endsWith('\n') ? text + '\n' : text) + block + '\n';
+}
+
+const readText = p => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
+const norm = t => t.replace(/\r\n/g, '\n');
+
+// The git work-tree toplevel containing repoRoot, or '' when repoRoot is not inside one.
+function gitTop(repoRoot) {
+  const r = spawnSync('git', ['-C', repoRoot, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : '';
+}
+
+function sameDir(a, b) {
+  try { return samePath(fs.realpathSync.native(a), fs.realpathSync.native(b)); } catch { return samePath(a, b); }
+}
+
 function plan(profile, repoRoot, { home = os.homedir() } = {}) {
   const actions = [];
+  const init = Boolean(profile.size || profile.hosting) && gitTop(repoRoot) === '';
+  if (init) actions.push({ kind: 'git-init', target: '.' });
   if (profile.methodology) {
     let cur = null;
     try { cur = fs.readFileSync(path.join(repoRoot, '.claude', 'METHODOLOGY'), 'utf8').trim(); } catch { cur = null; }
@@ -147,25 +179,41 @@ function plan(profile, repoRoot, { home = os.homedir() } = {}) {
     try { cur = fs.readFileSync(path.join(repoRoot, '.claude', 'CLAUDE.md'), 'utf8'); } catch { cur = ''; }
     if (!cur.includes(instructionBlock(profile.instructions))) actions.push({ kind: 'instructions', target: '.claude/CLAUDE.md' });
   }
-  if (profile.gate) {
+  if (profile.size) {
+    const cur = readText(path.join(repoRoot, '.claude', 'CLAUDE.md')) || '';
+    if (!cur.includes(kit.sizeBlock(profile.size, profile.hosting))) actions.push({ kind: 'kit', target: '.claude/CLAUDE.md' });
+    for (const f of kit.scaffold(profile.size)) {
+      if (!fs.existsSync(path.join(repoRoot, f.rel))) actions.push({ kind: 'scaffold', target: f.rel, text: f.text });
+    }
+    const gi = readText(path.join(repoRoot, '.gitignore')) || '';
+    if (profile.size !== 'XS' && !gi.split(/\r?\n/).some(l => RUNTIME_IGNORES.has(l.trim()))) actions.push({ kind: 'gitignore', target: '.gitignore' });
+  }
+  const prepush = profile.hosting === 'local';
+  if ((profile.gate || prepush) && !init) {   // git-init sets core.hooksPath itself
     const hp = spawnSync('git', ['-C', repoRoot, 'config', '--get', 'core.hooksPath'], { encoding: 'utf8' });
     const cur = hp.status === 0 ? hp.stdout.trim().replace(/[\\/]+$/, '') : '';
-    if (cur !== '.githooks') actions.push({ kind: 'gate-hookspath', target: 'core.hooksPath', value: cur });
-    const norm = t => t.replace(/\r\n/g, '\n');
-    let have = null;
-    try { have = fs.readFileSync(path.join(repoRoot, GATE_DEST), 'utf8'); } catch { have = null; }
+    if (cur !== '.githooks') actions.push({ kind: 'hookspath', target: 'core.hooksPath', value: cur });
+  }
+  if (profile.gate) {
+    const have = readText(path.join(repoRoot, GATE_DEST));
     if (have === null || norm(have) !== norm(fs.readFileSync(GATE_SRC, 'utf8'))) actions.push({ kind: 'gate', target: '.githooks/pre-commit' });
     // A tracked hook must be 100755 in the index, or a Linux/mac checkout silently skips it
     // (a Windows `git add` stages 100644: chmod never reaches the index there).
-    const m = gateIndexMode(repoRoot);
+    const m = indexMode(repoRoot, '.githooks/pre-commit');
     if (m && m !== '100755') actions.push({ kind: 'gate-mode', target: '.githooks/pre-commit' });
+  }
+  if (prepush) {   // never removed later: the hook itself reads "hosting" at push time
+    const have = readText(path.join(repoRoot, PREPUSH_DEST));
+    if (have === null || norm(have) !== norm(fs.readFileSync(PREPUSH_SRC, 'utf8'))) actions.push({ kind: 'prepush', target: '.githooks/pre-push' });
+    const m = indexMode(repoRoot, '.githooks/pre-push');
+    if (m && m !== '100755') actions.push({ kind: 'prepush-mode', target: '.githooks/pre-push' });
   }
   return actions;
 }
 
-// The index mode of the tracked gate hook ('100755', '100644'), or '' when untracked / not a repo.
-function gateIndexMode(repoRoot) {
-  const r = spawnSync('git', ['ls-files', '-s', '--', '.githooks/pre-commit'], { cwd: repoRoot, encoding: 'utf8' });
+// The index mode of a tracked file ('100755', '100644'), or '' when untracked / not a repo.
+function indexMode(repoRoot, rel) {
+  const r = spawnSync('git', ['ls-files', '-s', '--', rel], { cwd: repoRoot, encoding: 'utf8' });
   return r.status === 0 ? r.stdout.split(' ')[0].trim() : '';
 }
 
@@ -188,12 +236,20 @@ function preflight(profile, repoRoot, actions) {
     try { isFile = fs.statSync(path.join(repoRoot, rel)).isFile(); } catch { isFile = false; }
     if (!isFile) errors.push(`instruction file ${rel} does not exist`);
   }
-  const hp = actions.find(a => a.kind === 'gate-hookspath');
-  if (hp) errors.push(`core.hooksPath is "${hp.value}", the gate needs ".githooks"; run: git config core.hooksPath .githooks`);
+  if (profile.size || profile.hosting) {
+    const top = gitTop(repoRoot);
+    if (top && !sameDir(top, repoRoot)) errors.push(`${repoRoot} is inside the git repo ${top}; run project-setup at the repo root`);
+  }
+  const hp = actions.find(a => a.kind === 'hookspath');
+  if (hp) errors.push(`core.hooksPath is "${hp.value}", the ${profile.gate ? 'gate needs' : 'pre-push hook needs'} ".githooks"; run: git config core.hooksPath .githooks`);
   if (actions.some(a => a.kind === 'gate')) {
     let cur = null;
     try { cur = fs.readFileSync(path.join(repoRoot, GATE_DEST), 'utf8'); } catch { cur = null; }
     if (cur !== null && !cur.includes(GATE_MARKER)) errors.push('.githooks/pre-commit exists and is not the bajzi gate; move it away first');
+  }
+  if (actions.some(a => a.kind === 'prepush')) {
+    const cur = readText(path.join(repoRoot, PREPUSH_DEST));
+    if (cur !== null && !cur.includes(PREPUSH_MARKER)) errors.push('.githooks/pre-push exists and is not the bajzi hosting guard; move it away first');
   }
   return errors;
 }
@@ -217,6 +273,12 @@ function apply(profile, repoRoot, { home = os.homedir(), run = runClaude } = {})
   const errors = preflight(profile, repoRoot, actions);
   if (errors.length) throw new ProfileError(errors);
   const failures = [];
+  if (actions.some(a => a.kind === 'git-init')) {
+    for (const args of [['init', '-q'], ['config', 'core.hooksPath', '.githooks']]) {
+      const r = spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8' });
+      if (r.status !== 0) failures.push(`git-init: git ${args[0]} exited ${r.status}`);
+    }
+  }
   for (const a of actions) {
     if (a.kind === 'methodology') writeAtomic(path.join(repoRoot, '.claude', 'METHODOLOGY'), a.value + '\n');
   }
@@ -235,24 +297,35 @@ function apply(profile, repoRoot, { home = os.homedir(), run = runClaude } = {})
     try { if (fs.lstatSync(dest).isSymbolicLink()) fs.unlinkSync(dest); } catch { /* not there */ }
     fs.symlinkSync(path.resolve(repoRoot, a.src), dest, 'junction');
   }
-  if (actions.some(a => a.kind === 'instructions')) {
+  const doInstr = actions.some(a => a.kind === 'instructions');
+  const doKit = actions.some(a => a.kind === 'kit');
+  if (doInstr || doKit) {   // one read-modify-write: each block replaced in place, owner text kept
     const file = path.join(repoRoot, '.claude', 'CLAUDE.md');
-    let cur = '';
-    try { cur = fs.readFileSync(file, 'utf8'); } catch { cur = ''; }
-    const i = cur.indexOf(BLOCK_BEGIN);
-    const j = cur.indexOf(BLOCK_END);
-    if (i >= 0 && j > i) cur = cur.slice(0, i) + cur.slice(j + BLOCK_END.length).replace(/^\n/, '');
-    const base = cur && !cur.endsWith('\n') ? cur + '\n' : cur;
-    writeAtomic(file, base + instructionBlock(profile.instructions) + '\n');
+    let cur = readText(file) || '';
+    if (doInstr) cur = replaceBlock(cur, BLOCK_BEGIN, BLOCK_END, instructionBlock(profile.instructions));
+    if (doKit) cur = replaceBlock(cur, kit.KIT_BEGIN, kit.KIT_END, kit.sizeBlock(profile.size, profile.hosting));
+    writeAtomic(file, cur);
   }
-  if (actions.some(a => a.kind === 'gate')) {
-    const dest = path.join(repoRoot, GATE_DEST);
-    writeAtomic(dest, fs.readFileSync(GATE_SRC, 'utf8').replace(/\r\n/g, '\n'));
-    fs.chmodSync(dest, 0o755);
+  for (const a of actions.filter(x => x.kind === 'scaffold')) {
+    const dest = path.join(repoRoot, a.target);
+    if (!fs.existsSync(dest)) writeAtomic(dest, a.text);   // create only; never overwrite
   }
-  if (actions.some(a => a.kind === 'gate' || a.kind === 'gate-mode') && gateIndexMode(repoRoot)) {
-    const r = spawnSync('git', ['update-index', '--chmod=+x', '--', '.githooks/pre-commit'], { cwd: repoRoot, encoding: 'utf8' });
-    if (r.status !== 0) failures.push(`gate-mode: git update-index --chmod=+x exited ${r.status}`);
+  if (actions.some(a => a.kind === 'gitignore')) {
+    const file = path.join(repoRoot, '.gitignore');
+    const cur = readText(file) || '';
+    const nl = cur.includes('\r\n') ? '\r\n' : '\n';
+    writeAtomic(file, (cur && !cur.endsWith('\n') ? cur + nl : cur) + 'runtime/' + nl);
+  }
+  for (const [kind, src, dest] of [['gate', GATE_SRC, GATE_DEST], ['prepush', PREPUSH_SRC, PREPUSH_DEST]]) {
+    if (!actions.some(a => a.kind === kind)) continue;
+    writeAtomic(path.join(repoRoot, dest), fs.readFileSync(src, 'utf8').replace(/\r\n/g, '\n'));
+    fs.chmodSync(path.join(repoRoot, dest), 0o755);
+  }
+  // A tracked hook gets index mode 100755 (a Windows `git add` stages 100644).
+  for (const [kind, rel] of [['gate', '.githooks/pre-commit'], ['prepush', '.githooks/pre-push']]) {
+    if (!actions.some(a => a.kind === kind || a.kind === kind + '-mode') || !indexMode(repoRoot, rel)) continue;
+    const r = spawnSync('git', ['update-index', '--chmod=+x', '--', rel], { cwd: repoRoot, encoding: 'utf8' });
+    if (r.status !== 0) failures.push(`${kind}-mode: git update-index --chmod=+x exited ${r.status}`);
   }
   for (const a of actions) {
     if (a.kind === 'marketplace') {

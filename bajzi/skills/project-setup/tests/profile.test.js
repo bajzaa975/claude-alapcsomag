@@ -187,7 +187,7 @@ test('gate: apply installs .githooks/pre-commit as a copy of bajzi/gate/pre-comm
 test('gate: refuses when core.hooksPath is not .githooks, and writes nothing', () => {
   for (const hp of [null, 'hooks']) {
     const r = gitRepo(hp);
-    assert.deepStrictEqual(P.check(GATE, r, { home: home() }), ['DRIFT gate-hookspath core.hooksPath', 'DRIFT gate .githooks/pre-commit']);
+    assert.deepStrictEqual(P.check(GATE, r, { home: home() }), ['DRIFT hookspath core.hooksPath', 'DRIFT gate .githooks/pre-commit']);
     assert.throws(() => P.apply(Object.assign({ methodology: 'superpowers' }, GATE), r, { home: home(), run: () => 0 }), /core\.hooksPath is "[^"]*", the gate needs "\.githooks"/);
     assert.ok(!fs.existsSync(path.join(r, '.githooks')));
     assert.ok(!fs.existsSync(path.join(r, '.claude')));
@@ -218,4 +218,146 @@ test('gate: the tracked hook gets index mode 100755 on apply; a 100644 index ent
   spawnSync('git', ['add', '--chmod=-x', '--', '.githooks/pre-commit'], { cwd: r });
   P.apply(GATE, r, { home: home(), run: () => 0 });
   assert.strictEqual(mode(), '100755');
+});
+
+// ---- size + hosting kit ----
+const PREPUSH_SRC = path.join(__dirname, '..', '..', '..', 'gate', 'pre-push.js');
+const git = (r, ...a) => spawnSync('git', a, { cwd: r, encoding: 'utf8' });
+const read = (r, rel) => fs.readFileSync(path.join(r, rel), 'utf8');
+function snapshot(dir) {
+  const out = {};
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { out[path.relative(dir, p) + '/'] = ''; walk(p); } else out[path.relative(dir, p)] = fs.readFileSync(p, 'utf8');
+    }
+  })(dir);
+  return out;
+}
+
+test('validate: size and hosting values; size needs hosting; size M/L needs gate', () => {
+  for (const ok of [{ hosting: 'local' }, { hosting: 'github' }, { size: 'XS', hosting: 'local' }, { size: 'S', hosting: 'github' },
+    Object.assign({ size: 'M', hosting: 'local' }, GATE), Object.assign({ size: 'L', hosting: 'github' }, GATE)]) {
+    assert.deepStrictEqual(P.validate(ok), { ok: true, errors: [] }, JSON.stringify(ok));
+  }
+  for (const bad of [{ size: 's', hosting: 'local' }, { size: 'XL', hosting: 'local' }, { hosting: 'gitlab' }, { hosting: 'Local' }]) {
+    assert.strictEqual(P.validate(bad).ok, false, JSON.stringify(bad));
+  }
+  assert.match(P.validate({ size: 'S' }).errors.join('\n'), /"size" needs "hosting" \(local or github\)/);
+  assert.match(P.validate({ size: 'M', hosting: 'local' }).errors.join('\n'), /size M needs the "gate" key \(the pre-commit gate is part of the M kit\)/);
+  assert.match(P.validate({ size: 'L', hosting: 'github' }).errors.join('\n'), /size L needs the "gate" key/);
+});
+
+test('kit: a profile without size/hosting plans no kit action, also in a non-git folder', () => {
+  const r = repo();
+  const kinds = P.plan(FULL, r, { home: home() }).map(a => a.kind);
+  assert.deepStrictEqual(kinds, ['methodology', 'mcp', 'skill', 'instructions']);
+  P.apply(FULL, r, { home: home(), run: () => 0 });
+  assert.deepStrictEqual(P.check(FULL, r, { home: home() }), []);
+  assert.ok(!fs.existsSync(path.join(r, '.git')));
+  assert.ok(!fs.existsSync(path.join(r, '.gitignore')));
+});
+
+test('kit: fresh non-git folder with size S + hosting local -> git init, hooksPath, pre-push, .gitignore, kit block; check clean', () => {
+  const r = repo();
+  const prof = { size: 'S', hosting: 'local' };
+  assert.deepStrictEqual(P.plan(prof, r, { home: home() }).map(a => `${a.kind} ${a.target}`),
+    ['git-init .', 'kit .claude/CLAUDE.md', 'gitignore .gitignore', 'prepush .githooks/pre-push']);
+  const res = P.apply(prof, r, { home: home(), run: () => 0 });
+  assert.deepStrictEqual(res.failures, []);
+  assert.ok(fs.existsSync(path.join(r, '.git')));
+  assert.strictEqual(git(r, 'config', '--get', 'core.hooksPath').stdout.trim(), '.githooks');
+  assert.match(read(r, '.githooks/pre-push'), /bajzi:pre-push/);
+  assert.strictEqual(read(r, '.githooks/pre-push'), fs.readFileSync(PREPUSH_SRC, 'utf8').replace(/\r\n/g, '\n'));
+  if (process.platform !== 'win32') assert.ok(fs.statSync(path.join(r, '.githooks', 'pre-push')).mode & 0o100);
+  assert.match(read(r, '.gitignore'), /^runtime\/$/m);
+  assert.ok(read(r, '.claude/CLAUDE.md').includes(require('../kit').sizeBlock('S', 'local')));
+  assert.deepStrictEqual(P.check(prof, r, { home: home() }), []);
+});
+
+test('kit: S -> M upgrade only adds; owner files byte-identical, both blocks once', () => {
+  const r = repo();
+  fs.mkdirSync(path.join(r, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.claude', 'CLAUDE.md'), '# Owner\r\nkeep me\r\n');
+  fs.writeFileSync(path.join(r, '.gitignore'), 'node_modules\n/runtime\n*.log');
+  const S = { size: 'S', hosting: 'local', instructions: ['docs/rules.md'] };
+  P.apply(S, r, { home: home(), run: () => 0 });
+  fs.appendFileSync(path.join(r, '.claude', 'CLAUDE.md'), 'owner tail\n');
+  fs.writeFileSync(path.join(r, 'docs', 'DEPLOY.md'), '# my deploy\n');
+  const gi = read(r, '.gitignore');
+  assert.strictEqual(gi, 'node_modules\n/runtime\n*.log');   // /runtime counts: no append
+  const M = Object.assign({}, S, { size: 'M' }, GATE);
+  assert.deepStrictEqual(P.plan(M, r, { home: home() }).map(a => `${a.kind} ${a.target}`),
+    ['kit .claude/CLAUDE.md', 'scaffold docs/uat/README.md', 'gate .githooks/pre-commit']);
+  P.apply(M, r, { home: home(), run: () => 0 });
+  const t = read(r, '.claude/CLAUDE.md');
+  assert.ok(t.startsWith('# Owner\r\nkeep me\r\n'));
+  assert.ok(t.endsWith('owner tail\n'));
+  assert.strictEqual(t.split('bajzi:project-setup instructions begin').length, 2);
+  assert.strictEqual(t.split('bajzi:project-setup kit begin').length, 2);
+  assert.ok(t.includes(require('../kit').sizeBlock('M', 'local')));
+  assert.strictEqual(read(r, 'docs/DEPLOY.md'), '# my deploy\n');
+  assert.strictEqual(read(r, '.gitignore'), gi);
+  assert.match(read(r, 'docs/uat/README.md'), /TODO/);
+  assert.deepStrictEqual(P.check(M, r, { home: home() }), []);
+  // downgrade never deletes a scaffold file
+  P.apply(S, r, { home: home(), run: () => 0 });
+  assert.ok(fs.existsSync(path.join(r, 'docs', 'uat', 'README.md')));
+  assert.ok(read(r, '.claude/CLAUDE.md').startsWith('# Owner\r\nkeep me\r\n'));
+});
+
+test('kit: a foreign .githooks/pre-push is REFUSED before any write', () => {
+  const r = repo();
+  fs.mkdirSync(path.join(r, '.githooks'));
+  fs.writeFileSync(path.join(r, '.githooks', 'pre-push'), '#!/bin/sh\nexit 0\n');
+  const before = snapshot(r);
+  assert.throws(() => P.apply({ size: 'S', hosting: 'local', methodology: 'superpowers' }, r, { home: home(), run: () => 0 }),
+    /\.githooks\/pre-push exists and is not the bajzi hosting guard; move it away first/);
+  assert.deepStrictEqual(snapshot(r), before);
+  assert.ok(!fs.existsSync(path.join(r, '.git')));
+});
+
+test('kit: core.hooksPath pointing elsewhere is REFUSED before any write', () => {
+  const r = gitRepo('.husky');
+  const before = snapshot(r);
+  assert.throws(() => P.apply({ size: 'S', hosting: 'local' }, r, { home: home(), run: () => 0 }),
+    /core\.hooksPath is "\.husky".*run: git config core\.hooksPath \.githooks/);
+  assert.deepStrictEqual(snapshot(r), before);
+});
+
+test('kit: hosting github plans no pre-push and no hookspath action', () => {
+  const r = gitRepo(null);
+  assert.deepStrictEqual(P.plan({ size: 'S', hosting: 'github' }, r, { home: home() }).map(a => a.kind), ['kit', 'gitignore']);
+});
+
+test('kit: hosting alone (no size) plans only the git side', () => {
+  const r = repo();
+  assert.deepStrictEqual(P.plan({ hosting: 'local' }, r, { home: home() }).map(a => a.kind), ['git-init', 'prepush']);
+});
+
+test('kit: a folder inside another git repo is REFUSED', () => {
+  const outer = gitRepo(null);
+  const r = path.join(outer, 'sub');
+  fs.mkdirSync(r);
+  assert.throws(() => P.apply({ size: 'S', hosting: 'local' }, r, { home: home(), run: () => 0 }), /is inside the git repo .*; run project-setup at the repo root/);
+  assert.deepStrictEqual(fs.readdirSync(r), []);
+});
+
+test('kit: --check reports pre-push content and index-mode drift; apply repairs both', () => {
+  const r = gitRepo('.githooks');
+  const prof = { size: 'S', hosting: 'local' };
+  const mode = () => git(r, 'ls-files', '-s', '--', '.githooks/pre-push').stdout.split(' ')[0];
+  P.apply(prof, r, { home: home(), run: () => 0 });
+  assert.deepStrictEqual(P.check(prof, r, { home: home() }), []);
+  fs.appendFileSync(path.join(r, '.githooks', 'pre-push'), '// local edit\n');
+  assert.deepStrictEqual(P.check(prof, r, { home: home() }), ['DRIFT prepush .githooks/pre-push']);
+  P.apply(prof, r, { home: home(), run: () => 0 });
+  git(r, 'add', '--chmod=-x', '--', '.githooks/pre-push');
+  assert.strictEqual(mode(), '100644');
+  assert.deepStrictEqual(P.check(prof, r, { home: home() }), ['DRIFT prepush-mode .githooks/pre-push']);
+  P.apply(prof, r, { home: home(), run: () => 0 });
+  assert.strictEqual(mode(), '100755');
+  assert.deepStrictEqual(P.check(prof, r, { home: home() }), []);
+  git(r, 'config', 'core.hooksPath', 'hooks');
+  assert.deepStrictEqual(P.check(prof, r, { home: home() }), ['DRIFT hookspath core.hooksPath']);
 });
