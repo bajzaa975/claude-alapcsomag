@@ -17,6 +17,8 @@ test('PHASE B: approved plans come before BACKLOG.md, which is the legacy fallba
   const p = B.indexOf('2. Approved plans'), bl = B.indexOf('`docs/BACKLOG.md` (size');
   assert.ok(p >= 0 && bl > p);
   assert.ok(B.includes('legacy fallback') && B.includes('BACKLOG.md used as legacy fallback: convert its rows to approved plans'));
+  const gate = SKILL.slice(SKILL.indexOf('## PHASE D'), SKILL.indexOf('## PHASE E'));
+  assert.ok(flat(gate).includes('BACKLOG.md used as legacy fallback: convert its rows to approved plans'));
   assert.ok(B.includes('^\\**Status:\\**\\s*APPROVED\\b') && B.includes('does not contain `BLOCKED`') && B.includes('at least one unchecked step (`- [ ]`)'));
   assert.ok(B.includes('PLAN: <repo-relative plan path> :: '));
 });
@@ -44,6 +46,8 @@ test('run.sh prompt_for emits the plan instruction for a PLAN: note only', (t) =
   for (const c of ['TBD', '-', 'none', 'n/a'])
     assert.match(dry('PLAN: docs/plans/x.md :: ' + c), /BLOCKED P1 .*no acceptance criteria/, c);
   assert.match(dry('PLAN: docs/plans/x.md'), /BLOCKED P1 .*no acceptance criteria/);
+  for (const n of ['PLAN: docs/plans/x.md::Goal', 'PLAN: docs/plans/x.md ::Goal', 'PLAN: docs/plans/x.md:: Goal'])
+    assert.match(dry(n), /approved plan at docs\/plans\/x\.md\. Generate/, n);
 });
 
 test('BRIEF ticks the plan checkboxes; slice-format has the Plan -> slices rule', () => {

@@ -1125,7 +1125,7 @@ prompt_for(){ # id slug note brief_path deadline_epoch finalize_epoch budget_sec
   [ -n "$BRANCH_LOCK_CMD" ] && tsv=" run.sh prepared this tree before starting you (branch lock mode), so it exists even on a first attempt; BRIEF 3.1 case 1 says how to treat it."
   local plan_line="" plan_path
   if [ "${3#PLAN: }" != "$3" ]; then
-    plan_path=${3#PLAN: }; plan_path=${plan_path%% :: *}
+    plan_path=${3#PLAN: }; plan_path=$(trim "${plan_path%%::*}")
     plan_line="Implement exactly the approved plan at $plan_path. Generate its slices (docs/slice-format.md, section Plan -> slices), run each through /bajzi:implement, /bajzi:review and /bajzi:fix, and tick the plan's checkbox for each closed task. Do not change the plan's scope; a needed scope change is PARKED with the question written down.
 "
   fi

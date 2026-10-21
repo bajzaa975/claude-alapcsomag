@@ -36,7 +36,7 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    (state + what you tried into DECISIONS.md), and you move on. A parked item does not stop
    the whole run.
 5. **CONTEXT DISCIPLINE:** per task/sprint, sub-agents do the heavy work; you update the
-   branch handoff file (`runtime/handoff/<branch-slug>.md`, see /bajzi:handoff) after every
+   branch handoff file (`runtime/handoff/<branch-slug>.md`, see the handoff skill) after every
    closed item. If context goes above ~40%: you do NOT start a new
    item — you close out the current one, write the closing report, and stop in a controlled way
    (listing the remaining items under "NOT STARTED").

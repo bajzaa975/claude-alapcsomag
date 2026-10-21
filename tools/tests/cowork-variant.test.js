@@ -24,3 +24,12 @@ test('shipped skills reference nothing outside their own folder', () => {
     assert.ok(!bad.test(md), `${s}/SKILL.md references plugin-level files`);
   }
 });
+
+test('no shipped file names a /bajzi: command (the variant ships /bajzi-cowork:)', () => {
+  for (const s of SKILLS) {
+    for (const f of fs.readdirSync(path.join(DST, 'skills', s), { recursive: true })) {
+      const p = path.join(DST, 'skills', s, f);
+      if (fs.statSync(p).isFile()) assert.ok(!/\/bajzi:/.test(fs.readFileSync(p, 'utf8')), `${s}/${f} names a /bajzi: command`);
+    }
+  }
+});

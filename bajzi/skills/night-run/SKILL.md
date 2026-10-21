@@ -503,8 +503,9 @@ Sources, in precedence order:
    `docs/superpowers/plans/` or `docs/plans/` whose first 30 lines have a status line matching
    `^\**Status:\**\s*APPROVED\b` (the value must START with the word, so a negated status
    never matches) that does not contain `BLOCKED` (both case-insensitive), and which still has
-   at least one unchecked step (`- [ ]`). Queue line: `id` = the plan file stem (same
-   shortening and sanitizing as any queue id), note =
+   at least one unchecked step (`- [ ]`). Queue line: `id` = the plan file stem, lowercased,
+   characters outside `[a-z0-9._-]` replaced by `-`, leading `-` or `.` stripped (run.sh
+   BLOCKS any other id), note =
    `PLAN: <repo-relative plan path> :: <one-line acceptance from the plan's Goal>`; an empty
    or placeholder criteria part is BLOCKED-criteria as for any story (run.sh enforces it for
    the `PLAN:` note too). The session generates the slices from the plan
@@ -514,8 +515,8 @@ Sources, in precedence order:
    each with the reason that parked it, as retry candidates.
 
 `docs/BACKLOG.md` (size S/M/L, coding %, testing state, `depends-on`) is a legacy fallback: its
-rows are read as stories only when no approved plan exists, and then the report says
-"BACKLOG.md used as legacy fallback: convert its rows to approved plans". Under `# exclusive`,
+rows are read as stories only when no approved plan exists, and then the PHASE D gate adds
+the line "BACKLOG.md used as legacy fallback: convert its rows to approved plans". Under `# exclusive`,
 or next to plans, it gives sizing and dependency data only.
 
 Then find every candidate `docs/NIGHT-RULES.md` restricts (forbidden story ids, anything
@@ -1165,7 +1166,9 @@ ONE screen, and apart from the PHASE B restriction table (asked once, before the
 drafted) it is the only question this skill asks. The run merges to the base branch
 for hours while the owner sleeps, so the gate is not optional. Show:
 
-1. the ordered queue — each item with its size and ONE line of why it is in;
+1. the ordered queue — each item with its size and ONE line of why it is in; when the queue
+   was read from `docs/BACKLOG.md` as the legacy fallback, add the line "BACKLOG.md used as
+   legacy fallback: convert its rows to approved plans";
 2. what the run may merge unattended per the NIGHT-RULES merge policy, plus the reminder
    that **every item passes the Opus review-and-fix loop and must be review-green AND
    CI-green before anything is merged**;
