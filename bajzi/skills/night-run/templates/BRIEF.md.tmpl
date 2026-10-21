@@ -474,7 +474,12 @@ uncommitted work once.
    blocking finding.
 4. Update the story's own backlog row in the same PR — honest coding percent,
    honest testing state. For a plan story, tick the plan's checkboxes for each
-   closed task instead (the plan file is the progress record). Never another story's row, never owner-only columns.
+   closed task instead (the plan file is the progress record).
+   Never another story's row, never owner-only columns.
+   A plan story generates slices from the plan (`docs/slice-format.md`, section
+   Plan -> slices) and runs each through `/bajzi:implement`, `/bajzi:review` and
+   `/bajzi:fix`; that per-slice review does not replace the section 4 story-level
+   review loop, which still runs on the whole diff.
 5. **One PR per story, and at most one open at a time**, into
    `{{BASE_BRANCH}}`: `gh pr create --base {{BASE_BRANCH}}`. PR body in English:
    what, why, evidence (test command and counts), non-blocking review findings,

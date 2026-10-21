@@ -18,6 +18,7 @@ bash tests/supervise.sh        # ~4 min on Git Bash (supervise.sh 30-minute supe
 node --test tests/glm-preflight.test.js   # ~2 s (PHASE A steps 7-8 + their templates; no glm, worker or claude)
 node --test tests/stale-inputs.test.js     # ~1 s (launch.sh.tmpl render + `bash -n`, PHASE A fresh BASE + REQUIRED_CHECK, PHASE C re-render, PHASE D SHA gate; no git, gh or claude)
 node --test tests/planning-rules.test.js   # <1 s (PHASE B ask-once restriction table, PHASE C/D deferral refusal, multi-day deadline + WATCH_MAX_RESTARTS formula, BRIEF §5 auth sentence; reads files only)
+node --test tests/plan-queue.test.js        # ~2 s (approved-plan queue: PHASE B text, BRIEF 3.3, run.sh prompt_for + PLAN: criteria dry run; no git, gh or claude)
 ```
 
 `glm-preflight.test.js`, `stale-inputs.test.js` and `planning-rules.test.js` are node:test, stdlib only, and also run in the main node gate through the
