@@ -73,8 +73,7 @@ four fenced blocks, each identified by its info string; an absent block contribu
   commands to `<NIGHT_DIR>/addon-checks.txt`, and `run.sh --smoke` runs every one of them after
   its git command: the smoke replies `SMOKE OK` only when each exits 0.
 - `addon-queue` — shell commands whose output lists candidate stories. PHASE B runs them FIRST,
-  before `docs/BACKLOG.md`; approved plans (PHASE B) come next, and `docs/BACKLOG.md` is only
-  a legacy fallback.
+  before approved plans (PHASE B).
   A block whose first line is `# exclusive` makes the add-on queues the only source of
   candidate stories (PHASE B).
 - `addon-brief` — markdown inlined verbatim into the brief's section 6a through the
@@ -496,8 +495,7 @@ Sources, in precedence order:
 1. The add-on queues — the commands of every `addon-queue` block PHASE A step 9 collected,
    run FIRST, in `ADDON_SKILLS` order; their output lists candidate stories. An `addon-queue`
    block whose first line is `# exclusive` makes the add-on queues the ONLY source of candidate
-   stories: `docs/BACKLOG.md` then contributes sizing and dependency data only, never a row of
-   its own, while open PRs (source 3, FOLLOW-UP) and parked retries (source 4) still come in.
+   new stories, while open PRs (source 3, FOLLOW-UP) and parked retries (source 4) still come in.
    One such block among several add-ons is enough.
 2. Approved plans — one story per plan file. An approved plan is a markdown file under
    `docs/superpowers/plans/` or `docs/plans/` whose first 30 lines have a status line matching
@@ -514,10 +512,9 @@ Sources, in precedence order:
 4. The previous `~/night-runs/<project>/REPORT-<date>.md` — its PARKED and BLOCKED entries,
    each with the reason that parked it, as retry candidates.
 
-`docs/BACKLOG.md` (size S/M/L, coding %, testing state, `depends-on`) is a legacy fallback: its
-rows are read as stories only when no approved plan exists, and then the PHASE D gate adds
-the line "BACKLOG.md used as legacy fallback: convert its rows to approved plans". Under `# exclusive`,
-or next to plans, it gives sizing and dependency data only.
+No other file (in particular no backlog file) is a story source. Size and `depends-on` come from
+the add-on queue line or the plan (a `Size: S|M|L` and/or `Depends-on: <id>[, <id>]` line in its
+first 30 lines); otherwise the story is unsized (budget M) with no dependency.
 
 Then find every candidate `docs/NIGHT-RULES.md` restricts (forbidden story ids, anything
 touching a forbidden path, anything the migration policy reserves for daylight) and every
@@ -1166,9 +1163,7 @@ ONE screen, and apart from the PHASE B restriction table (asked once, before the
 drafted) it is the only question this skill asks. The run merges to the base branch
 for hours while the owner sleeps, so the gate is not optional. Show:
 
-1. the ordered queue — each item with its size and ONE line of why it is in; when the queue
-   was read from `docs/BACKLOG.md` as the legacy fallback, add the line "BACKLOG.md used as
-   legacy fallback: convert its rows to approved plans";
+1. the ordered queue — each item with its size and ONE line of why it is in;
 2. what the run may merge unattended per the NIGHT-RULES merge policy, plus the reminder
    that **every item passes the Opus review-and-fix loop and must be review-green AND
    CI-green before anything is merged**;

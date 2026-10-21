@@ -13,12 +13,13 @@ const flat = (s) => s.replace(/\s+/g, ' ');
 const SKILL = flat(read('SKILL.md'));
 const B = SKILL.slice(SKILL.indexOf('## PHASE B — Collect'), SKILL.indexOf('## PHASE C — Plan'));
 
-test('PHASE B: approved plans come before BACKLOG.md, which is the legacy fallback', () => {
-  const p = B.indexOf('2. Approved plans'), bl = B.indexOf('`docs/BACKLOG.md` (size');
-  assert.ok(p >= 0 && bl > p);
-  assert.ok(B.includes('legacy fallback') && B.includes('BACKLOG.md used as legacy fallback: convert its rows to approved plans'));
-  const gate = SKILL.slice(SKILL.indexOf('## PHASE D'), SKILL.indexOf('## PHASE E'));
-  assert.ok(flat(gate).includes('BACKLOG.md used as legacy fallback: convert its rows to approved plans'));
+test('PHASE B: four sources, no backlog file, size/depends-on rule, no gate fallback line', () => {
+  const idx = ['1. The add-on queues', '2. Approved plans', '3. `gh pr list --state open`', '4. The previous'].map((x) => B.indexOf(x));
+  assert.ok(idx.every((i, k) => i >= 0 && (k === 0 || i > idx[k - 1])) && !B.includes('5. '));
+  assert.ok(B.includes('No other file (in particular no backlog file) is a story source'));
+  assert.ok(B.includes('otherwise the story is unsized (budget M) with no dependency'));
+  assert.ok(!SKILL.includes('BACKLOG.md') && !SKILL.includes('legacy fallback'));
+  assert.ok(!read('templates/BRIEF.md.tmpl').includes('BACKLOG.md'));
   assert.ok(B.includes('^\\**Status:\\**\\s*APPROVED\\b') && B.includes('does not contain `BLOCKED`') && B.includes('at least one unchecked step (`- [ ]`)'));
   assert.ok(B.includes('PLAN: <repo-relative plan path> :: '));
 });

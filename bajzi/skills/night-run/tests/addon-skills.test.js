@@ -76,14 +76,14 @@ test('PHASE A step 9 writes addon-checks.txt and addon-allow.txt afresh; run.sh 
   has(read('run.sh'), '"$NIGHT_DIR/addon-checks.txt"');
 });
 
-test('PHASE B: add-on queues first, docs/BACKLOG.md after; `# exclusive` makes them the only story source', () => {
+test('PHASE B: add-on queues first; `# exclusive` makes them the only source of new stories', () => {
   const b = slice(SKILL, '## PHASE B — Collect', '## PHASE C — Plan');
-  const q = b.indexOf('1. The add-on queues'), bl = b.indexOf('`docs/BACKLOG.md` (size S/M/L');
-  assert.ok(q >= 0 && bl > q, 'add-on queues are source 1, docs/BACKLOG.md the legacy fallback after the sources');
+  assert.ok(b.indexOf('1. The add-on queues') >= 0, 'add-on queues are source 1');
+  assert.ok(!SKILL.includes('BACKLOG.md') && !read('templates/BRIEF.md.tmpl').includes('BACKLOG.md'));
   has(b, 'run FIRST, in `ADDON_SKILLS` order');
   has(ADDON, 'A block whose first line is `# exclusive`');
-  has(b, 'An `addon-queue` block whose first line is `# exclusive` makes the add-on queues the ONLY source of candidate stories');
-  has(b, '`docs/BACKLOG.md` then contributes sizing and dependency data only');
+  has(b, 'An `addon-queue` block whose first line is `# exclusive` makes the add-on queues the ONLY source of candidate new stories');
+  has(b, 'ONLY source of candidate new stories');
   has(b, 'open PRs (source 3, FOLLOW-UP) and parked retries (source 4) still come in');
 });
 
