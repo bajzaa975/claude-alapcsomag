@@ -17,7 +17,7 @@ test('PHASE B: approved plans come before BACKLOG.md, which is the legacy fallba
   const p = B.indexOf('2. Approved plans'), bl = B.indexOf('`docs/BACKLOG.md` (size');
   assert.ok(p >= 0 && bl > p);
   assert.ok(B.includes('legacy fallback') && B.includes('BACKLOG.md used as legacy fallback: convert its rows to approved plans'));
-  assert.ok(B.includes('^\\**Status:\\**.*\\bAPPROVED\\b') && B.includes('neither `BLOCKED` nor `NOT APPROVED`') && B.includes('at least one unchecked step (`- [ ]`)'));
+  assert.ok(B.includes('^\\**Status:\\**\\s*APPROVED\\b') && B.includes('does not contain `BLOCKED`') && B.includes('at least one unchecked step (`- [ ]`)'));
   assert.ok(B.includes('PLAN: <repo-relative plan path> :: '));
 });
 
@@ -40,7 +40,9 @@ test('run.sh prompt_for emits the plan instruction for a PLAN: note only', (t) =
   assert.match(plan, /run each through \/bajzi:implement, \/bajzi:review and \/bajzi:fix, and tick the plan's checkbox for each closed task/);
   assert.match(plan, /a needed scope change is PARKED with the question written down/);
   assert.doesNotMatch(dry('plain criteria'), /approved plan at/);
-  assert.match(dry('PLAN: docs/plans/x.md :: '), /BLOCKED P1 .*no acceptance criteria/);
+  assert.match(dry('PLAN: docs/plans/x.md :: '), /BLOCKED P1 .*no acceptance criteria.*4th column is 'PLAN: docs\/plans\/x\.md ::/);
+  for (const c of ['TBD', '-', 'none', 'n/a'])
+    assert.match(dry('PLAN: docs/plans/x.md :: ' + c), /BLOCKED P1 .*no acceptance criteria/, c);
   assert.match(dry('PLAN: docs/plans/x.md'), /BLOCKED P1 .*no acceptance criteria/);
 });
 
@@ -52,11 +54,13 @@ test('BRIEF ticks the plan checkboxes; slice-format has the Plan -> slices rule'
 
 test('no BACKLOG.md "primary source" claim; approval regex rejects NOT APPROVED / unapproved', () => {
   assert.ok(!SKILL.includes('is the primary source'));
-  const rx = new RegExp(String.raw`^\**Status:\**.*\bAPPROVED\b`, 'i');
-  assert.ok(SKILL.includes('`^\\**Status:\\**.*\\bAPPROVED\\b`') && SKILL.includes('neither `BLOCKED` nor `NOT APPROVED`'));
-  const ok = (l) => rx.test(l) && !/BLOCKED|NOT APPROVED/i.test(l);
-  assert.ok(ok('**Status:** APPROVED'));
-  assert.ok(!ok('**Status:** NOT APPROVED') && !ok('Status: unapproved') && !ok('Status: APPROVED BLOCKED'));
+  const rx = new RegExp(String.raw`^\**Status:\**\s*APPROVED\b`, 'i');
+  assert.ok(SKILL.includes('`^\\**Status:\\**\\s*APPROVED\\b`') && SKILL.includes('does not contain `BLOCKED` (both case-insensitive)'));
+  const ok = (l) => rx.test(l) && !/BLOCKED/i.test(l);
+  assert.ok(ok('**Status:** APPROVED') && ok('Status: Approved by owner'));
+  for (const l of ['**Status:** NOT APPROVED', 'Status: unapproved', 'Status: APPROVED BLOCKED',
+    '**Status:** not yet approved', 'Status: NOT-APPROVED', 'Status: Not Approved'])
+    assert.ok(!ok(l), l);
 });
 
 test('BRIEF 3.3 names Plan -> slices and implement/review/fix', () => {

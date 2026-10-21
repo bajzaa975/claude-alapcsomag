@@ -1614,12 +1614,12 @@ for pass in 1 2 3; do
     esac
     # Acceptance criteria must be REAL. An empty or '-' note gives the reviewer
     # nothing to grade against, and it returns a genuine-looking pass.
-    # A 'PLAN: <path> :: ' note with an empty criteria part counts as empty.
+    # A 'PLAN: <path> :: <criteria>' note is graded on its criteria part alone.
+    _crit=$note
     case "$note" in
-      "PLAN: "*) case "$note" in *::*) _pc=${note#*::};; *) _pc="";; esac
-        case "$_pc" in *[![:space:]]*) ;; *) note="";; esac;;
+      "PLAN: "*) case "$note" in *::*) _crit=$(trim "${note#*::}");; *) _crit="";; esac;;
     esac
-    case "$note" in
+    case "$_crit" in
       ""|-|none|NONE|n/a|N/A|TBD|tbd)
         log "BLOCKED $id — the queue line carries no acceptance criteria (4th column is '${note:-<empty>}'). '-' is the 'none' value of the NEEDS column only; a story with nothing to grade against is never launched."
         [ $DRY -eq 0 ] && record_state "$id" BLOCKED-criteria "no acceptance criteria in the queue line (4th column '${note:-<empty>}')"

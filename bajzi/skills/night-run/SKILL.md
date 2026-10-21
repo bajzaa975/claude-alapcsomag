@@ -73,7 +73,8 @@ four fenced blocks, each identified by its info string; an absent block contribu
   commands to `<NIGHT_DIR>/addon-checks.txt`, and `run.sh --smoke` runs every one of them after
   its git command: the smoke replies `SMOKE OK` only when each exits 0.
 - `addon-queue` — shell commands whose output lists candidate stories. PHASE B runs them FIRST,
-  before `docs/BACKLOG.md`; approved plans (PHASE B) come next, and `docs/BACKLOG.md` is only a legacy fallback.
+  before `docs/BACKLOG.md`; approved plans (PHASE B) come next, and `docs/BACKLOG.md` is only
+  a legacy fallback.
   A block whose first line is `# exclusive` makes the add-on queues the only source of
   candidate stories (PHASE B).
 - `addon-brief` — markdown inlined verbatim into the brief's section 6a through the
@@ -500,12 +501,14 @@ Sources, in precedence order:
    One such block among several add-ons is enough.
 2. Approved plans — one story per plan file. An approved plan is a markdown file under
    `docs/superpowers/plans/` or `docs/plans/` whose first 30 lines have a status line matching
-   `^\**Status:\**.*\bAPPROVED\b` (case-insensitive), whose status line contains neither `BLOCKED` nor `NOT APPROVED`,
-   and which still has at least one unchecked step (`- [ ]`). Queue line: `id` = the plan file
-   stem (same shortening and sanitizing as any queue id), note =
+   `^\**Status:\**\s*APPROVED\b` (the value must START with the word, so a negated status
+   never matches) that does not contain `BLOCKED` (both case-insensitive), and which still has
+   at least one unchecked step (`- [ ]`). Queue line: `id` = the plan file stem (same
+   shortening and sanitizing as any queue id), note =
    `PLAN: <repo-relative plan path> :: <one-line acceptance from the plan's Goal>`; an empty
-   criteria part is BLOCKED-criteria as for any story (run.sh enforces it for the `PLAN:` note too). The session generates the slices from the
-   plan (`docs/slice-format.md`, section Plan -> slices).
+   or placeholder criteria part is BLOCKED-criteria as for any story (run.sh enforces it for
+   the `PLAN:` note too). The session generates the slices from the plan
+   (`docs/slice-format.md`, section Plan -> slices).
 3. `gh pr list --state open` — PRs left open by earlier runs, as FOLLOW-UP items, never new stories.
 4. The previous `~/night-runs/<project>/REPORT-<date>.md` — its PARKED and BLOCKED entries,
    each with the reason that parked it, as retry candidates.
