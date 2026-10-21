@@ -31,6 +31,13 @@ test('README states the secret guard limit and the new commands', () => {
   assert.match(r, /\/bajzi:setup --check/);
 });
 
+test('bajzi README names the pre-push guard and both limits', () => {
+  const r = read(path.join(BAJZI, 'README.md'));
+  assert.match(r, /pre-push/);
+  assert.match(r, /--no-verify/);
+  assert.match(r, /core\.hooksPath/);
+});
+
 test('every node hook command in hooks.json points at an existing file', () => {
   const h = JSON.parse(read(path.join(BAJZI, 'hooks', 'hooks.json'))).hooks;
   const cmds = Object.values(h).flat().flatMap(e => e.hooks.map(k => k.command)).filter(c => c.startsWith('node '));

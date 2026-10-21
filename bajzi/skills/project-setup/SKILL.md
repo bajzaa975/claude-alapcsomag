@@ -1,13 +1,15 @@
 ---
 name: project-setup
-description: Apply or check this repo's project profile (.claude/project-profile.json) — project-scope plugins, project .mcp.json entries, .claude/METHODOLOGY, linked skills, instruction files and the bajzi pre-commit gate. Use it when the user says "project-setup", "set up this repo from its profile", "apply the project profile", or with --check ("is this repo in sync with its profile").
+description: Apply or check this repo's project profile (.claude/project-profile.json), incl. start assessment, project size and hosting — project-scope plugins, project .mcp.json entries, .claude/METHODOLOGY, linked skills, instruction files and the bajzi pre-commit gate. Use it when the user says "project-setup", "set up this repo from its profile", "apply the project profile", or with --check ("is this repo in sync with its profile").
 ---
 
 # Project setup from the repo's profile
 
 The project's desired state is `.claude/project-profile.json`, committed in the repo. bajzi
 supplies only the mechanism, `${CLAUDE_PLUGIN_ROOT}/skills/project-setup/profile.js`. Never
-edit the profile to make a run pass; if the profile is wrong, tell the user.
+edit the profile to make a run pass, with two exceptions: the start assessment below writes
+size/hosting (and gate for M/L), and an owner-approved size upgrade changes size (and adds gate).
+If the profile is otherwise wrong, tell the user.
 
 ## `--check`
 
@@ -21,9 +23,33 @@ Print the output verbatim. Exit 0 = `project-setup --check: clean` (or no profil
 Exit 1 = one `DRIFT <kind> <target>` line per item. Exit 2 = the profile was REFUSED (unknown
 key, newer version, invalid value): print the reasons, change nothing.
 
+## Start assessment
+
+Run when `.claude/project-profile.json` is missing or has no `size` or no `hosting`.
+
+1. Not a git work tree -> `git init` first.
+2. Ask ONE round, all five at once, each with a recommended answer from what the folder shows:
+   1. Is this a general repo for mixed small asks and questions (no single product)? (yes -> XS; skip 2-4)
+   2. Will it be deployed anywhere (server, VM, store, another machine), used by anyone else, or handle personal data or money? (yes -> at least M)
+   3. Will it have production users with a release cycle? (yes -> L)
+   4. More than one developer, or more than one service or repo? (yes -> L)
+   5. May the code and its data be uploaded to GitHub? (no or unsure -> hosting local; yes -> github)
+
+   Size = the highest size any answer gives; none -> S. Hosting is independent of size.
+3. Write the keys into the profile (create `{ "version": 1, ... }` when missing; keep every other key). For M/L
+   without `gate`: add `"gate": {"tools": [...]}` - always `gitleaks`, plus `ruff`/`pyright` when a `pyproject.toml`
+   exists and `eslint`/`tsc` when a `package.json` (+ `tsconfig.json` for tsc) exists.
+4. Show the profile diff, then continue with `## Apply`.
+
+## Size upgrade
+
+The project's `.claude/CLAUDE.md` kit block lists the size triggers, checked before every new plan. When one
+fires: propose the new size in one line with the trigger; only after owner OK change `size` (add `gate` for M/L
+as in step 3) and run `## Apply`. Upgrades only add files; downgrades delete nothing.
+
 ## Apply
 
-1. `git status --short -- .mcp.json .claude/ .githooks/` — if those paths have uncommitted changes, stop
+1. `git status --short -- .mcp.json .claude/ .githooks/ .gitignore docs/` — if those paths have uncommitted changes, stop
    and ask the user first.
 2. Dry run, show the result:
    ```
@@ -46,6 +72,8 @@ key, newer version, invalid value): print the reasons, change nothing.
 
 ```json
 { "version": 1,
+  "size": "S",
+  "hosting": "local",
   "methodology": "superpowers",
   "plugins": [{"id": "x@market", "marketplace": "owner/repo"}],
   "mcpServers": { "name": {"command": "...", "args": [], "type": "stdio"} },
@@ -54,6 +82,13 @@ key, newer version, invalid value): print the reasons, change nothing.
   "gate": {"tools": ["gitleaks", "ruff", "eslint", "pyright", "tsc"], "baseline": ".gate-baseline.json"} }
 ```
 
+- `size` -> the cumulative kit (XS rules only; S + git, runtime/ ignore, handoff/tests/plan rules; M + gate
+  required, docs/uat/README.md, docs/DEPLOY.md; L + CHANGELOG.md, docs/rollback.md, docs/definition-of-done.md)
+  and the kit block in `.claude/CLAUDE.md` between `<!-- bajzi:project-setup kit begin/end -->`.
+- `hosting: local` -> `.githooks/pre-push` refuses GitHub remotes (fails closed: a missing or unreadable profile
+  counts as local; it reads the COMMITTED profile at HEAD, so a hosting change takes effect only once the profile
+  is committed). A fresh folder gets `git init` and `core.hooksPath .githooks`; an existing repo with another
+  hooksPath or a foreign pre-push is REFUSED.
 - `methodology` -> `.claude/METHODOLOGY` (`superpowers`, `gsd` or `none`).
 - `plugins` -> `claude plugin marketplace add <marketplace>` when missing, then
   `claude plugin install <id> --scope project`.

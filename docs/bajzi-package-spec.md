@@ -1355,6 +1355,15 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
   at `.githooks/pre-push` (mode 755, index 100755 when tracked; `prepush-mode` = a tracked 100644
   entry), never removed later since the hook reads `hosting` at push time. **Additive**: a bigger
   `size` only adds; a smaller one never deletes or overwrites a file.
+- **Start assessment and size upgrade** (SKILL.md, functional): when the profile is missing or has no
+  `size` or no `hosting`, `/bajzi:project-setup` runs `git init` if needed, then ONE round of five
+  questions (general repo -> XS; deployed/shared/personal data or money -> at least M; production
+  users with a release cycle -> L; more than one developer, service or repo -> L; may the code go to
+  GitHub -> hosting). Size = the highest size any answer gives, none = S; hosting is independent of
+  size. The skill writes `size`, `hosting` (and `gate` for M/L) into the profile, shows the diff and
+  continues with Apply. An external app may write the keys itself and run `profile.js` without the
+  skill. A size upgrade is proposed (trigger named) and written only after owner OK; these two
+  are the only cases where the skill edits the profile.
 - **Tests**: `bajzi/skills/project-setup/tests/profile.test.js` (validation, plan, apply,
   preflight refusal, plugin runner, drift, CLI exit codes, the `gate` key and install/refusals,
   `size`/`hosting`: fresh-folder git init, S to M upgrade keeping owner files, foreign pre-push,

@@ -8,7 +8,7 @@ A token-efficient working method for Claude Code and Cowork.
 |---|---|---|
 | `/bajzi:setup` | full machine setup per `skills/setup/manifest.json`: plugins, settings, rtk, status line, user-scope MCPs | on a new machine |
 | `/bajzi:setup --check` | one `DRIFT` line per difference between this machine and the manifest; changes nothing | any time |
-| `/bajzi:project-setup` | applies the repo's `.claude/project-profile.json` (`--check` diffs it) | once per repo that has a profile |
+| `/bajzi:project-setup` | applies the repo's `.claude/project-profile.json` (`--check` diffs it); with no `size`/`hosting` it first asks five start questions. Sizes XS/S/M/L (additive kit; upgrade = change `size` + rerun), hosting local/github. Hosting local installs a pre-push guard that refuses GitHub remotes; limits: `git push --no-verify` bypasses it, and a fresh clone runs no hook until `git config core.hooksPath .githooks` (rerun /bajzi:project-setup) | once per repo |
 | `/bajzi:handoff` | `runtime/handoff/<slug>.md`, where `/bajzi:handoff` derives `<slug>` from the current branch (`handoff-load.sh` resolves the same name), plus a pasteable opening prompt | before `/clear`, at 40% context |
 | `/bajzi:modszertan` | GSD vs superpowers vs none → `.claude/METHODOLOGY` | once per repo |
 | `/bajzi:autopilot` | unsupervised work session with a decision log | when you leave the machine |

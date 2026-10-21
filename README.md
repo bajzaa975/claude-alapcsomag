@@ -165,6 +165,8 @@ Check the install with `claude plugin list`.
 - **Writer guard** — bajzi plugin files are edited only by a session started in the bajzi repo's
   main checkout; other sessions are denied Edit/Write and send a request instead. Installed plugin
   copies are denied to every session. Bash/PowerShell writes are not blocked.
+- **Pre-push guard** (hosting `local`) — refuses pushes to GitHub remotes. Limits: `git push --no-verify`
+  bypasses it, and a fresh clone runs no hook until `git config core.hooksPath .githooks` (rerun /bajzi:project-setup).
 - Hooks fail open: an internal error allows the call and logs it. Two exceptions fail closed: the
   pre-commit gate and `day-run-mode.sh` when a non-Anthropic session
   lacks the L3 text. Separately, on Claude Code 2.1.295+ the `pre-tool.js` guard hook (secret,
@@ -199,7 +201,7 @@ Check the install with `claude plugin list`.
 | `mode` | `/bajzi:mode` | Switches between day-run (autonomous, model-routed) and normal mode, or reports which is active. |
 | `modszertan` | `/bajzi:modszertan` | Selects or changes the repo's leading methodology (GSD, superpowers or neither). |
 | `night-run` | `/bajzi:night-run` | Plans an unattended multi-hour overnight run: preflight, queue, brief, approval gate, launch. |
-| `project-setup` | `/bajzi:project-setup [--check]` | Applies or checks the repo's `.claude/project-profile.json`: project plugins, MCPs, methodology, instruction files, pre-commit gate. |
+| `project-setup` | `/bajzi:project-setup [--check]` | Applies or checks the repo's `.claude/project-profile.json`: project plugins, MCPs, methodology, instruction files, pre-commit gate. A start assessment (five questions) sets project size XS/S/M/L (additive kit; upgrade = change size + rerun) and hosting local/github. |
 | `radar` | `/bajzi:radar [now\|install]` | Biweekly read-only review of your Claude setup (plugins, Claude news, methodology, usage); adopt or decline its items. |
 | `respec-cards` | `/bajzi:respec-cards` | Specifies or re-specifies a system as owner-approved cards, interviewing question by question. |
 | `review` | `/bajzi:review <slice> <range>` | Reviews a slice's commit range through the reviewer agent and applies the close policy and debt cap on round 2. |
