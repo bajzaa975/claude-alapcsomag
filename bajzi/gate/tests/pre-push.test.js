@@ -92,7 +92,7 @@ test('one GitHub url among several refuses', () => {
 
 test('hosting label: "local", missing, invalid', () => {
   const url = 'https://github.com/o/r';
-  assert.ok(run(url, 'local').line.includes('hosting is "local" - set "hosting": "github" to allow it'));
+  assert.ok(run(url, 'local').line.includes('hosting is "local" - set "hosting": "github" and commit it to allow the push'));
   assert.ok(decide({ hosting: undefined, urls: [url], resolveSsh: RES }).line.includes('hosting is missing'));
   assert.ok(run(url, null).line.includes('hosting is invalid'));
   assert.ok(run(url, 5).line.includes('hosting is invalid'));
@@ -186,6 +186,7 @@ test('the committed profile decides, not a working-tree edit', () => {
   const x = hook(r, ['origin', url]);
   assert.strictEqual(x.code, 1, x.out);
   assert.ok(x.out.includes(ghLine(url, 'github.com')) && x.out.includes('hosting is "local"'), x.out);
+  assert.ok(x.out.includes('the committed (HEAD) .claude/project-profile.json') && x.out.includes('and commit it'), x.out);
 });
 
 test('ssh aliases are resolved by running ssh -G (fake ssh on PATH)', { skip: NEED_SH }, () => {

@@ -23,6 +23,10 @@ test('sizeBlock XS: XS rules, hosting line, only the XS -> S trigger', () => {
   assert.match(b, /- When one fires: propose the upgrade/);
 });
 
+test('sizeBlock S and XS: the upgrade line says to add "gate" for M/L, as SKILL.md Size upgrade does', () => {
+  for (const s of ['XS', 'S']) assert.match(K.sizeBlock(s, 'local'), /- When one fires: [^\n]*for M\/L also add "gate"/, s);
+});
+
 test('sizeBlock S: XS + S rules, -> M and -> L triggers; github hosting line', () => {
   const b = K.sizeBlock('S', 'github');
   assert.match(b, /## Project size: S   \(hosting: github\)/);

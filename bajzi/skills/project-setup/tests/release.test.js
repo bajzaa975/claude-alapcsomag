@@ -38,6 +38,20 @@ test('bajzi README names the pre-push guard and both limits', () => {
   assert.match(r, /core\.hooksPath/);
 });
 
+test('both READMEs give the git config command as the fresh-clone step, not a project-setup rerun', () => {
+  for (const r of [read(path.join(ROOT, 'README.md')), read(path.join(BAJZI, 'README.md'))]) {
+    const s = r.replace(/\s+/g, ' ');
+    assert.match(s, /fresh clone runs no hook until you run `git config core\.hooksPath \.githooks`/);
+    assert.doesNotMatch(s, /core\.hooksPath \.githooks` \(rerun \/bajzi:project-setup\)/);
+  }
+});
+
+test('project-setup SKILL: the start assessment never runs under --check', () => {
+  const s = read(path.join(BAJZI, 'skills', 'project-setup', 'SKILL.md'));
+  const sec = /## Start assessment\r?\n([\s\S]*?)\n## /.exec(s)[1];
+  assert.match(sec, /never under `--check`/);
+});
+
 test('every node hook command in hooks.json points at an existing file', () => {
   const h = JSON.parse(read(path.join(BAJZI, 'hooks', 'hooks.json'))).hooks;
   const cmds = Object.values(h).flat().flatMap(e => e.hooks.map(k => k.command)).filter(c => c.startsWith('node '));

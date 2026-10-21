@@ -34,7 +34,7 @@ source, installs it with a skill and reports drift with a read-only check.
 **What the package gives any user:**
 - A status line with the saver level, git state, context bar, rate-limit use and GLM share (§6.5).
 - Guards: context (§6.6), secret (§6.7), prompt-injection (§6.8), dispatch (§6.4), writer (§6.15)
-  and saver (§6.16) hooks, which fail open, and a pre-commit gate that fails closed (§6.13).
+  and saver (§6.16) hooks, which fail open, and a pre-commit gate and a pre-push guard that fail closed (§6.13, §6.13a).
 - Saver levels L0-L3 (§6.1) and the per-process shims that apply them (§6.2). There is no daemon
   and no global proxy: `cc-router.js` runs once per launch.
 - `/bajzi:setup` (machine state and drift check, §6.9, §8.2) and `/bajzi:project-setup` (per-repo
@@ -153,9 +153,10 @@ from PowerShell: always launch bash suites from **Git Bash itself**, not from th
    `pre-tool.js`/`post-tool.js` entries also fail open **per check**: `hook-io.js:runChecks` catches and logs
    each check's throw under the check's own name, and the other checks' denies/warnings still go out),
    `dispatch-guard.sh` (explicitly "a discipline guard, not a security boundary", header comment),
-   `day-run-mode.sh`, `routing-counter.sh`. Two things are the deliberate exception and fail
+   `day-run-mode.sh`, `routing-counter.sh`. Three things are the deliberate exception and fail
    **closed**: the bajzi pre-commit gate (`bajzi/gate/pre-commit.js`, a git hook, not a Claude
-   Code hook; Invariant 11) and `day-run-mode.sh`'s non-Anthropic-without-L3-text path (top-level block under the
+   Code hook; Invariant 11), the bajzi pre-push guard (`bajzi/gate/pre-push.js`, a git hook too: an
+   internal error or a host it cannot verify refuses the push, §6.13a) and `day-run-mode.sh`'s non-Anthropic-without-L3-text path (top-level block under the
    `# FAIL CLOSED:` comment, no function; warns instead of
    silently handing a GLM session the Opus-review table). Separately, Claude Code itself blocks
    the tool call when the `pre-tool.js` process cannot start, times out or
@@ -239,6 +240,7 @@ At install time, files move from the **versioned plugin cache**
 | `bajzi/hooks/*.sh`, `bajzi/hooks/node/*.js` (guards) | **not copied** — run straight from the plugin cache via `${CLAUDE_PLUGIN_ROOT}` in `hooks.json` | the plugin loader itself (§8.2) |
 | `bajzi/bin/launchers/` — `worker` / `glm` / `ccr` / `split` launcher scripts (+ `.cmd` twins on Windows) | `~/.local/bin/` (a different previous copy → `<name>.bak`) | `bash bajzi/bin/install.sh`, same run as `cc-router.js` (§8.1 step 4) |
 | `bajzi/gate/pre-commit.js` | `<repo>/.githooks/pre-commit`, per repo whose profile has `gate` | `/bajzi:project-setup` (`profile.js:apply`, §6.10, §6.13) |
+| `bajzi/gate/pre-push.js` | `<repo>/.githooks/pre-push`, per repo whose profile has `"hosting": "local"` | `/bajzi:project-setup` (`profile.js:apply`, §6.10, §6.13a) |
 | `bajzi/skills/radar/radar.js` `LAUNCHER` | `~/.claude/bajzi/radar/launch.js` (it resolves the current plugin install at each launch) | `radar.js install-task` (`/bajzi:radar install`, §8.5) |
 
 The settings.json `statusLine` command is pointed at the **copy** (`~/.claude/bajzi/statusline.js`),
@@ -2055,7 +2057,7 @@ root.
 | rtk config (`%APPDATA%\rtk\config.toml` on Windows, `$XDG_CONFIG_HOME` or `~/.config/rtk/config.toml` elsewhere) | `/bajzi:setup` PHASE D step 7 | `check.js` (`rtkConfigPath`, `rtkExcludes`), rtk | TOML, `[hooks] exclude_commands = [...]` | permanent |
 | `bajzi/skills/setup/manifest.json` (in the plugin) | hand-edited, same change as any plugin/skill/MCP add or removal (Invariant 5) | `/bajzi:setup`, `check.js` (`BAJZI_MANIFEST` overrides), `secret-guard.js` (`secret_patterns`) | JSON, keys listed in §6.9 | released with the plugin version |
 | `~/.claude/bajzi/config.json` (the reviewer allow-list; `BAJZI_HOME` overrides the home dir) | `/bajzi:setup` PHASE D step 11 from `manifest.json` `bajzi_config`; the user by hand (a reviewer swap) | `reviewer-models.js:load` (day-run-mode.sh, check.js, the night-run skill) | JSON `{"reviewer_models": ["claude-…", …]}`, ordered, [0] = launch default | permanent; session-writable (§9.2) |
-| `<repo>/.claude/project-profile.json` | committed by the repo's maintainers | `/bajzi:project-setup` (§6.10) | schema v1 | versioned with the repo |
+| `<repo>/.claude/project-profile.json` | committed by the repo's maintainers; the `/bajzi:project-setup` start assessment and size upgrade (the model, following `SKILL.md`) write `size`, `hosting` and `gate` | `/bajzi:project-setup` (§6.10); every installed `.githooks/pre-push` reads its committed (HEAD) copy at push time (§6.13a) | schema v1 | versioned with the repo |
 
 ### 7.4 Radar (`~/.claude/bajzi/radar/`, `BAJZI_RADAR_HOME` overrides)
 

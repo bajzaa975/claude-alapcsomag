@@ -166,10 +166,10 @@ Check the install with `claude plugin list`.
   main checkout; other sessions are denied Edit/Write and send a request instead. Installed plugin
   copies are denied to every session. Bash/PowerShell writes are not blocked.
 - **Pre-push guard** (hosting `local`) — refuses pushes to GitHub remotes. Limits: `git push --no-verify`
-  bypasses it, and a fresh clone runs no hook until `git config core.hooksPath .githooks` (rerun /bajzi:project-setup).
-- Hooks fail open: an internal error allows the call and logs it. Two exceptions fail closed: the
-  pre-commit gate and `day-run-mode.sh` when a non-Anthropic session
-  lacks the L3 text. Separately, on Claude Code 2.1.295+ the `pre-tool.js` guard hook (secret,
+  bypasses it, and a fresh clone runs no hook until you run `git config core.hooksPath .githooks` in it.
+- Hooks fail open: an internal error allows the call and logs it. Three exceptions fail closed: the
+  pre-commit gate, the pre-push guard (an internal error or a host it cannot verify refuses the push) and
+  `day-run-mode.sh` when a non-Anthropic session lacks the L3 text. Separately, on Claude Code 2.1.295+ the `pre-tool.js` guard hook (secret,
   writer, saver and context guards) is wired with `onFailure: block`: if it cannot start, times
   out or exits with a code other than 0 or 2, the tool call is blocked. The dispatch guard stays
   fail-open.

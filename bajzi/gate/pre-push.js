@@ -70,7 +70,7 @@ const cannot = (url, reason) => ({ ok: false, line: `${PREFIX}cannot verify the 
 // hosting: the profile's "hosting" value (undefined = missing, null = unreadable profile).
 function decide({ hosting, urls, resolveSsh = sshResolve, platform = process.platform }) {
   if (hosting === 'github') return { ok: true, line: '' };
-  const github = (url, host) => ({ ok: false, line: `${PREFIX}${url} is GitHub (${host}); .claude/project-profile.json hosting is ${hostingLabel(hosting)} - set "hosting": "github" to allow it` });
+  const github = (url, host) => ({ ok: false, line: `${PREFIX}${url} is GitHub (${host}); the committed (HEAD) .claude/project-profile.json hosting is ${hostingLabel(hosting)} - set "hosting": "github" and commit it to allow the push` });
   if (!urls.length) return cannot("''", 'no url');
   for (const url of urls) {
     if (!url) return cannot("''", 'empty url');
@@ -93,7 +93,7 @@ function readHosting(sh, root) {
   if (r.status !== 0) return undefined;
   const raw = r.stdout || '';
   let v;
-  try { v = JSON.parse(raw.replace(/^﻿/, '')); } catch { return null; }
+  try { v = JSON.parse(raw.replace(/^\uFEFF/, '')); } catch { return null; }
   return v && typeof v === 'object' && !Array.isArray(v) ? v.hosting : null;
 }
 

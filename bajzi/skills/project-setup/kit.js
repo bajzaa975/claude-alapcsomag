@@ -52,7 +52,7 @@ function sizeBlock(size, hosting) {
   const trig = TRIGGERS.filter(([to]) => rank(to) > rank(size) && (size !== 'XS' || to === 'S')).map(t => t[1]);
   if (trig.length) {
     lines.push('## Size triggers (check before writing every new plan)', ...trig,
-      '- When one fires: propose the upgrade to the owner; after OK set "size" in .claude/project-profile.json and run /bajzi:project-setup (it only adds).');
+      '- When one fires: propose the upgrade to the owner; after OK set "size" in .claude/project-profile.json (for M/L also add "gate", see /bajzi:project-setup Size upgrade) and run /bajzi:project-setup (it only adds).');
   }
   return [...lines, KIT_END].join('\n');
 }

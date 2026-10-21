@@ -25,7 +25,8 @@ key, newer version, invalid value): print the reasons, change nothing.
 
 ## Start assessment
 
-Run when `.claude/project-profile.json` is missing or has no `size` or no `hosting`.
+Run when `.claude/project-profile.json` is missing or has no `size` or no `hosting`, and never under `--check`
+(it changes nothing).
 
 1. Not a git work tree -> do NOT run `git init`; `## Apply` does it (with `core.hooksPath .githooks`).
 2. Ask ONE round, all five at once, each with a recommended answer from what the folder shows:

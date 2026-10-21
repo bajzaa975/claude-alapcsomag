@@ -158,10 +158,13 @@ test('the background-dispatch rule is carried by run.sh, SAVER-RULES.md and SAVE
 test('README fail-closed list names exactly the exceptions of spec Invariant 1', () => {
   const m = /(Two|Three|Four) exceptions fail closed: (.*?)\.(?: |$)/.exec(read('README.md').replace(/\s+/g, ' '));
   assert.ok(m, 'no fail-closed list');
-  assert.strictEqual(m[1], 'Two');
+  assert.strictEqual(m[1], 'Three');
   assert.match(m[2], /pre-commit gate/);
   assert.match(m[2], /day-run-mode\.sh/);
-  assert.doesNotMatch(m[2], /push guard/);
+  assert.match(m[2], /pre-push guard/);
+  const spec = read('docs/bajzi-package-spec.md').replace(/\s+/g, ' ');
+  assert.match(spec, /Three things are the deliberate exception and fail \*\*closed\*\*: the bajzi pre-commit gate[\s\S]{0,400}the bajzi pre-push guard/);
+  assert.match(spec, /a pre-commit gate and a pre-push guard that fail closed/);
 });
 
 test('a README that uses a worker/glm shim also names the shim install step', () => {
