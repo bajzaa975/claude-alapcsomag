@@ -109,7 +109,8 @@ const cmds = {
     for (const k of ['tier', 'files', 'acceptance', 'test']) if (!s[k]) die(2, `${p}: missing field: ${k}`);
     if (!['1', '2', '3'].includes(s.tier)) die(2, `${p}: tier must be 1, 2 or 3, got ${s.tier}`);
     checkFiles(p, s.files);
-    console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${/^none$/i.test(s.test) ? 'skip' : s.test}`);
+    console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${/^none$/i.test(s.test) ? 'skip' : s.test}
+acceptance: ${s.acceptance}`);
   },
 
   validate(file) {

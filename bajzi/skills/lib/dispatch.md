@@ -73,5 +73,8 @@ fixer copy: <the path `FC copy fixer` printed: runtime/findings/<slice>-r1.fixer
 files you may touch: <files: from the slice>
 test command: <test: from the slice; `skip` -> "none: this slice has no test, run none">
 <the .fixer.md file, verbatim>
+slice acceptance: <acceptance: from FC slice; omit this line for debt>
 Time matters here: do not spend time that can be avoided, and the earlier a correct result is obtained, the better.
 ```
+
+The `slice acceptance:` line is the slice text only (no severity); the debt drain leaves it out (`debt.fixer.md` has no slice). The guard allows exactly one distinct `*.fixer.md` in the prompt, so an acceptance text naming a `*.fixer.md` path would trip it (slices never should).

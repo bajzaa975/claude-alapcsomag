@@ -10,7 +10,7 @@ Every fix goes through `bajzi:fixer`; you never fix the findings yourself. `FC` 
 1. `FC copy fixer <findings-file>` — writes `<slice-id>-r1.fixer.md` (no severity, D4).
    Exit 3 = STOP: a round-2 file, or the slice already has its `-r2.md` (two rounds done); print
    the message, do nothing else. `CLEAN: nothing to fix` -> done.
-2. `FC slice "<slice-id>"` for `files:` and `test:`. Remember `base` = the left side of the r1
+2. `FC slice "<slice-id>"` for `files:`, `test:` and `acceptance:`. Remember `base` = the left side of the r1
    file's `range:` line (a full SHA).
 3. Dispatch per dispatch.md, class `fix`, brief = the fixer brief on the `.fixer.md` file. A guard
    deny -> print the reason and its rule id, STOP; except `saver-guard:` (dispatch.md step 3: run it on GLM; never fix the findings yourself). Save the final message to
