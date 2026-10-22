@@ -17,7 +17,7 @@ const MARKET = path.join(ROOT, '.claude-plugin', 'marketplace.json');
 const SKILLS = ['autopilot', 'explain', 'handoff', 'modszertan'];
 const EXCLUDE_DIRS = new Set(['tests']);
 const DESCRIPTION = 'claude.ai / Cowork-safe subset of bajzi: /bajzi-cowork:handoff session handover, ' +
-  '/bajzi-cowork:autopilot unattended mode, /bajzi-cowork:modszertan methodology selector. ' +
+  '/bajzi-cowork:autopilot unattended mode, /bajzi-cowork:modszertan methodology selector, /bajzi-cowork:explain plain re-explanation. ' +
   'Skills only - no bin/, hooks or agents. Built from bajzi/ by tools/build-cowork.js; do not edit by hand.';
 
 function listFiles(dir, base = dir) {
@@ -48,7 +48,7 @@ function expected() {
 function marketEntry(version) {
   return {
     name: 'bajzi-cowork', version, source: './bajzi-cowork',
-    description: 'claude.ai / Cowork-safe subset of bajzi (handoff, autopilot, modszertan skills only; no bin/, hooks or agents). Install this one in claude.ai / Cowork; use bajzi in Claude Code.',
+    description: 'claude.ai / Cowork-safe subset of bajzi (handoff, autopilot, modszertan, explain skills only; no bin/, hooks or agents). Install this one in claude.ai / Cowork; use bajzi in Claude Code.',
     category: 'productivity',
   };
 }

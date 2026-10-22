@@ -15,9 +15,10 @@ function main() {
   if (input.source !== 'compact') { try { fs.unlinkSync(f); } catch { /* none */ } return; }
   if (!fs.existsSync(f)) return;
   const md = fs.readFileSync(path.join(__dirname, '..', '..', 'skills', 'tired', 'SKILL.md'), 'utf8');
+  const lang = path.join(__dirname, '..', '..', 'skills', 'explain', 'lang.js');
   const m = /^## Rules[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(md);
   if (!m) return;
-  addContext('SessionStart', `Tired mode is ON for this session. Follow these rules:\n## Rules\n${m[1].trim()}`);
+  addContext('SessionStart', `Tired mode is ON for this session. Follow these rules:\n## Rules\n${m[1].trim().split('<skill dir>/../explain/lang.js').join(lang)}`);
 }
 
 if (require.main === module) runHook('tired', main);

@@ -12,7 +12,7 @@ const crypto = require('node:crypto');
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;                       // the same rule as lib/bridge.js
 const NAME = /^[A-Za-z0-9_-]{1,128}(?:\.[a-z]+)+$/;
 // What prune may delete: the three record files and a tmp file a killed writeJson left behind.
-const PRUNABLE = /^[A-Za-z0-9_-]{1,128}\.(?:event\.json|line\.json|artifacts\.jsonl)(?:\.\d+\.[0-9a-f]+\.tmp)?$/;
+const PRUNABLE = /^[A-Za-z0-9_-]{1,128}\.(?:tired|event\.json|line\.json|artifacts\.jsonl)(?:\.\d+\.[0-9a-f]+\.tmp)?$/;
 
 function statusDir(env = process.env) {
   return env.BAJZI_STATUS_DIR || path.join(env.BAJZI_HOME || os.homedir(), '.claude', 'bajzi', 'sessions');

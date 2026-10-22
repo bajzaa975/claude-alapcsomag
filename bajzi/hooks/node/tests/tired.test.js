@@ -37,3 +37,9 @@ test('fail-open: garbage, unsafe id, no stdin', () => {
     assert.deepEqual([r.code, r.stdout, r.stderr], [0, '', '']);
   }
 });
+test('compact context names an existing lang.js path', () => {
+  const { r } = go({ session_id: 's1', source: 'compact' });
+  const c = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+  const m = /node (\S*lang\.js) get/.exec(c);
+  assert.ok(m && !m[1].includes('<skill dir>') && fs.existsSync(m[1]), c);
+});

@@ -33,3 +33,8 @@ test('no shipped file names a /bajzi: command (the variant ships /bajzi-cowork:)
     }
   }
 });
+
+test('SKILLS whitelist has explain, not tired', () => {
+  assert.ok(SKILLS.includes('explain'));
+  assert.ok(!SKILLS.includes('tired'));
+});

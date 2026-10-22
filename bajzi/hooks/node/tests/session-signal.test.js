@@ -276,3 +276,9 @@ test('tired write failure stays fail-open', () => {
   const d = tmp(); fs.mkdirSync(path.join(d, 's1.tired'))
   assert.doesNotThrow(() => sig.handle({ session_id: 's1', hook_event_name: 'UserPromptSubmit', prompt: '/bajzi:tired' }, {}, 1, d))
 })
+test('prune removes a stale <id>.tired', () => {
+  const d = tmp(); const f = path.join(d, 'old.tired'); fs.writeFileSync(f, '')
+  const old = new Date(1759340000000 - 8 * 86400e3); fs.utimesSync(f, old, old)
+  sig.handle({ session_id: 's1', hook_event_name: 'SessionStart' }, {}, 1759340000000, d)
+  assert.ok(!fs.existsSync(f))
+})

@@ -1,5 +1,5 @@
 'use strict';
-// Session-signal hook: writes the status records of spec §6.5 (<id>.event.json, <id>.artifacts.jsonl)
+// Session-signal hook: writes the status records of spec §6.5 (<id>.event.json, <id>.artifacts.jsonl, and the tired-mode marker <id>.tired)
 // for an external orchestrator. hooks.json runs it on SessionStart, UserPromptSubmit,
 // Notification (4 types), Stop, StopFailure, SessionEnd; post-tool.js runs check() in-process on
 // every PostToolUse (Artifact append + the resume rule), so no extra process per tool call.
