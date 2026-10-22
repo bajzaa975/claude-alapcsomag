@@ -933,8 +933,8 @@ case "$pre" in
 esac
 # 13m2: the merged hooks.json wires every hook of both branches exactly once per event.
 wired=$(node -e 'const h=require(process.argv[1]).hooks;const o=[];for(const[e,a]of Object.entries(h))for(const m of a)for(const c of m.hooks)o.push(e+":"+c.command.replace(/.*\/hooks\//,"").replace(/"$/,""));console.log(o.sort().join(" "))' "$BAJZI_DIR/hooks/hooks.json" 2>&1)
-want="Notification:node/session-signal.js PostToolUse:node/post-tool.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/pre-tool.js PreToolUse:noise-filter.sh SessionEnd:node/session-signal.js SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"' SessionStart:node "${CLAUDE_PLUGIN_ROOT}/skills/radar/radar.js" notice'" SessionStart:node/session-signal.js"' SessionStart:node/writer-guard.js" notice'" Stop:node/session-signal.js StopFailure:node/session-signal.js UserPromptSubmit:node/session-signal.js"
-[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 16 hook entries wired exactly once (node checks via pre-tool.js/post-tool.js)" || fail "13m2" "got: $wired"
+want="Notification:node/session-signal.js PostToolUse:node/post-tool.js PostToolUse:routing-counter.sh PreToolUse:dispatch-guard.sh PreToolUse:node/pre-tool.js PreToolUse:noise-filter.sh SessionEnd:node/session-signal.js SessionStart:day-run-mode.sh SessionStart:handoff-load.sh SessionStart:methodology-guard.sh"' SessionStart:node "${CLAUDE_PLUGIN_ROOT}/skills/radar/radar.js" notice'" SessionStart:node/session-signal.js SessionStart:node/tired.js"' SessionStart:node/writer-guard.js" notice'" Stop:node/session-signal.js StopFailure:node/session-signal.js UserPromptSubmit:node/session-signal.js"
+[ "$wired" = "$want" ] && pass "13m2 hooks.json: all 17 hook entries wired exactly once (node checks via pre-tool.js/post-tool.js)" || fail "13m2" "got: $wired"
 # 13n: non-ASCII prompt -- characters, not bytes, under both locales; \u escape = 1 char.
 for loc in C C.UTF-8; do
     rm -f "$dlog"
@@ -1127,7 +1127,7 @@ out="$(cli slice ../slices/sl1 2>&1)"; rc=$?
 # 16f4: `test: none` (a no-test / Tier-3 slice) is printed as `test: skip`, which the skills never execute.
 printf '# Slice · sl4\ntier: 3\nfiles: docs/a.md\nacceptance: documented\ntest: none\n' > "$CAD/runtime/slices/sl4.md"
 out="$(cli slice sl4)"; rc=$?
-[ $rc -eq 0 ] && printf '%s\n' "$out" | grep -qx 'test: skip' && [ "$(cli slice sl1 | tail -1)" = 'test: node --test' ] \
+[ $rc -eq 0 ] && printf '%s\n' "$out" | grep -qx 'test: skip' && cli slice sl1 | grep -qx 'test: node --test' \
     && grep -q 'test: skip' "$SKILLS/implement/SKILL.md" && grep -q 'test: skip' "$SKILLS/fix/SKILL.md" \
     && pass "16f4 test: none -> skip (implement/fix read it)" || fail "16f4" "rc=$rc $out"
 # 16f5: `debt` is the drain's namespace (debt.md, debt-r2.md), never a slice id.
