@@ -969,7 +969,7 @@ replaces the home dir, as everywhere in bajzi), created on first write; a reader
 `^[A-Za-z0-9_-]{1,128}$` (`SAFE_ID`), otherwise nothing is written. Whole-file writes are
 tmp-file (`wx`, random name) + rename; the `.jsonl` files are plain appends of one line. Every
 record carries `"v": 1`; `ts` is Unix seconds. The SessionStart hook prunes record files (the
-three kinds below + stale tmp files, nothing else) whose mtime is older than 7 days.
+three kinds below, `<id>.tired` markers + stale tmp files, nothing else) whose mtime is older than 7 days.
 
 `<id>.line.json` — written by the status line when the content changed or 30 s passed since its last write:
 ```json
