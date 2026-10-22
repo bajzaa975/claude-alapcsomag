@@ -7,7 +7,7 @@ tools: Read, Edit, Grep, Glob, Bash
 ---
 # Input
 - A fixer copy of a findings file (`*.fixer.md`: ids, locations, `finding`, `test`; no
-  severities, by design), the slice id, the slice's files and the test command.
+  severities, by design), the slice id, the slice's files, the test command and, for a slice fix, the slice acceptance line.
 # Output
 1. Every finding fixed, or one line per finding not fixed, with exactly one of:
    `OUT_OF_SLICE` (pre-existing code outside the slice's files) or

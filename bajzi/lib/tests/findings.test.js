@@ -535,12 +535,13 @@ test('dispatch.md "The brief holds:" names every line prefix brief review emits'
   for (const [k, phrase] of Object.entries(names)) assert.ok(s.includes(phrase), `${k}: ${phrase}`);
 });
 
-test('FC slice: fifth acceptance line verbatim after the unchanged four; fixer template line + debt exception; copy fixer has no severity', () => {
+test('FC slice: fifth acceptance line verbatim after the unchanged four; fixer template line + debt exception', () => {
   const fs = require('fs'); const os = require('os'); const path = require('path');
   const { execFileSync } = require('child_process');
   const cli = path.join(__dirname, '..', 'findings-cli.js');
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'acc-'));
   fs.mkdirSync(path.join(d, 'runtime/slices'), { recursive: true });
+  try {
   const acc = 'tests first and seen RED; a major mutation check';
   fs.writeFileSync(path.join(d, 'runtime/slices/s1.md'), `# Slice · s1\ntier: 2\nfiles: a.js\nacceptance: ${acc}\ntest: node --test a\n`);
   const out = execFileSync('node', [cli, 'slice', 's1'], { cwd: d, encoding: 'utf8' }).trimEnd().split('\n');
@@ -549,5 +550,5 @@ test('FC slice: fifth acceptance line verbatim after the unchanged four; fixer t
   assert.match(disp, /<the \.fixer\.md file, verbatim>\nslice acceptance: <acceptance: from FC slice; omit this line for debt>\nTime matters/);
   assert.match(disp, /debt drain leaves it out/);
   assert.match(fs.readFileSync(path.join(__dirname, '..', '..', 'skills', 'fix', 'SKILL.md'), 'utf8'), /`files:`, `test:` and `acceptance:`/);
-  fs.rmSync(d, { recursive: true, force: true });
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
