@@ -90,6 +90,9 @@ A token-efficient working method for Claude Code and Cowork.
   `<id>.artifacts.jsonl`; the status line writes `<id>.line.json`. No output ever; fails open.
   Creating `~/.claude/bajzi/hook-samples.on` switches on `hook-samples.jsonl` next to it:
   redacted shape samples of every hook input (content strings become `<str N>`).
+  A typed `/bajzi:tired` or `/bajzi:tired off` prompt also writes or deletes `<id>.tired`.
+- **Tired mode** — `hooks/node/tired.js`, SessionStart. After a compaction, when `<id>.tired` exists,
+  re-adds the `/bajzi:tired` rules once; on startup, clear and resume it deletes the marker. Fails open.
 - Every node hook fails open on an internal error (it exits 0, i.e. allow), logged to `~/.claude/bajzi/hook-errors.log`
   (256 KB cap).
 - Tests (Git Bash on Windows, any shell on Linux), from the repo root:
