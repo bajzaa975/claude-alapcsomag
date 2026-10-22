@@ -14,7 +14,7 @@ const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'bajzi');
 const DST = path.join(ROOT, 'bajzi-cowork');
 const MARKET = path.join(ROOT, '.claude-plugin', 'marketplace.json');
-const SKILLS = ['autopilot', 'handoff', 'modszertan'];
+const SKILLS = ['autopilot', 'explain', 'handoff', 'modszertan'];
 const EXCLUDE_DIRS = new Set(['tests']);
 const DESCRIPTION = 'claude.ai / Cowork-safe subset of bajzi: /bajzi-cowork:handoff session handover, ' +
   '/bajzi-cowork:autopilot unattended mode, /bajzi-cowork:modszertan methodology selector. ' +

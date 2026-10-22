@@ -254,3 +254,25 @@ test('idle_prompt after StopFailure keeps problem and its error text', () => {
   sig.handle({ session_id: 's1', hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'waiting' }, {}, 2, d)
   assert.deepEqual([ev(d).state, ev(d).message], ['problem', 'API 529'])
 })
+
+test('tired command writes/deletes <id>.tired, case-insensitive, nothing else', () => {
+  const d = tmp(); const f = path.join(d, 's1.tired')
+  const p = prompt => sig.handle({ session_id: 's1', hook_event_name: 'UserPromptSubmit', prompt }, {}, 1, d)
+  p('  /BAJZI:Tired \n'); assert.ok(fs.existsSync(f))
+  p('/bajzi:tired off'); assert.ok(!fs.existsSync(f))
+  p('/bajzi:tired'); p('please /bajzi:tired off'); assert.ok(fs.existsSync(f))
+  p('/bajzi:tired   OFF'); assert.ok(!fs.existsSync(f))
+  p('/bajzi:tired now'); assert.ok(!fs.existsSync(f))
+})
+test('tired command with an unsafe id writes nothing; the hook prints nothing', () => {
+  const d = tmp()
+  sig.handle({ session_id: '../x', hook_event_name: 'UserPromptSubmit', prompt: '/bajzi:tired' }, {}, 1, d)
+  assert.deepEqual(fs.readdirSync(d), [])
+  const r = runScript(SCRIPT, JSON.stringify({ session_id: 's1', hook_event_name: 'UserPromptSubmit', prompt: '/bajzi:tired' }), { BAJZI_STATUS_DIR: d })
+  assert.deepEqual([r.code, r.stdout, r.stderr], [0, '', ''])
+  assert.ok(fs.existsSync(path.join(d, 's1.tired')))
+})
+test('tired write failure stays fail-open', () => {
+  const d = tmp(); fs.mkdirSync(path.join(d, 's1.tired'))
+  assert.doesNotThrow(() => sig.handle({ session_id: 's1', hook_event_name: 'UserPromptSubmit', prompt: '/bajzi:tired' }, {}, 1, d))
+})

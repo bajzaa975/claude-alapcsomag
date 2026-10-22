@@ -61,7 +61,17 @@ function handle(input, env, nowMs, dir) {
   const put = (st, msg) => { ss.writeJson(dir, file, record(input, e, nowMs, st, msg)); };
   switch (input.hook_event_name) {
     case 'SessionStart': ss.prune(dir, WEEK_MS, nowMs); put('appears', 'started'); return;
-    case 'UserPromptSubmit': put('working', cut(str(input.prompt), 120)); return;
+    case 'UserPromptSubmit': {
+      // Tired mode: the typed command only records state; tired.js re-injects after a compaction.
+      const t = /^\/bajzi:tired(\s+off)?$/i.exec(str(input.prompt).trim());
+      if (t) {
+        try {
+          if (t[1]) fs.rmSync(path.join(dir, `${id}.tired`), { force: true });
+          else { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, `${id}.tired`), ''); }
+        } catch { /* fail-open */ }
+      }
+      put('working', cut(str(input.prompt), 120)); return;
+    }
     case 'Notification':
       if (!NEEDS_YOU.has(input.notification_type)) return;
       // Idle rule: a finished turn going idle is not "needs you".

@@ -193,6 +193,7 @@ Check the install with `claude plugin list`.
 |---|---|---|
 | `autopilot` | `/bajzi:autopilot` | Autonomous work session: carries several tasks or a sprint through without questions, with a decision log and a closing report. |
 | `debt` | `/bajzi:debt --check\|--drain\|--calibrate` | Parked review debt (`runtime/findings/debt.md`): check the cap before a slice, drain it with one fixer pass plus one review, calibrate with a blind re-rate. |
+| `explain` | `/bajzi:explain ["<what I did not understand>"]`, `/bajzi:explain --set-language <code>` | Re-explains the last answer (or a named point) simply, in the language set in `config.json` (`language`); also in `bajzi-cowork`. |
 | `fix` | `/bajzi:fix <findings-file>` | Fixes a round-1 findings file through the fixer agent, runs the gate, commits, then runs the round-2 re-review. |
 | `grill-me` | `/bajzi:grill-me <plan, decision or idea>` | A relentless interview to sharpen a plan or design; runs `bajzi:grilling`. |
 | `grilling` | (model-invocable) | Numbered interview rounds that record each settled decision with a Proof line and mark the spec `Grilled:`. Adapted from mattpocock/skills (MIT). |
@@ -206,6 +207,7 @@ Check the install with `claude plugin list`.
 | `respec-cards` | `/bajzi:respec-cards` | Specifies or re-specifies a system as owner-approved cards, interviewing question by question. |
 | `review` | `/bajzi:review <slice> <range>` | Reviews a slice's commit range through the reviewer agent and applies the close policy and debt cap on round 2. |
 | `setup` | `/bajzi:setup [--check]` | Sets up a Claude Code machine to the manifest's desired state, or only checks it for drift. |
+| `tired` | `/bajzi:tired [off]` | Tired mode: replies in the configured language, plain and short, until `off`; survives automatic compaction only (SessionStart hook `tired.js`). |
 | `which` | `/bajzi:which <intent>` | Names the installed skill or slash command that fits what you want to do, with exact syntax and where it lives. |
 
 Skills also start from a plain request ("do a handoff").
