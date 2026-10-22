@@ -2,7 +2,7 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-## Unreleased
+## 1.27.0
 - Added: `/bajzi:explain` (re-explain simply in the configured language; `--set-language <code>`; also in bajzi-cowork) and `/bajzi:tired [off]` (tired mode; SessionStart hook `tired.js`, `.tired` marker written by `session-signal.js`)
 
 ## 1.26.0
