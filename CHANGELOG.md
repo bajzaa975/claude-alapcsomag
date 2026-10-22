@@ -2,7 +2,7 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-## Unreleased
+## 1.26.0
 - Changed: fix: the fixer brief carries the slice's acceptance line (`FC slice` prints it)
 
 ## 1.25.0
