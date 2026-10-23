@@ -70,6 +70,24 @@ const DENY = [
   'Get-Process node | % { Stop-Process $_ }',
   'Stop-Process -Id (Get-Process node).Id',
   'kill -ProcessName node',
+  // shell keywords ahead of the command
+  'if pgrep -x node >/dev/null; then pkill node; fi',
+  'for i in 1 2; do killall node; done',
+  'if true; then echo; else pkill node; fi',
+  'else pkill node',
+  '! pkill node',
+  'while true; do pkill node; done',
+  'if ! killall node; then echo; fi',
+  // a command substitution inside double quotes
+  'kill "$(pgrep node)"',
+  'kill -9 "$(pidof node)"',
+  'kill "`pidof node`"',
+  'echo "it\'s $(pkill node)"',
+  // a signal option's value is not a target
+  'kill -s KILL $(pgrep node)',
+  'kill -s TERM `pidof node`',
+  'kill -n 9 $(pgrep node)',
+  'kill --signal KILL $(pgrep node)',
   // nested shells
   'bash -c "pkill node"',
   'sh -c \'taskkill //F //IM node.exe\'',
@@ -102,6 +120,11 @@ const ALLOW = [
   'command -v pkill',
   'command -v killall',
   'node --test x.test.js',
+  "kill '$(pgrep node)'",
+  'kill "$(cat app.pid)"',
+  'kill -s KILL 123',
+  "echo '$(pkill node)'",
+  'git commit -m "$(cat <<\'EOF\'\nStop-Process -Name and pkill/killall are denied\nEOF\n)"',
   '',
 ];
 

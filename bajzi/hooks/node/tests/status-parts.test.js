@@ -18,14 +18,22 @@ test('git timeout: null and no cache written', () => {
   assert.ok(!fs.existsSync(cache));
 });
 
-test('git timeout: existing cache left byte-identical', () => {
+test('git timeout: expired cache keeps its last-known branch and stays byte-identical', () => {
   const d = mk();
   execFileSync('git', ['init', '-q', d]);
   const cache = parts.gitCachePath(d);
   const body = JSON.stringify({ ts: 1, info: { branch: 'x', dirty: false } });
   fs.writeFileSync(cache, body);
-  assert.strictEqual(parts.gitInfo(d, Date.now(), 1), null);
+  assert.deepStrictEqual(parts.gitInfo(d, Date.now(), 1), { branch: 'x', dirty: false });
   assert.strictEqual(fs.readFileSync(cache, 'utf8'), body);
+});
+
+test('git timeout: an invalid expired cache entry yields null', () => {
+  const d = mk();
+  execFileSync('git', ['init', '-q', d]);
+  const cache = parts.gitCachePath(d);
+  fs.writeFileSync(cache, JSON.stringify({ ts: 1, info: { branch: '[31m', dirty: false } }));
+  assert.strictEqual(parts.gitInfo(d, Date.now(), 1), null);
 });
 
 test('non-repo still caches null', () => {

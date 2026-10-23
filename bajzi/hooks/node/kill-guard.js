@@ -9,6 +9,8 @@ const { readInput, deny, runHook } = require('./lib/hook-io');
 let rules;
 function loadLibs() { rules = require('./lib/secret-rules'); }
 
+// Shell keywords that may precede a command word (`then pkill`, `do killall`, `! pkill`).
+const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!']);
 const PREFIXES = new Set(['sudo', 'command', 'env', 'time', 'nohup', 'exec', 'nice', 'timeout', 'xargs']);
 // Per prefix: the flags that take a separate value (sudo -n/-k/-s take none).
 const VALUE_FLAGS = {
@@ -20,6 +22,12 @@ const VALUE_FLAGS = {
 };
 // A word a pipeline feeds into: `$` (a split `$(...)`), `$_`, `$_.Id`, `$PSItem.Id`.
 const PIPE_VAR = /^\$(?:_|psitem)?(?:\.|$)/i;
+// A word holding a command substitution (a double-quoted one stays one word).
+const SUBST = /\$\(|`/;
+// `<<DELIM` line kept, its body through the closing DELIM line dropped.
+const HEREDOC = /(<<-?[ \t]*(['"]?)(\w+)\2[^\n]*)\n[\s\S]*?\n[ \t]*\3[ \t]*(?=\n|$)/g;
+// kill flags whose value is a signal, not a target.
+const SIGNAL_FLAGS = new Set(['-s', '-n', '--signal']);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const DURATION = /^\d+(?:\.\d+)?[smhd]?$/i;
 const PS_KILLERS = new Set(['stop-process', 'spps', 'kill']);
@@ -38,6 +46,36 @@ function param(w, full, min) {
   return !!m && m[1].length >= min && full.startsWith(m[1].toLowerCase());
 }
 
+// The bodies of `$(...)` and backtick substitutions outside single quotes: the splitter keeps a
+// double-quoted one inside one word, so its commands would never head a segment.
+function substitutions(cmd) {
+  const out = [];
+  let sq = false;
+  let dq = false;
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (ch === "'" && !dq) sq = !sq;
+    else if (ch === '"' && !sq) dq = !dq;
+    else if (sq) continue;
+    else if (ch === '$' && cmd[i + 1] === '(') {
+      let depth = 0;
+      let j = i + 1;
+      for (; j < cmd.length; j++) {
+        if (cmd[j] === '(') depth++;
+        else if (cmd[j] === ')' && --depth === 0) break;
+      }
+      // A heredoc body is data (a commit message), not commands. Nested ones are found as the scan goes on.
+      out.push(cmd.slice(i + 2, j).replace(HEREDOC, '$1'));
+    } else if (ch === '`') {
+      const j = cmd.indexOf('`', i + 1);
+      out.push(cmd.slice(i + 1, j < 0 ? cmd.length : j));
+      if (j < 0) break;
+      i = j;
+    }
+  }
+  return out;
+}
+
 // The command a segment runs, past sudo/env/nice/nohup/timeout/xargs (+ their flags), VAR=1,
 // PowerShell `$x =`, rtk proxy|err|test.
 function head(words) {
@@ -46,7 +84,7 @@ function head(words) {
   while (i < words.length) {
     const w = words[i];
     const n = name(w);
-    if (ASSIGNMENT.test(w)) { i++; continue; }
+    if (ASSIGNMENT.test(w) || KEYWORDS.has(n)) { i++; continue; }
     if (w.startsWith('$') && words[i + 1] === '=') { i += 2; continue; }
     if (n === 'rtk') { i++; if (/^(proxy|err|test)$/i.test(words[i] || '')) i++; continue; }
     if (!PREFIXES.has(n)) break;
@@ -68,7 +106,8 @@ function head(words) {
 function fedKill(c) {
   if (c.xargs) return c.name === 'kill';
   if (!PS_KILLERS.has(c.name)) return false;
-  return !c.args.some(a => !a.startsWith('-') && !PIPE_VAR.test(a));
+  return !c.args.some((a, k) => !a.startsWith('-') && !PIPE_VAR.test(a) && !SUBST.test(a) &&
+    !(c.name === 'kill' && SIGNAL_FLAGS.has(c.args[k - 1])));
 }
 
 function nestedInner(c) {
@@ -81,7 +120,7 @@ function nestedInner(c) {
 // A short label of the matched shape, or null.
 function killByName(cmd, depth = 0) {
   if (typeof cmd !== 'string' || !cmd.trim() || depth > MAX_DEPTH) return null;
-  const segs = rules.segments(cmd);
+  const segs = rules.segments(cmd).concat(...substitutions(cmd).map(rules.segments));
   const cs = segs.map(head).filter(Boolean);
   let source = false;
   let sink = false;

@@ -63,7 +63,7 @@ the findings; Tier 3 = the gate only, e.g. docs).
 | Which hooks fail closed (`"onFailure": "block"`) | `bajzi/hooks/hooks.json`: only the PreToolUse `.*` -> `pre-tool.js` entry (timeout 10); `dispatch-guard.sh` stays fail-open (timeout 5) | `node --test bajzi/hooks/node/tests/hooks-onfailure.test.js` (also pins the `pre-tool.js` exit codes); mode.sh 13m pins the dispatch-guard wiring | 1 | §5.3 "Fail-closed wiring". Every normal path of `pre-tool.js` must exit 0 (or 2), else every tool call blocks. Never add the key to a non-guard entry. |
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` (runs from `pre-tool.js`/`post-tool.js`) | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in §6.6: keep the doc in sync. |
 | What is allowed above 50% | `context-guard.js` `isHandoffPath`, `commandCheck`, `commandRule`, `mvRule`, `skillRule`, `exemptCheck` | same, tests `RF4:*`, `I1a/I1b/I1c:*`, `I-1: shell escapes...` | 1 | The `PLAIN_WORD` whitelist covers only `mkdir`/`mv`/`git mv` argument tokens. `isHandoffPath` itself is not anchored to the repo root — an accepted limit (§9.2). |
-| Status-line fields/order | `bajzi/hooks/node/statusline.js` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). `5h N%` / `7d N%` (`rate_limits.five_hour` / `.seven_day` `.used_percentage`, rounded) follow the context bar, plain text, omitted when absent or non-numeric. GLM share only rendered at level ≥ 1. |
+| Status-line fields/order | `bajzi/hooks/node/statusline.js` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js bajzi/hooks/node/tests/status-parts.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). `5h N%` / `7d N%` (`rate_limits.five_hour` / `.seven_day` `.used_percentage`, rounded) follow the context bar, plain text, omitted when absent or non-numeric. GLM share only rendered at level ≥ 1. |
 | Session status records for an external workbench (`<id>.event.json`, `<id>.line.json`, `<id>.artifacts.jsonl`, redacted hook samples; the contract is in §6.5) | `bajzi/hooks/node/session-signal.js` `handle` (the state table, idle rule, resume rule, Artifact append), `sample` (`hook-samples.on`), `check` (the `post-tool.js` `CHECKS` row, every tool); `bajzi/hooks/node/lib/session-status.js` `statusDir`/`writeJson`/`appendLine`/`prune`; `bajzi/hooks/node/statusline.js` `writeLine` (+ `render()`'s `opts.facts`); wired in `bajzi/hooks/hooks.json` (SessionStart, UserPromptSubmit, Notification, Stop, StopFailure, SessionEnd) | `node --test bajzi/hooks/node/tests/session-signal.test.js bajzi/hooks/node/tests/session-status.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/hooks/node/tests/tool-hooks.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (13m2) | 1 | Runs in every session: write-only, never stdout/stderr, exit 0 on anything, every entry `timeout: 5`. The contract is shared with external readers: renaming a field or adding a state changes both sides, and `"v"` moves on an incompatible change. Ids outside `SAFE_ID` write nothing; `prune` deletes only the three record kinds (+ stale tmp files), never a foreign file, so a wrong `BAJZI_STATUS_DIR` deletes nothing else. The status line writes its file only after stdout is out (a missing lib or failed write never blanks the line). Not the `bajzi-ctx-<id>.json` bridge: that one is untouched. |
 | Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js` `matchProtected` `commandReadsProtected`; `manifest.json` `secret_patterns` (runs from `pre-tool.js`) | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | Globs, brace lists, PowerShell comma arrays and `rtk` wrappers must all stay covered (§6.7). The pipe-into-reader rule must fire only when a downstream pipeline stage (any, not just the next) reads paths from stdin (§6.7). |
 | Kill guard (by-name process kills) | `bajzi/hooks/node/kill-guard.js` `decide` `check` `reasonFor` (reuses `segments` and `baseName` from `bajzi/hooks/node/lib/secret-rules.js`; runs from `pre-tool.js`) | `node --test bajzi/hooks/node/tests/kill-guard.test.js bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | Every deny shape must stay covered for both Bash and PowerShell; kills by PID and mere mentions must keep passing; matching is on the command word heading each segment, never on substrings of the whole command (§6.7a). No off switch: it runs for every session and sub-agent. |
@@ -923,7 +923,7 @@ shows both).
 (`statusline.js` `SEP = ' · '`). Fields, in order (`render()`):
 1. `model.display_name`, trimmed; omitted if blank.
 2. `L<level>` from `resolveLevel()` (`saver-level.js`) — always present.
-3. git branch + `*` if dirty (`status-parts.js` `gitInfo`, 5 s cache per cwd, 3 s git timeout that is never cached, §7.2) —
+3. git branch + `*` if dirty (`status-parts.js` `gitInfo`, 5 s cache per cwd, 3 s git timeout that is never cached and shows the expired entry's last-known branch, §7.2) —
    omitted outside a repo.
 4. the newest `runtime/handoff/*.md`'s `Task:` line, truncated to 20 chars with `…`
    (`handoffTask()`) — omitted if none.
@@ -1031,7 +1031,7 @@ missing); in `post-tool.js` its throw is logged and never changes the other chec
 
 **Timing budget**: p95 < 150 ms warm on Windows. The budget test is opt-in: it runs only with `BAJZI_PERF=1`, otherwise node:test reports it skipped ("latency budget: set BAJZI_PERF=1").
 
-**Tests**: `node --test bajzi/hooks/node/tests/statusline.test.js` (exact-line fixture assertions,
+**Tests**: `node --test bajzi/hooks/node/tests/statusline.test.js bajzi/hooks/node/tests/status-parts.test.js` (exact-line fixture assertions,
 ANSI-stripped; the `line file:` tests; a dedicated p95 timing test, opt-in via `BAJZI_PERF=1`);
 the status records: `session-signal.test.js`, `session-status.test.js`, and the `post-tool:` /
 session-signal tests in `tool-hooks.test.js`.
@@ -1188,13 +1188,17 @@ switch: every session and sub-agent.
 flags (per prefix, the ones taking a separate value skip it too: `sudo -u|-g|-C|-U|-p|-D|-r|-t|-T`,
 `env -u|-C`, `nice -n`, `timeout -s|-k`, `xargs -n|-P|-I|-L|-s|-d|-E|-a`, plus any number word
 after `xargs`), `VAR=1`, PowerShell `$x =` and `rtk proxy|err|test`. `command -v`/`-V` is a lookup,
-never a kill. The head word (basename, lowercased, `.exe` dropped) decides: `taskkill`
+never a kill. Shell keywords (`if`, `then`, `else`, `elif`, `do`, `while`, `until`, `!`) are skipped too. The head word (basename, lowercased, `.exe` dropped) decides: `taskkill`
 with `/IM` or `/FI` (prefix `/`, `//` or `-`, any case); `pkill`, `killall`; `Stop-Process`/`spps`
 with `-Name` or `-ProcessName` (any unambiguous prefix); `kill -Name`/`-ProcessName` not followed by a number
 (Bash `kill -n 9 <pid>` passes); `wmic` with `process` and `delete`/`terminate`. Order-free pairs
-(the splitter drops the pipe flag, and `$(...)` splits before its contents): a source
+(the splitter drops the pipe flag, and `$(...)` splits before its contents; the bodies of `$(...)`
+and backtick substitutions outside single quotes, heredoc bodies dropped, are split and checked as
+extra segments, since a
+double-quoted one stays inside one word): a source
 (`Get-Process`/`gps`/`ps` without `-Id`, `pgrep`, `pidof`) plus a sink (`Stop-Process`/`spps`/`kill`
-whose every non-flag word is a pipe variable (`$`, `$_`, `$_.Id`, `$PSItem...`) or absent, so
+whose every non-flag word is a pipe variable (`$`, `$_`, `$_.Id`, `$PSItem...`), a word holding a
+substitution, the value of a `kill -s|-n|--signal`, or absent, so
 `Stop-Process -Id $_.Id` and `Stop-Process -Id (Get-Process node).Id` count, `xargs kill`, a head
 word ending in `.Kill`);
 a `Win32_Process` WMI/CIM segment plus `Invoke-CimMethod ... Terminate` or `.Terminate`. A nested
