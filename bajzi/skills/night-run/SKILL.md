@@ -1415,6 +1415,8 @@ so to keep the supervisor off for a whole night set `SUPERVISE=0` before the lau
 say now:** `bash "${CLAUDE_PLUGIN_ROOT%/}/skills/night-run/supervise.sh" --check --config ~/night-runs/<project>/config.env` prints
 `TRIP <reasons>` or `HEALTHY` and changes nothing.
 
+**Watching the launched run from your session:** never use `/goal` for an overnight watch: it keeps the session busy, and CronCreate checks fire only while the session is idle. Schedule the checks with CronCreate, and put the follow-up work in the cron check prompt itself: what to check and what to do on each outcome.
+
 ## PHASE F — Morning follow-through (`report` mode)
 
 Read `~/night-runs/<project>/REPORT-<date>.md` and this run's
