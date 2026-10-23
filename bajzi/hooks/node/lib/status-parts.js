@@ -91,11 +91,8 @@ function gitInfo(cwd, nowMs = Date.now(), timeoutMs = GIT_TIMEOUT_MS) {
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: timeoutMs, windowsHide: true });
     info = parseGitStatus(out);
   } catch (e) {
-    // A timeout is transient: do not cache it, so the next render retries git; until then show the
-    // last-known branch from the expired cache entry.
-    if (e && (e.killed || e.code === 'ETIMEDOUT' || e.signal)) {
-      return c && typeof c === 'object' && 'info' in c && validGitInfo(c.info) ? c.info : null;
-    }
+    // A timeout is transient: do not cache it, so the next render retries git.
+    if (e && (e.killed || e.code === 'ETIMEDOUT' || e.signal)) return null;
     info = null;
   }
   writeJsonAtomic(cache, { ts: nowMs, info });

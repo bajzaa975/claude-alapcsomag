@@ -52,9 +52,12 @@ function substitutions(cmd) {
   const out = [];
   let sq = false;
   let dq = false;
+  // A quoted-delimiter heredoc body is literal text: its `$(` and backticks never run.
+  cmd = cmd.replace(HEREDOC, (m, line, q) => (q ? line : m));
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
-    if (ch === "'" && !dq) sq = !sq;
+    if (ch === '\\' && !sq) i++;   // an escaped `, $ or quote is literal
+    else if (ch === "'" && !dq) sq = !sq;
     else if (ch === '"' && !sq) dq = !dq;
     else if (sq) continue;
     else if (ch === '$' && cmd[i + 1] === '(') {

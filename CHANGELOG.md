@@ -5,7 +5,7 @@ Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](doc
 ## Unreleased
 - Changed: night-run SKILL.md: never use `/goal` for an overnight watch (it keeps the session busy so CronCreate checks never fire); the cron check prompt carries the follow-up work
 - Added: kill guard (PreToolUse on Bash and PowerShell, every session and sub-agent): denies by-name process kills (`taskkill /IM`, `pkill`, `killall`, `Stop-Process -Name`, ...); kills by PID pass
-- Fixed: status line git timeout raised to 3 s and a timed-out `git status` is no longer cached, so the branch segment no longer vanishes under load (a timeout shows the last-known branch)
+- Fixed: status line git timeout raised to 3 s and a timed-out `git status` is no longer cached, so the next render retries git
 
 ## 1.27.0
 - Added: `/bajzi:explain` (re-explain simply in the configured language; `--set-language <code>`; also in bajzi-cowork) and `/bajzi:tired [off]` (tired mode; SessionStart hook `tired.js`, `.tired` marker written by `session-signal.js`)

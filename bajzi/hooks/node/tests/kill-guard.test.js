@@ -125,6 +125,8 @@ const ALLOW = [
   'kill -s KILL 123',
   "echo '$(pkill node)'",
   'git commit -m "$(cat <<\'EOF\'\nStop-Process -Name and pkill/killall are denied\nEOF\n)"',
+  'git commit -m "$(cat <<\'EOF\'\nAdded: denies `pkill` and `taskkill /IM`\nEOF\n)"',
+  'git commit -m "deny \\`pkill node\\`"',
   '',
 ];
 
