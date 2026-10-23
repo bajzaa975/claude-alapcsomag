@@ -179,3 +179,25 @@ test('only tick-written FIXED / FIXING lines count, never tier 0 echoes (peer co
 test('permission-rule additions belong to the 30-minute supervisor, not the triage tick', () => {
   has(TEXT, 'Permission-rule (allowlist) additions are handled by the 30-minute supervisor (supervise.sh), not by the triage tick: log the denial and leave settings alone.');
 });
+
+test('SKILL.md ALLOWLIST block: four bullets, orphan patch (no stash), no command hits a settings deny', () => {
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'SKILL.md'), 'utf8');
+  const at = skill.indexOf('`{{ALLOWLIST}}` = the four lines below verbatim');
+  assert.ok(at >= 0, 'ALLOWLIST definition present');
+  const open = skill.indexOf('```\n', at);
+  const close = skill.indexOf('```', open + 4);
+  const block = skill.slice(open + 4, close);
+  const bullets = block.split(/^\s*- /m).slice(1).map(flat);
+  assert.strictEqual(bullets.length, 4, 'exactly four bullets');
+  const always = bullets.find((b) => b.startsWith('always:'));
+  assert.ok(always, 'always bullet present');
+  for (const p of ['runtime/handoff/night-watch-orphan-', 'git diff HEAD --binary', 'git apply --check -R', 'git restore'])
+    has(always, p);
+  assert.ok(!/git stash|stash push/.test(always), 'no stash instruction');
+  const tmpl = fs.readFileSync(path.join(__dirname, '..', 'templates', 'settings.local.json.tmpl'), 'utf8');
+  const denies = [...tmpl.slice(tmpl.indexOf('"deny"')).matchAll(/"Bash\((.*?)\)"/g)].map((m) => m[1]);
+  const re = (g) => new RegExp('^' + g.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
+  const cmds = ['git diff HEAD --binary --output=runtime/handoff/x.patch', 'git apply --check -R runtime/handoff/x.patch',
+    'git restore --source=HEAD --staged --worktree -- :/', 'git apply --index runtime/handoff/x.patch', 'mkdir -p runtime/handoff'];
+  for (const c of cmds) for (const d of denies) assert.ok(!re(d).test(c), `${c} hits deny ${d}`);
+});
