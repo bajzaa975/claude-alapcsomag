@@ -2,7 +2,7 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-## Unreleased
+## 1.29.0
 - Added: autopilot `decision-log.js` helper: prints the decision-log path, `runtime/handoff/autopilot-decisions.md` while `runtime/nightrun/.lock` exists and `BAJZI_NIGHT_RUN` is not exactly `1`, else `runtime/DECISIONS.md`; external night runners export `BAJZI_NIGHT_RUN=1` to their own sessions
 
 ## 1.28.0
