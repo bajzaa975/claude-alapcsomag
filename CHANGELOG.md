@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## Unreleased
+- Fixed: status line git timeout raised to 3 s and a timed-out `git status` is no longer cached, so the branch segment no longer vanishes under load
+
 ## 1.27.0
 - Added: `/bajzi:explain` (re-explain simply in the configured language; `--set-language <code>`; also in bajzi-cowork) and `/bajzi:tired [off]` (tired mode; SessionStart hook `tired.js`, `.tired` marker written by `session-signal.js`)
 

@@ -921,7 +921,7 @@ shows both).
 (`statusline.js` `SEP = ' · '`). Fields, in order (`render()`):
 1. `model.display_name`, trimmed; omitted if blank.
 2. `L<level>` from `resolveLevel()` (`saver-level.js`) — always present.
-3. git branch + `*` if dirty (`status-parts.js` `gitInfo`, 5 s cache per cwd, §7.2) —
+3. git branch + `*` if dirty (`status-parts.js` `gitInfo`, 5 s cache per cwd, 3 s git timeout that is never cached, §7.2) —
    omitted outside a repo.
 4. the newest `runtime/handoff/*.md`'s `Task:` line, truncated to 20 chars with `…`
    (`handoffTask()`) — omitted if none.

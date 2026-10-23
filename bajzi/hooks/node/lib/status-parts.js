@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const { execFileSync, execSync, spawn } = require('node:child_process');
 
 const GIT_TTL_MS = 5000;
+const GIT_TIMEOUT_MS = 3000;
 const GLM_TTL_MS = 5 * 60 * 1000;
 const GLM_LOCK_MS = 60 * 1000;
 const LOCK_FUTURE_MS = 5000;     // clock/mtime skew: a lock this far in the future still counts as held
@@ -77,7 +78,7 @@ function gitCachePath(cwd) {
   return path.join(os.tmpdir(), `bajzi-git-${key}.json`);
 }
 
-function gitInfo(cwd, nowMs = Date.now()) {
+function gitInfo(cwd, nowMs = Date.now(), timeoutMs = GIT_TIMEOUT_MS) {
   const cache = gitCachePath(cwd);
   const c = readJson(cache);
   // The cache lives in the shared tmpdir: anything that fails the schema is ignored and recomputed.
@@ -87,9 +88,11 @@ function gitInfo(cwd, nowMs = Date.now()) {
   try {
     // --no-optional-locks: a status line must never take index.lock from under a real git command.
     const out = execFileSync('git', ['--no-optional-locks', '-C', cwd, 'status', '--porcelain=v2', '--branch', '--untracked-files=no'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 1500, windowsHide: true });
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: timeoutMs, windowsHide: true });
     info = parseGitStatus(out);
-  } catch {
+  } catch (e) {
+    // A timeout is transient: do not cache it, so the next render retries git.
+    if (e && (e.killed || e.code === 'ETIMEDOUT' || e.signal)) return null;
     info = null;
   }
   writeJsonAtomic(cache, { ts: nowMs, info });
