@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## Unreleased
+- Changed: night-run triage tick saves orphaned tracked WIP to `runtime/handoff/night-watch-orphan-<stamp>.patch` (proven with `git apply --check -R`, then restored) instead of `git stash push`, which the night settings already denied; a stash is a ref change mid-run.
+
 ## 1.29.0
 - Added: autopilot `decision-log.js` helper: prints the decision-log path, `runtime/handoff/autopilot-decisions.md` while `runtime/nightrun/.lock` exists and `BAJZI_NIGHT_RUN` is not exactly `1`, else `runtime/DECISIONS.md`; external night runners export `BAJZI_NIGHT_RUN=1` to their own sessions
 

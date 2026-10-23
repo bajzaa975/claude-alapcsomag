@@ -715,8 +715,11 @@ Then write into `~/night-runs/<project>/`:
     the launch line minus finished stories, `claude -p --resume <id>` a session that exited cleanly without
     its RESULT line (one time, 10 min cap), kill a session older than 45 min that is provably stuck.
   - at L2/L3: read-only plus messaging; a guard-file edit would park the sprint.
-  - always: `git stash push -m "night-watch <HH:MM> orphaned wip"` when the tree has tracked changes and
-    no story session is running; never reset, checkout, push or touch main.
+  - always: when the tree has tracked changes and no story session is running, save them with `git diff
+    HEAD --binary --output=runtime/handoff/night-watch-orphan-<YYYYMMDD-HHMMSS>.patch`; restore the tree
+    (`git restore --source=HEAD --staged --worktree -- :/`) only after the patch is non-empty and `git apply
+    --check -R <patch>` passes; log the recover command `git apply --index <patch>`; if any step fails,
+    leave the tree as it is and ESCALATE; never stash, reset, checkout, push or touch main.
   - never: runner scripts, hooks, settings, `.git/**`, review-queue ledger, a session under 45 min.
   ```
 - `SUPERVISE-PROMPT.md`, rendered from `templates/SUPERVISE-PROMPT.md.tmpl` into
@@ -1364,7 +1367,7 @@ cap, decoded result in `triage.log` — every time `state.txt` gains a new termi
 brief with the new rows as `{{EVENT}}` and the log tails as `{{FACTS}}`; it classifies EXPECTED vs
 ANOMALY mechanically, root-causes an anomaly within a fixed budget (one transcript tail; a sub-agent on
 the reviewer model only when that is not enough), acts inside the allowlist you rendered into the brief
-(prompt-template edit at L0, relaunch, one `--resume`, orphan stash) and, for a BLOCKING failure with a
+(prompt-template edit at L0, relaunch, one `--resume`, orphan patch) and, for a BLOCKING failure with a
 proven environment/test-harness cause (duty 4, which needs an external runner's `aborted: baseline RED`
 line; `run.sh` never prints it), may make one `night-watch fix:` commit and end with
 `TICK FIXED fp=<fp> commit=<sha>`, the line an external runner's tier 0 relaunches on (bajzi's
