@@ -156,6 +156,16 @@ for (const cmd of [
   });
 }
 
+// Nested shells use their own escape rules, whatever the outer tool.
+test('Bash tool denies a backslash-literal nested pwsh kill', () => {
+  const cmd = `pwsh -Command 'Write-Output "C:\\logs\\$(Stop-Process -Name node)"'`;
+  assert.ok(check(input('Bash', cmd)), cmd);
+});
+test('PowerShell tool allows a nested bash where \\$ escapes the kill', () => {
+  const cmd = `bash -c 'echo "C:\\logs\\$(pkill node)"'`;
+  assert.strictEqual(check(input('PowerShell', cmd)), null, cmd);
+});
+
 test('other tools and malformed input are not checked', () => {
   assert.strictEqual(check(input('Read', 'pkill node')), null);
   assert.strictEqual(check(null), null);
