@@ -1185,14 +1185,18 @@ switch: every session and sub-agent.
 **Logic**: the command is split with `segments` from `lib/secret-rules.js` (quotes group; `;`, `&`,
 `|`, newline, parentheses, braces and backticks end a segment). A small local prefix walk skips
 `sudo`, `env`, `nice`, `nohup`, `time`, `timeout` (+ duration), `xargs`, `command`, `exec`, their
-flags (`-u`, `-g`, `-n`, `-s`, `-k` take a value), `VAR=1`, PowerShell `$x =` and
-`rtk proxy|err|test`. The head word (basename, lowercased, `.exe` dropped) decides: `taskkill`
+flags (per prefix, the ones taking a separate value skip it too: `sudo -u|-g|-C|-U|-p|-D|-r|-t|-T`,
+`env -u|-C`, `nice -n`, `timeout -s|-k`, `xargs -n|-P|-I|-L|-s|-d|-E|-a`, plus any number word
+after `xargs`), `VAR=1`, PowerShell `$x =` and `rtk proxy|err|test`. `command -v`/`-V` is a lookup,
+never a kill. The head word (basename, lowercased, `.exe` dropped) decides: `taskkill`
 with `/IM` or `/FI` (prefix `/`, `//` or `-`, any case); `pkill`, `killall`; `Stop-Process`/`spps`
-with `-Name` or `-ProcessName` (any unambiguous prefix); `kill -Name` not followed by a number
+with `-Name` or `-ProcessName` (any unambiguous prefix); `kill -Name`/`-ProcessName` not followed by a number
 (Bash `kill -n 9 <pid>` passes); `wmic` with `process` and `delete`/`terminate`. Order-free pairs
 (the splitter drops the pipe flag, and `$(...)` splits before its contents): a source
 (`Get-Process`/`gps`/`ps` without `-Id`, `pgrep`, `pidof`) plus a sink (`Stop-Process`/`spps`/`kill`
-naming no PID of its own or carrying a `$(` word, `xargs kill`, a head word ending in `.Kill`);
+whose every non-flag word is a pipe variable (`$`, `$_`, `$_.Id`, `$PSItem...`) or absent, so
+`Stop-Process -Id $_.Id` and `Stop-Process -Id (Get-Process node).Id` count, `xargs kill`, a head
+word ending in `.Kill`);
 a `Win32_Process` WMI/CIM segment plus `Invoke-CimMethod ... Terminate` or `.Terminate`. A nested
 `bash|sh|zsh -c`, `cmd /c|//c|/k` or `powershell|pwsh -Command|-c` has the words after the flag
 checked again (depth 4). Rule id `kill-guard`; the reason names the matched shape and says: stop

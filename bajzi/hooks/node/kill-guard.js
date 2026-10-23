@@ -10,7 +10,16 @@ let rules;
 function loadLibs() { rules = require('./lib/secret-rules'); }
 
 const PREFIXES = new Set(['sudo', 'command', 'env', 'time', 'nohup', 'exec', 'nice', 'timeout', 'xargs']);
-const VALUE_FLAGS = new Set(['-u', '-g', '-n', '-s', '-k', '-C', '-U']);   // sudo -u, nice -n, timeout -s|-k, env -u
+// Per prefix: the flags that take a separate value (sudo -n/-k/-s take none).
+const VALUE_FLAGS = {
+  sudo: new Set(['-u', '-g', '-C', '-U', '-p', '-D', '-r', '-t', '-T']),
+  env: new Set(['-u', '-C']),
+  nice: new Set(['-n']),
+  timeout: new Set(['-s', '-k']),
+  xargs: new Set(['-n', '-P', '-I', '-L', '-s', '-d', '-E', '-a']),
+};
+// A word a pipeline feeds into: `$` (a split `$(...)`), `$_`, `$_.Id`, `$PSItem.Id`.
+const PIPE_VAR = /^\$(?:_|psitem)?(?:\.|$)/i;
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const DURATION = /^\d+(?:\.\d+)?[smhd]?$/i;
 const PS_KILLERS = new Set(['stop-process', 'spps', 'kill']);
@@ -41,10 +50,13 @@ function head(words) {
     if (w.startsWith('$') && words[i + 1] === '=') { i += 2; continue; }
     if (n === 'rtk') { i++; if (/^(proxy|err|test)$/i.test(words[i] || '')) i++; continue; }
     if (!PREFIXES.has(n)) break;
+    if (n === 'command' && /^-[a-z]*v/i.test(words[i + 1] || '')) return null;   // command -v: a lookup
     if (n === 'xargs') xargs = true;
     i++;
-    while (i < words.length && (words[i].startsWith('-') || ASSIGNMENT.test(words[i]))) {
-      i += VALUE_FLAGS.has(words[i]) && !xargs ? 2 : 1;
+    const vf = VALUE_FLAGS[n];
+    while (i < words.length && (words[i].startsWith('-') || ASSIGNMENT.test(words[i]) ||
+      (n === 'xargs' && /^\d+$/.test(words[i])))) {
+      i += vf && vf.has(words[i]) ? 2 : 1;
     }
     if (n === 'timeout' && DURATION.test(words[i] || '')) i++;
   }
@@ -52,12 +64,11 @@ function head(words) {
 }
 
 // A kill/Stop-Process segment that names no PID of its own, i.e. takes its targets from a pipe
-// or a `$(...)`/backtick substitution.
+// (`$_`, `$_.Id`, an empty `-Id (...)`) or a `$(...)`/backtick substitution.
 function fedKill(c) {
   if (c.xargs) return c.name === 'kill';
   if (!PS_KILLERS.has(c.name)) return false;
-  if (c.args.some(a => param(a, 'id', 2))) return false;
-  return c.args.includes('$') || !c.args.some(a => !a.startsWith('-') && a !== '$');
+  return !c.args.some(a => !a.startsWith('-') && !PIPE_VAR.test(a));
 }
 
 function nestedInner(c) {
@@ -81,7 +92,7 @@ function killByName(cmd, depth = 0) {
     if (n === 'taskkill' && args.some(a => /^(\/\/?|-)(im|fi)(:|$)/i.test(a))) return 'taskkill by image name or filter';
     if (n === 'pkill' || n === 'killall') return n;
     if (n === 'kill') {
-      const k = args.findIndex(a => param(a, 'name', 1));
+      const k = args.findIndex(a => param(a, 'name', 1) || param(a, 'processname', 2));
       if (k >= 0 && !/^\d+$/.test(args[k + 1] || '')) return 'kill -Name';
     } else if (PS_KILLERS.has(n) && args.some(a => param(a, 'name', 1) || param(a, 'processname', 2))) {
       return 'Stop-Process -Name';
