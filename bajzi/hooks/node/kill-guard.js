@@ -47,8 +47,9 @@ function param(w, full, min) {
 }
 
 // The bodies of `$(...)` and backtick substitutions outside single quotes: the splitter keeps a
-// double-quoted one inside one word, so its commands would never head a segment.
-function substitutions(cmd) {
+// double-quoted one inside one word, so its commands would never head a segment. `ps`: a
+// backslash is literal (PowerShell, cmd); only a backtick right after one is read as an escape.
+function substitutions(cmd, ps) {
   const out = [];
   let sq = false;
   let dq = false;
@@ -56,10 +57,11 @@ function substitutions(cmd) {
   cmd = cmd.replace(HEREDOC, (m, line, q) => (q ? line : m));
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
-    if (ch === '\\' && !sq) i++;   // an escaped `, $ or quote is literal
+    if (ch === '\\' && !sq && !ps) i++;   // an escaped `, $ or quote is literal
     else if (ch === "'" && !dq) sq = !sq;
     else if (ch === '"' && !sq) dq = !dq;
     else if (sq) continue;
+    else if (ps && ch === '`' && cmd[i - 1] === '\\') i++;
     else if (ch === '$' && cmd[i + 1] === '(') {
       let depth = 0;
       let j = i + 1;
@@ -121,9 +123,9 @@ function nestedInner(c) {
 }
 
 // A short label of the matched shape, or null.
-function killByName(cmd, depth = 0) {
+function killByName(cmd, ps, depth = 0) {
   if (typeof cmd !== 'string' || !cmd.trim() || depth > MAX_DEPTH) return null;
-  const segs = rules.segments(cmd).concat(...substitutions(cmd).map(rules.segments));
+  const segs = rules.segments(cmd).concat(...substitutions(cmd, ps).map(rules.segments));
   const cs = segs.map(head).filter(Boolean);
   let source = false;
   let sink = false;
@@ -148,7 +150,7 @@ function killByName(cmd, depth = 0) {
     if (/^(invoke-cimmethod|icim|invoke-wmimethod)$/.test(n) && args.some(a => /^terminate$/i.test(a))) terminate = true;
     if (/\.terminate$/i.test(n)) terminate = true;
     const inner = nestedInner(c);
-    const hit = inner && killByName(inner, depth + 1);
+    const hit = inner && killByName(inner, !/^(bash|sh|zsh|dash)$/.test(n), depth + 1);
     if (hit) return hit;
   }
   if (source && sink) return 'a process list selected by name piped into a kill';
@@ -159,7 +161,7 @@ function killByName(cmd, depth = 0) {
 function decide(input) {
   if (!input || typeof input !== 'object' || !/^(?:Bash|PowerShell)$/.test(input.tool_name)) return null;
   const ti = input.tool_input && typeof input.tool_input === 'object' ? input.tool_input : null;
-  return ti ? killByName(ti.command) : null;
+  return ti ? killByName(ti.command, input.tool_name === 'PowerShell') : null;
 }
 
 function reasonFor(shape, tool) {

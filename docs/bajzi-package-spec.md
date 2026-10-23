@@ -1194,7 +1194,8 @@ with `-Name` or `-ProcessName` (any unambiguous prefix); `kill -Name`/`-ProcessN
 (Bash `kill -n 9 <pid>` passes); `wmic` with `process` and `delete`/`terminate`. Order-free pairs
 (the splitter drops the pipe flag, and `$(...)` splits before its contents; the bodies of `$(...)`
 and backtick substitutions outside single quotes, heredoc bodies dropped, are split and checked as
-extra segments, since a
+extra segments (a backslash escapes the next character under Bash only; under PowerShell and in a
+nested `powershell`/`pwsh`/`cmd` it is literal, and only a backtick right after it is an escape), since a
 double-quoted one stays inside one word): a source
 (`Get-Process`/`gps`/`ps` without `-Id`, `pgrep`, `pidof`) plus a sink (`Stop-Process`/`spps`/`kill`
 whose every non-flag word is a pipe variable (`$`, `$_`, `$_.Id`, `$PSItem...`), a word holding a

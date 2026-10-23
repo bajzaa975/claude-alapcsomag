@@ -146,6 +146,16 @@ for (const tool of ['Bash', 'PowerShell']) {
   }
 }
 
+// A backslash is literal in PowerShell (under Bash `\$` really escapes), so these deny there only.
+for (const cmd of [
+  'Write-Output "C:\\logs\\$(Stop-Process -Name node)"',
+  'Set-Location "C:\\work\\"; Write-Output "it\'s $(Stop-Process -Name node)"',
+]) {
+  test(`PowerShell denies: ${cmd}`, () => {
+    assert.ok(check(input('PowerShell', cmd)), cmd);
+  });
+}
+
 test('other tools and malformed input are not checked', () => {
   assert.strictEqual(check(input('Read', 'pkill node')), null);
   assert.strictEqual(check(null), null);
