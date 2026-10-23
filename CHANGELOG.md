@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## Unreleased
+- Added: autopilot `decision-log.js` helper: prints the decision-log path, `runtime/handoff/autopilot-decisions.md` while `runtime/nightrun/.lock` exists and `BAJZI_NIGHT_RUN` is not exactly `1`, else `runtime/DECISIONS.md`; external night runners export `BAJZI_NIGHT_RUN=1` to their own sessions
+
 ## 1.28.0
 - Changed: night-run SKILL.md: never use `/goal` for an overnight watch (it keeps the session busy so CronCreate checks never fire); the cron check prompt carries the follow-up work
 - Added: kill guard (PreToolUse on Bash and PowerShell, every session and sub-agent): denies by-name process kills (`taskkill /IM`, `pkill`, `killall`, `Stop-Process -Name`, ...); kills by PID pass

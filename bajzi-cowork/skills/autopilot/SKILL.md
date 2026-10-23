@@ -14,8 +14,13 @@ The user is not at the machine; from now on you work unsupervised. Rules:
 1. **Do NOT ask, do not wait for approval.** Decide every question that comes up yourself based on
    the project documentation, the code's conventions and common sense — picking the least risky
    option that is easiest to reverse later.
-2. **DECISION LOG:** record every substantive (non-trivial) decision IMMEDIATELY in
-   `runtime/DECISIONS.md`, in this form:
+2. **DECISION LOG:** at the start of the session run `node <this skill's dir>/decision-log.js` once (from the repo
+   root) and write every substantive (non-trivial) decision IMMEDIATELY to the path it printed
+   (`runtime/DECISIONS.md` normally), in this form. Why: while an external orchestrator's night run holds the
+   repo (`runtime/nightrun/.lock`), a session that is not the run's own (the run exports `BAJZI_NIGHT_RUN=1` to
+   its own sessions) must not dirty a tracked file. If the helper cannot run (no node): use
+   `runtime/DECISIONS.md` only if `runtime/nightrun/.lock` does not exist, else
+   `runtime/handoff/autopilot-decisions.md`.
 
    ```markdown
    ## [date time] <decision title>
@@ -30,10 +35,10 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    rewriting git history, permanently deleting a branch/file, handling secrets/credentials in any way,
    modifying CI config (.github/), DB migration on live data, MAJOR version bump of a dependency,
    changing the task's original goal/scope. If you run into one of these: record it in
-   DECISIONS.md marked **BLOCKED**, and continue with the next task. When an owner answer would
+   the decision log marked **BLOCKED**, and continue with the next task. When an owner answer would
    unpark it, the entry ends with one line `<n>. <question> -> recommended: <answer> (<why, <= 1 sentence>)`.
 4. **STUCK RULE:** at most 3 fix attempts per error; after that the item is **PARKED**
-   (state + what you tried into DECISIONS.md), and you move on. A parked item does not stop
+   (state + what you tried into the decision log), and you move on. A parked item does not stop
    the whole run.
 5. **CONTEXT DISCIPLINE:** per task/sprint, sub-agents do the heavy work; you update the
    branch handoff file (`runtime/handoff/<branch-slug>.md`, see the handoff skill) after every
@@ -41,7 +46,7 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    item — you close out the current one, write the closing report, and stop in a controlled way
    (listing the remaining items under "NOT STARTED").
 6. **CLOSING REPORT:** at the end of the run write `runtime/AUTOPILOT-REPORT.md`: completed items
-   (with test status), a summary of the decisions made on the user's behalf (referencing DECISIONS.md),
+   (with test status), a summary of the decisions made on the user's behalf (referencing the decision log path),
    PARKED and BLOCKED items, and a "LET'S REVIEW THIS TOGETHER" list in priority order, numbered in the same
    `<n>. <question> -> recommended: <answer> (<why>)` format, all in ONE round: the owner's `yes`
    accepts every recommendation, `yes except <n>: <answer>` overrides single rows.
