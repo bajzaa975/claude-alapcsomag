@@ -2,7 +2,7 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-## Unreleased
+## 1.29.1
 - Changed: night-run triage tick saves orphaned tracked WIP to `runtime/handoff/night-watch-orphan-<stamp>.patch` (proven with `git apply --check -R`, then restored; staged content the worktree no longer holds ESCALATEs untouched) instead of `git stash push`, which the night settings already denied; a stash is a ref change mid-run.
 
 ## 1.29.0
