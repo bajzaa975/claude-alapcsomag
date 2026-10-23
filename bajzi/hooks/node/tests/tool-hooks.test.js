@@ -273,3 +273,41 @@ test('post-tool: hook-samples.on makes the PostToolUse path append the redacted 
   const s = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'bajzi', 'hook-samples.jsonl'), 'utf8'));
   assert.deepStrictEqual([s.hook_event_name, s.tool_name, s.tool_response], ['PostToolUse', 'Bash', '<str 3>']);
 });
+
+test('pre-tool: a by-name kill is denied by kill-guard on Bash and PowerShell, byte-identical to kill-guard.js', () => {
+  for (const [tool, command] of [['Bash', 'taskkill //F //IM node.exe'], ['PowerShell', 'Stop-Process -Name node']]) {
+    const input = pre(tool, { command });
+    const r = run(PRE, input);
+    assert.strictEqual(r.code, 0);
+    assert.strictEqual(r.stderr, '');
+    assert.strictEqual(out(r).permissionDecision, 'deny');
+    assert.match(out(r).permissionDecisionReason, /^\[bajzi:kill-guard\] kill-guard: /);
+    assert.strictEqual(r.stdout, run(path.join(NODE_DIR, 'kill-guard.js'), input).stdout);
+  }
+  assert.strictEqual(run(PRE, pre('Bash', { command: 'taskkill /PID 123 /F /T' })).stdout, '');
+  assert.strictEqual(run(PRE, pre('Read', { file_path: 'pkill' })).stdout, '');
+});
+
+test('pre-tool: kill-guard runs after secret-guard, its deny joined with its [bajzi:kill-guard] prefix', () => {
+  const o = out(run(PRE, pre('Bash', { command: 'cat .env; pkill node' })));
+  assert.match(o.permissionDecisionReason, /^\[bajzi:env-file\] Bash would read a protected[^\n]*\n\[bajzi:kill-guard\] kill-guard: [^\n]*$/);
+  const c = out(run(PRE, pre('Bash', { command: 'pkill node' }), 55));
+  assert.match(c.permissionDecisionReason, /^\[bajzi:ctx-block-50\] [^\n]*\n\[bajzi:kill-guard\] kill-guard: [^\n]*$/);
+});
+
+test('pre-tool: kill-guard covers only Bash and PowerShell and fails open on a throw', () => {
+  for (const atLoad of [true, false]) {
+    const kg = path.join(brokenCopy('kill-guard', atLoad, ''), 'pre-tool.js');
+    assert.strictEqual(log(run(kg, pre('Read', { file_path: 'x' }))), '');
+    assert.strictEqual(log(run(kg, pre('Write', { file_path: 'x', content: 'pkill node' }))), '');
+    for (const tool of ['Bash', 'PowerShell']) {
+      const r = run(kg, pre(tool, { command: 'pkill node' }));
+      assert.strictEqual(r.code, 0);
+      assert.strictEqual(r.stderr, '');
+      assert.strictEqual(r.stdout, '');
+      assert.match(log(r), / kill-guard broken kill-guard\n$/);
+    }
+    // the other checks still deny
+    assert.match(out(run(kg, pre('Bash', { command: 'cat .env' }))).permissionDecisionReason, /^\[bajzi:env-file\] /);
+  }
+});

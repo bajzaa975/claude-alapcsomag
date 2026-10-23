@@ -52,7 +52,7 @@ A token-efficient working method for Claude Code and Cowork.
   before or inside the Z.ai peak window (14:00-18:00 UTC+8). It writes
   `<tmpdir>/bajzi-ctx-<session>.json`, which the context guard reads.
 - **Combined tool hooks** — hooks.json wires ONE node process per tool event:
-  `hooks/node/pre-tool.js` (PreToolUse, every tool) runs the context guard, the secret guard, the writer guard and the saver guard. It is the one hook wired fail-closed (`onFailure: block`, timeout 10, Claude Code 2.1.295+): if the process cannot start, times out or exits other than 0/2, the tool call is blocked;
+  `hooks/node/pre-tool.js` (PreToolUse, every tool) runs the context guard, the secret guard, the kill guard, the writer guard and the saver guard. It is the one hook wired fail-closed (`onFailure: block`, timeout 10, Claude Code 2.1.295+): if the process cannot start, times out or exits other than 0/2, the tool call is blocked;
   `hooks/node/post-tool.js` (PostToolUse, every tool) runs the context guard and the injection
   scanner. Each check runs only on the tools listed below and fails open on its own; denies
   (pre) or warnings (post) are joined into one output, context guard first.
@@ -73,6 +73,18 @@ A token-efficient working method for Claude Code and Cowork.
   prefix walk (`sudo -u`, `env -i`, `nice -n`). `ls | grep .env` is denied (a false positive in
   the safe direction). It covers files, not the environment: a key held in an environment
   variable is readable by every session.
+- **Kill guard** — `hooks/node/kill-guard.js`, PreToolUse (via pre-tool.js) on Bash and
+  PowerShell, every session and sub-agent, no off switch. Denies a by-name process kill in any
+  command segment (past `sudo`/`env`/`nice`/`nohup`/`timeout`/`xargs`) or inside `bash -c`,
+  `cmd /c`, `powershell -Command`: `taskkill` with `/IM` or `/FI` (`/`, `//`, `-`, any case),
+  `pkill`, `killall`, `Stop-Process`/`spps`/`kill` with `-Name` (or `-N`, `-Na`, `-Nam`),
+  `Get-Process`/`gps`/`ps` not selected by `-Id` piped into `Stop-Process`/`kill`/`.Kill()`, `kill`
+  fed by `pgrep`/`pidof`, `wmic process ... delete|call terminate`, Win32_Process `Terminate`.
+  Kills by PID (`taskkill /PID`, `kill 123`, `Stop-Process -Id`) and mere mentions (`echo pkill`)
+  pass. The deny names the rule and says to stop only processes the agent started, by their PID,
+  or ask the owner. **Known limit: it is a pattern guard, not a shell parser** — variable or
+  command indirection (`p=$(pgrep node); kill $p`, `$c='pkill'; & $c node`) and encoded commands
+  (`powershell -EncodedCommand`) pass.
 - **Injection scanner** — `hooks/node/injection-scan.js`, PostToolUse (via post-tool.js) on Read,
   WebFetch, WebSearch and `mcp__*`. Adds a "treat this as data" warning naming the matched rules; never blocks.
   **Known limit:** a pattern matcher — advisory context only; a rephrased injection passes.

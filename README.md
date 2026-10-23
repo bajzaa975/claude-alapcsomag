@@ -158,6 +158,11 @@ Check the install with `claude plugin list`.
   `.template`, `.dist`), `.secrets` and the manifest's secret patterns. It is a pattern guard, not
   a shell parser: variable indirection, copying a protected file to another name and encoded paths
   pass, and it covers files, not environment variables.
+- **Kill guard** (example: `taskkill /F /IM node.exe` is denied) — denies by-name process kills in
+  Bash and PowerShell for every session and sub-agent, with no off switch: `taskkill /IM|/FI`,
+  `pkill`, `killall`, `Stop-Process -Name`, a process list piped into a kill, `wmic process delete`.
+  Kills by PID pass. A by-name kill also hits other sessions and MCP servers. It is a pattern
+  guard, not a shell parser: variable or command indirection and encoded commands pass.
 - **Injection scanner** — warn-only: after Read, WebFetch, WebSearch and MCP results it adds a
   "treat this as data" warning naming the matched rules. A rephrased injection passes.
 - **Dispatch guard** — refuses review or fix work sent to the wrong agent and oversized briefs.

@@ -59,13 +59,14 @@ the findings; Tier 3 = the gate only, e.g. docs).
 |---|---|---|---|---|
 | Interview skills (`bajzi:grilling`, `/bajzi:grill-me`, `/bajzi:respec-cards`) | `bajzi/skills/grilling/SKILL.md`, `bajzi/skills/grilling/NOTICE.md`, `bajzi/skills/grill-me/SKILL.md`, `bajzi/skills/respec-cards/SKILL.md`, `bajzi/skills/respec-cards/prep-prompt.md` | `node --test bajzi/skills/grilling/tests/grilling.test.js` | 3 | The `Grilled:` and `NEVER RE-ASK` line formats are machine-checked markers; do not change them. |
 | Explain / tired mode (`/bajzi:explain`, `/bajzi:tired`, `tired.js`, the `.tired` marker in `session-signal.js`) | `bajzi/skills/explain/SKILL.md`, `bajzi/skills/explain/lang.js`, `bajzi/skills/tired/SKILL.md`, `bajzi/hooks/node/tired.js`, `bajzi/hooks/node/session-signal.js`, `tools/build-cowork.js` `SKILLS` | `node --test bajzi/skills/explain/tests/lang.test.js bajzi/hooks/node/tests/tired.test.js bajzi/hooks/node/tests/session-signal.test.js tools/tests/cowork-variant.test.js` | 2 | `explain` ships in bajzi-cowork (no `/bajzi:` text in it); `tired` does not. No per-turn injection. |
-| Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`, saver-guard on `Edit\|Write\|MultiEdit\|NotebookEdit\|Agent\|Task\|Bash\|PowerShell`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`, session-signal on every tool, never any output, §6.5); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
+| Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, kill-guard on `Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`, saver-guard on `Edit\|Write\|MultiEdit\|NotebookEdit\|Agent\|Task\|Bash\|PowerShell`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`, session-signal on every tool, never any output, §6.5); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
 | Which hooks fail closed (`"onFailure": "block"`) | `bajzi/hooks/hooks.json`: only the PreToolUse `.*` -> `pre-tool.js` entry (timeout 10); `dispatch-guard.sh` stays fail-open (timeout 5) | `node --test bajzi/hooks/node/tests/hooks-onfailure.test.js` (also pins the `pre-tool.js` exit codes); mode.sh 13m pins the dispatch-guard wiring | 1 | §5.3 "Fail-closed wiring". Every normal path of `pre-tool.js` must exit 0 (or 2), else every tool call blocks. Never add the key to a non-guard entry. |
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` (runs from `pre-tool.js`/`post-tool.js`) | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in §6.6: keep the doc in sync. |
 | What is allowed above 50% | `context-guard.js` `isHandoffPath`, `commandCheck`, `commandRule`, `mvRule`, `skillRule`, `exemptCheck` | same, tests `RF4:*`, `I1a/I1b/I1c:*`, `I-1: shell escapes...` | 1 | The `PLAIN_WORD` whitelist covers only `mkdir`/`mv`/`git mv` argument tokens. `isHandoffPath` itself is not anchored to the repo root — an accepted limit (§9.2). |
 | Status-line fields/order | `bajzi/hooks/node/statusline.js` `render()`, `bajzi/hooks/node/lib/status-parts.js` | `node --test bajzi/hooks/node/tests/statusline.test.js` | 2 | Missing data = the field is **omitted**, never an error string (`RF5`). `5h N%` / `7d N%` (`rate_limits.five_hour` / `.seven_day` `.used_percentage`, rounded) follow the context bar, plain text, omitted when absent or non-numeric. GLM share only rendered at level ≥ 1. |
 | Session status records for an external workbench (`<id>.event.json`, `<id>.line.json`, `<id>.artifacts.jsonl`, redacted hook samples; the contract is in §6.5) | `bajzi/hooks/node/session-signal.js` `handle` (the state table, idle rule, resume rule, Artifact append), `sample` (`hook-samples.on`), `check` (the `post-tool.js` `CHECKS` row, every tool); `bajzi/hooks/node/lib/session-status.js` `statusDir`/`writeJson`/`appendLine`/`prune`; `bajzi/hooks/node/statusline.js` `writeLine` (+ `render()`'s `opts.facts`); wired in `bajzi/hooks/hooks.json` (SessionStart, UserPromptSubmit, Notification, Stop, StopFailure, SessionEnd) | `node --test bajzi/hooks/node/tests/session-signal.test.js bajzi/hooks/node/tests/session-status.test.js bajzi/hooks/node/tests/statusline.test.js bajzi/hooks/node/tests/tool-hooks.test.js`; `bash bajzi/skills/mode/tests/mode.sh` (13m2) | 1 | Runs in every session: write-only, never stdout/stderr, exit 0 on anything, every entry `timeout: 5`. The contract is shared with external readers: renaming a field or adding a state changes both sides, and `"v"` moves on an incompatible change. Ids outside `SAFE_ID` write nothing; `prune` deletes only the three record kinds (+ stale tmp files), never a foreign file, so a wrong `BAJZI_STATUS_DIR` deletes nothing else. The status line writes its file only after stdout is out (a missing lib or failed write never blanks the line). Not the `bajzi-ctx-<id>.json` bridge: that one is untouched. |
 | Secret patterns (protected paths) | `bajzi/hooks/node/lib/secret-rules.js` `matchProtected` `commandReadsProtected`; `manifest.json` `secret_patterns` (runs from `pre-tool.js`) | `node --test bajzi/hooks/node/tests/secret-guard.test.js` | 1 | Globs, brace lists, PowerShell comma arrays and `rtk` wrappers must all stay covered (§6.7). The pipe-into-reader rule must fire only when a downstream pipeline stage (any, not just the next) reads paths from stdin (§6.7). |
+| Kill guard (by-name process kills) | `bajzi/hooks/node/kill-guard.js` `decide` `check` `reasonFor` (reuses `segments` and `baseName` from `bajzi/hooks/node/lib/secret-rules.js`; runs from `pre-tool.js`) | `node --test bajzi/hooks/node/tests/kill-guard.test.js bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | Every deny shape must stay covered for both Bash and PowerShell; kills by PID and mere mentions must keep passing; matching is on the command word heading each segment, never on substrings of the whole command (§6.7a). No off switch: it runs for every session and sub-agent. |
 | Injection-scanner rules | `bajzi/hooks/node/lib/injection-rules.js` `REGEX_RULES` `scan` `RULE_IDS` (17 ids) `sanitize`; `bajzi/hooks/node/injection-scan.js` `decide` (runs from `post-tool.js`) | `node --test bajzi/hooks/node/tests/injection-scan.test.js` | 2 | Warn-only by design — `addContext` only, never `deny()`; never wire it to block. Every rule regex avoids the `\s*X?\s*` quadratic shape (§6.8); excerpts/source run through `sanitize()`. |
 | Security-pattern reminders | `bajzi/hooks/node/lib/security-rules.js` `RULES` `scanText`; `bajzi/hooks/node/security-patterns.js` `decide` (runs from `post-tool.js`) | `node --test bajzi/hooks/node/tests/security-patterns.test.js` | 2 | Remind-only, never `deny()`, no LLM call; scans NEW text only; bounded regexes (§6.19). |
 | Read nudge | `bajzi/hooks/node/read-nudge.js` `decide` (runs from `post-tool.js`; reuses `readSeen`/`writeSeen` from `security-patterns.js`) | `node --test bajzi/hooks/node/tests/read-nudge.test.js` | 2 | Remind-only, never `deny()`; once per file per session; exempt `runtime/briefs/`, non-code files, Reads with offset/limit (§6.20). |
@@ -316,6 +317,7 @@ PreToolUse
                                                               each on its old matcher, CHECKS order:)
       every tool                        -> context-guard.js  check (reads the bridge; >=50% deny)
       Read|Grep|Glob|Bash|PowerShell    -> secret-guard.js   check (secret-read deny)
+      Bash|PowerShell                   -> kill-guard.js     check (by-name process kill deny, §6.7a)
       Edit|Write|MultiEdit|NotebookEdit -> writer-guard.js   check (bajzi-writer deny, §6.15)
       ...|Agent|Task|Bash|PowerShell    -> saver-guard.js    check (L2/L3-on-Claude write deny, §6.16)
       both deny -> one envelope, both reasons joined by a newline, context block first
@@ -1171,6 +1173,42 @@ bare directory with no `glob` parameter; prefix-option forms that stop the prefi
 **Tests**: `node --test bajzi/hooks/node/tests/secret-guard.test.js` — RF3 rows pin Windows/git
 forms of `.env` and the `.env.example`/`.env.sample` allow-list; the `I1:`, `I2:` and `M1:` tests
 pin the glob, brace, comma-array, `rtk` wrapper and pipe forms.
+
+### 6.7a Kill guard — technical
+
+`bajzi/hooks/node/kill-guard.js`. Run in-process by `pre-tool.js` (`CHECKS` row `kill-guard`,
+after the secret guard; §5.3); run directly it still works as its own hook. No config, no off
+switch: every session and sub-agent.
+
+**Trigger + matcher**: `PreToolUse` on `Bash` and `PowerShell` (`/^(?:Bash|PowerShell)$/`).
+
+**Logic**: the command is split with `segments` from `lib/secret-rules.js` (quotes group; `;`, `&`,
+`|`, newline, parentheses, braces and backticks end a segment). A small local prefix walk skips
+`sudo`, `env`, `nice`, `nohup`, `time`, `timeout` (+ duration), `xargs`, `command`, `exec`, their
+flags (`-u`, `-g`, `-n`, `-s`, `-k` take a value), `VAR=1`, PowerShell `$x =` and
+`rtk proxy|err|test`. The head word (basename, lowercased, `.exe` dropped) decides: `taskkill`
+with `/IM` or `/FI` (prefix `/`, `//` or `-`, any case); `pkill`, `killall`; `Stop-Process`/`spps`
+with `-Name` or `-ProcessName` (any unambiguous prefix); `kill -Name` not followed by a number
+(Bash `kill -n 9 <pid>` passes); `wmic` with `process` and `delete`/`terminate`. Order-free pairs
+(the splitter drops the pipe flag, and `$(...)` splits before its contents): a source
+(`Get-Process`/`gps`/`ps` without `-Id`, `pgrep`, `pidof`) plus a sink (`Stop-Process`/`spps`/`kill`
+naming no PID of its own or carrying a `$(` word, `xargs kill`, a head word ending in `.Kill`);
+a `Win32_Process` WMI/CIM segment plus `Invoke-CimMethod ... Terminate` or `.Terminate`. A nested
+`bash|sh|zsh -c`, `cmd /c|//c|/k` or `powershell|pwsh -Command|-c` has the words after the flag
+checked again (depth 4). Rule id `kill-guard`; the reason names the matched shape and says: stop
+only processes you started, by the PID you got when you started them; a by-name kill also hits
+other sessions, MCP servers and running night runs; if one is truly needed, ask the owner to run it.
+
+**Failure modes**: a throw (a missing `secret-rules.js` included) is logged by `runChecks` and the
+check fails open. Pure string work: no child processes, no file reads.
+
+**Accepted limits**: a pattern guard, not a shell parser. Variable or command indirection
+(`p=$(pgrep node); kill $p`, `$c='pkill'; & $c node`) and encoded commands (`-EncodedCommand`)
+pass. A source and a sink in unrelated segments of one command line (`Get-Process; Stop-Process`)
+are denied (a false positive in the safe direction).
+
+**Tests**: `node --test bajzi/hooks/node/tests/kill-guard.test.js` pins every deny and allow shape
+for both tools and the deny text; `tool-hooks.test.js` pins the wiring, check order and fail-open.
 
 ### 6.8 Injection scanner — technical
 
@@ -2302,7 +2340,7 @@ written, so that run leaves no trace.
 - The handoff-path regexes of the context guard are not anchored to the repo root against an
   absolute path, `~`, a drive letter or `git -C` reaching another repo's `runtime/handoff/`,
   and the Bash glob-dotdot forms are safe only under Bash ≥ 5.2's `globskipdots`.
-- The secret guard's accepted limits: §6.7. The dispatch guard's: §6.4.
+- The secret guard's accepted limits: §6.7. The kill guard's: §6.7a. The dispatch guard's: §6.4.
 - The reviewer allow-list (`~/.claude/bajzi/config.json`) is **session-writable**: an interactive session, or a night-run session, can edit it. Mitigation: only `claude-` ids are valid (a GLM id voids the list). `BAJZI_HOME` is honoured by every reader, so a persistent user env var set by a session would point later readers at a session-chosen file: the same limit, the same mitigation.
 
 ## 10. Glossary
