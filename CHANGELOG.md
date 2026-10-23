@@ -2,7 +2,7 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
-## Unreleased
+## 1.28.0
 - Changed: night-run SKILL.md: never use `/goal` for an overnight watch (it keeps the session busy so CronCreate checks never fire); the cron check prompt carries the follow-up work
 - Added: kill guard (PreToolUse on Bash and PowerShell, every session and sub-agent): denies by-name process kills (`taskkill /IM`, `pkill`, `killall`, `Stop-Process -Name`, ...); kills by PID pass
 - Fixed: status line git timeout raised to 3 s and a timed-out `git status` is no longer cached, so the next render retries git
