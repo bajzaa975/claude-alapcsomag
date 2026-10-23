@@ -715,7 +715,9 @@ Then write into `~/night-runs/<project>/`:
     the launch line minus finished stories, `claude -p --resume <id>` a session that exited cleanly without
     its RESULT line (one time, 10 min cap), kill a session older than 45 min that is provably stuck.
   - at L2/L3: read-only plus messaging; a guard-file edit would park the sprint.
-  - always: when the tree has tracked changes and no story session is running, run `mkdir -p
+  - always: when the tree has tracked changes and no story session is running, FIRST, list the paths in
+    both `git diff --cached --name-only` and `git diff --name-only` (staged content the worktree no longer
+    holds); if any, leave the tree as it is and ESCALATE naming them. Else run `mkdir -p
     runtime/handoff` (`--output` never creates folders), then save them with `git diff HEAD --binary
     --output=runtime/handoff/night-watch-orphan-<YYYYMMDD-HHMMSS>.patch`; restore the tree
     (`git restore --source=HEAD --staged --worktree -- :/`) only after the patch is non-empty and `git apply

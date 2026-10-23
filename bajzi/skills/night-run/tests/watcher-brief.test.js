@@ -194,10 +194,75 @@ test('SKILL.md ALLOWLIST block: four bullets, orphan patch (no stash), no comman
   for (const p of ['runtime/handoff/night-watch-orphan-', 'git diff HEAD --binary', 'git apply --check -R', 'git restore'])
     has(always, p);
   assert.ok(!/git stash|stash push/.test(always), 'no stash instruction');
+  const guard = always.indexOf('FIRST, list the paths in both `git diff --cached --name-only` and `git diff --name-only`');
+  const mkdir = always.indexOf('`mkdir -p runtime/handoff`');
+  const diff = always.indexOf('git diff HEAD --binary');
+  assert.ok(guard >= 0 && guard < mkdir && mkdir < diff, 'staged-content guard -> mkdir -> diff');
+  has(always, 'if any, leave the tree as it is and ESCALATE naming them');
+  has(always, 'restore the tree (`git restore --source=HEAD --staged --worktree -- :/`) only after the patch is non-empty and `git apply --check -R <patch>` passes');
+  assert.strictEqual(always.split('git restore').length, 2, 'git restore named exactly once');
+  has(always, 'if any step fails, leave the tree as it is and ESCALATE');
+  has(always, 'log the recover command `git apply --index <patch>`');
   const tmpl = fs.readFileSync(path.join(__dirname, '..', 'templates', 'settings.local.json.tmpl'), 'utf8');
   const denies = [...tmpl.slice(tmpl.indexOf('"deny"')).matchAll(/"Bash\((.*?)\)"/g)].map((m) => m[1]);
   const re = (g) => new RegExp('^' + g.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
   const cmds = ['git diff HEAD --binary --output=runtime/handoff/x.patch', 'git apply --check -R runtime/handoff/x.patch',
-    'git restore --source=HEAD --staged --worktree -- :/', 'git apply --index runtime/handoff/x.patch', 'mkdir -p runtime/handoff'];
+    'git restore --source=HEAD --staged --worktree -- :/', 'git apply --index runtime/handoff/x.patch', 'mkdir -p runtime/handoff',
+    'git diff --cached --name-only', 'git diff --name-only'];
   for (const c of cmds) for (const d of denies) assert.ok(!re(d).test(c), `${c} hits deny ${d}`);
+});
+
+test('always-bullet in a scratch repo: guard ESCALATEs on lossy staged content, save/restore/recover round trip', () => {
+  const os = require('node:os');
+  const { execFileSync } = require('node:child_process');
+  const git = (cwd, ...args) => execFileSync('git', ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...args],
+    { cwd, encoding: 'utf8' });
+  const names = (out) => out.split('\n').filter(Boolean);
+  const guard = (cwd) => { // paths in both lists = staged content the worktree no longer holds
+    const unstaged = new Set(names(git(cwd, 'diff', '--name-only')));
+    return names(git(cwd, 'diff', '--cached', '--name-only')).filter((p) => unstaged.has(p));
+  };
+  const repo = () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'orphan-'));
+    git(d, 'init', '-q');
+    git(d, 'config', 'user.email', 't@t');
+    git(d, 'config', 'user.name', 't');
+    fs.writeFileSync(path.join(d, 'a.txt'), 'a0\n');
+    fs.writeFileSync(path.join(d, 'b.txt'), 'b0\n');
+    git(d, 'add', '.');
+    git(d, 'commit', '-qm', 'init');
+    return d;
+  };
+  const w = (d, f, s) => fs.writeFileSync(path.join(d, f), s);
+  const cases = {
+    'staged then edited': [(d) => { w(d, 'a.txt', 'a1\n'); git(d, 'add', 'a.txt'); w(d, 'a.txt', 'a2\n'); }, ['a.txt']],
+    'index-only change': [(d) => { w(d, 'a.txt', 'a1\n'); git(d, 'add', 'a.txt'); w(d, 'a.txt', 'a0\n'); }, ['a.txt']],
+    'new file staged then deleted': [(d) => { w(d, 'n.txt', 'n\n'); git(d, 'add', 'n.txt'); fs.unlinkSync(path.join(d, 'n.txt')); }, ['n.txt']],
+    'only staged': [(d) => { w(d, 'a.txt', 'a1\n'); git(d, 'add', 'a.txt'); }, []],
+    'only unstaged': [(d) => { w(d, 'a.txt', 'a1\n'); }, []],
+  };
+  const dirs = [];
+  try {
+    for (const [name, [setup, want]] of Object.entries(cases)) {
+      const d = repo(); dirs.push(d);
+      setup(d);
+      assert.deepStrictEqual(guard(d), want, name);
+    }
+    const d = repo(); dirs.push(d);
+    w(d, 'a.txt', 'a1\n'); git(d, 'add', 'a.txt'); w(d, 'b.txt', 'b1\n');
+    assert.deepStrictEqual(guard(d), [], 'safe case proceeds');
+    fs.mkdirSync(path.join(d, 'runtime', 'handoff'), { recursive: true });
+    const patch = 'runtime/handoff/night-watch-orphan-x.patch';
+    git(d, 'diff', 'HEAD', '--binary', `--output=${patch}`);
+    assert.ok(fs.statSync(path.join(d, patch)).size > 0, 'patch non-empty');
+    git(d, 'apply', '--check', '-R', patch);
+    git(d, 'restore', '--source=HEAD', '--staged', '--worktree', '--', ':/');
+    assert.strictEqual(git(d, 'status', '--porcelain', '--untracked-files=no'), '', 'tree restored');
+    git(d, 'apply', '--index', patch);
+    assert.strictEqual(fs.readFileSync(path.join(d, 'a.txt'), 'utf8'), 'a1\n');
+    assert.strictEqual(fs.readFileSync(path.join(d, 'b.txt'), 'utf8'), 'b1\n');
+    assert.ok(names(git(d, 'diff', '--cached', '--name-only')).includes('a.txt'), 'staged change back in the index');
+  } finally {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  }
 });
