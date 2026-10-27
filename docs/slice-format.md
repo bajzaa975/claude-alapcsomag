@@ -31,9 +31,24 @@ test: node --test
 
 ## Dispatch (`/bajzi:implement`)
 
-`tier: 1` dispatches `implementer-risk` (opus); `tier: 2` or `3` dispatches `implementer`
+`tier: 1` dispatches `implementer-risk` (sonnet, effort high, failing test per changed branch); `tier: 2` or `3` dispatches `implementer`
 (sonnet). The skill passes only the slice spec — not surrounding context — so the
-Tier-1 → opus rule is a lookup against the file, never something the orchestrator has to remember.
+Tier-1 rule is a lookup against the file, never something the orchestrator has to remember.
+
+## Sprint file
+
+`findings-cli.js sprint <stem>` writes `runtime/slices/<stem>.md` from the `<stem>-t<N>.md` slices of one plan: generated, never hand-written.
+
+```
+# Slice · <stem>
+generated: FC sprint from <id>, <id>
+tier: <lowest tier>
+files: <union of files>
+acceptance: <id>: <acceptance>; <id>: <acceptance>
+test: <distinct commands joined " && ", or none>
+```
+
+`/bajzi:review` and `/bajzi:fix` take `<stem>` as the slice id; the command also prints the sprint `range: <base>..<tip>`.
 
 ## Plan -> slices
 
@@ -47,6 +62,7 @@ A session turns an approved plan file into slices by this rule (no script):
 - `acceptance` = the task's expected result / goal line.
 - `test` = the task's test command (`none` when it has none).
 - Two tasks touching the same file run sequentially, never in parallel.
+- A consumer task runs in parallel with its provider task when the plan fixes the interface it consumes (disjoint files, same tree); the provider is committed first (a pre-commit gate that checks the whole tree sees both).
 - A task without a Files list is BLOCKED.
 - Each closed task gets its checkbox ticked in the plan file.
 

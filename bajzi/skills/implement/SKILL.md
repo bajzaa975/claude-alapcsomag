@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Implement one slice from runtime/slices/<id>.md through the bajzi implementer agents (Tier 1 -> implementer-risk on opus, else implementer), then commit it for review. Use it when the user says "/bajzi:implement <id>", "implement slice <id>", or a plan step names a slice file.
+description: Implement one slice from runtime/slices/<id>.md through the bajzi implementer agents (Tier 1 -> implementer-risk, else implementer; both sonnet), then commit it for review. Use it when the user says "/bajzi:implement <id>", "implement slice <id>", or a plan step names a slice file.
 ---
 
 # /bajzi:implement <slice-id>
@@ -13,6 +13,9 @@ You orchestrate; the agent writes the code. `FC` = `node "${CLAUDE_PLUGIN_ROOT}/
    file or id (`docs/slice-format.md`; `debt` is reserved): print the error, STOP. The agent is this lookup, never your choice.
 3. `base=$(git rev-parse HEAD)`; no tracked file may be modified
    (`git status --porcelain --untracked-files=no` empty), else STOP.
+   Parallel pair (the plan names a provider and a consumer slice with disjoint `files:`, the interface fixed in the plan): dispatch both
+   from one message; then run steps 5-7 for the provider first, then the consumer; in steps 3 and 5 a modified path inside the other
+   slice's `files:` (its `FC slice` output) is not a STOP and is never added.
 4. Dispatch per dispatch.md, class `implement`, brief = the slice file verbatim, nothing else.
    A guard deny -> print the reason and its rule id, STOP; except `saver-guard:` (dispatch.md step 3: run it on GLM). You never write the code yourself.
 5. `SLICE <id> BLOCKED: ...` -> print it, STOP. `SLICE <id> DONE` -> every file in its list, and every
@@ -21,5 +24,6 @@ You orchestrate; the agent writes the code. `FC` = `node "${CLAUDE_PLUGIN_ROOT}/
    "no test", run nothing; the gate below still runs). Red -> STOP and report. Green or skip -> `git add -- <each listed file>`
    (never `-A`), `git commit -m "<slice-id>: implement"`. The commit runs the bajzi gate where
    installed (`.githooks/pre-commit`); refused -> STOP and report. Never `--no-verify`.
-7. `tip=$(git rev-parse HEAD)`; print `range: <base>..<tip>` (both full SHAs) and the next step:
-   `/bajzi:review <slice-id> <base>..<tip>`.
+7. `tip=$(git rev-parse HEAD)`; print `range: <base>..<tip>` (both full SHAs). Next: the sprint's next slice;
+   after its last slice `FC sprint "<stem>"` (writes `runtime/slices/<stem>.md`, prints the sprint range), then
+   `/bajzi:review <stem> <range>`. A lone slice outside a sprint: `/bajzi:review <slice-id> <base>..<tip>`.
