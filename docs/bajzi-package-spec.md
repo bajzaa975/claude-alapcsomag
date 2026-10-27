@@ -59,6 +59,7 @@ the findings; Tier 3 = the gate only, e.g. docs).
 |---|---|---|---|---|
 | Interview skills (`bajzi:grilling`, `/bajzi:grill-me`, `/bajzi:respec-cards`) | `bajzi/skills/grilling/SKILL.md`, `bajzi/skills/grilling/NOTICE.md`, `bajzi/skills/grill-me/SKILL.md`, `bajzi/skills/respec-cards/SKILL.md`, `bajzi/skills/respec-cards/prep-prompt.md` | `node --test bajzi/skills/grilling/tests/grilling.test.js` | 3 | The `Grilled:` and `NEVER RE-ASK` line formats are machine-checked markers; do not change them. |
 | Explain / tired mode (`/bajzi:explain`, `/bajzi:tired`, `tired.js`, the `.tired` marker in `session-signal.js`) | `bajzi/skills/explain/SKILL.md`, `bajzi/skills/explain/lang.js`, `bajzi/skills/tired/SKILL.md`, `bajzi/hooks/node/tired.js`, `bajzi/hooks/node/session-signal.js`, `tools/build-cowork.js` `SKILLS` | `node --test bajzi/skills/explain/tests/lang.test.js bajzi/hooks/node/tests/tired.test.js bajzi/hooks/node/tests/session-signal.test.js tools/tests/cowork-variant.test.js` | 2 | `explain` ships in bajzi-cowork (no `/bajzi:` text in it); `tired` does not. No per-turn injection. |
+| Owner questions rule for orchestrator panes (`ask-owner.js`) | `bajzi/hooks/node/ask-owner.js` `RULE`, `bajzi/hooks/hooks.json` | `node --test bajzi/hooks/node/tests/ask-owner.test.js` | 2 | Injected only when `ORCH_BUS_PANE` is set; the rule's own first clause re-checks that the tool is really available, so an older orchestrator without the tool keeps today's behaviour. Keep the quoted phrases identical to the tool's own description (`default_taken`, `blocking=true`, the one chat line). |
 | Which Node check runs on which tool (the two combined tool-hook entries) | `bajzi/hooks/node/pre-tool.js` `CHECKS` (context-guard on every tool, secret-guard on `Read\|Grep\|Glob\|Bash\|PowerShell`, kill-guard on `Bash\|PowerShell`, writer-guard on `Edit\|Write\|MultiEdit\|NotebookEdit`, saver-guard on `Edit\|Write\|MultiEdit\|NotebookEdit\|Agent\|Task\|Bash\|PowerShell`); `bajzi/hooks/node/post-tool.js` `CHECKS` (context-guard on every tool, injection-scan on `Read\|WebFetch\|WebSearch\|mcp__*`, session-signal on every tool, never any output, §6.5); each check's `check(input)` export; the shared `runChecks` in `bajzi/hooks/node/lib/hook-io.js` (neither entry loads the other) | `node --test bajzi/hooks/node/tests/tool-hooks.test.js` | 1 | One node process per hook event (§5.3). A `CHECKS` row's matcher is the old `hooks.json` matcher, moved into code; `CHECKS` order is the order denies/warnings are joined (context first). Every check fails open on its own: `runChecks` catches and logs each one, so one check's throw never hides another's deny (Invariant 1). |
 | Which hooks fail closed (`"onFailure": "block"`) | `bajzi/hooks/hooks.json`: only the PreToolUse `.*` -> `pre-tool.js` entry (timeout 10); `dispatch-guard.sh` stays fail-open (timeout 5) | `node --test bajzi/hooks/node/tests/hooks-onfailure.test.js` (also pins the `pre-tool.js` exit codes); mode.sh 13m pins the dispatch-guard wiring | 1 | §5.3 "Fail-closed wiring". Every normal path of `pre-tool.js` must exit 0 (or 2), else every tool call blocks. Never add the key to a non-guard entry. |
 | Context warn/block thresholds (40/50) | `bajzi/hooks/node/context-guard.js` `WARN_AT`/`BLOCK_AT`/`WARN_EVERY` (runs from `pre-tool.js`/`post-tool.js`) | `node --test bajzi/hooks/node/tests/context-guard.test.js` | 1 | Also stated in §6.6: keep the doc in sync. |
@@ -294,6 +295,8 @@ SessionStart (matcher startup|clear|compact|resume)
                                §6.15)
   session-signal.js        -> <status dir>/<id>.event.json state appears; prunes record files
                                older than 7 days (every source; §6.5 status records)
+  ask-owner.js             -> with ORCH_BUS_PANE set: the owner-questions rule as additionalContext;
+                               silent otherwise (startup|clear|compact|resume; §6.11)
 
 UserPromptSubmit           -> session-signal.js  (state working, first 120 chars of the prompt;
                                a typed `/bajzi:tired [off]` writes/deletes <id>.tired)
@@ -1436,7 +1439,7 @@ mechanism. Schema v1 (`SUPPORTED_VERSION = 1`, all keys optional):
 ### 6.11 Optional external orchestrator (not part of this package)
 
 The package does not require any orchestrator. A separate tool that supervises Claude Code
-sessions can build on four file and environment contracts; nothing else about such a tool is
+sessions can build on five file and environment contracts; nothing else about such a tool is
 specified here.
 
 - **Session status records.** Every session writes `<id>.event.json`, `<id>.line.json` and
@@ -1451,6 +1454,7 @@ specified here.
   variables first (the scrub set in `cc-router.js`; `launch.sh` of the night-run skill is the
   reference list). Headless sessions it starts have no status line, so the context guard allows
   everything there (§6.6).
+- **Owner questions tool.** An orchestrator that wires an `orch-bus` MCP server with an `ask_owner` tool into a session sets `ORCH_BUS_PANE` (non-empty) in that session's env; `ask-owner.js` then injects the owner-questions rule (route every owner question/decision and manual owner step through the tool, one chat line, reversible = default taken and no wait, `blocking=true` only for risky/irreversible and never in a session without a person at the keyboard, no secrets in any field; tool absent = unchanged behaviour). Without that variable nothing is injected.
 - **Mod layout.** The `nightrun-pane` mod reads an external orchestrator's `runtime/nightrun`
   layout, not the `NIGHT_DIR` of `/bajzi:night-run` (§2 row "Mods").
 
