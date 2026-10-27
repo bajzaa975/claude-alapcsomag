@@ -206,7 +206,7 @@ test('installed by project-setup: a real `git commit` runs the gate and is refus
 });
 
 test('tsc: a location-less error (TS5058 config error) is exit 2 and the baseline is untouched', () => {
-  const r = repo({ 'package.json': '{}', 'tsconfig.json': '{}', 'x.md': 'a\n', '.gate-baseline.json': '{"tsc": 40}\n' }, ['x.md']);
+  const r = repo({ 'package.json': '{}', 'tsconfig.json': '{}', 'x.md': 'a\n', '.gate-baseline.json': '{"tsc": 40}\n' }, ['x.md', 'package.json']);
   let bin = fakes({ gitleaks: CLEAN, tsc: { exit: 1, stdout: "error TS5058: The specified path does not exist: 'tsconfig.json'.\n" } });
   let res = gate(r, bin);
   assert.strictEqual(res.code, 2, res.out);
@@ -343,4 +343,93 @@ test('every gate run appends one GATE line to runtime/dispatch-sizes.log; --init
   assert.strictEqual(lines.length, 2);
   assert.match(lines[0], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\tGATE\tpre-commit\t1\tblock$/);
   assert.match(lines[1], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\tGATE\tpre-commit\t0\tpass$/);
+});
+
+// Ratchet skip: a ratchet tool runs only when the change set holds a path it checks.
+const BOTH = {
+  'pyproject.toml': '[project]\nname = "x"\n', 'a.py': 'x=1\n', 'notes.md': 'n\n',
+  'web/package.json': '{}', 'web/tsconfig.json': '{}', 'web/src/x.ts': 'let x = 1\n',
+  '.gate-baseline.json': '{"pyright": 3, "tsc": 2}\n',
+};
+// A committed base state, then `change(r)` edits and stages; returns which ratchet tools were invoked.
+function skipRun(change, extra = {}, shims = {}) {
+  const r = repo(Object.assign({}, BOTH, extra));
+  git(r, 'commit', '-qm', 'base');
+  change(r);
+  const bin = fakes(Object.assign({ gitleaks: CLEAN, ruff: CLEAN, eslint: CLEAN, pyright: pyright(3), tsc: tsc(2) }, shims));
+  const res = gate(r, bin);
+  return { r, res, py: calls(bin, 'pyright').length, ts: calls(bin, 'tsc').length };
+}
+const write = (r, rel, text) => { fs.mkdirSync(path.dirname(path.join(r, rel)), { recursive: true }); fs.writeFileSync(path.join(r, rel), text); git(r, 'add', '--', rel); };
+
+test('skip: md-only commit runs neither ratchet tool and logs one skip line each', () => {
+  const { res, py, ts } = skipRun(r => write(r, 'notes.md', 'changed\n'));
+  assert.strictEqual(res.code, 0, res.out);
+  assert.deepStrictEqual([py, ts], [0, 0]);
+  assert.ok(res.out.includes('pyright skipped (no staged file it checks)'), res.out);
+  assert.ok(res.out.includes('tsc skipped (no staged file it checks)'), res.out);
+});
+
+test('skip: an added .py runs pyright, not tsc', () => {
+  const { res, py, ts } = skipRun(r => write(r, 'new.py', 'y=1\n'));
+  assert.strictEqual(res.code, 0, res.out);
+  assert.deepStrictEqual([py, ts], [1, 0]);
+});
+
+test('skip: deleting a .py still runs pyright', () => {
+  const { py, ts } = skipRun(r => git(r, 'rm', '-q', '--', 'a.py'));
+  assert.deepStrictEqual([py, ts], [1, 0]);
+});
+
+test('skip: renaming a.py to b.py runs pyright', () => {
+  const { py, ts } = skipRun(r => git(r, 'mv', 'a.py', 'b.py'));
+  assert.deepStrictEqual([py, ts], [1, 0]);
+});
+
+test('skip: renaming a.py to notes.txt (source side) runs pyright', () => {
+  const { py, ts } = skipRun(r => git(r, 'mv', 'a.py', 'notes.txt'));
+  assert.deepStrictEqual([py, ts], [1, 0]);
+});
+
+test('skip: md + .tsx runs tsc, not pyright', () => {
+  const { res, py, ts } = skipRun(r => { write(r, 'notes.md', 'changed\n'); write(r, 'web/src/y.tsx', 'let y = 1\n'); });
+  assert.strictEqual(res.code, 0, res.out);
+  assert.deepStrictEqual([py, ts], [0, 1]);
+});
+
+test('skip: pyproject.toml only runs pyright', () => {
+  const { py, ts } = skipRun(r => write(r, 'pyproject.toml', '[project]\nname = "y"\n'));
+  assert.deepStrictEqual([py, ts], [1, 0]);
+});
+
+test('skip: the baseline file only runs both tools', () => {
+  const { py, ts } = skipRun(r => write(r, '.gate-baseline.json', '{"pyright": 3, "tsc": 2, "x": 1}\n'));
+  assert.deepStrictEqual([py, ts], [1, 1]);
+});
+
+test('skip: the gate config file only runs both tools', () => {
+  const { py, ts } = skipRun(r => write(r, '.claude/project-profile.json', JSON.stringify({ version: 1, gate: { tools: ['gitleaks', 'ruff', 'eslint', 'pyright', 'tsc'] } })), {}, {});
+  assert.deepStrictEqual([py, ts], [1, 1]);
+});
+
+test('skip: trigger list is matched by extension and basename, case-insensitively, at any depth', () => {
+  const py = ['U.PY', 'stubs/m.pyi', 'sub/pyproject.toml', 'sub/deep/pyrightconfig.json'];
+  const ts = ['m.MJS', 'c.cts', 'x.jsx', 'pkg/PACKAGE.JSON', 'pkg/tsconfig.build.json', 'z.mts'];
+  for (const f of py) { const x = skipRun(r => write(r, f, 'a\n')); assert.deepStrictEqual([+(x.py > 0), +(x.ts > 0)], [1, 0], f); }
+  for (const f of ts) { const x = skipRun(r => write(r, f, 'a\n')); assert.deepStrictEqual([+(x.py > 0), +(x.ts > 0)], [0, 1], f); }
+  for (const f of ['notes2.md', 'a.pyc', 'x.json', 'tsconfig.txt', 'data/package.json.bak']) { const x = skipRun(r => write(r, f, 'a\n')); assert.deepStrictEqual([+(x.py > 0), +(x.ts > 0)], [0, 0], f); }
+});
+
+test('skip: decision is per tool: one staged .py runs pyright in every pyproject dir, summed against the whole baseline', () => {
+  const x = skipRun(r => write(r, 'svc/m.py', 'y=1\n'), { 'svc/pyproject.toml': '[project]\nname = "s"\n' }, { pyright: pyright(2) });
+  assert.strictEqual(x.py, 2);   // root dir + svc dir
+  assert.strictEqual(x.res.code, 1, x.res.out);   // 2 + 2 = 4 > 3
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(x.r, '.gate-baseline.json'), 'utf8')), { pyright: 3, tsc: 2 });
+});
+
+test('skip: a ratchet-down of one tool leaves the skipped tool baseline count untouched', () => {
+  const x = skipRun(r => write(r, 'new.py', 'y=1\n'), {}, { pyright: pyright(1), tsc: tsc(0) });
+  assert.strictEqual(x.res.code, 0, x.res.out);
+  assert.deepStrictEqual([x.py, x.ts], [1, 0]);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(x.r, '.gate-baseline.json'), 'utf8')), { pyright: 1, tsc: 2 });
 });

@@ -25,6 +25,15 @@ verbatim to `<repo>/.githooks/pre-commit` when the repo's `.claude/project-profi
   <marker> ...)`), never a block. **Needed but missing** =
   exit 2 with the install line (`HINTS` in the source; `manifest.json` `gate_tools` carries the
   same lines, asserted by the test).
+- **Ratchet skip**: pyright and tsc start only when the commit's change set holds a path that tool
+  checks; otherwise the gate logs `gate: <tool> skipped (no staged file it checks)` and leaves that
+  tool's baseline entry untouched. The change set is every staged path of every status (added,
+  copied, modified, renamed, type-changed, deleted), both sides of a rename. Triggers, matched
+  case-insensitively at any depth: pyright = `*.py`, `*.pyi`, `pyproject.toml`, `pyrightconfig.json`;
+  tsc = `*.js *.jsx *.ts *.tsx *.mjs *.cjs *.mts *.cts`, `package.json`, `tsconfig*.json`; both = the
+  baseline file or `.claude/project-profile.json`. The decision is per tool: one trigger runs the tool
+  in every project dir, so its summed count is compared against the whole baseline count. A
+  ratchet-down rewrite merges only the tools that ran. `--init` always runs the full scope.
 - **Ratchet**: a count equal to the baseline passes; above blocks; below rewrites the baseline
   (other keys kept) and `git add`s it, so the improvement lands in the same commit. The rewrite
   happens only when nothing else blocked. A missing/unreadable baseline, or one without the key

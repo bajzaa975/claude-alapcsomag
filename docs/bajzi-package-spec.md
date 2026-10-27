@@ -211,7 +211,7 @@ from PowerShell: always launch bash suites from **Git Bash itself**, not from th
     built-in read-only Explore/Plan/claude-code-guide) is refused (R2).
 11. **The pre-commit gate fails closed and reads exit codes only.** A tool the repo needs but
     cannot run, a tool error, an unreadable count, baseline or profile is exit 2 (blocks), never a
-    pass; an absent stack is the only skip, and it logs one line per tool. The ratchet only ever lowers
+    pass; an absent stack, or a ratchet tool with no staged file it checks (§6.13), is the only skip, and it logs one line per tool. The ratchet only ever lowers
     `.gate-baseline.json` on its own (a drop is rewritten and staged in the same commit); raising it
     is a hand edit the review sees. The skills never commit with `--no-verify`
     (`bajzi/gate/pre-commit.js:main`, §6.13).
@@ -1624,7 +1624,8 @@ as a verbatim copy at `.githooks/pre-commit` (§6.10); the contract is `docs/gat
   install line; lint exit 1 → 1, other non-zero → 2; ratchet (`:count`) above the baseline → 1,
   equal → 0, below → rewrite `.gate-baseline.json` (other keys kept) and `git add` it, only when
   nothing else blocked and the hook runs on the real index (`:defaultIndex`; under `git commit -- <paths>` the rewrite is deferred with a log line). Missing baseline/key, unreadable count or profile → 2. Worst result wins.
-- `--init` writes the baseline from the current counts (exit 2 if a ratchet tool is missing).
+- **Ratchet skip** (`:main`, `:changedPaths`, `:relevant`, `:counts`): pyright / tsc run only when the change set (`git diff --cached --name-only --no-renames -z`, no `--diff-filter`: every status, both rename sides) holds a path the tool checks, else one log line `<tool> skipped (no staged file it checks)` and its baseline entry stays untouched. Triggers, case-insensitive, any depth: pyright = `*.py`, `*.pyi`, `pyproject.toml`, `pyrightconfig.json`; tsc = `*.js *.jsx *.ts *.tsx *.mjs *.cjs *.mts *.cts`, `package.json`, `tsconfig*.json`; both = the baseline file or `.claude/project-profile.json`. Per tool, never per dir (a partial sum against the whole baseline would ratchet down wrongly); the rewrite merges only the tools that ran; `counts(root, cfg, scope)` runs exactly the scope given.
+- `--init` writes the baseline from the current counts, full scope (exit 2 if a ratchet tool is missing).
 - **Tests**: `bajzi/gate/tests/pre-commit.test.js` — fixture repos, every tool a fake shim on a
   minimal PATH (fake bin + node + git), one optional real-`gitleaks` case skipped when absent.
 

@@ -208,12 +208,31 @@ function ratchetScope(root, cfg, quiet) {
   return out;
 }
 
-// Sum the counts per tool; {err} if any run failed.
-function counts(root, cfg) {
+// Every staged path of every status, both sides of a rename (stagedFiles drops deletions and rename sources).
+function changedPaths(root) {
+  const r = spawnSync('git', ['diff', '--cached', '--name-only', '--no-renames', '-z'], { cwd: root, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error('git diff --cached failed');
+  return r.stdout.split('\0').filter(Boolean);
+}
+
+// Which paths each ratchet tool checks: extension, or file name at any depth.
+const CHECKS = {
+  pyright: { ext: /\.(py|pyi)$/i, base: /^(pyproject\.toml|pyrightconfig\.json)$/i },
+  tsc: { ext: /\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/i, base: /^(package\.json|tsconfig.*\.json)$/i },
+};
+// True when the change set holds a path the ratchet tool checks, or the baseline / gate config file.
+function relevant(tool, changed, cfg) {
+  const norm = p => path.posix.normalize(p.replace(/\\/g, '/')).toLowerCase();
+  const own = [norm(cfg.baseline), '.claude/project-profile.json'];
+  return changed.some(p => CHECKS[tool].ext.test(p) || CHECKS[tool].base.test(p.split('/').pop()) || own.includes(norm(p)));
+}
+
+// Sum the counts per tool over `scope` (default: the full scope); {err} if any run failed.
+function counts(root, cfg, scope = ratchetScope(root, cfg, true)) {
   const sums = {};
   const details = {};
   let err = 0;
-  for (const [name, dir] of ratchetScope(root, cfg, true)) {
+  for (const [name, dir] of scope) {
     const c = count(name, root, dir);
     if (c.err) err = Math.max(err, c.err);
     else { sums[name] = (sums[name] || 0) + c.n; details[name] = (details[name] || []).concat(c.detail); }
@@ -284,14 +303,18 @@ function commitGate(root, cfg, baseFile) {
     for (const [d, list] of assign(files.filter(f => JS.test(f)), projects(root, 'package.json'), 'eslint', 'package.json')) worst = Math.max(worst, lint('eslint', [], root, d, list));
   }
 
-  const scope = ratchetScope(root, cfg);
-  if (scope.length) {
+  const full = ratchetScope(root, cfg);
+  if (full.length) {
     const base = readJson(baseFile);
     if (!base.value || typeof base.value !== 'object') {
       log(`${cfg.baseline} is missing or unreadable; run: node .githooks/pre-commit --init, then commit it`);
       return 2;
     }
-    const { sums, details, err } = counts(root, cfg);
+    // Per tool, never per dir: a partial pyright/tsc sum against the whole baseline count would ratchet down wrongly.
+    const changed = changedPaths(root);
+    const scope = full.filter(([name]) => relevant(name, changed, cfg));
+    for (const name of new Set(full.map(([n]) => n))) if (!scope.some(([n]) => n === name)) log(`${name} skipped (no staged file it checks)`);
+    const { sums, details, err } = counts(root, cfg, scope);
     worst = Math.max(worst, err);
     // On a count-up, errors in staged files go first (stable sort) so the CAP shows the likely new
     // ones. pyright reports absolute paths (backslashes, any drive-letter case on Windows): normalise.
