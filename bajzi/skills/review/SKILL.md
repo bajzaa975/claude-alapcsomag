@@ -28,8 +28,8 @@ the skill has no other round.
    open minor/nit the fixer marked OUT_OF_SLICE -> `runtime/findings/debt.md`. Print its output
    verbatim, including any `DEBT CAP HIT` line, then list the new `needs-owner.md` lines. Exit 4 =
    the owner lines are written but `debt.md` refused the merge (the ids it names are NOT parked):
-   print it and tell the owner. STOP: there is no further round in the skill; a third round is
-   the owner's call, started by hand. Then step 7.
+   print it and tell the owner. Then step 7 (the closing gate and report run before the stop). STOP after step 7: there is no
+   further round in the skill; a third round is the owner's call, started by hand.
 7. **Sprint end** (after a round-1 `CLEAN`, after the round-2 close, same for a lone slice). The repo's full gate (the command its README
    or CLAUDE.md names) runs ONCE per sprint, here, with `run_in_background`, while you write the closing bookkeeping (decision-log
    entry, handoff). Slice `test:` commands and the pre-commit gate are the per-slice and fix-round checks, not the full gate. The gate is

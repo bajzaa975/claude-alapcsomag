@@ -45,7 +45,7 @@ generated: FC sprint from <id>, <id>
 tier: <lowest tier>
 files: <union of files>
 acceptance: <id>: <acceptance>; <id>: <acceptance>
-test: <slice commands, none dropped, whole-string duplicates removed; when more than one remains each runs in its own subshell "( <cmd> )", joined " && "; or none>
+test: <slice commands, none/skip dropped, whole-string duplicates removed; when more than one remains each runs in its own subshell "( <cmd> )", joined " && "; or none>
 ```
 
 `/bajzi:review` and `/bajzi:fix` take `<stem>` as the slice id; the command also prints the sprint `range: <base>..<tip>`.

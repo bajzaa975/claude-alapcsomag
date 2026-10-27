@@ -34,6 +34,16 @@ test('no shipped file names a /bajzi: command (the variant ships /bajzi-cowork:)
   }
 });
 
+test('no shipped file names a bajzi skill outside the cowork skill list', () => {
+  for (const s of SKILLS) {
+    for (const f of fs.readdirSync(path.join(DST, 'skills', s), { recursive: true })) {
+      const p = path.join(DST, 'skills', s, f);
+      if (!fs.statSync(p).isFile()) continue;
+      for (const m of fs.readFileSync(p, 'utf8').matchAll(/\bbajzi:([a-z-]+)/g)) assert.ok(SKILLS.includes(m[1]), `${s}/${f} names bajzi:${m[1]}`);
+    }
+  }
+});
+
 test('SKILLS whitelist has explain, not tired', () => {
   assert.ok(SKILLS.includes('explain'));
   assert.ok(!SKILLS.includes('tired'));

@@ -769,6 +769,10 @@ test('FC sprint: a slice own order survives; env and cd stay isolated; identical
   try {
     assert.strictEqual(sprintTestLine(t, ['node --test a', 'node --test a']), 'node --test a');
   } finally { t.rm(); }
+  t = cliRepo('sprint9-');
+  try {
+    assert.strictEqual(sprintTestLine(t, ['skip', 'node --test a']), 'node --test a');
+  } finally { t.rm(); }
 });
 
 test('FC drain: two drains with the same fresh test-gap id both keep their gap', () => {

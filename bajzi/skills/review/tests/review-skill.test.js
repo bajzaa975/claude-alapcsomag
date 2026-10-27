@@ -13,6 +13,11 @@ test('review: sprint-end step runs the gate once, in the background', () => {
   }
 });
 
+test('review: step 6 sends the session to step 7 before its STOP', () => {
+  const s6 = SKILL.slice(SKILL.indexOf(' 6. Round 2'), SKILL.indexOf(' 7. **Sprint end'));
+  assert.ok(s6.includes('step 7') && s6.indexOf('step 7') < s6.indexOf('STOP'), s6);
+});
+
 test('review: round-1 CLEAN points to the sprint-end step', () => {
   assert.ok(SKILL.includes('`CLEAN` -> step 7'));
   assert.ok(!SKILL.includes('`CLEAN` -> done'));

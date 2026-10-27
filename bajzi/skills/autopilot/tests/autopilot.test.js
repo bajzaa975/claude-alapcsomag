@@ -32,5 +32,10 @@ test('autopilot: decision-log instruction, no-node fallback, closing report path
 });
 
 test('autopilot: rule 6 includes the sprint closing lines from review', () => {
-  assert.ok(SKILL.includes("each sprint's closing lines from the review skill (`bajzi:review`) (the six time lines and the Tier 1 majors)"));
+  assert.ok(SKILL.includes("each sprint's closing lines when its review step printed them (the six time lines and the Tier 1 majors)"));
+  assert.ok(!SKILL.includes('bajzi:review'));
+});
+
+test('autopilot: rule 2 never commits the untracked fallback decision log', () => {
+  assert.ok(SKILL.includes('only written, never committed, when the printed path is `runtime/handoff/autopilot-decisions.md`'));
 });
