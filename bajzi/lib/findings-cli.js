@@ -96,7 +96,8 @@ function appendUnique(name, title, lines, key = (l) => l) {
 }
 // needs-owner.md: one line per decision; an identical line is never added twice.
 const toOwner = (lines) => appendUnique('needs-owner.md', '# Needs owner', lines);
-// test-gaps.md: missing or weak tests, listed for the owner, never fixed or parked; idempotent per <slice>/<id>.
+// test-gaps.md: missing or weak tests, listed for the owner, never fixed or parked. Idempotent per key: `<slice>/<id>` for gaps,
+// the whole line for drain (drain ids restart each drain).
 const toGaps = (slice, findings, byLine = false) => appendUnique('test-gaps.md', '# Test gaps',
   findings.map((f) => `- ${slice}/${f.id} · ${f.location} · ${f.finding} · ${f.test}`), byLine ? (l) => l : (l) => l.split(' · ')[0]);
 const ownerLine = (id, f, rating, tail) => `- ${id} · ${f.location} · ${rating} · ${f.if_unfixed} · ${tail} · your call`;
@@ -144,12 +145,10 @@ acceptance: ${s.acceptance}`);
     if (!commits.length) die(2, `no "${stem}-t<N>: implement" commit; nothing to review`);
     const base = sha(`${commits[commits.length - 1]}^`);
     const uniq = (xs) => [...new Set(xs)];
-    // One combined line: plain `a && b` chains are split and each sub-command kept once; a test with ;, ||,
-    // a subshell or a cd/export/exit is kept whole in a subshell, so it can neither mask nor move the others.
-    const raw = uniq(parts.map((x) => x.test).filter((t) => !/^none$/i.test(t)));
-    const wild = (x) => /[;()\n]|\|\||(^|&& )\s*(cd|pushd|export|set|source|\.|exit)\b/.test(x);
-    const atoms = uniq(raw.flatMap((x) => (wild(x) ? [x] : x.split(' && '))));
-    const tests = atoms.length > 1 ? atoms.map((x) => (wild(x) ? `(${x})` : x)) : atoms;
+    // One combined line: whole-string duplicates dropped; 2+ commands each run in their own subshell, so a
+    // cd/export/source in one cannot move or leak into the next, and no command is split or reordered.
+    const raw = uniq(parts.map((x) => x.test).filter((t) => !/^(none|skip)$/i.test(t)));
+    const tests = raw.length > 1 ? raw.map((x) => `( ${x} )`) : raw;
     fs.writeFileSync(path.posix.join('runtime/slices', `${stem}.md`), [
       `# Slice · ${stem}`,
       `generated: FC sprint from ${ids.join(', ')}`,

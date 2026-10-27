@@ -657,7 +657,7 @@ test('FC sprint: writes <stem>.md (lowest tier, union files, joined acceptance, 
     const out = t.fs.readFileSync(t.path.join(t.d, 'runtime/slices/sp.md'), 'utf8');
     assert.strictEqual(out, '# Slice · sp\ngenerated: FC sprint from sp-t1, sp-t2, sp-t3, sp-t10\ntier: 1\n' +
       'files: a.js, b.js, c.js, d.js, x.js\nacceptance: sp-t1: one; sp-t2: two; sp-t3: three; sp-t10: ten\n' +
-      'test: node --test a && node --test b\n');
+      'test: ( node --test a ) && ( node --test b )\n');
     const s = t.run('slice', 'sp'); // the generated file parses with the existing slice command
     assert.strictEqual(s.status, 0, s.stderr);
     assert.match(s.stdout, /^agent: bajzi:implementer-risk\ntier: 1\n/);
@@ -746,11 +746,28 @@ test('FC sprint: a cd in one slice test does not move the next slice test', () =
   } finally { t.rm(); }
 });
 
-test('FC sprint: a sub-command shared by several slice tests runs once', () => {
-  const t = cliRepo('sprint5-');
+test('FC sprint: a slice own order survives; env and cd stay isolated; identical tests are written once', () => {
+  const run = (line, t, env) => require('child_process').spawnSync('bash', ['-c', line], { cwd: t.d, env: { ...process.env, ...env } });
+  let t = cliRepo('sprint5-');
   try {
-    const line = sprintTestLine(t, ['node --test a && node --test b', 'node --test b && node --test c', 'node --test a']);
-    assert.strictEqual(line, 'node --test a && node --test b && node --test c');
+    const line = sprintTestLine(t, ['x', 'prep && x']);
+    assert.strictEqual(line, '( x ) && ( prep && x )');
+  } finally { t.rm(); }
+  t = cliRepo('sprint6-');
+  try {
+    t.w('env.sh', 'export LEAK=1\n');
+    const line = sprintTestLine(t, ['. ./env.sh && true', 'test -z "$LEAK"']);
+    assert.strictEqual(run(line, t).status, 0, line);
+  } finally { t.rm(); }
+  t = cliRepo('sprint7-');
+  try {
+    t.fs.mkdirSync(t.path.join(t.d, 'sub')); t.w('marker', 'x');
+    const line = sprintTestLine(t, ['cd sub && true', 'test -f marker']);
+    assert.strictEqual(run(line, t).status, 0, line);
+  } finally { t.rm(); }
+  t = cliRepo('sprint8-');
+  try {
+    assert.strictEqual(sprintTestLine(t, ['node --test a', 'node --test a']), 'node --test a');
   } finally { t.rm(); }
 });
 

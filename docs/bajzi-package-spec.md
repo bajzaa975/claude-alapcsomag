@@ -1528,7 +1528,7 @@ outside the diff and theoretical issues with no reachable path, plus web-only cl
   copy of `debt.md`; only disagreements of one level or more reach `needs-owner.md`, with both
   ratings.
 
-**Sprint.** The review unit is a sprint: the slices generated from one plan (`<stem>-t<N>`, ids numbered in order). `findings-cli.js sprint <stem>` writes `runtime/slices/<stem>.md` from the `<stem>-t<N>.md` files (`generated:` line, lowest tier, union of `files:`, joined acceptance, distinct test commands) and prints `slice:` and `range: <base>..<tip>`, the base being the parent of the oldest `<stem>-t<N>: implement` commit; with no slice file or no such commit it exits 2 and writes nothing. `/bajzi:review <stem> <range>` then runs unchanged: one review of the whole range, two rounds, the D4 close.
+**Sprint.** The review unit is a sprint: the slices generated from one plan (`<stem>-t<N>`, ids numbered in order). `findings-cli.js sprint <stem>` writes `runtime/slices/<stem>.md` from the `<stem>-t<N>.md` files (`generated:` line, lowest tier, union of `files:`, joined acceptance, the test commands with `none` dropped and whole-string duplicates removed, each in its own subshell `( <cmd> )` joined by ` && ` when more than one remains) and prints `slice:` and `range: <base>..<tip>`, the base being the parent of the oldest `<stem>-t<N>: implement` commit; with no slice file or no such commit it exits 2 and writes nothing. `/bajzi:review <stem> <range>` then runs unchanged: one review of the whole range, two rounds, the D4 close.
 
 **Skills (the review/fix loop).** `/bajzi:implement`, `/bajzi:review`, `/bajzi:fix`, `/bajzi:debt`
 (`bajzi/skills/{implement,review,fix,debt}/SKILL.md`) orchestrate the four agents; the agents do
