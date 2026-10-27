@@ -277,7 +277,7 @@ test('BRIEF.md.tmpl: GLM variant names glm -p, L0/L1 variant keeps Haiku/Sonnet,
   assert.ok(!/Haiku|Sonnet/.test(g), 'GLM variant names no Claude tier');
   has(l, '| locate code, explore layout | Haiku');
   has(l, '| write a document > 100 lines | Sonnet');
-  has(l, 'Sonnet for documents over 100 lines; Haiku for exploration');
+  has(l, 'and documents over 100 lines; `{{MODEL}}` only for a judgment call');
   const body = BRIEF.slice(BRIEF.indexOf('\n-->'));
   assert.strictEqual(body.split('{{DELEGATION_TABLE}}').length, 2);
   assert.strictEqual(body.split('{{DELEGATION_MODELS}}').length, 2);
@@ -405,19 +405,20 @@ test('L0/L1 variant extracted by the documented rule reproduces the Claude-tier 
     '| work                          | model        | must return                                |',
     '|-------------------------------|--------------|--------------------------------------------|',
     '| locate code, explore layout   | Haiku        | paths plus <= 10 lines, no file contents   |',
-    '| implement a slice, TDD        | `{{MODEL}}`  | files changed, test counts, <= 15 lines    |',
+    '| implement a slice, TDD        | Sonnet       | files changed, test counts, <= 15 lines    |',
     '| run a test suite              | Haiku        | pass/fail counts, failing test names only  |',
     '| review a diff                 | `{{REVIEWER_MODEL}}`, always | the section 4 verdict, <= 20 lines |',
-    '| fix review findings           | `{{MODEL}}`  | what changed, <= 10 lines                  |',
+    '| fix review findings           | Sonnet       | what changed, <= 10 lines                  |',
     '| write a document > 100 lines  | Sonnet       | the path plus <= 5 lines                   |',
     '',
     'Every dispatch prompt you write ends with an explicit line budget'].join('\n'));
   has(body, [
     "- **Every other sub-agent's model is your choice**, per the table in section 2:",
-    '  `{{MODEL}}` for implementation, TDD, fixes and any judgment call the story',
-    '  hinges on; Sonnet for documents over 100 lines; Haiku for exploration,',
-    '  single-fact lookups, log grepping, and running or summarising tests. Spend',
-    '  model capability where judgment is needed and not elsewhere.'].join('\n'));
+    '  Sonnet for implementation, TDD, fixes (`bajzi:implementer`, `bajzi:fixer` where a',
+    '  slice exists) and documents over 100 lines; `{{MODEL}}` only for a judgment call',
+    '  the story hinges on; Haiku for exploration, single-fact lookups, log grepping,',
+    '  and running or summarising tests. Spend model capability where judgment is',
+    '  needed and not elsewhere.'].join('\n'));
 });
 
 test('GLM DELEGATION_MODELS names glm -p for implementation and fixes, not the orchestrator model', () => {

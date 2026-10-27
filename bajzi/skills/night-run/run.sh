@@ -1126,7 +1126,7 @@ prompt_for(){ # id slug note brief_path deadline_epoch finalize_epoch budget_sec
   local plan_line="" plan_path
   if [ "${3#PLAN: }" != "$3" ]; then
     plan_path=${3#PLAN: }; plan_path=$(trim "${plan_path%%::*}")
-    plan_line="Implement exactly the approved plan at $plan_path. Generate its slices (docs/slice-format.md, section Plan -> slices), run each through /bajzi:implement, /bajzi:review and /bajzi:fix, and tick the plan's checkbox for each closed task. Do not change the plan's scope; a needed scope change is PARKED with the question written down.
+    plan_line="Implement exactly the approved plan at $plan_path. Generate its slices (docs/slice-format.md, section Plan -> slices), run each through /bajzi:implement, then one /bajzi:review (and /bajzi:fix) over the whole sprint range after the last slice, and tick the plan's checkbox for each closed task. Do not change the plan's scope; a needed scope change is PARKED with the question written down.
 "
   fi
   cat <<P

@@ -42,7 +42,7 @@ test('run.sh prompt_for emits the plan instruction for a PLAN: note only', (t) =
   const plan = dry('PLAN: docs/plans/x.md :: it works');
   assert.match(plan, /Implement exactly the approved plan at docs\/plans\/x\.md\. Generate its slices/);
   assert.match(plan, /Story: P1 .*PLAN: docs\/plans\/x\.md :: it works/);
-  assert.match(plan, /run each through \/bajzi:implement, \/bajzi:review and \/bajzi:fix, and tick the plan's checkbox for each closed task/);
+  assert.match(plan, /run each through \/bajzi:implement, then one \/bajzi:review \(and \/bajzi:fix\) over the whole sprint range after the last slice, and tick the plan's checkbox for each closed task/);
   assert.match(plan, /a needed scope change is PARKED with the question written down/);
   assert.doesNotMatch(dry('plain criteria'), /approved plan at/);
   assert.match(dry('PLAN: docs/plans/x.md :: '), /BLOCKED P1 .*no acceptance criteria.*4th column is 'PLAN: docs\/plans\/x\.md ::/);

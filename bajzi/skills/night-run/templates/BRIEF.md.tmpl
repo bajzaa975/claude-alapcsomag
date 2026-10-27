@@ -108,18 +108,21 @@ there is no Claude fallback.
   DELEGATION_TABLE:
   ```
 | locate code, explore layout   | Haiku        | paths plus <= 10 lines, no file contents   |
-| implement a slice, TDD        | `{{MODEL}}`  | files changed, test counts, <= 15 lines    |
+| implement a slice, TDD        | Sonnet       | files changed, test counts, <= 15 lines    |
 | run a test suite              | Haiku        | pass/fail counts, failing test names only  |
 | review a diff                 | `{{REVIEWER_MODEL}}`, always | the section 4 verdict, <= 20 lines |
-| fix review findings           | `{{MODEL}}`  | what changed, <= 10 lines                  |
+| fix review findings           | Sonnet       | what changed, <= 10 lines                  |
 | write a document > 100 lines  | Sonnet       | the path plus <= 5 lines                   |
   ```
 
   DELEGATION_MODELS:
   ```
-`{{MODEL}}` for implementation, TDD, fixes and any judgment call the story
-  hinges on; Sonnet for documents over 100 lines; Haiku for exploration,
-  single-fact lookups, log grepping, and running or summarising tests.
+- **Every other sub-agent's model is your choice**, per the table in section 2:
+  Sonnet for implementation, TDD, fixes (`bajzi:implementer`, `bajzi:fixer` where a
+  slice exists) and documents over 100 lines; `{{MODEL}}` only for a judgment call
+  the story hinges on; Haiku for exploration, single-fact lookups, log grepping,
+  and running or summarising tests. Spend model capability where judgment is
+  needed and not elsewhere.
   ```
 
   Renderer: substitute every placeholder, then strip this comment. Detecting an
@@ -471,17 +474,19 @@ uncommitted work once.
    criteria) and the documents that row, plan or the add-on rules point at.
    Delegate any read over 300 lines.
 3. **TDD.** Write the failing test first, then the code that makes it pass. The
-   review loop in section 4 checks for this, and a slice with no new test is a
-   blocking finding.
+   review loop in section 4 checks for this. A slice whose changed logic has no
+   test is a TEST GAP finding: reported, never blocking; a finding with a failing
+   case or wrong-behaviour evidence is blocking.
 4. Update the story's own source in the same PR. For an add-on story, edit its
    tracker row: honest coding percent, honest testing state. For a plan story,
    tick the plan's checkboxes for each closed task (the plan file is the
    progress record).
    Never another story's row, never owner-only columns.
    A plan story generates slices from the plan (`docs/slice-format.md`, section
-   Plan -> slices) and runs each through `/bajzi:implement`, `/bajzi:review` and
-   `/bajzi:fix`; that per-slice review does not replace the section 4 story-level
-   review loop, which still runs on the whole diff.
+   Plan -> slices) and runs each through `/bajzi:implement`; after the last slice,
+   `/bajzi:review` and `/bajzi:fix` over the whole sprint range (`findings-cli.js
+   sprint`) ARE the section 4 story-level review loop: one review of the whole
+   diff, two rounds max.
 5. **One PR per story, and at most one open at a time**, into
    `{{BASE_BRANCH}}`: `gh pr create --base {{BASE_BRANCH}}`. PR body in English:
    what, why, evidence (test command and counts), non-blocking review findings,
@@ -502,9 +507,9 @@ that produces PRs and one that produces CORRECT PRs.
 
 | role        | model                | sees                                  |
 |-------------|----------------------|---------------------------------------|
-| implementer | `{{MODEL}}`          | the story, the code                   |
+| implementer | Sonnet (`bajzi:implementer`) | the story, the code           |
 | reviewer    | **`{{REVIEWER_MODEL}}`, ALWAYS** | the diff, and the criteria it reads itself |
-| fixer       | `{{MODEL}}`          | the findings, the code                |
+| fixer       | Sonnet (`bajzi:fixer`)       | the findings, the code        |
 
 - The reviewer is **always `{{REVIEWER_MODEL}}`** (the reviewer allow-list's first entry),
   even when `{{MODEL}}` is the same model.
@@ -589,6 +594,10 @@ that produces PRs and one that produces CORRECT PRs.
 5. `BLOCKING = 0` and an EVIDENCE line is present → the story is **review-green**.
 6. NON-BLOCKING findings are copied into the PR body and the night report. They
    NEVER gate the loop — otherwise a nitpick spins the story until the timeout.
+   TEST GAP findings (a missing or weak test, no wrong behaviour shown) are
+   NON-BLOCKING, listed under their own heading in the PR body and the report; a
+   finding with a failing case, a repro or wrong-behaviour evidence is never a
+   test gap.
 
 ### 4.3 Green means two separate things
 

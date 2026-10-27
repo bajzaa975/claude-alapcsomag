@@ -40,12 +40,14 @@ whatever the per-story orchestrator is, and whatever model wrote the code. The r
 not a variable, and it never drops a tier because a diff looks small.
 
 The loop does not stop after one pass. Findings go to a FIXER sub-agent — never the reviewer that
-raised them — and the fix gets a NEW reviewer round. Fix → review → fix → review, until it
-comes back clean. A single fix wave is not a loop.
+raised them — and the fix gets a NEW reviewer round; at most two rounds (BRIEF 4.5), still
+blocking after round 2 is PARKED for the owner.
 
 **Clean** means zero Critical AND zero Important findings AND the repo's own gate green. Minor and
 cosmetic findings are collected into the morning report for the owner, never looped on — style nits
-regenerate forever and would burn the night without making anything safer.
+regenerate forever and would burn the night without making anything safer. A test gap (a missing
+or weak test, no wrong behaviour shown) is reported, never looped on and never blocks; a finding
+with a failing case or wrong-behaviour evidence is never a test gap.
 
 Nothing is reported DONE, and nothing is merged, before that loop terminates clean. "The tests
 pass" is not done. "The implementer says it works" is not done. A clean review round plus a green
