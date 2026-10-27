@@ -30,3 +30,7 @@ test('autopilot: decision-log instruction, no-node fallback, closing report path
   assert.ok(SKILL.includes('referencing the decision log path'));
   assert.ok(!SKILL.includes('referencing DECISIONS.md'));
 });
+
+test('autopilot: rule 6 includes the sprint closing lines from review', () => {
+  assert.ok(SKILL.includes("each sprint's closing lines from the review skill (`bajzi:review`) (the six time lines and the Tier 1 majors)"));
+});

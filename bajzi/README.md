@@ -116,8 +116,7 @@ A token-efficient working method for Claude Code and Cowork.
 Each agent sets `effort:` in its frontmatter (reviewer high, implementer medium,
 implementer-risk high, fixer medium; Claude Code 2.1.292+). Day-run passes the routing row's
 effort on every Claude dispatch: low for locate/map, tests and long-file reads, medium for
-implement, fix and documents, high for risk slices (and their fixes), debugging and reviews, xhigh for the final
-whole-branch review. Your own session effort is never changed. Briefs for locate/map, tests, long-file read,
+implement, fix and documents, high for risk slices (and their fixes), debugging and reviews, xhigh for the one sprint review (its round 2 at high); the full gate runs once per sprint at the end of the review loop. Your own session effort is never changed. Briefs for locate/map, tests, long-file read,
 implement and fix end with a pacing sentence; review, debugging and documents briefs never do.
 
 ## Saver levels

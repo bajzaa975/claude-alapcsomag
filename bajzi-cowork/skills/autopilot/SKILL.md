@@ -50,7 +50,7 @@ The user is not at the machine; from now on you work unsupervised. Rules:
 6. **CLOSING REPORT:** at the end of the run write `runtime/AUTOPILOT-REPORT.md`: completed items
    (with test status), a summary of the decisions made on the user's behalf (referencing the decision log path),
    PARKED and BLOCKED items, the test gaps recorded in `runtime/findings/test-gaps.md` (listed for the owner,
-   never fixed in the run), and a "LET'S REVIEW THIS TOGETHER" list in priority order, numbered in the same
+   never fixed in the run), each sprint's closing lines from the review skill (`bajzi:review`) (the six time lines and the Tier 1 majors), and a "LET'S REVIEW THIS TOGETHER" list in priority order, numbered in the same
    `<n>. <question> -> recommended: <answer> (<why>)` format, all in ONE round: the owner's `yes`
    accepts every recommendation, `yes except <n>: <answer>` overrides single rows.
    Give a terse extract of the same in the chat.

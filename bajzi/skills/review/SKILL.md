@@ -22,13 +22,23 @@ the skill has no other round.
 4. Print the validate line (verdict + open counts, test-gap last). Then `FC gaps <that file>`: appends every open test-gap
    finding to `runtime/findings/test-gaps.md` (idempotent) and prints the count; print it. Test gaps never reach the fixer,
    `debt.md` or `needs-owner.md`; list them in the closing report.
-5. Round 1: `CLEAN` -> done. Otherwise next step: `/bajzi:fix runtime/findings/<slice-id>-r1.md`.
+5. Round 1: `CLEAN` -> step 7. Otherwise next step: `/bajzi:fix runtime/findings/<slice-id>-r1.md`.
 6. Round 2: `FC close "<slice-id>"` applies D4 (test-gap findings are skipped by the close) — open blocker/major and every ATTEMPTED,
    unaccounted or fix-introduced finding -> `runtime/findings/needs-owner.md` (written first);
    open minor/nit the fixer marked OUT_OF_SLICE -> `runtime/findings/debt.md`. Print its output
    verbatim, including any `DEBT CAP HIT` line, then list the new `needs-owner.md` lines. Exit 4 =
    the owner lines are written but `debt.md` refused the merge (the ids it names are NOT parked):
    print it and tell the owner. STOP: there is no further round in the skill; a third round is
-   the owner's call, started by hand.
+   the owner's call, started by hand. Then step 7.
+7. **Sprint end** (after a round-1 `CLEAN`, after the round-2 close, same for a lone slice). The repo's full gate (the command its README
+   or CLAUDE.md names) runs ONCE per sprint, here, with `run_in_background`, while you write the closing bookkeeping (decision-log
+   entry, handoff). Slice `test:` commands and the pre-commit gate are the per-slice and fix-round checks, not the full gate. The gate is
+   never skipped: CLEAN needs its exit 0; red -> fix through the debugging row and re-run the gate, no third review round. A night-run
+   story session skips this step: the brief's merge gate is the sprint's one gate, never both. When the gate finishes print the closing
+   report (from `runtime/DAY-RUN.log` timestamps, commit times and dispatch durations; prefix `~` on an estimate): six lines
+   `code: <n> min`, `bookkeeping: <n> min`, `review: <n> min`, `fix: <n> min`, `tests: <n> min`, `gate: <n> min`, then one line
+   `tier-1 r1 majors: <slice-id> <n>` per Tier 1 slice of the sprint (round-1 blocker + major findings located in that slice's `files:`;
+   `tier-1 r1 majors: none` when there is no Tier 1 slice). Rule: when two consecutive sprints show Tier 1 round-1 majors at about
+   twice the project's recorded baseline for Opus-written Tier 1 slices, raise it with the owner as a scope question (Tier 1 back to Opus).
 
 Any other `FC` or git exit code a step above does not name -> print its output and the exit code, STOP.
