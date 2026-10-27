@@ -50,3 +50,8 @@ test('outside a git repo: dir created, no .gitignore written', () => {
   assert.ok(fs.existsSync(path.join(d, 'runtime', 'handoff')));
   assert.ok(!fs.existsSync(path.join(d, '.gitignore')));
 });
+
+test('SKILL template has ## Pending decisions between NEXT STEP and Decisions', () => {
+  const a = SKILL.indexOf('## NEXT STEP'), p = SKILL.indexOf('## Pending decisions'), d = SKILL.indexOf('## Decisions / pitfalls');
+  assert.ok(a >= 0 && a < p && p < d);
+});

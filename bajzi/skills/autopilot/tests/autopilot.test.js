@@ -15,7 +15,9 @@ test('autopilot: owner-question format on BLOCKED entries and the review list', 
 
 test('autopilot: bookkeeping once per sprint, test gaps in the closing report', () => {
   assert.ok(SKILL.includes('ONE entry per sprint'));
-  assert.ok(SKILL.includes('once at the end of each sprint'));
+  assert.ok(SKILL.includes('## Pending decisions'));
+  assert.ok(SKILL.includes('after every slice commit'));
+  assert.ok(!SKILL.includes('once at the end of each sprint'));
   assert.ok(SKILL.includes('runtime/findings/test-gaps.md'));
   assert.ok(!SKILL.includes('IMMEDIATELY'));
   assert.ok(!SKILL.includes('after every closed item'));

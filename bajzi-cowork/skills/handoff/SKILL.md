@@ -68,12 +68,13 @@ Owner-session: <this session's name and ref, e.g. session-96 [b69cb7]>
 ## Where we are
 ## Done
 ## NEXT STEP (exactly, start with this)
+## Pending decisions
 ## Decisions / pitfalls
 ## Affected files (paths)
 ## SUGGESTED OPENING PROMPT
 ```
 
-The `## Where we are` … `## Affected files` part must be at most ~40 lines.
+The `## Where we are` … `## Affected files` part must be at most ~40 lines. `## Pending decisions` lists the decisions made since the last decision-log commit, one line each. Rewrite the file (it is untracked) after every slice commit, every review verdict, at ~40% context and before any stop or park.
 
 **Never write a token, key, password or other secret into a handover** — name where it lives
 instead (e.g. "the Z.ai key in the env file"). The handover is re-injected every session and
