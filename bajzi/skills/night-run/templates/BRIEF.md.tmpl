@@ -103,7 +103,7 @@ there is no Claude fallback.
   summarising tests.
   ```
 
-  DELEGATION VARIANT L0/L1 (the default, unchanged text):
+  DELEGATION VARIANT L0/L1 (the default):
 
   DELEGATION_TABLE:
   ```
@@ -117,12 +117,10 @@ there is no Claude fallback.
 
   DELEGATION_MODELS:
   ```
-- **Every other sub-agent's model is your choice**, per the table in section 2:
-  Sonnet for implementation, TDD, fixes (`bajzi:implementer`, `bajzi:fixer` where a
+Sonnet for implementation, TDD, fixes (`bajzi:implementer`, `bajzi:fixer` where a
   slice exists) and documents over 100 lines; `{{MODEL}}` only for a judgment call
   the story hinges on; Haiku for exploration, single-fact lookups, log grepping,
-  and running or summarising tests. Spend model capability where judgment is
-  needed and not elsewhere.
+  and running or summarising tests.
   ```
 
   Renderer: substitute every placeholder, then strip this comment. Detecting an

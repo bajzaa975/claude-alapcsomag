@@ -38,7 +38,7 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    modifying CI config (.github/), DB migration on live data, MAJOR version bump of a dependency,
    changing the task's original goal/scope. If you run into one of these: record it in
    the sprint's decision-log entry marked **BLOCKED** (written at once if the run stops), and continue with the next task. When an owner answer would
-   unpark it, the entry ends with one line `<n>. <question> -> recommended: <answer> (<why, <= 1 sentence>)`.
+   unpark it, the entry gets one line per blocked item `<n>. <question> -> recommended: <answer> (<why, <= 1 sentence>)`.
 4. **STUCK RULE:** at most 3 fix attempts per error; after that the item is **PARKED**
    (state + what you tried into the decision log), and you move on. A parked item does not stop
    the whole run.

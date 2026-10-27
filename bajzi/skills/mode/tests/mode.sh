@@ -1279,6 +1279,12 @@ out="$(spcli sprint zz 2>&1)"; rc=$?
 out="$(spcli sprint nope 2>&1)"; rc=$?
 [ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'no slices runtime/slices/nope-t' && pass "16k3 sprint with no slice files -> exit 2" || fail "16k3 sprint" "rc=$rc $out"
 
+# 16j4: the sprint procedure is pinned in the skills and the slice format.
+if grep -q 'FC gaps' "$BAJZI_DIR/skills/review/SKILL.md" \
+    && grep -q 'FC sprint' "$BAJZI_DIR/skills/implement/SKILL.md" \
+    && grep -q '^## Sprint file' "$BAJZI_DIR/../docs/slice-format.md"; then
+    pass "16j4 review names FC gaps, implement names FC sprint, slice-format has Sprint file"; else fail "16j4" "pin missing"; fi
+
 # 16h: the four skills exist, are named, and route through findings-cli.js + the shared dispatch template.
 for s in implement review fix debt; do
     f="$SKILLS/$s/SKILL.md"
@@ -1316,12 +1322,6 @@ printf 'tight\n' > "$SESS/sA.level"
 out=$(printf '{"session_id":"sB","prompt":"x \\"session_id\\":\\"sA\\"","cwd":"%s"}' "$FAKE_CWD" \
     | sclean HOME="$FAKE_HOME" CLAUDE_PLUGIN_ROOT="$FAKE_ROOT" BAJZI_SAVER_LAUNCHER=bash bash "$HOOK_SH")
 expect "17i an escaped session_id inside a string is ignored -> sB's L2" "$out" 'SAVER LEVEL L2' 'SAVER LEVEL L3'
-
-# 16j4: the sprint procedure is pinned in the skills and the slice format.
-if grep -q 'FC gaps' "$BAJZI_DIR/skills/review/SKILL.md" \
-    && grep -q 'FC sprint' "$BAJZI_DIR/skills/implement/SKILL.md" \
-    && grep -q '^## Sprint file' "$BAJZI_DIR/../docs/slice-format.md"; then
-    pass "16j4 review names FC gaps, implement names FC sprint, slice-format has Sprint file"; else fail "16j4" "pin missing"; fi
 
 # 17j-l: the routing counter counts against THIS session's level. Machine default glm (sonnet is
 # a violation at L2), session sA set light (sonnet is fine at L1).

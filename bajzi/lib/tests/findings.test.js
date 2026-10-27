@@ -717,3 +717,54 @@ test('FC drain: a fresh open test gap goes to test-gaps.md as debt/<id>, never t
     assert.ok(gaps.includes('- debt/F10 · app/F10.py:1 · defect F10 · '), gaps);
   } finally { t.rm(); }
 });
+
+function sprintTestLine(t, tests) {
+  t.g('init', '-q'); t.w('a', '0'); t.g('add', '.'); t.g('commit', '-qm', 'base');
+  tests.forEach((x, i) => t.w(`runtime/slices/sq-t${i + 1}.md`, sliceDoc(`sq-t${i + 1}`, 2, `f${i}.js`, 'x', x)));
+  t.w('f', 'x'); t.g('add', 'f'); t.g('commit', '-qm', 'sq-t1: implement');
+  const r = t.run('sprint', 'sq');
+  assert.strictEqual(r.status, 0, r.stderr);
+  return t.fs.readFileSync(t.path.join(t.d, 'runtime/slices/sq.md'), 'utf8').match(/^test: (.*)$/m)[1];
+}
+
+test('FC sprint: a slice test with ; or || cannot mask another slice failing', () => {
+  const t = cliRepo('sprint3-');
+  try {
+    const line = sprintTestLine(t, ['false', 'true; true']);
+    assert.notStrictEqual(require('child_process').spawnSync('bash', ['-c', line], { cwd: t.d }).status, 0, line);
+  } finally { t.rm(); }
+});
+
+test('FC sprint: a cd in one slice test does not move the next slice test', () => {
+  const t = cliRepo('sprint4-');
+  try {
+    t.fs.mkdirSync(t.path.join(t.d, 'sub'));
+    const line = sprintTestLine(t, ['cd sub && true', 'pwd > where.txt']);
+    const r = require('child_process').spawnSync('bash', ['-c', line], { cwd: t.d });
+    assert.strictEqual(r.status, 0, line);
+    assert.ok(t.fs.existsSync(t.path.join(t.d, 'where.txt')), 'second test ran in the repo root');
+  } finally { t.rm(); }
+});
+
+test('FC sprint: a sub-command shared by several slice tests runs once', () => {
+  const t = cliRepo('sprint5-');
+  try {
+    const line = sprintTestLine(t, ['node --test a && node --test b', 'node --test b && node --test c', 'node --test a']);
+    assert.strictEqual(line, 'node --test a && node --test b && node --test c');
+  } finally { t.rm(); }
+});
+
+test('FC drain: two drains with the same fresh test-gap id both keep their gap', () => {
+  const t = cliRepo('drain2-');
+  try {
+    const debt = F.mergeToDebt('', [{ id: 'F1', severity: 'minor', location: 'a.py:1', file: 'a.py', finding: 'f', if_unfixed: 'u', why_severity: 'm', test: 'none' }], { origin: 's1', parked: '2026-01-01' });
+    for (const [n, loc] of [[1, 'app/one.py:1'], [2, 'app/two.py:2']]) {
+      t.w('runtime/findings/debt.md', debt);
+      t.w('runtime/findings/debt-r2.md', r2([['s1/F1', 'minor', 'resolved'], ['F1', 'test-gap', 'open']]).replace('s42', 'debt').replace('app/F1.py:1', loc));
+      const r = t.run('drain', 'runtime/findings/debt-r2.md');
+      assert.strictEqual(r.status, 0, r.stderr);
+    }
+    const gaps = t.fs.readFileSync(t.path.join(t.d, 'runtime/findings/test-gaps.md'), 'utf8');
+    assert.ok(gaps.includes('app/one.py:1') && gaps.includes('app/two.py:2'), gaps);
+  } finally { t.rm(); }
+});

@@ -417,8 +417,11 @@ test('L0/L1 variant extracted by the documented rule reproduces the Claude-tier 
     '  Sonnet for implementation, TDD, fixes (`bajzi:implementer`, `bajzi:fixer` where a',
     '  slice exists) and documents over 100 lines; `{{MODEL}}` only for a judgment call',
     '  the story hinges on; Haiku for exploration, single-fact lookups, log grepping,',
-    '  and running or summarising tests. Spend model capability where judgment is',
-    '  needed and not elsewhere.'].join('\n'));
+    '  and running or summarising tests. Spend',
+    '  model capability where judgment is needed and not elsewhere.'].join('\n'));
+  const s7 = body.slice(body.indexOf('## 7. Model policy'), body.indexOf('## 8. Queue'));
+  assert.strictEqual(s7.split("Every other sub-agent's model is your choice").length, 2, 'lead-in bullet once');
+  assert.strictEqual(s7.split('Spend').length, 2, '"Spend model capability" once');
 });
 
 test('GLM DELEGATION_MODELS names glm -p for implementation and fixes, not the orchestrator model', () => {
