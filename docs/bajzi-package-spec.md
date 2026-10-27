@@ -1454,7 +1454,12 @@ specified here.
   variables first (the scrub set in `cc-router.js`; `launch.sh` of the night-run skill is the
   reference list). Headless sessions it starts have no status line, so the context guard allows
   everything there (§6.6).
-- **Owner questions tool.** An orchestrator that wires an `orch-bus` MCP server with an `ask_owner` tool into a session sets `ORCH_BUS_PANE` (non-empty) in that session's env; `ask-owner.js` then injects the owner-questions rule (route every owner question/decision and manual owner step through the tool, one chat line, reversible = default taken and no wait, `blocking=true` only for risky/irreversible and never in a session without a person at the keyboard, no secrets in any field; tool absent = unchanged behaviour). Without that variable nothing is injected.
+- **Owner questions tool.** An orchestrator that wires an `orch-bus` MCP server with an `ask_owner`
+  tool into a session sets `ORCH_BUS_PANE` (non-empty) in that session's env; `ask-owner.js` then
+  injects the owner-questions rule (route every owner question/decision and manual owner step
+  through the tool, one chat line, reversible = default taken and no wait, `blocking=true` only for
+  risky/irreversible and never in a session without a person at the keyboard, no secrets in any
+  field; tool absent = unchanged behaviour). Without that variable nothing is injected.
 - **Mod layout.** The `nightrun-pane` mod reads an external orchestrator's `runtime/nightrun`
   layout, not the `NIGHT_DIR` of `/bajzi:night-run` (§2 row "Mods").
 
