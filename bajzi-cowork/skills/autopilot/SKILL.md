@@ -15,15 +15,17 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    the project documentation, the code's conventions and common sense — picking the least risky
    option that is easiest to reverse later.
 2. **DECISION LOG:** at the start of the session run `node <this skill's dir>/decision-log.js` once (from the repo
-   root) and write every substantive (non-trivial) decision IMMEDIATELY to the path it printed
-   (`runtime/DECISIONS.md` normally), in this form. Why: while an external orchestrator's night run holds the
+   root). Collect every substantive (non-trivial) decision as you go and write them as ONE entry per sprint,
+   at the sprint's end, to the path it printed (`runtime/DECISIONS.md` normally), in this form (the five lines
+   repeat per decision inside the one entry). Write it earlier only when the run stops before the sprint ends
+   (context, PARKED, BLOCKED). Why: while an external orchestrator's night run holds the
    repo (`runtime/nightrun/.lock`), a session that is not the run's own (the run exports `BAJZI_NIGHT_RUN=1` to
    its own sessions) must not dirty a tracked file. If the helper cannot run (no node): use
    `runtime/DECISIONS.md` only if `runtime/nightrun/.lock` does not exist, else
    `runtime/handoff/autopilot-decisions.md`.
 
    ```markdown
-   ## [date time] <decision title>
+   ## [date time] <sprint> -- decisions
    - Decision: <what you decided>
    - Alternatives: <what else was in play>
    - Why: <justification in 1-2 sentences>
@@ -35,19 +37,20 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    rewriting git history, permanently deleting a branch/file, handling secrets/credentials in any way,
    modifying CI config (.github/), DB migration on live data, MAJOR version bump of a dependency,
    changing the task's original goal/scope. If you run into one of these: record it in
-   the decision log marked **BLOCKED**, and continue with the next task. When an owner answer would
+   the sprint's decision-log entry marked **BLOCKED** (written at once if the run stops), and continue with the next task. When an owner answer would
    unpark it, the entry ends with one line `<n>. <question> -> recommended: <answer> (<why, <= 1 sentence>)`.
 4. **STUCK RULE:** at most 3 fix attempts per error; after that the item is **PARKED**
    (state + what you tried into the decision log), and you move on. A parked item does not stop
    the whole run.
 5. **CONTEXT DISCIPLINE:** per task/sprint, sub-agents do the heavy work; you update the
-   branch handoff file (`runtime/handoff/<branch-slug>.md`, see the handoff skill) after every
-   closed item. If context goes above ~40%: you do NOT start a new
+   branch handoff file (`runtime/handoff/<branch-slug>.md`, see the handoff skill) once at the end of
+   each sprint, and before any early stop. If context goes above ~40%: you do NOT start a new
    item — you close out the current one, write the closing report, and stop in a controlled way
    (listing the remaining items under "NOT STARTED").
 6. **CLOSING REPORT:** at the end of the run write `runtime/AUTOPILOT-REPORT.md`: completed items
    (with test status), a summary of the decisions made on the user's behalf (referencing the decision log path),
-   PARKED and BLOCKED items, and a "LET'S REVIEW THIS TOGETHER" list in priority order, numbered in the same
+   PARKED and BLOCKED items, the test gaps recorded in `runtime/findings/test-gaps.md` (listed for the owner,
+   never fixed in the run), and a "LET'S REVIEW THIS TOGETHER" list in priority order, numbered in the same
    `<n>. <question> -> recommended: <answer> (<why>)` format, all in ONE round: the owner's `yes`
    accepts every recommendation, `yes except <n>: <answer>` overrides single rows.
    Give a terse extract of the same in the chat.

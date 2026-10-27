@@ -19,7 +19,7 @@ const RULES = {
   ],
   M: [
     'The bajzi pre-commit gate must pass; never --no-verify.',
-    'Review: the reviewer allow-list model (Opus) reviews Tier 1 and Tier 2 slices.',
+    'Review: Sonnet writes every slice; the reviewer allow-list model (Opus) reviews each sprint once over its whole commit range, two rounds max; test gaps are listed, never looped on.',
     'UAT checklist per release: docs/uat/<release>.md, ticked on the deployed sandbox.',
     'Deploy description: docs/DEPLOY.md (target, how to deploy, how to check, rollback).',
     'Done = S + gate green + review CLEAN + UAT checklist passed.',

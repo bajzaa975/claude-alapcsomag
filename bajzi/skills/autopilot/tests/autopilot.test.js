@@ -13,6 +13,14 @@ test('autopilot: owner-question format on BLOCKED entries and the review list', 
   assert.ok(SKILL.includes('`yes except <n>: <answer>` overrides single rows'));
 });
 
+test('autopilot: bookkeeping once per sprint, test gaps in the closing report', () => {
+  assert.ok(SKILL.includes('ONE entry per sprint'));
+  assert.ok(SKILL.includes('once at the end of each sprint'));
+  assert.ok(SKILL.includes('runtime/findings/test-gaps.md'));
+  assert.ok(!SKILL.includes('IMMEDIATELY'));
+  assert.ok(!SKILL.includes('after every closed item'));
+});
+
 test('autopilot: decision-log instruction, no-node fallback, closing report path', () => {
   assert.ok(SKILL.includes("run `node <this skill's dir>/decision-log.js` once"));
   assert.ok(SKILL.includes('to the path it printed'));

@@ -15,7 +15,7 @@ A token-efficient working method for Claude Code and Cowork.
 | `/bajzi:mode` | day-run working mode on/off, status | any time |
 | `/bajzi:night-run` | plans and launches an unattended overnight run | at bedtime |
 | `/bajzi:implement <id>` | implements one slice from `runtime/slices/<id>.md` through the implementer agents | per slice |
-| `/bajzi:review <slice> <range>` | reviews a commit range through the reviewer agent | after a slice is committed |
+| `/bajzi:review <slice> <range>` | reviews a commit range through the reviewer agent | after the sprint's last slice is committed |
 | `/bajzi:fix <findings-file>` | fixes round-1 findings, then runs the round-2 re-review | after a review with findings |
 | `/bajzi:debt` | checks, drains or calibrates parked review debt | before a slice / at a milestone |
 | `/bajzi:radar [now\|install]` | biweekly read-only review of the Claude setup | every two weeks |

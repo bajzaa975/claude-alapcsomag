@@ -10,7 +10,7 @@
 5. **One task = one focused session;** exit the session at the end of the task (`/exit`).
 
 ## Context guard + handoff (all projects)
-- After every closed subtask, update `runtime/handoff/<slug>.md`, where `/bajzi:handoff` derives
+- At the end of each sprint (and before any early stop), update `runtime/handoff/<slug>.md`, where `/bajzi:handoff` derives
   `<slug>` from the current branch (`handoff-load.sh` resolves the same name). Keep it to at most
   40 lines: where we are, what is done, the exact next step, decisions and pitfalls, affected file
   paths. Create the directory if it does not exist. The `/bajzi:handoff` skill does this.

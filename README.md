@@ -114,11 +114,10 @@ Check the install with `claude plugin list`.
 ### Orchestration
 
 - **Day-run mode** (`/bajzi:mode`) — a working mode that injects a routing table at session start:
-  locating, mapping, tests/lint/build and long-file summaries go to haiku; documents and specified
-  slices to sonnet; risk-bearing slices (locks, concurrency, quotas, auth, money, migrations,
-  destructive scripts) to opus; every diff review to the reviewer models set in the manifest
+  locating, mapping, tests/lint/build and long-file summaries go to haiku; documents and every
+  slice (risk-bearing ones too) to sonnet; debugging keeps an opus rung; each sprint's one diff review to the reviewer models set in the manifest
   (`reviewer_models`). Design and planning stay on the session's own model. Escalation ladder:
-  sonnet round 1, fresh sonnet round 2, opus round 3, the orchestrator round 4, then park.
+  sonnet round 1, fresh sonnet round 2, the orchestrator round 3, then park (debugging keeps an opus rung).
   Each class also carries a subagent effort (Claude Code 2.1.292+), passed as the Agent tool's
   `effort` parameter: low for locating/mapping, tests/lint/build and long-file reads; medium for
   implementation, fixes and documents; high for risk slices (and their fixes), debugging and every review; xhigh
@@ -127,11 +126,11 @@ Check the install with `claude plugin list`.
   ("Time matters here: ..."); review, debugging and documents briefs never do.
 - **Slice** — one unit of work described in `runtime/slices/<id>.md` (tier, files it may touch,
   acceptance criteria, test command); format in [`docs/slice-format.md`](docs/slice-format.md).
-- **Agents** — `implementer` (sonnet, medium effort, tier 2/3 slices), `implementer-risk` (opus,
+- **Agents** — `implementer` (sonnet, medium effort, tier 2/3 slices), `implementer-risk` (sonnet,
   high, tier 1 slices), `reviewer` (opus, high, read-only, returns a findings file), `fixer`
   (sonnet, medium, fixes every finding, never sees severity). Findings file format: [`docs/findings-format.md`](docs/findings-format.md).
-- **Review loop** — `/bajzi:implement <id>`, then `/bajzi:review <slice> <range>`, then
-  `/bajzi:fix <findings-file>`. Routing and the two-round cap are decided by code on files, not by
+- **Review loop** — `/bajzi:implement <id>`, per slice; after the last slice `/bajzi:review <sprint> <range>` (`findings-cli.js sprint`), then
+  `/bajzi:fix <findings-file>`. Test gaps go to `runtime/findings/test-gaps.md`. Routing and the two-round cap are decided by code on files, not by
   the model. After round 2, open findings go to the owner (`needs-owner.md`) or are parked as debt
   (`debt.md`).
 - **Pre-commit gate** — `/bajzi:project-setup` can install a pre-commit hook (secret scan, lint,
