@@ -5,6 +5,9 @@
 // throws on an invalid file, so a malformed file never reaches the fixer, debt.md or the owner.
 
 const SEVERITIES = ['nit', 'minor', 'major', 'blocker']; // ascending
+// A fifth value, deliberately outside SEVERITIES: a missing or weak test with no wrong behaviour shown.
+// It never reaches the fixer, debt.md or the owner queue (escalate and calibrate never see it).
+const TEST_GAP = 'test-gap';
 const MAX_BYTES = 24 * 1024;
 const MAX_FINDINGS = 40;
 const DEBT_MAX_TOTAL = 15;
@@ -85,7 +88,14 @@ function validate(text) {
   for (const f of doc.findings) {
     if (seen.has(f.id)) errors.push(`${f.id}: duplicate id`);
     seen.add(f.id);
-    if (f.severity && !SEVERITIES.includes(f.severity)) errors.push(`${f.id}: bad severity: ${f.severity}`);
+    if (f.severity && !SEVERITIES.includes(f.severity) && f.severity !== TEST_GAP) errors.push(`${f.id}: bad severity: ${f.severity}`);
+    if (f.severity === TEST_GAP) {
+      if (doc.kind === 'debt') errors.push(`${f.id}: a test gap never parks in debt.md`);
+      if (!/^test-gap - no failing case found/.test(f.why_severity || '')) {
+        errors.push(`${f.id}: test-gap why_severity must start "test-gap - no failing case found"; a finding with a failing case, repro or wrong-behaviour evidence is rated by the behaviour`);
+      }
+      if (/^none$/i.test(f.test || '')) errors.push(`${f.id}: test-gap must name the test to write (test: none is not a test gap)`);
+    }
     for (const k of required) if (!f[k]) errors.push(`${f.id}: missing field: ${k}`);
     if (doc.round === 2) {
       if (!f.status) errors.push(`${f.id}: missing field: status`);
@@ -94,8 +104,8 @@ function validate(text) {
   }
   const verdict = doc.header.verdict;
   if (doc.kind === 'findings' && verdict) {
-    // Round 2 counts only findings still open; round 1 counts all.
-    const n = doc.findings.filter((f) => f.status !== 'resolved').length;
+    // Round 2 counts only findings still open; round 1 counts all. Test gaps never count.
+    const n = doc.findings.filter((f) => f.status !== 'resolved' && f.severity !== TEST_GAP).length;
     const vm = verdict.match(/^(?:CLEAN|FINDINGS (\d+))$/);
     if (!vm) errors.push(`header: verdict must be CLEAN or FINDINGS <n>, got "${verdict}"`);
     else if ((vm[1] === undefined ? 0 : Number(vm[1])) !== n || (vm[1] !== undefined && n === 0)) {
@@ -126,7 +136,7 @@ function renderBlocks(title, findings, keep, withSeverity) {
 function stripForFixer(text) {
   const doc = mustValidate(text);
   const title = doc.kind === 'debt' ? '# Fixer copy · debt' : `# Fixer copy · ${doc.slice} · round ${doc.round}`;
-  return renderBlocks(title, doc.findings, ['finding', 'test'], false);
+  return renderBlocks(title, doc.findings.filter((f) => f.severity !== TEST_GAP), ['finding', 'test'], false);
 }
 
 // The blind re-rate copy (D7): severity, why_severity and any earlier blind_severity removed;
@@ -149,15 +159,17 @@ function parseFixerReport(report) {
 
 function escalate(sev) { return SEVERITIES[Math.min(SEVERITIES.indexOf(sev) + 1, SEVERITIES.length - 1)]; }
 
-// D4, applied after the one re-review. Returns {resolved, owner, debt}; owner entries carry the
+// D4, applied after the one re-review. Returns {resolved, owner, debt, testGaps}; owner entries carry the
 // post-escalation `severity`, the `original_severity` and a `reason`.
 //   resolved                                  -> closed
+//   open test gap (new in round 2 included)   -> testGaps, whatever the fixer report says
 //   open, fixer marked OUT_OF_SLICE:
 //       blocker/major                         -> owner (as rated)
 //       minor/nit                             -> debt
 //   open, fixer ATTEMPTED it or claimed fixed -> one level up -> owner
 //   open, new in round 2 -> owner as rated: the fix introduced it, so it is in-slice, never debt
 //   round-1 id absent from round 2 -> owner as rated: the re-review did not account for it
+//                                     (a round-1 test gap never counts: it was not in the fixer copy)
 // round1 is required: without it neither of the last two branches is knowable.
 function applyClosePolicy(round2, fixerReport, round1) {
   const doc = mustValidate(round2);
@@ -169,9 +181,10 @@ function applyClosePolicy(round2, fixerReport, round1) {
   }
   const prev = new Set(first.findings.map((f) => f.id));
   const marks = parseFixerReport(fixerReport);
-  const out = { resolved: [], owner: [], debt: [] };
+  const out = { resolved: [], owner: [], debt: [], testGaps: [] };
   for (const f of doc.findings) {
     if (f.status === 'resolved') { out.resolved.push(f); continue; }
+    if (f.severity === TEST_GAP) { out.testGaps.push(f); continue; }
     const mark = marks.get(f.id);
     if (!prev.has(f.id)) {
       out.owner.push({ ...f, original_severity: f.severity, reason: `open ${f.severity}, new in round 2 (introduced by the fix)` });
@@ -190,7 +203,7 @@ function applyClosePolicy(round2, fixerReport, round1) {
   }
   const seen = new Set(doc.findings.map((f) => f.id));
   for (const f of first.findings) {
-    if (!seen.has(f.id)) {
+    if (!seen.has(f.id) && f.severity !== TEST_GAP) {
       out.owner.push({ ...f, original_severity: f.severity, reason: `${f.severity} missing from round 2: the re-review did not account for it` });
     }
   }
@@ -239,5 +252,5 @@ function debtCapHit(debtText) {
 
 module.exports = {
   parse, validate, stripForFixer, applyClosePolicy, debtCapHit, mergeToDebt, stripSeverity,
-  parseFixerReport, SEVERITIES, MAX_BYTES, MAX_FINDINGS, DEBT_MAX_TOTAL, DEBT_MAX_PER_FILE,
+  parseFixerReport, SEVERITIES, TEST_GAP, MAX_BYTES, MAX_FINDINGS, DEBT_MAX_TOTAL, DEBT_MAX_PER_FILE,
 };

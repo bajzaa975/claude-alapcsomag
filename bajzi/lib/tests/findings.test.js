@@ -32,12 +32,14 @@ files_reviewed: 3
 
 // Round-2 file builder: rows = [id, severity, status, location?]
 function r2(rows) {
-  const open = rows.filter((r) => r[2] !== 'resolved').length;
+  const open = rows.filter((r) => r[2] !== 'resolved' && r[1] !== 'test-gap').length;
   let s = `# Findings · s42 · round 2\nrange: abc1234..0123abc\nreviewer: opus\n` +
     `verdict: ${open ? `FINDINGS ${open}` : 'CLEAN'}\nfiles_reviewed: 2\n`;
   for (const [id, sev, status, loc] of rows) {
+    const gap = sev === 'test-gap';
     s += `\n## ${id} · ${sev} · ${loc || `app/${id}.py:1`}\nfinding: defect ${id}\n` +
-      `if_unfixed: users see ${id}\nwhy_severity: rubric ${sev}\ntest: none\nstatus: ${status}\n`;
+      `if_unfixed: users see ${id}\nwhy_severity: ${gap ? `test-gap - no failing case found; ${id} untested` : `rubric ${sev}`}\n` +
+      `test: ${gap ? `tests/t.py::test_${id} (to write)` : 'none'}\nstatus: ${status}\n`;
   }
   return s;
 }
@@ -551,4 +553,167 @@ test('FC slice: fifth acceptance line verbatim after the unchanged four; fixer t
   assert.match(disp, /debt drain leaves it out/);
   assert.match(fs.readFileSync(path.join(__dirname, '..', '..', 'skills', 'fix', 'SKILL.md'), 'utf8'), /`files:`, `test:` and `acceptance:`/);
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+// ---------- test-gap severity (speed rules) ----------
+
+const GAP_R1 = r1([['F1', 'major'], ['F2', 'test-gap']]);
+
+test('test-gap severity validates in a findings file and is refused in a debt file', () => {
+  assert.strictEqual(F.TEST_GAP, 'test-gap');
+  assert.ok(!F.SEVERITIES.includes('test-gap'));
+  assert.deepStrictEqual(F.validate(GAP_R1).errors, []);
+  const debt = '# Debt\n\n## s42/F2 · test-gap · app/F2.py:1\nfinding: f\nif_unfixed: u\n' +
+    'why_severity: test-gap - no failing case found; x\ntest: tests/t.py::t (to write)\norigin: s42\nparked: 2026-01-01\n';
+  const v = F.validate(debt);
+  assert.ok(v.errors.includes('s42/F2: a test gap never parks in debt.md'), v.errors.join(' | '));
+  assert.strictEqual(F.debtCapHit(debt).hit, true);
+});
+
+test('test-gap requires the attestation why_severity and a named test', () => {
+  const noAtt = GAP_R1.replace('test-gap - no failing case found; F2 untested', 'rubric test-gap');
+  const v = F.validate(noAtt);
+  assert.ok(v.errors.some((e) => e.startsWith('F2: test-gap why_severity must start "test-gap - no failing case found"')), v.errors.join(' | '));
+  const none = GAP_R1.replace('tests/t.py::test_F2 (to write)', 'None');
+  assert.ok(F.validate(none).errors.includes('F2: test-gap must name the test to write (test: none is not a test gap)'));
+});
+
+test('verdict excludes test gaps: FINDINGS n counts only other findings; only test gaps = CLEAN', () => {
+  assert.ok(GAP_R1.includes('verdict: FINDINGS 1'));
+  assert.deepStrictEqual(F.validate(GAP_R1).errors, []);
+  assert.ok(F.validate(GAP_R1.replace('FINDINGS 1', 'FINDINGS 2')).errors.some((e) => e.startsWith('header: verdict')));
+  const only = r1([['F2', 'test-gap']]);
+  assert.ok(only.includes('verdict: CLEAN'));
+  assert.deepStrictEqual(F.validate(only).errors, []);
+  assert.ok(F.validate(only.replace('CLEAN', 'FINDINGS 1')).errors.some((e) => e.startsWith('header: verdict')));
+});
+
+test('round 2: an open test gap does not count in the verdict', () => {
+  const t = r2([['F1', 'major', 'resolved'], ['F2', 'test-gap', 'open']]);
+  assert.ok(t.includes('verdict: CLEAN'));
+  assert.deepStrictEqual(F.validate(t).errors, []);
+});
+
+test('stripForFixer drops test-gap findings; only test gaps -> empty fixer copy', () => {
+  const out = F.stripForFixer(GAP_R1);
+  assert.ok(out.includes('## F1 ·') && !out.includes('F2') && !out.includes('test_F2'));
+  const empty = F.stripForFixer(r1([['F2', 'test-gap']]));
+  assert.ok(!empty.includes('## '));
+});
+
+test('D4: open test-gap in round 2 -> testGaps, never owner or debt, whatever the fixer report says', () => {
+  for (const report of ['FIX s42 DONE 1/2', 'FIX s42 DONE 0/2\nF2 OUT_OF_SLICE', 'FIX s42 DONE 0/2\nF2 ATTEMPTED: x']) {
+    const r = close([['F1', 'major', 'resolved'], ['F2', 'test-gap', 'open']], report);
+    assert.deepStrictEqual([byId(r.testGaps), r.owner, r.debt, byId(r.resolved)], [['F2'], [], [], ['F1']]);
+  }
+});
+
+test('D4: a round-1 test gap absent from round 2 is not unaccounted', () => {
+  const r = F.applyClosePolicy(r2([['F1', 'major', 'resolved']]), 'FIX s42 DONE 1/1', GAP_R1);
+  assert.deepStrictEqual([r.owner, r.debt, r.testGaps], [[], [], []]);
+  assert.deepStrictEqual(byId(r.resolved), ['F1']);
+});
+
+test('D4: a test gap new in round 2 -> testGaps, not owner', () => {
+  const r = F.applyClosePolicy(r2([['F1', 'major', 'resolved'], ['F3', 'test-gap', 'open']]), 'FIX s42 DONE 1/1', r1([['F1', 'major']]));
+  assert.deepStrictEqual([byId(r.testGaps), r.owner], [['F3'], []]);
+});
+
+test('mergeToDebt refuses a test-gap item', () => {
+  const item = { ...F.parse(GAP_R1).findings[1], origin: 's42', parked: 'd' };
+  assert.throws(() => F.mergeToDebt('', [item], { origin: 's42', parked: '2026-01-01' }), /test gap never parks in debt/);
+});
+
+// ---------- FC sprint / FC gaps ----------
+
+function cliRepo(prefix) {
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const { execFileSync, spawnSync } = require('child_process');
+  const cli = path.join(__dirname, '..', 'findings-cli.js');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const g = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: d, encoding: 'utf8' }).trim();
+  const w = (f, c) => { fs.mkdirSync(path.dirname(path.join(d, f)), { recursive: true }); fs.writeFileSync(path.join(d, f), c); };
+  const run = (...a) => spawnSync('node', [cli, ...a], { cwd: d, encoding: 'utf8' });
+  return { fs, path, d, g, w, run, rm: () => fs.rmSync(d, { recursive: true, force: true }) };
+}
+const sliceDoc = (id, tier, files, acc, test) => `# Slice · ${id}\ntier: ${tier}\nfiles: ${files}\nacceptance: ${acc}\ntest: ${test}\n`;
+
+test('FC sprint: writes <stem>.md (lowest tier, union files, joined acceptance, distinct tests) and prints the range from the oldest implement commit', () => {
+  const t = cliRepo('sprint-');
+  try {
+    t.g('init', '-q'); t.w('a', '0'); t.g('add', '.'); t.g('commit', '-qm', 'base');
+    const base = t.g('rev-parse', 'HEAD');
+    t.w('runtime/slices/sp-t10.md', sliceDoc('sp-t10', 3, 'x.js', 'ten', 'none'));
+    t.w('runtime/slices/sp-t2.md', sliceDoc('sp-t2', 2, 'b.js, c.js', 'two', 'node --test b'));
+    t.w('runtime/slices/sp-t1.md', sliceDoc('sp-t1', 1, 'a.js, b.js', 'one', 'node --test a'));
+    t.w('runtime/slices/sp-t3.md', sliceDoc('sp-t3', 2, 'd.js', 'three', 'node --test b'));
+    t.w('runtime/slices/spx-t1.md', sliceDoc('spx-t1', 1, 'zzz', 'other', 'zzz'));
+    for (const n of [1, 2]) { t.w(`f${n}`, 'x'); t.g('add', `f${n}`); t.g('commit', '-qm', `sp-t${n}: implement`); }
+    t.w('f3', 'x'); t.g('add', 'f3'); t.g('commit', '-qm', 'sp-t3: fix r1 findings');
+    const tip = t.g('rev-parse', 'HEAD');
+    const r = t.run('sprint', 'sp');
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.deepStrictEqual(r.stdout.trim().split('\n'), ['slice: runtime/slices/sp.md', `range: ${base}..${tip}`]);
+    const out = t.fs.readFileSync(t.path.join(t.d, 'runtime/slices/sp.md'), 'utf8');
+    assert.strictEqual(out, '# Slice · sp\ngenerated: FC sprint from sp-t1, sp-t2, sp-t3, sp-t10\ntier: 1\n' +
+      'files: a.js, b.js, c.js, d.js, x.js\nacceptance: sp-t1: one; sp-t2: two; sp-t3: three; sp-t10: ten\n' +
+      'test: node --test a && node --test b\n');
+    const s = t.run('slice', 'sp'); // the generated file parses with the existing slice command
+    assert.strictEqual(s.status, 0, s.stderr);
+    assert.match(s.stdout, /^agent: bajzi:implementer-risk\ntier: 1\n/);
+  } finally { t.rm(); }
+});
+
+test('FC sprint: no <stem>-t*.md or no implement commit -> exit 2, nothing written', () => {
+  const t = cliRepo('sprint2-');
+  try {
+    t.g('init', '-q'); t.w('a', '0'); t.g('add', '.'); t.g('commit', '-qm', 'base');
+    let r = t.run('sprint', 'sp');
+    assert.strictEqual(r.status, 2); assert.match(r.stderr, /no slices runtime\/slices\/sp-t\*\.md/);
+    t.w('runtime/slices/sp-t1.md', sliceDoc('sp-t1', 2, 'a.js', 'one', 'none'));
+    r = t.run('sprint', 'sp');
+    assert.strictEqual(r.status, 2); assert.match(r.stderr, /no "sp-t<N>: implement" commit; nothing to review/);
+    assert.ok(!t.fs.existsSync(t.path.join(t.d, 'runtime/slices/sp.md')));
+    assert.strictEqual(t.run('sprint', 'Bad Id').status, 2);
+  } finally { t.rm(); }
+});
+
+test('FC gaps: appends open test gaps once per id and prints the count', () => {
+  const t = cliRepo('gaps-');
+  try {
+    t.w('runtime/findings/s42-r1.md', GAP_R1);
+    let r = t.run('gaps', 'runtime/findings/s42-r1.md');
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.strictEqual(r.stdout.trim(), 'test gaps: 1 new, 1 open -> runtime/findings/test-gaps.md');
+    const p = t.path.join(t.d, 'runtime/findings/test-gaps.md');
+    const txt = t.fs.readFileSync(p, 'utf8');
+    assert.strictEqual(txt, '# Test gaps\n\n- s42/F2 · app/F2.py:1 · defect F2 · tests/t.py::test_F2 (to write)\n');
+    r = t.run('gaps', 'runtime/findings/s42-r1.md');
+    assert.strictEqual(r.stdout.trim(), 'test gaps: 0 new, 1 open -> runtime/findings/test-gaps.md');
+    assert.strictEqual(t.fs.readFileSync(p, 'utf8'), txt);
+    t.w('runtime/findings/s43-r1.md', r1([['F1', 'major']]).replace('s42', 's43'));
+    assert.strictEqual(t.run('gaps', 'runtime/findings/s43-r1.md').stdout.trim(), 'test gaps: none');
+    assert.strictEqual(t.run('gaps').status, 2);
+    // validate prints the test-gap count; copy fixer says CLEAN when only gaps remain
+    assert.strictEqual(t.run('validate', 'runtime/findings/s42-r1.md').stdout.trim(), 'FINDINGS 1 · blocker 0 · major 1 · minor 0 · nit 0 · test-gap 1');
+    t.w('runtime/findings/s44-r1.md', r1([['F2', 'test-gap']]).replace('s42', 's44'));
+    assert.strictEqual(t.run('copy', 'fixer', 'runtime/findings/s44-r1.md').stdout.trim(), 'CLEAN: nothing to fix');
+  } finally { t.rm(); }
+});
+
+test('FC drain: a fresh open test gap goes to test-gaps.md as debt/<id>, never to the owner', () => {
+  const t = cliRepo('drain-');
+  try {
+    const debt = F.mergeToDebt('', [{ id: 'F1', severity: 'minor', location: 'a.py:1', file: 'a.py', finding: 'f', if_unfixed: 'u', why_severity: 'm', test: 'none' }], { origin: 's1', parked: '2026-01-01' });
+    t.w('runtime/findings/debt.md', debt);
+    const rev = r2([['s1/F1', 'minor', 'resolved'], ['F9', 'major', 'open'], ['F10', 'test-gap', 'open']]).replace('s42', 'debt');
+    t.w('runtime/findings/debt-r2.md', rev);
+    const r = t.run('drain', 'runtime/findings/debt-r2.md');
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^new -> needs-owner: F9$/m);
+    const owner = t.fs.readFileSync(t.path.join(t.d, 'runtime/findings/needs-owner.md'), 'utf8');
+    assert.ok(owner.includes('- drain/F9 · ') && !owner.includes('F10'));
+    const gaps = t.fs.readFileSync(t.path.join(t.d, 'runtime/findings/test-gaps.md'), 'utf8');
+    assert.ok(gaps.includes('- debt/F10 · app/F10.py:1 · defect F10 · '), gaps);
+  } finally { t.rm(); }
 });

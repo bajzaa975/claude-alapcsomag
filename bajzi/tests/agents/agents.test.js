@@ -153,7 +153,7 @@ const PINS = {
     'mcp__code-review-graph__detect_changes_tool', 'mcp__code-review-graph__get_review_context_tool'] },
   fixer: { model: 'sonnet', tools: ['Read', 'Edit', 'Grep', 'Glob', 'Bash'] },
   implementer: { model: 'sonnet', tools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'] },
-  'implementer-risk': { model: 'opus', tools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'] },
+  'implementer-risk': { model: 'sonnet', tools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'] },
 };
 
 test('every shipped agent matches its pinned {model, tools}', () => {
@@ -178,9 +178,9 @@ test('reviewer output contract has no trailing VERDICT: line', () => {
 // repo, where the doc does not exist. Each rubric line must appear verbatim.
 test('reviewer rubric lines match docs/findings-format.md verbatim', () => {
   const doc = fs.readFileSync(FORMAT_DOC, 'utf8');
-  const lines = doc.split(/\r?\n/).filter((l) => /^- \*\*(blocker|major|minor|nit)\*\* - /.test(l)
-    || /^Changed logic without a test is at least major\.$/.test(l));
-  assert.strictEqual(lines.length, 5, `rubric lines found in the doc: ${lines.length}`);
+  const lines = doc.split(/\r?\n/).filter((l) => /^- \*\*(blocker|major|minor|nit|test-gap)\*\* - /.test(l)
+    || /^A finding with a failing case, a repro or wrong-behaviour evidence is never a test gap: .*$/.test(l));
+  assert.strictEqual(lines.length, 6, `rubric lines found in the doc: ${lines.length}`);
   const body = read('reviewer.md');
   for (const l of lines) assert.ok(body.includes(l), `reviewer.md lacks: ${l}`);
 });
@@ -199,7 +199,7 @@ function checkChecklist(body) {
   const parts = [
     [sec.slice(s, f), [/Injection/, /Secrets/, /deserialization/, /authorization/, /Temp files/, /TLS verification/, /weak hashing/, /CSRF/, /substring or unanchored/, /sibling/, /exposes more fields/]],
     [sec.slice(f, d), [/swallowed exception/, /\|\| true/, /fallback or default/, /Optional chaining/, /retry loop/]],
-    [sec.slice(sec.indexOf('Tests, comments, data shapes:'), d), [/^Tests, comments, data shapes:$/m, /cannot fail.*is minor, unless it is the only test of changed logic/, /regression/, /contradicts.*is a nit/, /TODO.*is a nit/, /invalid instance.*major.*else minor/]],
+    [sec.slice(sec.indexOf('Tests, comments, data shapes:'), d), [/^Tests, comments, data shapes:$/m, /cannot fail.*is a test-gap/, /regression/, /contradicts.*is a nit/, /TODO.*is a nit/, /invalid instance.*major.*else minor/]],
     [sec.slice(d), [/Denial of service/, /Trusted inputs/, /Parameterized SQL/, /already existed outside the diff/, /Theoretical issues/, /serves no HTTP/, /telemetry keys/, /intended feature/, /internal-only/, /workflow_dispatch/]],
   ];
   for (const [part, res] of parts) {
@@ -228,7 +228,7 @@ test('fixture: checklist check rejects a last-heading overlong section and a mis
   const noHeading = body.replace('Tests, comments, data shapes:\n', '');
   assert.notStrictEqual(noHeading, body);
   assert.match(checkChecklist(noHeading), /not in its own sub-list/);
-  const noSeverity = body.replace('is minor, unless', 'unless');
+  const noSeverity = body.replace('is a test-gap', 'is');
   assert.notStrictEqual(noSeverity, body);
   assert.match(checkChecklist(noSeverity), /cannot fail/);
 });
@@ -246,12 +246,12 @@ test('fixture: per-agent body-length cap', () => {
 });
 
 // implementer-risk is implementer plus exactly one inserted block (the Tier-1 rule) and a
-// different model. Any other divergence (wording drift, a second edit) fails this.
-test('implementer.md and implementer-risk.md bodies differ only in the Tier-1 block + model', () => {
+// different effort. Any other divergence (wording drift, a second edit) fails this.
+test('implementer.md and implementer-risk.md bodies differ only in the Tier-1 block + effort', () => {
   const a = parseAgent(read('implementer.md'));
   const b = parseAgent(read('implementer-risk.md'));
   assert.strictEqual(a.fields.model, 'sonnet');
-  assert.strictEqual(b.fields.model, 'opus');
+  assert.strictEqual(b.fields.model, 'sonnet');
   assert.strictEqual(a.fields.tools, b.fields.tools, 'tools must match between the two agents');
 
   const aLines = a.body.trim().split(/\r?\n/);
@@ -313,7 +313,7 @@ test('reviewer pins the policy checks rule', () => {
 
 test('spec §6.12 lens sentence carries the reviewer lens severities', () => {
   const spec = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'docs', 'bajzi-package-spec.md'), 'utf8').replace(/\s+/g, ' ');
-  assert.match(spec, /a test that cannot fail is minor unless it is the only test of changed logic, then major/);
+  assert.match(spec, /a test that cannot fail, or a missing test, is a test-gap/);
   assert.match(spec, /a comment or docstring the changed code contradicts is a nit/);
   assert.match(spec, /a completed TODO left in place is a nit/);
   assert.match(spec, /an invalid-constructible type is major when it guards money, security or persisted data, else minor/);

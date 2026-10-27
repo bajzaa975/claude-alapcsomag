@@ -10,7 +10,10 @@
 //
 //   slice <id>                     runtime/slices/<id>.md -> the agent to dispatch; `test: none`
 //                                  prints `test: skip` (the skills run no test); id `debt` is reserved
-//   validate <findings-file>       verdict + counts by severity; name must match slice/round
+//   validate <findings-file>       verdict + counts by severity (test gaps last); name must match slice/round
+//   sprint <stem>                  runtime/slices/<stem>-t<N>.md -> runtime/slices/<stem>.md (lowest tier,
+//                                  union files, joined acceptance, distinct tests); prints `slice:` and the
+//                                  `range: <base>..<tip>` from the oldest `<stem>-t<N>: implement` commit
 //   copy fixer <findings|debt>     writes <file>.fixer.md; a round-2 file, or an r1 whose slice
 //                                  already has an r2 -> STOP (exit 3)
 //   copy blind                     writes debt.blind.md (severity-stripped, D7)
@@ -19,6 +22,7 @@
 //                                  round 1 when <slice>-r2.md exists -> STOP (exit 3)
 //   brief calibrate                writes the --calibrate brief (GRAPH opt-out line, guard R1)
 //   close <slice>                  D4 on r1 + r2 + r1.report.md -> needs-owner.md FIRST, then debt.md, then D6
+//   gaps <findings-file>           open test-gap findings -> runtime/findings/test-gaps.md (once per id)
 //   check                          D6 debt cap: exit 4 on hit
 //   drain <review-file>            drops resolved debt entries, new ones -> needs-owner.md
 //   calibrate <rerate-file>        writes blind_severity; only disagreements -> needs-owner.md
@@ -71,15 +75,18 @@ function mustParse(text, what) {
   return v.doc;
 }
 
-// needs-owner.md: one line per decision, appended; an identical line is never added twice.
-function toOwner(lines) {
+// An append-only list under runtime/findings: one line per entry; an entry whose key is already
+// present is never added twice. Returns the number of lines added.
+function appendUnique(name, title, lines, key = (l) => l) {
   if (!lines.length) return 0;
-  const p = at('needs-owner.md');
-  let text = read(p) || '# Needs owner\n\n';
+  const p = at(name);
+  let text = read(p) || `${title}\n\n`;
   if (!text.endsWith('\n')) text += '\n';
+  const have = new Set(text.split(/\r?\n/).map(key));
   let n = 0;
   for (const l of lines) {
-    if (text.split(/\r?\n/).includes(l)) continue;
+    if (have.has(key(l))) continue;
+    have.add(key(l));
     text += `${l}\n`;
     n++;
   }
@@ -87,6 +94,11 @@ function toOwner(lines) {
   fs.writeFileSync(p, text);
   return n;
 }
+// needs-owner.md: one line per decision; an identical line is never added twice.
+const toOwner = (lines) => appendUnique('needs-owner.md', '# Needs owner', lines);
+// test-gaps.md: missing or weak tests, listed for the owner, never fixed or parked; idempotent per <slice>/<id>.
+const toGaps = (slice, findings) => appendUnique('test-gaps.md', '# Test gaps',
+  findings.map((f) => `- ${slice}/${f.id} · ${f.location} · ${f.finding} · ${f.test}`), (l) => l.split(' · ')[0]);
 const ownerLine = (id, f, rating, tail) => `- ${id} · ${f.location} · ${rating} · ${f.if_unfixed} · ${tail} · your call`;
 
 function writeDebt(findings) {
@@ -96,21 +108,53 @@ function writeDebt(findings) {
   fs.writeFileSync(at('debt.md'), text);
 }
 
+// runtime/slices/<id>.md -> {tier, files, acceptance, test}; exits 2 on a malformed file.
+function readSlice(id) {
+  checkId(id);
+  const p = path.posix.join('runtime/slices', `${id}.md`);
+  const lines = mustRead(p).split(/\r?\n/);
+  if ((lines.find((l) => l.trim()) || '').trim() !== `# Slice · ${id}`) die(2, `${p}: title must be "# Slice · ${id}"`);
+  const s = {};
+  for (const l of lines) { const m = l.match(/^(tier|files|acceptance|test):[ \t]*(.*)$/); if (m) s[m[1]] = m[2].trim(); }
+  for (const k of ['tier', 'files', 'acceptance', 'test']) if (!s[k]) die(2, `${p}: missing field: ${k}`);
+  if (!['1', '2', '3'].includes(s.tier)) die(2, `${p}: tier must be 1, 2 or 3, got ${s.tier}`);
+  checkFiles(p, s.files);
+  return s;
+}
+
 const cmds = {
   slice(id) {
     if (!id) die(2, 'usage: slice <id>');
     checkId(id);
     if (id === 'debt') die(2, 'slice id "debt" is reserved for the debt drain (debt.md, debt-r2.md); rename the slice');
-    const p = path.posix.join('runtime/slices', `${id}.md`);
-    const lines = mustRead(p).split(/\r?\n/);
-    if ((lines.find((l) => l.trim()) || '').trim() !== `# Slice · ${id}`) die(2, `${p}: title must be "# Slice · ${id}"`);
-    const s = {};
-    for (const l of lines) { const m = l.match(/^(tier|files|acceptance|test):[ \t]*(.*)$/); if (m) s[m[1]] = m[2].trim(); }
-    for (const k of ['tier', 'files', 'acceptance', 'test']) if (!s[k]) die(2, `${p}: missing field: ${k}`);
-    if (!['1', '2', '3'].includes(s.tier)) die(2, `${p}: tier must be 1, 2 or 3, got ${s.tier}`);
-    checkFiles(p, s.files);
+    const s = readSlice(id);
     console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${/^none$/i.test(s.test) ? 'skip' : s.test}
 acceptance: ${s.acceptance}`);
+  },
+
+  sprint(stem) {
+    if (!stem) die(2, 'usage: sprint <stem>');
+    checkId(stem, 'sprint stem');
+    const re = new RegExp(`^${stem}-t(\\d+)\\.md$`);
+    const ids = (fs.existsSync('runtime/slices') ? fs.readdirSync('runtime/slices') : []).map((f) => f.match(re)).filter(Boolean)
+      .sort((a, b) => Number(a[1]) - Number(b[1])).map((m) => m[0].slice(0, -3));
+    if (!ids.length) die(2, `no slices runtime/slices/${stem}-t*.md`);
+    const parts = ids.map((id) => ({ id, ...readSlice(id) }));
+    const commits = git(['log', '--format=%H', '-E', `--grep=^${stem}-t[0-9]+: implement$`]).trim().split('\n').filter(Boolean);
+    if (!commits.length) die(2, `no "${stem}-t<N>: implement" commit; nothing to review`);
+    const base = sha(`${commits[commits.length - 1]}^`);
+    const uniq = (xs) => [...new Set(xs)];
+    const tests = uniq(parts.map((x) => x.test).filter((t) => !/^none$/i.test(t)));
+    fs.writeFileSync(path.posix.join('runtime/slices', `${stem}.md`), [
+      `# Slice · ${stem}`,
+      `generated: FC sprint from ${ids.join(', ')}`,
+      `tier: ${Math.min(...parts.map((x) => Number(x.tier)))}`,
+      `files: ${uniq(parts.flatMap((x) => x.files.split(',').map((f) => f.trim()).filter(Boolean))).join(', ')}`,
+      `acceptance: ${parts.map((x) => `${x.id}: ${x.acceptance}`).join('; ')}`,
+      `test: ${tests.length ? tests.join(' && ') : 'none'}`,
+      '',
+    ].join('\n'));
+    console.log(`slice: runtime/slices/${stem}.md\nrange: ${base}..${sha('HEAD')}`);
   },
 
   validate(file) {
@@ -121,7 +165,7 @@ acceptance: ${s.acceptance}`);
     if (doc.kind !== 'findings') die(2, `${file}: not a findings file`);
     if (!m || m[1] !== doc.slice || Number(m[2]) !== doc.round) die(2, `${file}: name must be ${doc.slice}-r${doc.round}.md`);
     const open = doc.findings.filter((f) => f.status !== 'resolved');
-    const counts = F.SEVERITIES.slice().reverse().map((s) => `${s} ${open.filter((f) => f.severity === s).length}`);
+    const counts = [...F.SEVERITIES].reverse().concat(F.TEST_GAP).map((s) => `${s} ${open.filter((f) => f.severity === s).length}`);
     console.log(`${doc.header.verdict} · ${counts.join(' · ')}`);
   },
 
@@ -136,7 +180,7 @@ acceptance: ${s.acceptance}`);
     if (doc.kind === 'findings' && (doc.round === 2 || fs.existsSync(r2))) {
       die(3, `STOP: round 2 was the last skill round${doc.round === 2 ? '' : ` (${r2} exists)`}; what is open is routed by close. Round 3 is the owner's call.`);
     }
-    if (!doc.findings.length) return console.log('CLEAN: nothing to fix');
+    if (!doc.findings.some((f) => f.severity !== F.TEST_GAP)) return console.log('CLEAN: nothing to fix');
     const out = fwd(file).replace(/\.md$/, '.fixer.md');
     fs.writeFileSync(out, F.stripForFixer(read(file)));
     console.log(out);
@@ -269,6 +313,15 @@ acceptance: ${s.acceptance}`);
     if (cap.hit) console.log(`DEBT CAP HIT: ${cap.reasons.join('; ')}`);
   },
 
+  gaps(file) {
+    if (!file) die(2, 'usage: gaps <findings-file>');
+    const doc = mustParse(mustRead(file), file);
+    if (doc.kind !== 'findings') die(2, `${file}: not a findings file`);
+    const gaps = doc.findings.filter((f) => f.severity === F.TEST_GAP && f.status !== 'resolved');
+    if (!gaps.length) return console.log('test gaps: none');
+    console.log(`test gaps: ${toGaps(doc.slice, gaps)} new, ${gaps.length} open -> ${at('test-gaps.md')}`);
+  },
+
   check() {
     const cap = F.debtCapHit(read(at('debt.md')));
     if (cap.hit) die(4, `DEBT CAP HIT: ${cap.reasons.join('; ')}`);
@@ -283,8 +336,10 @@ acceptance: ${s.acceptance}`);
     const status = new Map(rev.findings.map((f) => [f.id, f]));
     const remain = debt.findings.filter((f) => !(status.get(f.id) && status.get(f.id).status === 'resolved'));
     const known = new Set(debt.findings.map((f) => f.id));
-    const fresh = rev.findings.filter((f) => !known.has(f.id) && f.status === 'open');
+    const open = rev.findings.filter((f) => !known.has(f.id) && f.status === 'open');
+    const fresh = open.filter((f) => f.severity !== F.TEST_GAP);
     writeDebt(remain);
+    toGaps('debt', open.filter((f) => f.severity === F.TEST_GAP));
     toOwner(fresh.map((f) => ownerLine(`drain/${f.id}`, f, f.severity, 'new in the drain review (introduced by the drain fix)')));
     console.log(`drained ${debt.findings.length - remain.length}, remain ${remain.length}`);
     for (const f of remain) console.log(`- ${f.id}: ${f.if_unfixed}`);

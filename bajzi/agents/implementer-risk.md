@@ -1,7 +1,7 @@
 ---
 name: implementer-risk
 description: Implements one Tier 1 slice.
-model: opus
+model: sonnet
 effort: high
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---

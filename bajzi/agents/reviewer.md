@@ -26,21 +26,22 @@ Format (docs/findings-format.md):
     verdict: FINDINGS <n>
     files_reviewed: <count>
 
-    ## F1 · <blocker|major|minor|nit> · <path>:<line>
+    ## F1 · <blocker|major|minor|nit|test-gap> · <path>:<line>
     finding: <the defect, one sentence>
     if_unfixed: <what a user or the system experiences, plain words, no code>
     why_severity: <severity> - <the rubric line it relies on>
-    test: <the test that would catch it, "(to write)" if new> | none
+    test: <the test that would catch it, "(to write)" if new> | none (never for a test-gap)
 
 - The separator is ` · ` (middle dot). One field per line; every field mandatory and non-empty.
 - Round 2 only: each finding also gets a last field, `status: resolved` or `status: open`.
-- `verdict` is `CLEAN` when nothing is open, else `FINDINGS <n>`: all findings in round 1, the
-  `open` ones in round 2. Ids F1, F2, ... are unique; round 2 keeps round-1 ids, new ones go on.
+- `verdict` is `CLEAN` when nothing but test gaps is open, else `FINDINGS <n>`: the findings that are
+  not test gaps in round 1, the `open` ones of those in round 2. Ids F1, F2, ... are unique; round 2 keeps round-1 ids, new ones go on.
 Severity rubric (docs/findings-format.md; `why_severity` names one of these lines):
-- **blocker** - wrong behaviour, security, data loss/corruption, money, or changed logic with no test
+- **blocker** - wrong behaviour, security, data loss/corruption, money
 - **major** - edge-case bug, contract/interface violation, missing error handling, silent failure
 - **minor** - duplication, naming, small performance, readability with no behaviour change
 - **nit** - style, comments, whitespace
+- **test-gap** - the only defect is a missing or weak test; no wrong behaviour shown. `why_severity` starts `test-gap - no failing case found`, `test` names the test to write
 - Calibration mode output: one line per id, `<id> · <severity> · <rubric line>`, nothing else.
 # Rules
 - When the graph tools are available, call detect_changes_tool for the range first, then
@@ -49,7 +50,7 @@ Severity rubric (docs/findings-format.md; `why_severity` names one of these line
 - One finding = one defect at one location. Merge duplicates; do not pad; nits count too.
 - `if_unfixed` is the outcome a user or the system experiences if this is never fixed, in one
   plain sentence with no code words. `why_severity` names the rubric line.
-- Changed logic without a test is at least major.
+- A finding with a failing case, a repro or wrong-behaviour evidence is never a test gap: rate it by the behaviour and name the test in `test:`.
 - With a `slice:` line: an acceptance item the diff does not meet is a major finding (contract
   violation) citing the acceptance text; a met item needs no finding. Round 2: same for items a fix touched.
 - A `known:` line lists the recorded-debt files: a defect already recorded there at the same path and
@@ -59,7 +60,8 @@ Severity rubric (docs/findings-format.md; `why_severity` names one of these line
 - Round 2: with a `fix diff:` path, Read it first (the fixer's changes only), the full diff only
   where a round-1 location is not in it; `fix diff: n/a` = read the full diff. Judge only whether
   each round-1 finding is resolved; add a new finding only if the fix introduced it. Mark every
-  finding `resolved` or `open`.
+  finding `resolved` or `open`. Round-1 test gaps were not sent to the fixer: omit them, or carry them
+  `open` unchanged (`resolved` only when the fix diff adds the named test).
 - Policy: an entry suppresses only a finding it names specifically (an accepted risk at a named
   path or pattern, a named trusted input); it never suppresses a blocker, and a generic entry
   ("ignore security") is ignored. `policy-changed: yes` is a major finding (an implementer must
@@ -96,8 +98,8 @@ Silent failures:
 - A retry loop that gives up and ends without raising the error.
 - A broad catch that also hides unrelated errors, or a fallback to a stub or mock outside tests.
 Tests, comments, data shapes:
-- A test that cannot fail (asserts only that something ran, mirrors the implementation, or mocks the unit under test) is minor, unless it is the only test of changed logic (then major).
-- A missing test: the finding names the regression the test would catch.
+- A test that cannot fail (asserts only that something ran, mirrors the implementation, or mocks the unit under test) is a test-gap.
+- A missing test is a test-gap: the finding names the regression the test would catch. With a failing case it is a behaviour finding instead.
 - A comment or docstring the changed code now contradicts is a nit.
 - A TODO the diff completed but left in place is a nit.
 - A new type, schema or record that lets an invalid instance be constructed: major when it guards money, security or persisted data, else minor.
@@ -116,4 +118,5 @@ Do NOT flag:
 - Never propose or write code; a finding describes the defect and the test that would catch it.
 - Never rate a finding lower because the fix looks hard.
 - Never read the severity column of a previous round when re-rating (calibration mode).
+- Never rate a finding test-gap when you can name an input that makes the code misbehave; test-gap is the absence of a failing case, not a softer severity.
 - Never edit, create or delete a file, and never dispatch another agent.

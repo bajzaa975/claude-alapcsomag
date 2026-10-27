@@ -30,9 +30,12 @@ test: none
 
 - Title: `# Findings · <slice-id> · round <n>`, `n` is 1 or 2. The separator is ` · ` (U+00B7).
 - Header, all mandatory: `range`, `reviewer`, `verdict`, `files_reviewed`.
-- `verdict`: `CLEAN` when no finding is open, else `FINDINGS <n>`, where `n` is the number of
-  findings in round 1 and the number of `open` findings in round 2.
-- Finding heading: `## <id> · <severity> · <path[:line]>`. Ids are unique within the file.
+- `verdict`: `CLEAN` when no finding other than a test gap is open, else `FINDINGS <n>`, where `n`
+  counts the findings that are not test gaps in round 1 and the `open` ones of those in round 2.
+- Finding heading: `## <id> · <severity> · <path[:line]>`. Ids are unique within the file. A test
+  gap reads `## <id> · test-gap · <path[:line]>`: `why_severity: test-gap - no failing case found;
+  <what is untested>`, `test: <test to write> (to write)` (never `none`), and `if_unfixed` describes a
+  future regression going unnoticed. Everywhere else the severity is blocker, major, minor or nit.
 - Finding fields, all mandatory and non-empty: `finding`, `if_unfixed`, `why_severity`, `test`
   (`none` when no test applies).
 - Round 2 only: `status: resolved | open` on every finding. Previous ids keep their id; a new
@@ -48,16 +51,21 @@ sentence with no code words. The owner judges this line, not the code.
 
 `why_severity` names the rubric line it relies on.
 
-- **blocker** - wrong behaviour, security, data loss/corruption, money, or changed logic with no test
+- **blocker** - wrong behaviour, security, data loss/corruption, money
 - **major** - edge-case bug, contract/interface violation, missing error handling, silent failure
 - **minor** - duplication, naming, small performance, readability with no behaviour change
 - **nit** - style, comments, whitespace
+- **test-gap** - the only defect is a missing or weak test; no wrong behaviour shown. `why_severity` starts `test-gap - no failing case found`, `test` names the test to write
 
-Changed logic without a test is at least major.
+A finding with a failing case, a repro or wrong-behaviour evidence is never a test gap: rate it by the behaviour and name the test in `test:`.
+
+The validator (`validate`, exit 2) enforces the test-gap rules: refused in a `# Debt` file, the
+`why_severity` attestation, and a named `test` (`none` is refused).
 
 ## Derived files
 
-- `<slice-id>-r<n>.fixer.md` (`stripForFixer`) - ids, locations, `finding`, `test`. Severity,
+- `<slice-id>-r<n>.fixer.md` (`stripForFixer`) - ids, locations, `finding`, `test`; test gaps are
+  dropped (a copy with nothing else left reads `CLEAN: nothing to fix`). Severity,
   `why_severity` and `if_unfixed` are removed: the fixer never learns how bad a finding is (D4).
 - Blind re-rate copy (`stripSeverity`, `/bajzi:debt --calibrate`) - ids, locations, `finding`,
   `if_unfixed`, `test`, `origin`; severity, `why_severity` and `blind_severity` removed (D7).
@@ -70,6 +78,11 @@ Changed logic without a test is at least major.
   decides, title `# Needs owner`, one appended line each:
   `- <id> · <location> · <rating> · <if_unfixed> · <reason> · your call`, where rating is the
   severity, `<new> (was <old>)` after an escalation, or `original: <x> · blind: <y>` (calibrate).
+- `runtime/findings/test-gaps.md` (`bajzi/lib/findings-cli.js:gaps`, `toGaps`) - the missing or weak
+  tests, title `# Test gaps`, append-only lines `- <slice>/<id> · <location> · <finding> · <test>`,
+  idempotent per `<slice>/<id>`; the owner clears it. Listed in the closing report, never fixed in the run.
+- `runtime/slices/<stem>.md` (`findings-cli.js sprint <stem>`) - the sprint's slice file generated from
+  the `<stem>-t<N>.md` slices: lowest tier, union of files, joined acceptance, distinct tests.
 
 ## Fixer report
 
@@ -87,9 +100,11 @@ The fixer's final message: `FIX <slice> DONE <fixed>/<total>`, then one line per
 | `open`, any severity | no line (fixer claimed it fixed) | owner, one level up |
 | `open`, new in round 2 | any (ignored) | owner, as rated: the fix introduced it, so it is in-slice |
 | round-1 id absent from round 2 | any | owner, at its round-1 severity (unaccounted) |
+| `test-gap`, any status | any | `test-gaps.md` (`FC gaps`); never owner, never debt |
+| round-1 test gap absent from round 2 | any | nothing (it was never in the fixer copy) |
 
 `applyClosePolicy(round2, fixerReport, round1)` requires the round-1 file of the same slice and
-throws without it. `debt.md` only ever receives what the fixer did not attempt (outside the slice).
+throws without it and returns `{resolved, owner, debt, testGaps}`. `debt.md` only ever receives what the fixer did not attempt (outside the slice).
 
 ## Debt cap (D6, `debtCapHit`)
 

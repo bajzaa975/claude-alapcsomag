@@ -1042,7 +1042,7 @@ if grep -q 'copy fixer' "$SKILLS/fix/SKILL.md" && grep -q 'STOP' "$SKILLS/fix/SK
 
 # 16b: review round 2 routes each D4 branch to the right file.
 out="$(cli validate runtime/findings/s1-r2.md)"
-[ "$out" = "FINDINGS 6 · blocker 0 · major 2 · minor 2 · nit 2" ] && pass "16b validate prints verdict + open counts" || fail "16b validate" "$out"
+[ "$out" = "FINDINGS 6 · blocker 0 · major 2 · minor 2 · nit 2 · test-gap 0" ] && pass "16b validate prints verdict + open counts" || fail "16b validate" "$out"
 out="$(cli close s1)"; rc=$?
 [ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | head -1)" = "closed 1 · owner 5 · debt 2" ] && pass "16b2 close summary" || fail "16b2 close" "rc=$rc $out"
 NO="$FD/needs-owner.md"; DB="$FD/debt.md"
@@ -1220,6 +1220,62 @@ is_deny "$(gpay 'calibrate debt' nograph.txt | dg_raw $G)" R1 && pass "16i6b the
 cp "$GR/runtime/findings/s9-r1.md" "$GR/runtime/findings/s9-r2.md"
 out="$(bcli brief review s9 1 "$B..$T" 2>&1)"; rc=$?
 [ $rc -eq 3 ] && printf '%s' "$out" | grep -q 'STOP: runtime/findings/s9-r2.md exists' && pass "16i7 round-1 review with an r2 on disk -> STOP exit 3" || fail "16i7" "rc=$rc $out"
+
+# 16j: test-gap findings (speed rules): counted apart, never in the fixer copy, listed once in test-gaps.md.
+gfnd() { # $1 id, $2 location, $3 status (optional): a test-gap finding with the attestation and a named test
+    printf '## %s · test-gap · %s\nfinding: untested %s\nif_unfixed: a later change breaks %s unnoticed\nwhy_severity: test-gap - no failing case found; %s is untested\ntest: tests/t.py::test_%s (to write)\n' \
+        "$1" "$2" "$1" "$1" "$1" "$1"
+    [ -n "${3:-}" ] && printf 'status: %s\n' "$3"
+    printf '\n'
+}
+{ hdr s2 1 'FINDINGS 1'; fnd F1 major app/a.py:1; gfnd F2 app/a.py:2; } > "$FD/s2-r1.md"
+out="$(cli copy fixer runtime/findings/s2-r1.md)"; rc=$?
+if [ $rc -eq 0 ] && grep -q '^## F1 ' "$FD/s2-r1.fixer.md" && ! grep -q 'F2' "$FD/s2-r1.fixer.md"; then
+    pass "16j copy fixer lacks the test gap"; else fail "16j copy fixer" "rc=$rc $out"; fi
+out="$(cli validate runtime/findings/s2-r1.md)"
+[ "$out" = "FINDINGS 1 · blocker 0 · major 1 · minor 0 · nit 0 · test-gap 1" ] && pass "16j validate prints test-gap 1" || fail "16j validate" "$out"
+out="$(cli gaps runtime/findings/s2-r1.md)"; rc=$?
+if [ $rc -eq 0 ] && [ "$out" = 'test gaps: 1 new, 1 open -> runtime/findings/test-gaps.md' ] \
+    && grep -qF -- '- s2/F2 · app/a.py:2 · untested F2 · tests/t.py::test_F2 (to write)' "$FD/test-gaps.md"; then
+    pass "16j gaps appends the open test gap"; else fail "16j gaps" "rc=$rc $out"; fi
+out="$(cli gaps runtime/findings/s2-r1.md)"
+[ "$out" = 'test gaps: 0 new, 1 open -> runtime/findings/test-gaps.md' ] && [ "$(grep -c '^- s2/F2 ' "$FD/test-gaps.md")" = 1 ] \
+    && pass "16j gaps is idempotent" || fail "16j gaps second run" "$out"
+{ hdr s2 2 'CLEAN'; fnd F1 major app/a.py:1 resolved; gfnd F2 app/a.py:2 open; } > "$FD/s2-r2.md"
+printf 'FIX s2 DONE 1/1\n' > "$FD/s2-r1.report.md"
+# 16j2: an open test gap in round 2 is neither closed work, owner work nor debt.
+out="$(cli close s2)"; rc=$?
+if [ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | head -1)" = 'closed 1 · owner 0 · debt 0' ]; then
+    pass "16j2 close ignores the test-gap bucket"; else fail "16j2 close" "rc=$rc $out"; fi
+nchk "16j2 test gap not sent to the owner" "s2/F2" "$NO"
+nchk "16j2 test gap not parked in debt" "s2/F2" "$DB"
+# 16j3: a test gap without the attestation is refused by validate (exit 2).
+{ hdr s3 1 'CLEAN'; gfnd F1 app/a.py:1 | sed 's/test-gap - no failing case found; //'; } > "$FD/s3-r1.md"
+out="$(cli validate runtime/findings/s3-r1.md 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'no failing case found' && pass "16j3 test gap without the attestation -> exit 2" || fail "16j3" "rc=$rc $out"
+
+# 16k: FC sprint turns <stem>-t<N> slices into one slice file and prints the range of the sprint.
+SP="$TMP/sprintrepo"; mkdir -p "$SP/runtime/slices"
+spg() { git -C "$SP" -c user.name=t -c user.email=t@t "$@"; }
+spcli() { (cd "$SP" && node "$CLI" "$@"); }
+spg init -q; printf '0\n' > "$SP/a"; spg add a; spg commit -qm base; SPB="$(spg rev-parse HEAD)"
+spslice() { printf '# Slice · sp-t%s\ntier: %s\nfiles: %s\nacceptance: %s\ntest: %s\n' "$1" "$2" "$3" "$4" "$5" > "$SP/runtime/slices/sp-t$1.md"; }
+spslice 1 2 'a.js, b.js' one 'node --test a'; spslice 2 1 'b.js, c.js' two 'node --test a'; spslice 3 3 'd.js' three none
+for n in 1 2 3; do printf '%s\n' "$n" > "$SP/f$n"; spg add "f$n"; spg commit -qm "sp-t$n: implement"; done
+SPT="$(spg rev-parse HEAD)"
+out="$(spcli sprint sp)"; rc=$?
+f="$SP/runtime/slices/sp.md"
+if [ $rc -eq 0 ] && [ "$out" = "$(printf 'slice: runtime/slices/sp.md\nrange: %s..%s' "$SPB" "$SPT")" ] \
+    && grep -qx '# Slice · sp' "$f" && grep -qx 'generated: FC sprint from sp-t1, sp-t2, sp-t3' "$f" && grep -qx 'tier: 1' "$f" \
+    && grep -qx 'files: a.js, b.js, c.js, d.js' "$f" && grep -qx 'acceptance: sp-t1: one; sp-t2: two; sp-t3: three' "$f" \
+    && grep -qx 'test: node --test a' "$f" && spcli slice sp | grep -qx 'agent: bajzi:implementer-risk'; then
+    pass "16k sprint writes the sprint slice file and prints slice + range"; else fail "16k sprint" "rc=$rc $out"; fi
+printf '# Slice · zz-t1\ntier: 2\nfiles: a.js\nacceptance: x\ntest: none\n' > "$SP/runtime/slices/zz-t1.md"
+out="$(spcli sprint zz 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'no "zz-t<N>: implement" commit' && [ ! -f "$SP/runtime/slices/zz.md" ] \
+    && pass "16k2 sprint without an implement commit -> exit 2, nothing written" || fail "16k2 sprint" "rc=$rc $out"
+out="$(spcli sprint nope 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'no slices runtime/slices/nope-t' && pass "16k3 sprint with no slice files -> exit 2" || fail "16k3 sprint" "rc=$rc $out"
 
 # 16h: the four skills exist, are named, and route through findings-cli.js + the shared dispatch template.
 for s in implement review fix debt; do
