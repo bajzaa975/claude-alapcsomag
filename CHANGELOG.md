@@ -2,6 +2,15 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.30.0
+- Changed: Sonnet writes every slice; `implementer-risk` (Tier 1) is Sonnet at effort high with a failing test per changed branch; Opus only reviews; debugging without a repro keeps its Opus rung
+- Changed: the review unit is a sprint: one review over the sprint's whole range (round 1 xhigh, round 2 high), two rounds max, then the close
+- Added: `findings-cli.js sprint <stem>` (generates `runtime/slices/<stem>.md`, each slice test in its own subshell, prints the range) and `gaps <findings-file>`; `test-gap` severity: test gaps are listed for the owner, never a fix round, never debt
+- Changed: handoff file (untracked) rewritten after every slice commit, review verdict, ~40% context and before any stop or park, with a `## Pending decisions` section; the decision log is committed once per sprint
+- Changed: the full gate runs once per sprint at the end of the review loop, in the background; the review skill prints a sprint closing report (six time lines, Tier 1 round-1 majors)
+- Changed: pre-commit gate runs pyright/tsc only when a file each checks is staged (deletions and both sides of a rename count)
+- Changed: day-run rules allow provider/consumer slice pairs in parallel once the plan fixes the interface
+
 ## 1.29.1
 - Changed: night-run triage tick saves orphaned tracked WIP to `runtime/handoff/night-watch-orphan-<stamp>.patch` (proven with `git apply --check -R`, then restored; staged content the worktree no longer holds ESCALATEs untouched) instead of `git stash push`, which the night settings already denied; a stash is a ref change mid-run.
 

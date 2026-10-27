@@ -135,7 +135,7 @@ from PowerShell: always launch bash suites from **Git Bash itself**, not from th
 | agents live contract - reviewer/fixer (opt-in, real `claude -p` at L0) | `BAJZI_CONTRACT=1 node --test bajzi/tests/agents/contract.test.js` | `<repo>` | Git Bash; needs a logged-in `claude` (plain CLI, never a shim); set `TMP` to a scratch directory you control if the default temp dir is not writable; without the flag it is `# skipped 1` inside the node suite |
 | agents live contract - implementer (opt-in, real `claude -p` at L0) | `BAJZI_CONTRACT=1 node --test bajzi/tests/agents/contract-implementer.test.js` | `<repo>` | Git Bash; needs a logged-in `claude` (plain CLI, never a shim); `HOME`/`USERPROFILE` must stay real (decoying them loses the CLI credentials, "Not logged in"); without the flag it is `# skipped 1` inside the node suite |
 | bajzi-cowork build drift | `node --test tools/tests/cowork-variant.test.js` | `<repo>` | Git Bash or PowerShell |
-| public-docs checks (README paths and keys, licence fields, shared rules; the shared rules and the handoff-path phrase `runtime/handoff/<slug>.md`) | `node --test tools/tests/public-docs.test.js` | `<repo>` | Git Bash or PowerShell |
+| public-docs checks (README paths and keys, licence fields, the shared rules and the handoff-path phrase `runtime/handoff/<slug>.md`) | `node --test tools/tests/public-docs.test.js` | `<repo>` | Git Bash or PowerShell |
 | public tree (no tracked file has a Hungarian accented letter or cites the deleted plan) | `node --test tools/tests/public-tree.test.js` | `<repo>` | Git Bash or PowerShell |
 | night-run add-on contract (`ADDON_SKILLS`) | `node --test bajzi/skills/night-run/tests/addon-skills.test.js` | `<repo>` | Git Bash or PowerShell |
 | night-run story branch namespace (`BRANCH_NAMESPACE`: dry-run prompt, BRIEF/settings render, exit 2 on a bad value) | `bash bajzi/skills/night-run/tests/branch-namespace.sh` (a few seconds) | `<repo>` | Git Bash or Linux |
@@ -2396,8 +2396,8 @@ Current versions (the `release.test.js` row reads the first line below):
 
 | Release unit | Current version | Where the version lives |
 |---|---|---|
-| bajzi plugin release | 1.29.1 | `bajzi/.claude-plugin/plugin.json` `version` and `.claude-plugin/marketplace.json` `plugins[0].version` (they must be equal) |
-| `bajzi-cowork` variant | 1.29.1 | generated: `node tools/build-cowork.js` restamps `bajzi-cowork/.claude-plugin/plugin.json` and its marketplace entry |
+| bajzi plugin release | 1.30.0 | `bajzi/.claude-plugin/plugin.json` `version` and `.claude-plugin/marketplace.json` `plugins[0].version` (they must be equal) |
+| `bajzi-cowork` variant | 1.30.0 | generated: `node tools/build-cowork.js` restamps `bajzi-cowork/.claude-plugin/plugin.json` and its marketplace entry |
 | `cache-timer`, `nightrun-pane` mods | 0.1.0 | each mod's own `.claude-plugin/plugin.json` and its marketplace entry |
 
 Steps for a bajzi release (details and the reinstall are in §8.3):
