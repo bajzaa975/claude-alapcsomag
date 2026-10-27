@@ -97,8 +97,8 @@ summaries, 4 first-round fixes, 5 implementing.
 |---|---|---|---|---|
 | **L0 Claude** | - | - | everything | 0% |
 | **L1 Light** | 1-3 (replaces haiku) | - | 4-5 (sonnet), orchestration + every review (reviewer allow-list) | 20-30% |
-| **L2 Balanced** | 1-3 | 4-5 | orchestration, every review (reviewer allow-list), risk-bearing slices (Opus) | 60-70% |
-| **L3 Tight** | 1-3 | 4-5, orchestration, Tier-2 findings | Tier-1 + final whole-branch reviews - **queued** (SAVER-L3.md) | 85-90% build-phase |
+| **L2 Balanced** | 1-3 | 4-5 | orchestration, every review (reviewer allow-list), risk-bearing slices (Sonnet, bajzi:implementer-risk) | 60-70% |
+| **L3 Tight** | 1-3 | 4-5, orchestration, Tier-2 findings | the sprint review - **queued** (SAVER-L3.md) | 85-90% build-phase |
 
 GLM models (`~/.claude/cc-router.json`): a top-level GLM session (the L3 orchestrator) runs on
 `glm_orchestrator_model` (default `glm-5.3`); its sub-agents and every `glm -p` dispatch, GLM rung and

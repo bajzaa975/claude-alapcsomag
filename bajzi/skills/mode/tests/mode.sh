@@ -574,6 +574,8 @@ cnt sonnet CC_WORKER_MODE=glm >/dev/null
 grep -q 'level=glm model=sonnet' "$viol" 2>/dev/null && pass "12d L2 + sonnet is logged" || fail "12d" "missing"
 rm -f "$viol"; cnt opus CC_WORKER_MODE=tight >/dev/null
 [ ! -s "$viol" ] && pass "12e opus is never a violation" || fail "12e" "$(cat "$viol")"
+rm -f "$viol"; printf '{"tool_name":"Agent","tool_input":{"model":"sonnet","subagent_type":"bajzi:implementer-risk"},"cwd":"%s"}' "$FAKE_CWD" | cnt_raw CC_WORKER_MODE=glm >/dev/null
+[ ! -s "$viol" ] && pass "12r L2 + bajzi:implementer-risk (sonnet) is not logged" || fail "12r" "$(cat "$viol")"
 rm -f "$viol"; printf '%s entry=glm\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" > "$TMP/peak.log"
 cnt haiku CC_WORKER_MODE=light >/dev/null
 [ ! -s "$viol" ] && pass "12f within 10 min of a peak refusal -> not logged" || fail "12f" "$(cat "$viol")"

@@ -13,12 +13,12 @@ headless session, and size night budgets for that.
 The worker cannot see this session: give it the repo path, file paths, acceptance criteria and the
 <=40-line report contract in the prompt.
 If no day-run routing table is in your context, everything not listed here stays on your session's model.
-UNCHANGED, still Anthropic exactly as in the table: risk-bearing slices (opus, bajzi:implementer-risk), every review
+UNCHANGED, still Anthropic exactly as in the table: risk-bearing slices (sonnet, bajzi:implementer-risk), every review
 (REVIEWER, the reviewer allow-list), and all ORCH-ONLY work. Debugging stays opus here, even with a repro.
-ESCALATION LADDER for the GLM-rung classes becomes: glm r1 -> fresh glm r2 -> opus (bajzi:implementer-risk) r3 -> ORCH r4 -> park. No sonnet rung: the saver guard blocks Claude writer agents.
+ESCALATION LADDER for the GLM-rung classes becomes: glm r1 -> fresh glm r2 -> ORCH r3 -> park (no opus rung: opus only reviews; a review fix has one wave, then the close). No sonnet rung: the saver guard blocks Claude writer agents.
 On a Claude session at L2/L3 the saver guard blocks your own Edit/Write and the writer agents; that is by design, not something to work around.
 PEAK: if `glm` exits 75 (Z.ai peak window), do that task on the Claude model the day-run table names
 (flash classes -> haiku, glm classes -> sonnet); do not retry GLM until the window closes.
 Dispatch first line: model: glm -- saver mode.   DAY-RUN.log: model=glm.
-After superpowers:writing-plans never ask the execution method; use superpowers:subagent-driven-development + the bajzi review loop.
+After superpowers:writing-plans never ask the execution method; use superpowers:subagent-driven-development + the bajzi review loop (one review per sprint).
 CLOSING REPORT: run `worker --usage <session start ISO>` and paste its last two lines.

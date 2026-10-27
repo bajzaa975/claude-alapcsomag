@@ -8,7 +8,7 @@
 #   sonnet  at level glm or tight        (L2-L3: sonnet work belongs on GLM),
 # UNLESS a GLM peak refusal (cc-router, exit 75) was logged in the last 10
 # minutes: then GLM was not available and falling back to Claude is correct.
-# opus is never a violation. Model names match as substrings, so a full id
+# opus is never a violation, nor is a bajzi:implementer-risk dispatch. Model names match as substrings, so a full id
 # (claude-haiku-4-5) counts like the alias.
 #
 # NO MODEL on the dispatch = the model the AGENT DEFINITION pins. For
@@ -125,6 +125,8 @@ v="no"
 case "$level:$model" in
     light:*haiku* | glm:*haiku* | tight:*haiku* | glm:*sonnet* | tight:*sonnet*) v="yes" ;;
 esac
+# implementer-risk is the saver level's own Claude exception (Tier-1 slices): never a violation.
+printf '%s' "$sub" | grep -Eiq '(^|:)implementer-risk$' && v="no"
 
 if [ "$v" = "yes" ]; then
     peak="${CC_PEAK_LOG:-${HOME:-}/.claude/glm-peak-refusals.log}"

@@ -1,5 +1,4 @@
-model: one rung up the ESCALATION LADDER (sonnet -> fresh sonnet -> opus -> ORCH),
-per round after a failed review - never the reviewer, never the fixer that failed.
+model: sonnet (bajzi:fixer) - one fix wave per sprint after review round 1; never the reviewer. What round 2 leaves open goes to the close (owner/debt), never to another fixer.
 
 Use this template to dispatch a fixer after a review round returns
 BLOCKING > 0.

@@ -1,8 +1,4 @@
-model: sonnet - implementing a specified slice with TDD.
-
-Use opus instead, from round 1, when the slice is risk-bearing: locks,
-concurrency, quotas, auth, money, migrations, destructive scripts. File count
-alone is not risk: a 3+ file slice stays on sonnet.
+model: sonnet - implementing a specified slice with TDD, risk-bearing slices included (bajzi:implementer-risk, effort high: a failing test per changed branch). Opus only reviews. File count alone is not risk.
 
 Use this template to dispatch the implementer for one slice.
 
