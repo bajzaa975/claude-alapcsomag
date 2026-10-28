@@ -31,7 +31,8 @@
 #             or the DESCRIPTION (only) matches the whole word
 #             fix|address|apply|resolve ...up to 40 chars... finding(s)
 #   REVIEW    description has the WORD review/reviews (code-review counts; not
-#             reviewer, not self-review / self review), or subagent_type
+#             reviewer; the words self-review / self review and the tool
+#             name code-review-graph are removed first), or subagent_type
 #             contains "review"
 #   OTHER     everything else
 # RULES (first deny wins, in this order):
@@ -113,8 +114,9 @@ W='[^a-z0-9_]'   # a non-word character (ERE has no \b)
 REREVIEW_RE='re-?review|delta review|scoped review|review round [2-9]'
 FIX_HEAD_RE='fix round|fix r[0-9]|findings to fix'
 FIX_DESC_RE="$FIX_HEAD_RE|(^|$W)(fix|address|apply|resolve)$W(.{0,40}$W)?findings?($W|$)"
-# The WORD review/reviews (code-review counts), not reviewer; self-review and
-# self review are removed from the description before this runs.
+# The WORD review/reviews (code-review counts), not reviewer; self-review,
+# self review and the tool name code-review-graph are removed from the
+# description before this runs.
 REVIEW_RE="(^|$W)reviews?($W|$)"
 GRAPH_RE='code-review-graph|detect-changes|detect_changes_tool|get_review_context_tool|graph-[^ ]*\.json'
 RANGE_RE='(^|[^0-9a-z])[0-9a-f]{7,}\.\.[0-9a-f]{7,}([^0-9a-z]|$)'
@@ -141,7 +143,7 @@ case "$sub_lc" in
         elif [[ "$desc_lc" =~ $FIX_DESC_RE ]] || [[ "$head_lc" =~ $FIX_HEAD_RE ]]; then
             class="FIX"
         else
-            d="${desc_lc//self-review/}"; d="${d//self review/}"
+            d="${desc_lc//self-review/}"; d="${d//self review/}"; d="${d//code-review-graph/}"
             if [[ "$d" =~ $REVIEW_RE ]] || [[ "$sub_lc" == *review* ]]; then
                 class="REVIEW"
             fi
