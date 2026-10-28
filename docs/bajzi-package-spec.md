@@ -2215,7 +2215,7 @@ Where each piece comes from is in §5.1. Run every command from the shell named 
   (never delete) each `leftover` path to `~/claude-backup-leftovers-<date>/`, only after the user
   confirms in chat (`SKILL.md`).
 - **PHASE D**: (1) prerequisites; (2) marketplaces (below Claude Code 2.1.292 every manifest entry, which carries a `name` equal to the id suffix after `@` and a `source`, is registered when missing; 2.1.292+: a plugin whose marketplace is missing installs with `claude plugin install <id> --marketplace <source of the entry named like the id suffix>`; `marketplace add` then `install` below 2.1.292; `manifest-marketplaces.test.js` pins the id-to-entry mapping); (3) install or **update** every
-  manifest plugin except an entry with `pinned` (installed: never updated, "pinned at <version>, not updated"; missing: not installed, "pinned, install by hand at <version>"), never re-enabling a deliberately disabled one; (4) never the optional `gsd` plugin; (5) global rules;
+  manifest plugin except an entry with `pinned` (installed: never updated; the installed version is read from `claude plugin list`; equal to `pinned`: "pinned at <version>, not updated", different: "pinned at <version>, installed <installed>: MISMATCH, roll back by hand to <version>"; missing: not installed, "pinned, install by hand at <version>"), never re-enabling a deliberately disabled one; (4) never the optional `gsd` plugin; (5) global rules;
   (6) `settings_merge`; (7) rtk hook and its `exclude_commands`; (8) `~/.claude/bajzi-mode =
   day-run` only if absent; (9) `node "${CLAUDE_PLUGIN_ROOT}/skills/setup/install-statusline.js"`
   (copies the status line to `~/.claude/bajzi/`, backs up `settings.json` as

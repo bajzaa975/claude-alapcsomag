@@ -363,6 +363,10 @@ test('a pinned plugin is never updated or auto-installed by setup PHASE D step 3
   assert.match(step3, /pinned/);
   assert.match(step3, /pinned at <version>, not updated/);
   assert.match(step3, /pinned, install by hand at <version>/);
+  assert.match(step3, /claude plugin list/);
+  assert.match(step3, /MISMATCH, roll back by hand to <version>/);
+  assert.match(step3, /== `pinned`: report "pinned at <version>, not updated"/);
+  assert.match(step3, /!= `pinned`: report "pinned at <version>, installed <installed>: MISMATCH/);
   const pit = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8')).known_pitfalls.find(e => e.id === 'plugin-update-can-add-a-mod');
   assert.match(pit.action, /pinned/);
 });

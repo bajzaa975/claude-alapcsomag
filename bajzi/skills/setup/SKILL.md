@@ -85,7 +85,7 @@ line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-settin
 2. The manifest's `marketplaces` list (each entry has a `name`, the id suffix after `@`, and a `source`): below Claude Code 2.1.292 register every
    missing one with `claude plugin marketplace add <source>`; on 2.1.292+ step 3's `install --marketplace` registers it.
 3. The manifest's `plugins` list:
-   - **entry with `pinned`:** already installed: NEVER `claude plugin update`; report "pinned at <version>, not updated".
+   - **entry with `pinned`:** already installed: NEVER `claude plugin update`; read the installed version from the `Version:` line of `claude plugin list` (not `claude plugin details`, which shows the marketplace's latest). Installed version == `pinned`: report "pinned at <version>, not updated". Installed version != `pinned`: report "pinned at <version>, installed <installed>: MISMATCH, roll back by hand to <version>", never "not updated".
      Not installed: do NOT install (the CLI has no version pin, an install would take the latest release); report "pinned, install by hand at <version>"
    - not yet installed (no `pinned`): `claude plugin install <id>`; marketplace missing and `claude --version` >= 2.1.292:
      `claude plugin install <id> --marketplace <source of the entry whose name equals the id's @suffix>`; below 2.1.292: `marketplace add <source>` first, then `install <id>`

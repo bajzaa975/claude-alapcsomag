@@ -4,7 +4,7 @@ Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](doc
 
 ## 1.32.0
 - Fixed: MCP servers launched with `uvx` (code-review-graph, token-savior) no longer drop out of a session when uvx rebuilds its environment at launch: the manifest's `settings_merge.env` sets `MCP_TIMEOUT=60000` (Claude Code's default MCP connect timeout is 30 s), applied by `/bajzi:setup`; new pitfall `uvx-mcp-cold-start-timeout`
-- Added: manifest plugin entries may carry `"pinned": "<version>"`; `/bajzi:setup` never updates a pinned plugin and never auto-installs a missing one (the CLI has no version pin); ponytail is pinned at 4.10.0 (5.0+ ships a mod)
+- Added: manifest plugin entries may carry `"pinned": "<version>"`; `/bajzi:setup` never updates a pinned plugin (it reports a MISMATCH when the installed version differs from the pin) and never auto-installs a missing one (the CLI has no version pin); ponytail is pinned at 4.10.0 (5.0+ ships a mod)
 - Added: pitfall `plugin-update-can-add-a-mod`: a third-party plugin update can install a mod that rewrites or pre-approves tool calls past the bajzi guards; check it with `claude plugin validate` before updating
 - Added: `pyright-lsp@claude-plugins-official` in the manifest's plugins
 - Changed: DAY-RUN.log: one line per task, written when it is finished, with closed lists for task-class and model alias (never a full model id); DAY-RUN-RULES.md byte ceiling 4800 -> 5000
