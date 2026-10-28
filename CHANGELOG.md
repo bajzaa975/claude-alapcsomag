@@ -2,6 +2,15 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.32.0
+- Fixed: MCP servers launched with `uvx` (code-review-graph, token-savior) no longer drop out of a session when uvx rebuilds its environment at launch: the manifest's `settings_merge.env` sets `MCP_TIMEOUT=60000` (Claude Code's default MCP connect timeout is 30 s), applied by `/bajzi:setup`; new pitfall `uvx-mcp-cold-start-timeout`
+- Added: manifest plugin entries may carry `"pinned": "<version>"`; `/bajzi:setup` never updates a pinned plugin and never auto-installs a missing one (the CLI has no version pin); ponytail is pinned at 4.10.0 (5.0+ ships a mod)
+- Added: pitfall `plugin-update-can-add-a-mod`: a third-party plugin update can install a mod that rewrites or pre-approves tool calls past the bajzi guards; check it with `claude plugin validate` before updating
+- Added: `pyright-lsp@claude-plugins-official` in the manifest's plugins
+- Changed: DAY-RUN.log: one line per task, written when it is finished, with closed lists for task-class and model alias (never a full model id); DAY-RUN-RULES.md byte ceiling 4800 -> 5000
+- Fixed: dispatch guard no longer classes an Agent dispatch as a review only because its description names the `code-review-graph` tool
+- Changed: the Git for Windows manifest pitfall has the id `windows-git-for-windows`; the spec points to pitfalls by id
+
 ## 1.31.0
 - Added: `ask-owner.js` SessionStart hook: in an orchestrator pane (env `ORCH_BUS_PANE` set) it injects the owner-questions rule: every owner question, decision and manual step goes through the `ask_owner` panel tool (loaded via ToolSearch when deferred), one chat line only, `default_taken` for reversible decisions, `blocking=true` only for risky ones and never headless, no secrets in any field; tool absent -> the usual channels. Silent outside orchestrator panes
 
