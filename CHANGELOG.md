@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.31.0
+- Added: `ask-owner.js` SessionStart hook: in an orchestrator pane (env `ORCH_BUS_PANE` set) it injects the owner-questions rule: every owner question, decision and manual step goes through the `ask_owner` panel tool (loaded via ToolSearch when deferred), one chat line only, `default_taken` for reversible decisions, `blocking=true` only for risky ones and never headless, no secrets in any field; tool absent -> the usual channels. Silent outside orchestrator panes
+
 ## 1.30.0
 - Changed: Sonnet writes every slice; `implementer-risk` (Tier 1) is Sonnet at effort high with a failing test per changed branch; Opus only reviews; debugging without a repro keeps its Opus rung
 - Changed: the review unit is a sprint: one review over the sprint's whole range (round 1 xhigh, round 2 high), two rounds max, then the close
