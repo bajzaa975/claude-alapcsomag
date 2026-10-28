@@ -56,7 +56,11 @@
       },
       "cost": "~1300 tok per SessionStart AND per subagent spawn. The subagent share lands in the SUBAGENT's context, not the main thread, so it does not eat the 50% ceiling. If subagent spend gets tight, narrow it with PONYTAIL_SUBAGENT_MATCHER (regex over the subagent type).",
       "gotcha": "If ~/.claude/settings.json has NO statusLine, on first interaction ponytail injects a one-off nudge asking Claude to offer to set one up — i.e. it wants to edit global settings. Set a statusLine first, or decline the offer once. Uninstall: scripts/uninstall.js (cleans ~/.claude/.ponytail-active, ~/.config/ponytail/, statusLine entry).",
-      "checked": "MIT, v4.10.0, 138.9k stars, no network calls in the runtime hooks, no API key. Weak signal: ~176 open PRs, effectively a single maintainer."
+      "checked": "MIT, v4.10.0, 138.9k stars, no network calls in the runtime hooks, no API key. Weak signal: ~176 open PRs, effectively a single maintainer. PINNED at 4.10.0, do not `claude plugin update ponytail`: 5.0+ ships a mod (tool.call on Bash/Edit/Write, prompt.submit, a session.start git grep), writes a per-turn ledger, has an optional webhook and injects a map at every SessionStart. If it is ever updated: ledger off, webhook empty, PONYTAIL_MAP_CHARS=0, and re-read its band/register code for deny/updatedInput."
+    },
+    {
+      "id": "pyright-lsp@claude-plugins-official",
+      "why": "Python type diagnostics after each edit via pyright-langserver; same pyright binary the gate needs (gate_tools.pyright). Zero skills/agents."
     },
     {
       "id": "humanizer@humanizer",
@@ -217,7 +221,8 @@
       ]
     },
     "env": {
-      "PONYTAIL_DEFAULT_MODE": "lite"
+      "PONYTAIL_DEFAULT_MODE": "lite",
+      "MCP_TIMEOUT": "60000"
     }
   },
   "global_rules": "From the installed marketplace: ~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md -> append to ~/.claude/CLAUDE.md (without duplication).",
@@ -246,6 +251,20 @@
     }
   ],
   "known_pitfalls": [
+    {
+      "id": "uvx-mcp-cold-start-timeout",
+      "when": "A stdio MCP server launched with `uvx` (code-review-graph, or any other uvx server) is missing at session start",
+      "symptom": "The session starts without that MCP server (CONNECT_TIMEOUT), intermittently.",
+      "cause": "uvx sometimes rebuilds its ephemeral environment on launch (about 10 s of package install); with the server's own start-up this exceeds Claude Code's default 30000 ms MCP connect timeout.",
+      "action": "`settings_merge.env.MCP_TIMEOUT` = 60000 (Claude Code's documented env var for MCP server start-up timeout), applied by /bajzi:setup; then restart Claude Code. If a machine still times out, raise it."
+    },
+    {
+      "id": "plugin-update-can-add-a-mod",
+      "when": "Before `claude plugin update <third-party plugin>`",
+      "symptom": "After the update the plugin runs an in-process JS mod that can rewrite or pre-approve tool calls, including ones the bajzi PreToolUse guards or `permissions.deny` would block.",
+      "cause": "Since Claude Code 2.1.287 plugins may ship mods (on by default); an update installs them with no extra consent. Non-org users have no mod allowlist, and `disableAllHooks` would also disable bajzi's hooks.",
+      "action": "Pull the plugin's repo, run `claude plugin validate <dir>`, read its `hooks:`/`calls:` lines. Any mod hook (tool.call, prompt.*, permission approval) = do not update; record it under deliberately_skipped. bajzi's own mods are expected; the rule is about third-party plugins."
+    },
     {
       "when": "Windows, BEFORE installing the plugin",
       "symptom": "The SessionStart hooks silently do not run: no HANDOFF reload and no methodology warning.",

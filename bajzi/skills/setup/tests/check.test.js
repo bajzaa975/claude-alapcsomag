@@ -123,6 +123,21 @@ test('advisorModel: real manifest carries it and check reports drift on it', () 
   assert.strictEqual(run(m).out, 'setup --check: clean\n');
 });
 
+test('MCP_TIMEOUT: real manifest pins it, pitfalls and pyright-lsp; check reports env drift on it', () => {
+  const real = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8'));
+  assert.strictEqual(real.settings_merge.env.MCP_TIMEOUT, '60000');
+  const ids = real.known_pitfalls.map(e => e.id);
+  assert.ok(ids.includes('uvx-mcp-cold-start-timeout'));
+  assert.ok(ids.includes('plugin-update-can-add-a-mod'));
+  assert.ok(real.plugins.some(p => p.id === 'pyright-lsp@claude-plugins-official'));
+  const m = machine();
+  const env = Object.assign({}, MANIFEST.settings_merge.env, { MCP_TIMEOUT: '60000' });
+  fs.writeFileSync(m.env.BAJZI_MANIFEST, JSON.stringify(Object.assign({}, MANIFEST, { settings_merge: Object.assign({}, MANIFEST.settings_merge, { env }) })));
+  assert.match(run(m).out, /^DRIFT setting-drift env\.MCP_TIMEOUT is undefined, want "60000"$/m);
+  edit(m, '.claude/settings.json', v => { v.env.MCP_TIMEOUT = '60000'; });
+  assert.strictEqual(run(m).out, 'setup --check: clean\n');
+});
+
 test('permissions.defaultMode: missing and different values drift', () => {
   const m = machine();
   edit(m, '.claude/settings.json', v => { delete v.permissions.defaultMode; });
