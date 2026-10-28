@@ -50,13 +50,14 @@
     },
     {
       "id": "ponytail@ponytail",
+      "pinned": "4.10.0",
       "why": "lazy-senior-dev discipline: YAGNI, reuse before writing, stdlib before deps — a reviewed add-on with zero overlap with the base package",
       "env": {
         "PONYTAIL_DEFAULT_MODE": "lite"
       },
       "cost": "~1300 tok per SessionStart AND per subagent spawn. The subagent share lands in the SUBAGENT's context, not the main thread, so it does not eat the 50% ceiling. If subagent spend gets tight, narrow it with PONYTAIL_SUBAGENT_MATCHER (regex over the subagent type).",
       "gotcha": "If ~/.claude/settings.json has NO statusLine, on first interaction ponytail injects a one-off nudge asking Claude to offer to set one up — i.e. it wants to edit global settings. Set a statusLine first, or decline the offer once. Uninstall: scripts/uninstall.js (cleans ~/.claude/.ponytail-active, ~/.config/ponytail/, statusLine entry).",
-      "checked": "MIT, v4.10.0, 138.9k stars, no network calls in the runtime hooks, no API key. Weak signal: ~176 open PRs, effectively a single maintainer. PINNED at 4.10.0, do not `claude plugin update ponytail`: 5.0+ ships a mod (tool.call on Bash/Edit/Write, prompt.submit, a session.start git grep), writes a per-turn ledger, has an optional webhook and injects a map at every SessionStart. If it is ever updated: ledger off, webhook empty, PONYTAIL_MAP_CHARS=0, and re-read its band/register code for deny/updatedInput."
+      "checked": "MIT, v4.10.0, 138.9k stars, no network calls in the runtime hooks, no API key. Weak signal: ~176 open PRs, effectively a single maintainer. PINNED at 4.10.0 (`pinned` field: /bajzi:setup never updates it and never installs it automatically): 5.0+ ships a mod (tool.call on Bash/Edit/Write, prompt.submit, a session.start git grep), writes a per-turn ledger, has an optional webhook and injects a map at every SessionStart. If it is ever updated: ledger off, webhook empty, PONYTAIL_MAP_CHARS=0, and re-read its band/register code for deny/updatedInput."
     },
     {
       "id": "pyright-lsp@claude-plugins-official",
@@ -263,9 +264,10 @@
       "when": "Before `claude plugin update <third-party plugin>`",
       "symptom": "After the update the plugin runs an in-process JS mod that can rewrite or pre-approve tool calls, including ones the bajzi PreToolUse guards or `permissions.deny` would block.",
       "cause": "Since Claude Code 2.1.287 plugins may ship mods (on by default); an update installs them with no extra consent. Non-org users have no mod allowlist, and `disableAllHooks` would also disable bajzi's hooks.",
-      "action": "Pull the plugin's repo, run `claude plugin validate <dir>`, read its `hooks:`/`calls:` lines. Any mod hook (tool.call, prompt.*, permission approval) = do not update; record it under deliberately_skipped. bajzi's own mods are expected; the rule is about third-party plugins."
+      "action": "Pull the plugin's repo, run `claude plugin validate <dir>`, read its `hooks:`/`calls:` lines. Any mod hook (tool.call, prompt.*, permission approval) = do not update; record it under deliberately_skipped. A plugin entry with a `pinned` version is never updated by /bajzi:setup PHASE D step 3 (reported \"pinned at <version>, not updated\"), and if missing it is not installed automatically (reported \"pinned, install by hand at <version>\"). bajzi's own mods are expected; the rule is about third-party plugins."
     },
     {
+      "id": "windows-git-for-windows",
       "when": "Windows, BEFORE installing the plugin",
       "symptom": "The SessionStart hooks silently do not run: no HANDOFF reload and no methodology warning.",
       "cause": "Since Claude Code 2.1.139, on Windows it uses the native PowerShell tool; without Git for Windows there is no `bash` on the machine.",

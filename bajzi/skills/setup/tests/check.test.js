@@ -353,3 +353,27 @@ test('known_pitfalls carry current guidance: no old bajzi versions, no incident 
   for (const v of text.match(/(?<![\d.])1\.\d+\.\d+\b/g) || []) assert.strictEqual(v, cur, `old version ${v}`);
   assert.doesNotMatch(text, /found the hard way|caught during|Before 1\./);
 });
+
+test('a pinned plugin is never updated or auto-installed by setup PHASE D step 3', () => {
+  const plugins = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8')).plugins;
+  assert.strictEqual(plugins.find(p => p.id === 'ponytail@ponytail').pinned, '4.10.0');
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'SKILL.md'), 'utf8');
+  const step3 = skill.slice(skill.indexOf("3. The manifest's `plugins` list"), skill.indexOf('NEVER RE-ENABLE'));
+  assert.ok(step3.length > 100);
+  assert.match(step3, /pinned/);
+  assert.match(step3, /pinned at <version>, not updated/);
+  assert.match(step3, /pinned, install by hand at <version>/);
+  const pit = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8')).known_pitfalls.find(e => e.id === 'plugin-update-can-add-a-mod');
+  assert.match(pit.action, /pinned/);
+});
+
+test('spec passages quoting the DAY-RUN.log field pattern carry the finish-only rule or point to it', () => {
+  const spec = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'docs', 'bajzi-package-spec.md'), 'utf8');
+  let n = 0;
+  for (const m of spec.matchAll(/<task-class> model=/g)) {
+    n++;
+    const w = spec.slice(Math.max(0, m.index - 900), m.index + 900);
+    assert.ok((/when it is FINISHED/.test(w) && /never a full id/.test(w)) || /Saver-level routing table row/.test(w), `no finish-only rule near offset ${m.index}`);
+  }
+  assert.ok(n >= 2);
+});
