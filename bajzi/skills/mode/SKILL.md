@@ -142,8 +142,10 @@ peak-window ban applies at every level that uses GLM (L1-L3), enforced by the sh
 
 Day-run dispatches sub-agents using the four templates in
 `skills/mode/templates/dispatch-{explore,implement,review,fix}.md`, and appends one line per
-dispatch to `runtime/DAY-RUN.log` in the format
-`<ISO time> <task-class> model=<name> rounds=<n> result=<pass|fail|park|direct>`. Before the first
+task, when it is FINISHED (never on dispatch), to `runtime/DAY-RUN.log` in the format
+`<ISO time> <task-class> model=<alias> rounds=<n> result=<pass|fail|park|direct>`
+(task-class: locate|tests|read|implement|implement-risk|fix|review|rereview|debug|design|build;
+alias: haiku|sonnet|opus|fable|glm|glm-flash, never a full id). Before the first
 append in a session, run `mkdir -p runtime`.
 
 ## Standing constraints (this skill, always)

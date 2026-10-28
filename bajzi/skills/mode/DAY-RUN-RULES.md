@@ -19,7 +19,7 @@ EFFORT: pass the row's effort as the Agent tool's `effort` parameter on every Cl
 owner's session effort. PACING: briefs for locate/map, tests, long-file read, implement and fix end with: "Time matters here: do not
 spend time that can be avoided, and the earlier a correct result is obtained, the better." Never in review or debugging briefs.
 ESCALATION LADDER: sonnet r1 -> fresh sonnet r2 (new sub-agent) -> ORCH r3 -> park (debugging: opus r3, ORCH r4). Climb on the FIRST
-failure. A review fix has one wave, then the close.
+failure.
 REVIEW LOOP, every development: the sprint's slices -> ONE REVIEWER review of its whole range (two verdicts per task: spec compliance, quality)
 -> FIXER (never the reviewer, never ORCH) -> NEW review of the fixes. Two rounds max; the close routes the rest (owner/debt). Use
 /bajzi:review and /bajzi:fix. CLEAN = zero Critical AND zero Important findings AND the repo's own gate exits 0. TEST GAP (missing or weak
@@ -30,11 +30,12 @@ DIRECT-EDIT THRESHOLD, all four or delegate: <=20 changed lines, one file; no ne
 (deploy, secrets, CI config, migrations, history rewrite).
 CONTEXT: sub-agent reports <=40 lines, paths and counts only. Main thread never opens a file over 300 lines. At 40% context: finish the
 slice, write the handoff, ask to clear.
-STARTUP INJECTIONS: keep SessionStart hook output small.
 FABLE DEPLETION: on the session-limit message, start nothing new, write the handoff, say "Fable limit reached. Restart with <X>." X =
 the first REVIEWER MODELS id that is not a Fable model, else Opus. Next session: claude --model <X>; no rung spends Fable.
-Every dispatch's first line: model: <name> -- <reason>. Log, exact format, to runtime/DAY-RUN.log:
-<ISO time> <task-class> model=<name> rounds=<n> result=<pass|fail|park|direct>
+Every dispatch's first line: model: <name> -- <reason>.
+Log ONE line per task to runtime/DAY-RUN.log, when it is FINISHED (never on dispatch):
+<ISO time> <task-class> model=<alias> rounds=<n> result=<pass|fail|park|direct>
+task-class: locate|tests|read|implement|implement-risk|fix|review|rereview|debug|design|build; alias: haiku|sonnet|opus|fable|glm|glm-flash (never a full id).
 Only three questions allowed: scope change; forbidden zone; park-or-continue. Format: one round, each `<n>. <q> -> recommended: <a> (<why>)`; `yes` = all, `yes except <n>: <a>`. All else is decided and logged.
 Day-run never merges. After superpowers:writing-plans never ask the execution method; execute per this mode.
 ## Owner tasks -- do it yourself
