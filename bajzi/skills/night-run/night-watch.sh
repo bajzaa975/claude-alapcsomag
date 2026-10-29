@@ -22,7 +22,7 @@
 #   WATCH_NOTIFY_CMD=""     optional command, gets ONE argument: the message. UNSET = the default
 #                           notifier notify.sh: ntfy.sh push to $ORCH_NTFY_TOPIC, else the first
 #                           non-empty line of ~/.claude/bajzi/ntfy-topic (none = skipped), plus a
-#                           Windows balloon toast unless ORCH_NOTIFY_NO_TOAST=1. A failure is one
+#                           Windows balloon / Linux notify-send toast unless ORCH_NOTIFY_NO_TOAST=1. A failure is one
 #                           WARNING line, never a failed watcher. ORCH_NTFY_SERVER (default
 #                           https://ntfy.sh) overrides the push server (tests).
 #   WATCH_TRIAGE=1          tier 1: on every NEW terminal row in state.txt spawn ONE headless

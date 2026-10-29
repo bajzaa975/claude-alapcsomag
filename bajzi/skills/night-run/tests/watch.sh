@@ -502,21 +502,16 @@ printf 'ORCH_NTFY_TOPIC_FILE="%s"\nWATCH_NOTIFY_CMD="true"\n' "$WT/topic" >>"$ND
 run_watch "$ND" >/dev/null
 if [ "$(ncalls)" = 0 ]; then ok "18.12 WATCH_NOTIFY_CMD=true switches notifications off"; else bad "18.12 curl called ($(ncalls))"; fi
 
-else echo "SKIP (no flock): scenarios 14-18 except 18.9"; fi
+else echo "SKIP (no flock): scenarios 14-18 except 18.9, 18.13-18.16"; fi
 # 9. toast: powershell.exe alone is enough (no pwsh); needs no flock
 mkdir -p "$WT/psbin"; printf '#!/bin/sh\necho called >>"%s/ps.log"\n' "$WT" >"$WT/psbin/powershell.exe"; chmod +x "$WT/psbin/powershell.exe"
 : >"$WT/ps.log"
 ORCH_NTFY_TOPIC_FILE=/nonexistent OS=Windows_NT ORCH_NOTIFY_NO_TOAST=0 PATH="$WT/psbin:/usr/bin:/bin" bash "$HERE/../notify.sh" hi >/dev/null 2>&1; sleep 1
 if [ -s "$WT/ps.log" ]; then ok "18.9 toast via powershell.exe"; else bad "18.9 powershell.exe not called"; fi
 # 13-16. Linux toast via notify-send (fake uname => Linux; OS empty)
-mkdir -p "$WT/lbin" "$WT/nobin"; printf '#!/bin/sh
-echo Linux
-' >"$WT/lbin/uname"
-printf '#!/bin/sh
-printf "%%s|" "$@" >>"%s/ns.log"
-' "$WT" >"$WT/lbin/notify-send"; chmod +x "$WT/lbin/uname" "$WT/lbin/notify-send"
-cp "$WT/lbin/uname" "$WT/nobin/uname"
-lnotify() { ORCH_NTFY_TOPIC_FILE=/nonexistent OS= ORCH_NOTIFY_NO_TOAST="$1" PATH="$2:/usr/bin:/bin" bash "$HERE/../notify.sh" hi T 2>&1; }
+mkdir -p "$WT/lbin" "$WT/nobin"; printf '#!/bin/sh\necho Linux\n' >"$WT/lbin/uname"
+printf '#!/bin/sh\nprintf "%%s|" "$@" >>"%s/ns.log"\n' "$WT" >"$WT/lbin/notify-send"; chmod +x "$WT/lbin/uname" "$WT/lbin/notify-send"
+lnotify() { ORCH_NTFY_TOPIC_FILE=/nonexistent OS= ORCH_NOTIFY_NO_TOAST="$1" PATH="$2" "$BASH" "$HERE/../notify.sh" hi T 2>&1; }
 : >"$WT/ns.log"; lnotify 0 "$WT/lbin" >/dev/null; sleep 1
 if [ "$(cat "$WT/ns.log")" = "--|T|hi|" ]; then ok "18.13 notify-send toast on Linux"; else bad "18.13 notify-send args: $(cat "$WT/ns.log")"; fi
 O=$(lnotify 0 "$WT/nobin"); R=$?

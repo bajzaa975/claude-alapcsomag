@@ -237,7 +237,7 @@ case "$DISK_FLOOR_GB"     in *[!0-9]*) echo "run.sh: DISK_FLOOR_GB must be a who
 # They are DEFAULTED, never required, so an older config.env still starts.
 : "${WATCH_INTERVAL:=900}"            # seconds between watcher polls; 0 = no watcher
 : "${WATCH_MAX_RESTARTS:=2}"          # how many times the watcher may restart the run
-: "${WATCH_NOTIFY_CMD:=}"             # optional command, gets ONE message argument; unset = notify.sh (ntfy via ORCH_NTFY_TOPIC / ~/.claude/bajzi/ntfy-topic, Windows toast unless ORCH_NOTIFY_NO_TOAST=1)
+: "${WATCH_NOTIFY_CMD:=}"             # optional command, gets ONE message argument; unset = notify.sh (ntfy via ORCH_NTFY_TOPIC / ~/.claude/bajzi/ntfy-topic, Windows/Linux toast unless ORCH_NOTIFY_NO_TOAST=1)
 : "${QUOTA_MARGIN_SEC:=180}"          # added to the announced reset before retrying
 : "${QUOTA_MAX_WAITS:=3}"             # bounded: a run never waits more times than this
 : "${QUOTA_FALLBACK_WAIT_SEC:=1800}"  # used when the reset time cannot be parsed
