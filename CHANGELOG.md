@@ -2,6 +2,10 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.32.1
+- Added: night-run notifications show a Linux desktop toast through `notify-send` when it is installed (off with `ORCH_NOTIFY_NO_TOAST=1`, as on Windows); the Windows toast is unchanged
+- Changed: the gitleaks install hint for Linux and macOS names `pacman -S gitleaks` (Arch) next to brew and the release binary
+
 ## 1.32.0
 - Fixed: MCP servers launched with `uvx` (code-review-graph, token-savior) no longer drop out of a session when uvx rebuilds its environment at launch: the manifest's `settings_merge.env` sets `MCP_TIMEOUT=60000` (Claude Code's default MCP connect timeout is 30 s), applied by `/bajzi:setup`; new pitfall `uvx-mcp-cold-start-timeout`
 - Added: manifest plugin entries may carry `"pinned": "<version>"`; `/bajzi:setup` never updates a pinned plugin (it reports a MISMATCH when the installed version differs from the pin) and never auto-installs a missing one (the CLI has no version pin); ponytail is pinned at 4.10.0 (5.0+ ships a mod)
