@@ -508,6 +508,23 @@ mkdir -p "$WT/psbin"; printf '#!/bin/sh\necho called >>"%s/ps.log"\n' "$WT" >"$W
 : >"$WT/ps.log"
 ORCH_NTFY_TOPIC_FILE=/nonexistent OS=Windows_NT ORCH_NOTIFY_NO_TOAST=0 PATH="$WT/psbin:/usr/bin:/bin" bash "$HERE/../notify.sh" hi >/dev/null 2>&1; sleep 1
 if [ -s "$WT/ps.log" ]; then ok "18.9 toast via powershell.exe"; else bad "18.9 powershell.exe not called"; fi
+# 13-16. Linux toast via notify-send (fake uname => Linux; OS empty)
+mkdir -p "$WT/lbin" "$WT/nobin"; printf '#!/bin/sh
+echo Linux
+' >"$WT/lbin/uname"
+printf '#!/bin/sh
+printf "%%s|" "$@" >>"%s/ns.log"
+' "$WT" >"$WT/lbin/notify-send"; chmod +x "$WT/lbin/uname" "$WT/lbin/notify-send"
+cp "$WT/lbin/uname" "$WT/nobin/uname"
+lnotify() { ORCH_NTFY_TOPIC_FILE=/nonexistent OS= ORCH_NOTIFY_NO_TOAST="$1" PATH="$2:/usr/bin:/bin" bash "$HERE/../notify.sh" hi T 2>&1; }
+: >"$WT/ns.log"; lnotify 0 "$WT/lbin" >/dev/null; sleep 1
+if [ "$(cat "$WT/ns.log")" = "--|T|hi|" ]; then ok "18.13 notify-send toast on Linux"; else bad "18.13 notify-send args: $(cat "$WT/ns.log")"; fi
+O=$(lnotify 0 "$WT/nobin"); R=$?
+if [ -z "$O" ] && [ "$R" = 0 ]; then ok "18.14 no notify-send: silent exit 0"; else bad "18.14 out='$O' rc=$R"; fi
+: >"$WT/ns.log"; lnotify 1 "$WT/lbin" >/dev/null; sleep 1
+if [ ! -s "$WT/ns.log" ]; then ok "18.15 ORCH_NOTIFY_NO_TOAST=1: notify-send not called"; else bad "18.15 notify-send called"; fi
+: >"$WT/ns.log"; ORCH_NTFY_TOPIC_FILE=/nonexistent OS=Windows_NT ORCH_NOTIFY_NO_TOAST=0 PATH="$WT/psbin:$WT/lbin:/usr/bin:/bin" bash "$HERE/../notify.sh" hi >/dev/null 2>&1; sleep 1
+if [ ! -s "$WT/ns.log" ]; then ok "18.16 Windows: notify-send not called"; else bad "18.16 notify-send called on Windows"; fi
 # ------------------------------------------------------------- teardown -----
 for p in $HOLDERS; do kill "$p" 2>/dev/null; done
 sleep 0.5

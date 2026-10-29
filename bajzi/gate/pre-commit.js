@@ -15,7 +15,7 @@ const { spawnSync } = require('node:child_process');
 
 const TOOLS = ['gitleaks', 'ruff', 'eslint', 'pyright', 'tsc'];
 const HINTS = {
-  gitleaks: process.platform === 'win32' ? 'winget install --id Gitleaks.Gitleaks -e' : 'brew install gitleaks (or the release binary from github.com/gitleaks/gitleaks/releases)',
+  gitleaks: process.platform === 'win32' ? 'winget install --id Gitleaks.Gitleaks -e' : 'brew install gitleaks (macOS), pacman -S gitleaks (Arch), or the release binary from github.com/gitleaks/gitleaks/releases',
   ruff: 'pip install ruff (in the repo .venv)',
   pyright: 'npm install -g pyright',
   eslint: 'npm install --save-dev eslint (in the package directory)',

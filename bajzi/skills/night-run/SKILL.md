@@ -159,7 +159,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
      PHASE C writes it for each run's length (`Deadline and run length` there).
    - `WATCH_NOTIFY_CMD` (none) — a command called with ONE argument, the message. Unset, the watcher
      calls `notify.sh`: an ntfy.sh push to `$ORCH_NTFY_TOPIC` (else the first non-empty line of
-     `~/.claude/bajzi/ntfy-topic`; no topic = no push; empty = unset; `WATCH_NOTIFY_CMD="true"` = off) and, on Windows, a balloon toast unless
+     `~/.claude/bajzi/ntfy-topic`; no topic = no push; empty = unset; `WATCH_NOTIFY_CMD="true"` = off) and, on Windows, a balloon toast (on Linux, a notify-send toast when notify-send is installed) unless
      `ORCH_NOTIFY_NO_TOAST=1`. Status changes and each new terminal state row are announced.
      `ORCH_NTFY_SERVER` (default `https://ntfy.sh`) overrides the push server (tests).
    - `QUOTA_MARGIN_SEC` (180) — seconds added to the announced usage-limit reset before a

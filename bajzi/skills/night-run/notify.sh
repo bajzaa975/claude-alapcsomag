@@ -3,7 +3,7 @@
 # ntfy: topic = $ORCH_NTFY_TOPIC, else the first non-empty line of ${ORCH_NTFY_TOPIC_FILE:-~/.claude/bajzi/ntfy-topic};
 #   no topic = skipped silently. The topic is the only access control on ntfy.sh: never printed, never logged.
 #   Server = ${ORCH_NTFY_SERVER:-https://ntfy.sh} (optional override, used by the tests).
-# Windows toast (NotifyIcon balloon via pwsh or powershell.exe, detached): off with ORCH_NOTIFY_NO_TOAST=1.
+# Toast: Windows NotifyIcon balloon via pwsh or powershell.exe, or Linux notify-send when installed (detached): off with ORCH_NOTIFY_NO_TOAST=1.
 # Exit 0 = everything attempted worked or was skipped; 1 = the ntfy POST failed.
 msg=${1:-}; title=${2:-night-run}
 msg=${msg:0:300}
@@ -25,6 +25,8 @@ if [ "$win" = 1 ] && [ "${ORCH_NOTIFY_NO_TOAST:-}" != 1 ] && ps=$(command -v pws
     $n.ShowBalloonTip(5000, $env:NR_TITLE, $env:NR_MSG, [System.Windows.Forms.ToolTipIcon]::Info)
     Start-Sleep -Seconds 6
     $n.Dispose()' </dev/null >/dev/null 2>&1 9>&- &
+elif [ "$win" = 0 ] && [ "${ORCH_NOTIFY_NO_TOAST:-}" != 1 ] && command -v notify-send >/dev/null 2>&1; then
+  notify-send -- "$title" "$msg" </dev/null >/dev/null 2>&1 9>&- &
 fi
 
 [ -n "$topic" ] || exit 0

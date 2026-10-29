@@ -179,7 +179,7 @@
       "required": false,
       "check": "gitleaks version",
       "windows": "winget install --id Gitleaks.Gitleaks -e",
-      "linux_mac": "brew install gitleaks (or the release binary from github.com/gitleaks/gitleaks/releases)",
+      "linux_mac": "brew install gitleaks (macOS), pacman -S gitleaks (Arch), or the release binary from github.com/gitleaks/gitleaks/releases",
       "why": "gate: secrets in the staged diff block the commit"
     },
     "ruff": {
