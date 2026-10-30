@@ -265,6 +265,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
           (s.levelDirs.includes(dir) && base.endsWith('.level')) || (s.settingsDirs.includes(dir) && /^settings.*\.json$/.test(base));
       }));
     };
+    const rawDevice = p => process.platform === 'win32' && /^[\\/]{2}[?.][\\/]/.test(p);
     const blocked = (reason, cause = 'blocked') => {
       logLine(proj, now, word, cause, tool);
       return { kind: 'deny', rule: RULE, reason };
@@ -274,9 +275,10 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     if (isEdit) {
       const raw = tool === 'NotebookEdit' ? ti.notebook_path : ti.file_path;
       if (typeof raw !== 'string' || !raw) return null;
-      if (idle) return protectedPath(raw, true) ? blocked(PROTECTED_REASON) : null;
-      if (process.platform === 'win32' && /^[\\/]{2}[?.][\\/]/.test(raw)) return blocked(UNRESOLVED_REASON);   // raw \\?\ and \\.\ paths skip the Win32 name rules
+      if (rawDevice(raw)) return blocked(UNRESOLVED_REASON);   // raw \\?\ and \\.\ paths skip the Win32 name rules
       try { realPath(abs(raw)); realPath(path.resolve(abs(raw))); } catch { return blocked(UNRESOLVED_REASON); }   // fail closed for this check only
+      // ponytail: while idle this also denies device-prefixed and unresolvable targets of ANY file (normal work never writes through those); narrow it if that ever bites.
+      if (idle) return protectedPath(raw, true) ? blocked(PROTECTED_REASON) : null;
       if (protectedPath(raw)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
       // Outside the project, a tmpdir nested inside it (the shell writes it), and the project's .git/.githooks (the excluded `git commit` runs hooks and git config unsandboxed): no risk-agent or peak relaxation.
       if (sandbox) {
@@ -294,7 +296,9 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       if (typeof ti.command !== 'string') return null;
       const cmd = ti.command.replace(/\\\r?\n/g, ' ');   // bash joins a backslash-newline
       // Quoted and heredoc text is data, unless a shell/eval wrapper may run it.
-      if (idle) return env.BAJZI_SANDBOX !== '1' && shellWrites(cmd, () => true, p => protectedPath(p, true)) === 2 ? blocked(PROTECTED_REASON) : null;
+      // Second argument `destruct`: true only for an rm/mv/cp/ln/... argument, which removes or replaces a link instead of writing through it, so an unresolvable (dangling) path is no hit there.
+      if (idle) return env.BAJZI_SANDBOX !== '1' && shellWrites(cmd, () => true, (p, destruct) => protectedPath(p, true) || rawDevice(p) ||
+        (!destruct && (() => { try { realPath(abs(p)); realPath(path.resolve(abs(p))); return false; } catch { return true; } })())) === 2 ? blocked(PROTECTED_REASON) : null;
       const bare = stripHeredoc(cmd);
       if (WORKER_LEVEL.test(inert(bare)) || [...bare.matchAll(WRAP_ARG)].some(m => WORKER_LEVEL.test(m[1] ?? m[2]))) return blocked(LEVEL_REASON);   // never relaxes, not even in peak
       if (env.BAJZI_SANDBOX === '1') return null;   // Linux `split` session: the OS sandbox judges shell writes, no heuristic false denies

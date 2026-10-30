@@ -931,6 +931,35 @@ test('F2: a worker-mode file is protected while the guard is idle (day-run off, 
   }
 });
 
+// r3 F11: while idle, device-prefixed and unresolvable Edit targets get the active branch's fail-closed deny, and a shell write to them is a protected hit.
+test('F11: idle: win32 raw \\\\?\\ path to worker-mode is denied (Edit UNRESOLVED, PowerShell write protected)', () => {
+  if (process.platform !== 'win32') return;
+  const c = ctx({});   // day-run off: idle
+  const wm = path.join(c.cwd, 'runtime', 'worker-mode');
+  const raw = `\\\\?\\${wm}`;
+  const e = call(c, 'Write', { file_path: raw, content: 'claude' });
+  isDeny(e, 'idle raw Write');
+  assert.match(e.reason, /cannot resolve the real path of this file/);
+  const s = bash(c, `Set-Content -LiteralPath ${raw} -Value claude`, 'PowerShell');
+  isDeny(s, 'idle raw Set-Content');
+  assert.match(s.reason, /this file controls the saver guard or the saver level/);
+  assert.strictEqual(edit(c, 'src/x.js'), null, 'idle: a plain code write still passes');
+});
+
+test('F11: idle: a dangling link runtime/x -> worker-mode is denied for Edit and a shell write, but rm of the link passes', t => {
+  const c = ctx({});   // day-run off: idle
+  fs.mkdirSync(path.join(c.cwd, 'runtime'), { recursive: true });
+  if (!link(t, 'worker-mode', path.join(c.cwd, 'runtime', 'x'))) return;
+  const e = edit(c, 'runtime/x');
+  isDeny(e, 'idle Edit through the dangling link');
+  assert.match(e.reason, /cannot resolve the real path of this file/);
+  const s = bash(c, 'echo claude > runtime/x');
+  isDeny(s, 'idle shell write through the dangling link');
+  assert.match(s.reason, /this file controls the saver guard or the saver level/);
+  assert.strictEqual(bash(c, 'rm runtime/x'), null, 'removing the link does not write through it');
+  assert.strictEqual(edit(c, 'src/x.js'), null, 'idle: a plain code write still passes');
+});
+
 test('F3: rm/mv/cp/Remove-Item on a worker-mode file are protected hits at L3', () => {
   const c = ctx({ CC_WORKER_MODE: 'tight' });
   for (const cmd of ['rm runtime/worker-mode', 'mv x runtime/worker-mode', 'cp x runtime/worker-mode', 'mv runtime/worker-mode x', 'ln -sf x runtime/worker-mode', 'truncate -s0 runtime/worker-mode', 'rm -f ~/.claude/worker-mode']) {
