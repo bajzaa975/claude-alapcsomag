@@ -6,7 +6,7 @@
 # Everything lives under one mktemp -d, removed on exit.
 
 set -uo pipefail
-unset ANTHROPIC_BASE_URL CC_WORKER_MODE BAJZI_SESSION_LEVEL CC_ROUTER_WORKER BAJZI_HOME BAJZI_STATUS_DIR CLAUDE_CODE_SESSION_ID
+unset ANTHROPIC_BASE_URL CC_WORKER_MODE BAJZI_SESSION_LEVEL CLAUDE_PROJECT_DIR CC_ROUTER_WORKER BAJZI_HOME BAJZI_STATUS_DIR CLAUDE_CODE_SESSION_ID
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOKS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -30,7 +30,7 @@ let s = "";
 process.stdin.on("data", d => s += d).on("end", () => {
   const b = v => v === null ? "-" : "b:" + Buffer.from(v, "utf8").toString("base64");
   for (const c of JSON.parse(s).cases) {
-    console.log([c.name, b(c.base_url), b(c.worker_mode_env), b(c.worker_mode_file), c.expect_word, b(c.repo_file === undefined ? null : c.repo_file), c.no_cwd ? "1" : "0"].join("|"));
+    console.log([c.name, b(c.base_url), b(c.worker_mode_env), b(c.worker_mode_file), c.expect_word, b(c.repo_file === undefined ? null : c.repo_file), c.no_cwd ? "1" : "0", b(c.sub_file === undefined ? null : c.sub_file)].join("|"));
   }
 });' < "$CASES")
 
@@ -38,9 +38,9 @@ process.stdin.on("data", d => s += d).on("end", () => {
 
 dec() { printf '%s' "${1#b:}" | base64 -d; }
 
-while IFS='|' read -r name url envm file expect repo nocwd; do
+while IFS='|' read -r name url envm file expect repo nocwd sub; do
     [ -z "$name" ] && continue
-    unset ANTHROPIC_BASE_URL CC_WORKER_MODE
+    unset ANTHROPIC_BASE_URL CC_WORKER_MODE CLAUDE_PROJECT_DIR
     home="$TMP/$name"
     mkdir -p "$home/.claude" "$home/cwd"
     [ "$url" != "-" ] && export ANTHROPIC_BASE_URL="$(dec "$url")"
@@ -48,6 +48,10 @@ while IFS='|' read -r name url envm file expect repo nocwd; do
     [ "$file" != "-" ] && dec "$file" > "$home/.claude/worker-mode"
     [ "$repo" != "-" ] && { mkdir -p "$home/cwd/runtime"; dec "$repo" > "$home/cwd/runtime/worker-mode"; }
     cwdarg="$home/cwd"; [ "$nocwd" = "1" ] && cwdarg=""
+    if [ "$sub" != "-" ]; then   # project root set, hook cwd = a subfolder with its own runtime/worker-mode: the root file wins
+        mkdir -p "$home/cwd/sub/runtime"; dec "$sub" > "$home/cwd/sub/runtime/worker-mode"
+        export CLAUDE_PROJECT_DIR="$home/cwd"; cwdarg="$home/cwd/sub"
+    fi
     HOME="$home" saver_resolve "$cwdarg"
     if [ "$SAVER_LEVEL" = "$expect" ]; then
         pass "parity $name -> $expect"
@@ -55,6 +59,7 @@ while IFS='|' read -r name url envm file expect repo nocwd; do
         fail "parity $name" "want '$expect', bash gave '$SAVER_LEVEL'"
     fi
 done <<< "$rows"
+unset CLAUDE_PROJECT_DIR
 
 # --- per-session level (spec §6.1): <status dir>/<session_id>.level, between CC_WORKER_MODE and
 # worker-mode. These cases are not in the shared table: each runs BOTH resolvers on the same
@@ -102,6 +107,8 @@ unknown-word-wins|-|-|glm\n|A.level|turbo\n|A|turbo
 unsafe-dotdot|-|-|glm\n|../x.level|tight\n|../x|glm
 unsafe-slash|-|-|glm\n|A.level|tight\n|A/|glm
 unsafe-space|-|-|glm\n|A.level|tight\n|A |glm
+repo-loses-to-session-file|-|-|-|A.level|tight\n|A|tight||light\n
+repo-loses-to-inherited|-|-|-|-|-|B|light|light|tight\n
 unsafe-dot|-|-|glm\n|A.level|tight\n|.|glm
 id-128-ok|-|-|glm\n|X128.level|tight\n|X128|tight
 id-129-unsafe|-|-|glm\n|X128x.level|tight\n|X128x|glm

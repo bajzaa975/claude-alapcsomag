@@ -6,6 +6,7 @@
 // outside runtime/, ~/.claude/ and tmpdir, a writing sub-agent, and an obvious Bash/PowerShell file
 // write are denied (the last not with BAJZI_SANDBOX=1: a Linux `split` session, where the OS sandbox
 // judges shell writes); `worker --level/--set` is denied always (the user types `! worker --level N`).
+// Idle (non-Anthropic provider, closed gate, level < 2) the guard still refuses a write to a worker-mode file.
 // Inside the Z.ai peak window the write denies become counted allows. Every deny and every peak
 // allow appends a line to <project>/runtime/routing-violations.log (project = CLAUDE_PROJECT_DIR, else cwd). Stdlib only; fails open.
 const fs = require('node:fs');
@@ -30,6 +31,7 @@ const SED_I = /^(?:-[a-zA-Z]*i|--in-place)/;
 const PERL_I = /^-[0-9lanpsStTuUwWXcCfF]*i/;   // flags without an argument, then i: -Mstrict is not -i
 const SED_SCRIPT_OPT = /^(?:-[a-zA-Z]*e|--expression|-f|--file)$/;
 const PERL_SCRIPT_OPT = /^-[a-zA-Z]*[eE]$/;
+const DESTRUCT = new RegExp(String.raw`${SEP}(?:rm|mv|cp|ln|truncate|Remove-Item|Move-Item|Copy-Item|Rename-Item|Clear-Content|del|erase|ri|mi|move|cpi|copy|rni|ren|clc)(?=\s)([^;&|\n]*)`, 'gi');
 const REDIRECT = /(?<![-=])>>?\|?[ \t]*(&[\d-]|[^\s;&|<>()]+)?/g;
 const TEE = /(?:^|[;&|(])\s*tee((?:[ \t]+[^\s;&|<>()]+)*)/g;
 const PS_WRITE = new RegExp(String.raw`${SEP}(Set-Content|Add-Content|Out-File|New-Item)(?=\s|$)([^;|\n]*)`, 'gi');
@@ -43,7 +45,7 @@ const SPLIT_REASON = 'saver-guard: in a split session write scratch files with t
 const HOME_VAR = /^(?:~|\$\{HOME\}|\$HOME|\$env:(?:HOME|USERPROFILE))(?=$|[/\\])/i;
 const TMP_VAR = /^(?:\$\{(?:TMPDIR|TEMP|TMP)\}|\$(?:TMPDIR|TEMP|TMP)|\$env:(?:TMPDIR|TEMP|TMP))(?=$|[/\\])/i;
 const UNRESOLVED_REASON = 'saver-guard: cannot resolve the real path of this file (dangling or looping symlink, or no access); refusing the write.';
-const LEVEL_REASON = 'saver-guard: only the owner may change the saver level. Ask the owner to type ! worker --level <n> in the prompt (it bypasses hooks).';
+const LEVEL_REASON = 'saver-guard: only the owner may change the saver level. Ask the owner to type ! worker --level <n> in the prompt (it bypasses hooks), or /bajzi:level <n>.';
 
 // The real path of `a` the POSIX way: the components of the RAW path left to right, so a link is followed
 // before a later `..` (`<tmp>/lh/../x` with lh -> <home>/.config is <home>/x). win32 and path.resolve collapse
@@ -118,7 +120,7 @@ const stripHeredoc = cmd => cmd.replace(HEREDOC, m => m.split('\n')[0]);
 const inert = cmd => cmd.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, q => q.slice(1, -1).replace(/[<>|;&]/g, '').replace(/\s/g, '_'));
 
 // ponytail: a token heuristic over the command text, not a sandbox. A creative write (python -c,
-// cp, git apply, an unknown cmdlet alias) still passes. A real shell parser if Claude starts routing
+// git apply, an unknown cmdlet alias) still passes; rm/mv/cp/ln/truncate and the PowerShell forms count only against a protected file. A real shell parser if Claude starts routing
 // around it. Returns 0 (no write), 1 (a write outside the allowed dirs) or 2 (a protected file).
 function shellWrites(cmd, allowed, protectedPath) {
   const s = inert(stripHeredoc(cmd));
@@ -142,6 +144,7 @@ function shellWrites(cmd, allowed, protectedPath) {
     if (!files.length) hit = Math.max(hit, 1);   // stdin or unclear: deny
     files.forEach(target);
   }
+  for (const m of s.matchAll(DESTRUCT)) if (m[1].split(/[\s,]+/).some(a => a && !a.startsWith('-') && protectedPath(a, true))) hit = 2;   // a worker-mode file as ANY argument (not bajzi-mode: /bajzi:mode mv -f writes it)
   for (const m of s.matchAll(REDIRECT)) if (m[1]) target(m[1]);
   for (const m of s.matchAll(TEE)) m[1].trim().split(/\s+/).forEach(t => { if (t && !t.startsWith('-')) target(t); });
   for (const m of s.matchAll(PS_WRITE)) {
@@ -180,12 +183,13 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     if (!isEdit && !isAgent && !isShell) return null;
 
     const host = hostOf(env.ANTHROPIC_BASE_URL);
-    if (host !== null && host !== 'anthropic.com' && !host.endsWith('.anthropic.com')) return null;
     const proj = String(env.CLAUDE_PROJECT_DIR || '') || cwd;
     const gate = String(env.CC_WORKER_MODE || '').replace(WS, '') !== '' || dayRunOn(proj, home);
-    if (!gate) return null;
-    const { level, word } = resolveLevel({ env, home, sessionId: input.session_id, cwd });
-    if (level < 2) return null;
+    const { level, word } = resolveLevel({ env, home, sessionId: input.session_id, cwd: proj });
+    // Idle (non-Anthropic provider, gate closed, level < 2): only a write to a worker-mode file is still refused, since a `claude` planted
+    // there while the guard sleeps would outrank the owner's later `worker --level N --global`. Everything else passes.
+    const idle = (host !== null && host !== 'anthropic.com' && !host.endsWith('.anthropic.com')) || !gate || level < 2;
+    if (idle && isAgent) return null;
 
     // BAJZI_SANDBOX=1 (a Linux `split` session): the Edit tools are the only unsandboxed write path, so they get the narrow list.
     // Anything wider (~/.claude/hooks, ~/.gitconfig) lets a Write turn the excluded `git commit` into an unsandboxed hook run.
@@ -229,13 +233,14 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     const claude = path.join(home, '.claude');
     const sets = [lex, key].map(f => ({
       f,
+      wfiles: [path.join(proj, 'runtime', 'worker-mode'), path.join(cwd, 'runtime', 'worker-mode'), env.CC_WORKER_MODE_FILE || '', path.join(claude, 'worker-mode')].filter(Boolean).map(f),
       files: [path.join(proj, 'runtime', 'bajzi-mode'), path.join(cwd, 'runtime', 'bajzi-mode'), path.join(proj, 'runtime', 'worker-mode'), path.join(cwd, 'runtime', 'worker-mode'), env.CC_WORKER_MODE_FILE || '',
         ...['bajzi-mode', 'worker-mode', 'cc-router.json'].map(n => path.join(claude, n))].filter(Boolean).map(f),
       levelDirs: [path.join(env.BAJZI_HOME || home, '.claude', 'bajzi', 'sessions'), path.join(claude, 'bajzi', 'sessions'), env.BAJZI_STATUS_DIR || ''].filter(Boolean).map(f),
       settingsDirs: [claude, path.join(proj, '.claude')].map(f),
       plugins: f(path.join(claude, 'plugins')),
     }));
-    const protectedPath = p => {
+    const protectedPath = (p, onlyWorker = false) => {
       let fs3 = forms(abs(p));
       if (process.platform === 'win32') {   // name variants the OS resolves to the same file: trailing dots/spaces, `:stream`, 8.3 short names (only adds forms, so only adds denies)
         const r = path.resolve(abs(p));
@@ -253,6 +258,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
         fs3 = [...fs3, ...forms(v), norm(nat)];
       }
       return sets.some(s => fs3.some(k => {
+        if (onlyWorker) return s.wfiles.includes(k);
         const dir = path.dirname(k);
         const base = path.basename(k);
         return s.files.includes(k) || k.startsWith(`${s.plugins}/`) ||
@@ -268,6 +274,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     if (isEdit) {
       const raw = tool === 'NotebookEdit' ? ti.notebook_path : ti.file_path;
       if (typeof raw !== 'string' || !raw) return null;
+      if (idle) return protectedPath(raw, true) ? blocked(PROTECTED_REASON) : null;
       if (process.platform === 'win32' && /^[\\/]{2}[?.][\\/]/.test(raw)) return blocked(UNRESOLVED_REASON);   // raw \\?\ and \\.\ paths skip the Win32 name rules
       try { realPath(abs(raw)); realPath(path.resolve(abs(raw))); } catch { return blocked(UNRESOLVED_REASON); }   // fail closed for this check only
       if (protectedPath(raw)) return blocked(PROTECTED_REASON);   // never relaxes, not even in peak
@@ -287,6 +294,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       if (typeof ti.command !== 'string') return null;
       const cmd = ti.command.replace(/\\\r?\n/g, ' ');   // bash joins a backslash-newline
       // Quoted and heredoc text is data, unless a shell/eval wrapper may run it.
+      if (idle) return env.BAJZI_SANDBOX !== '1' && shellWrites(cmd, () => true, p => protectedPath(p, true)) === 2 ? blocked(PROTECTED_REASON) : null;
       const bare = stripHeredoc(cmd);
       if (WORKER_LEVEL.test(inert(bare)) || [...bare.matchAll(WRAP_ARG)].some(m => WORKER_LEVEL.test(m[1] ?? m[2]))) return blocked(LEVEL_REASON);   // never relaxes, not even in peak
       if (env.BAJZI_SANDBOX === '1') return null;   // Linux `split` session: the OS sandbox judges shell writes, no heuristic false denies

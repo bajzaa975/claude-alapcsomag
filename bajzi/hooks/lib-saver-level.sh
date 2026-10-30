@@ -23,13 +23,13 @@
 #                       non-Anthropic provider. The worker-mode FILE alone never
 #                       opens it: a bare install must stay silent.
 #   SAVER_LEVEL         order: CC_WORKER_MODE > own session file > BAJZI_SESSION_LEVEL
-#                       > <cwd>/runtime/worker-mode > ~/.claude/worker-mode > "claude". That is: CC_WORKER_MODE, else
+#                       > <project>/runtime/worker-mode > ~/.claude/worker-mode > "claude". That is: CC_WORKER_MODE, else
 #                       THIS session's level file <status dir>/<session_id>.level when
 #                       the id is SAFE_ID-valid and the file's first line reads non-empty,
 #                       else BAJZI_SESSION_LEVEL (the level a parent session passed to a
 #                       launch; it never opens the gate), else the first line of
-#                       <cwd>/runtime/worker-mode (the repo default; skipped when <cwd> is
-#                       empty; it never opens the gate and survives /clear because no session
+#                       <project>/runtime/worker-mode (the repo default; project =
+#                       $CLAUDE_PROJECT_DIR, else <cwd>; skipped when both are empty; it never opens the gate and survives /clear because no session
 #                       id keys it), else the first line of $HOME/.claude/worker-mode (the
 #                       machine default), else "claude".
 #                       All the level files are read by saver_read_word (leading UTF-8 BOM dropped,
@@ -80,7 +80,7 @@ saver_session_id() {
 }
 
 saver_resolve() { # $1 = cwd, $2 = session id (optional)
-    local _cwd="${1:-}" _sid="${2:-}" _url _mode
+    local _cwd="${1:-}" _sid="${2:-}" _url _mode _proj
     SAVER_HOST=""
     SAVER_NON_ANTHROPIC="no"
     _url=$(printf '%s' "${ANTHROPIC_BASE_URL:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
@@ -119,7 +119,9 @@ saver_resolve() { # $1 = cwd, $2 = session id (optional)
     fi
     # BAJZI_SESSION_LEVEL: a level inherited from a parent session; like a level file it never opens the gate.
     [ -z "$SAVER_LEVEL" ] && SAVER_LEVEL=$(printf '%s' "${BAJZI_SESSION_LEVEL:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-    [ -z "$SAVER_LEVEL" ] && [ -n "$_cwd" ] && SAVER_LEVEL=$(saver_read_word "$_cwd/runtime/worker-mode")
+    # The repo default is anchored at the project root (CLAUDE_PROJECT_DIR, else <cwd>), never at a cd'd-into subfolder.
+    _proj="${CLAUDE_PROJECT_DIR:-$_cwd}"
+    [ -z "$SAVER_LEVEL" ] && [ -n "$_proj" ] && SAVER_LEVEL=$(saver_read_word "$_proj/runtime/worker-mode")
     [ -z "$SAVER_LEVEL" ] && SAVER_LEVEL=$(saver_read_word "${HOME:-}/.claude/worker-mode")
     [ -z "$SAVER_LEVEL" ] && SAVER_LEVEL="claude"
     # Mechanical: a non-Anthropic session is always L3.

@@ -284,6 +284,15 @@ test('prune removes a stale <id>.tired', () => {
   sig.handle({ session_id: 's1', hook_event_name: 'SessionStart' }, {}, 1759340000000, d)
   assert.ok(!fs.existsSync(f))
 })
+test('F7: session-signal skips exactly the prompts level.js MATCH accepts', () => {
+  const { MATCH } = require('../level.js')
+  for (const p of ['/bajzi:level', ' /bajzi:level 2', '\t/bajzi:level\nunset', '/bajzi:levels', '/bajzi:leve', 'x /bajzi:level', 'hello', '']) {
+    const d = tmp()
+    sig.handle({ session_id: 's1', hook_event_name: 'Stop' }, {}, 1, d)
+    sig.handle({ session_id: 's1', hook_event_name: 'UserPromptSubmit', prompt: p }, {}, 2, d)
+    assert.equal(ev(d).state, MATCH.test(p) ? 'done' : 'working', JSON.stringify(p))
+  }
+})
 test('/bajzi:level keeps the previous state (level.js blocks it, no model turn clears working); an ordinary prompt writes working', () => {
   const d = tmp()
   sig.handle({ session_id: 's1', hook_event_name: 'Stop' }, {}, 1, d)

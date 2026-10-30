@@ -17,7 +17,7 @@
 # Everything lives under one mktemp -d, removed on exit by the trap.
 
 set -uo pipefail
-unset ANTHROPIC_BASE_URL CC_WORKER_MODE CC_ROUTER_WORKER BAJZI_SANDBOX BAJZI_UNAME   # the test process may itself run in a GLM/night-run/split env
+unset ANTHROPIC_BASE_URL CLAUDE_PROJECT_DIR CC_WORKER_MODE CC_ROUTER_WORKER BAJZI_SANDBOX BAJZI_UNAME   # the test process may itself run in a GLM/night-run/split env
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

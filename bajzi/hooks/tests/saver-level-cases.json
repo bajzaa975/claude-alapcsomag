@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared by bajzi/hooks/node/tests/saver-level.test.js (node, saver-level.js) and bajzi/hooks/tests/saver-level-parity.sh (bash, lib-saver-level.sh). null = unset / no file. expect_word = SAVER_LEVEL; expect_level = node level number (unknown word = 0, as day-run-mode.sh treats it).",
+  "_comment": "Shared by bajzi/hooks/node/tests/saver-level.test.js (node, saver-level.js) and bajzi/hooks/tests/saver-level-parity.sh (bash, lib-saver-level.sh). null = unset / no file. sub_file = the hook cwd is <repo>/sub holding that runtime/worker-mode while CLAUDE_PROJECT_DIR is the repo root. expect_word = SAVER_LEVEL; expect_level = node level number (unknown word = 0, as day-run-mode.sh treats it).",
   "cases": [
     {"name": "bare", "base_url": null, "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
     {"name": "file-glm", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "expect_word": "glm", "expect_level": 2},
@@ -35,6 +35,7 @@
     {"name": "repo-unknown-word-wins", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "repo_file": "turbo\n", "expect_word": "turbo", "expect_level": 0},
     {"name": "repo-bom-crlf-padded", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "repo_file": "\ufeff Light\r\n", "expect_word": "light", "expect_level": 1},
     {"name": "zai-forces-tight-over-repo", "base_url": "https://api.z.ai/api/anthropic", "worker_mode_env": null, "worker_mode_file": null, "repo_file": "claude\n", "expect_word": "tight", "expect_level": 3},
-    {"name": "no-cwd-no-repo-tier", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "repo_file": "tight\n", "no_cwd": true, "expect_word": "glm", "expect_level": 2}
+    {"name": "no-cwd-no-repo-tier", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "repo_file": "tight\n", "no_cwd": true, "expect_word": "glm", "expect_level": 2},
+    {"name": "project-root-beats-subfolder", "base_url": null, "worker_mode_env": null, "worker_mode_file": "claude\n", "repo_file": "glm\n", "sub_file": "claude\n", "expect_word": "glm", "expect_level": 2}
   ]
 }

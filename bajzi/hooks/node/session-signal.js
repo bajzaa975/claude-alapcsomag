@@ -71,7 +71,7 @@ function handle(input, env, nowMs, dir) {
         } catch { /* fail-open */ }
       }
       // /bajzi:level is blocked by level.js (no model turn follows), so nothing would clear 'working': leave the state alone.
-      if (/^\s*\/bajzi:level(\s|$)/.test(str(input.prompt))) return;
+      if (require('./level').MATCH.test(str(input.prompt))) return;
       put('working', cut(str(input.prompt), 120)); return;
     }
     case 'Notification':

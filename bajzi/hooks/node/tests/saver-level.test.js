@@ -25,6 +25,12 @@ for (const c of CASES) {
       if (c.repo_file != null) fs.mkdirSync(path.join(cwd, 'runtime')), fs.writeFileSync(path.join(cwd, 'runtime', 'worker-mode'), Buffer.from(c.repo_file, 'utf8'));
       if (c.no_cwd) cwd = '';
     }
+    if (c.sub_file != null) {   // CLAUDE_PROJECT_DIR = the root, the hook cwd = a subfolder with its own file
+      env.CLAUDE_PROJECT_DIR = cwd;
+      cwd = path.join(cwd, 'sub');
+      fs.mkdirSync(path.join(cwd, 'runtime'), { recursive: true });
+      fs.writeFileSync(path.join(cwd, 'runtime', 'worker-mode'), Buffer.from(c.sub_file, 'utf8'));
+    }
     const { level, word } = resolveLevel({ env, home, cwd });
     assert.deepStrictEqual({ level, word }, { level: c.expect_level, word: c.expect_word });
   });

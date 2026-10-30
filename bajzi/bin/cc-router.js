@@ -54,6 +54,7 @@ function resolveMode() {
   if (s) return { mode: MODES.includes(s) ? s : 'claude', src: 'session ' + SID };
   const i = (process.env.BAJZI_SESSION_LEVEL || '').replace(/[ \t\n\v\f\r]/g, '').toLowerCase();
   if (i) return { mode: MODES.includes(i) ? i : 'claude', src: 'session (inherited)' };
+  // ponytail: Bash children get no CLAUDE_PROJECT_DIR, so the repo default is read at process.cwd(); after a `cd` into a subfolder with its own runtime/worker-mode this differs from the hooks' project-root read. Pass the project dir in if Claude Code ever exports it.
   const rf = path.join(process.cwd(), 'runtime', 'worker-mode');
   const r = readWord(rf);
   if (r) return { mode: MODES.includes(r) ? r : 'claude', src: 'repo default ' + rf };

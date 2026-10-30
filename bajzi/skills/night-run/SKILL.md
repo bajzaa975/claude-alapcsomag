@@ -382,7 +382,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
    non-Anthropic `ANTHROPIC_BASE_URL`):
 
    ```bash
-   . "${CLAUDE_PLUGIN_ROOT}/hooks/lib-saver-level.sh"; saver_resolve "<BASE>"
+   . "${CLAUDE_PLUGIN_ROOT}/hooks/lib-saver-level.sh"; CLAUDE_PROJECT_DIR= saver_resolve "<BASE>"
    case "$SAVER_LEVEL" in light|glm|tight) echo "SAVER $SAVER_LEVEL: run step 8" ;; *) echo "SAVER L0 ($SAVER_LEVEL): skip step 8" ;; esac
    ```
 

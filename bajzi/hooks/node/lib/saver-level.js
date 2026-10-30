@@ -53,7 +53,7 @@ function readSessionFile(env, home, sessionId) {
   return readModeFile(path.join(dir, sessionId + '.level'));
 }
 
-// CC_WORKER_MODE > <status dir>/<sessionId>.level (a SAFE_ID id only) > BAJZI_SESSION_LEVEL > <cwd>/runtime/worker-mode (repo default; no cwd = skipped)
+// CC_WORKER_MODE > <status dir>/<sessionId>.level (a SAFE_ID id only) > BAJZI_SESSION_LEVEL > <project>/runtime/worker-mode (repo default; project = CLAUDE_PROJECT_DIR, else cwd; neither = skipped)
 // > <home>/.claude/worker-mode > claude. The status dir is session-status.js's, with `home` standing in for os.homedir() when BAJZI_HOME is unset.
 // src: env|session|inherited|repo|machine|none -- where the word came from (a non-Anthropic provider still forces tight, src unchanged).
 function resolveLevel({ env = process.env, home = os.homedir(), sessionId, cwd } = {}) {
@@ -63,7 +63,8 @@ function resolveLevel({ env = process.env, home = os.homedir(), sessionId, cwd }
   let word = lowerAscii(String(env.CC_WORKER_MODE || '').replace(WS, ''));
   if (!word) { src = 'session'; word = readSessionFile(env, home, sessionId); }
   if (!word) { src = 'inherited'; word = lowerAscii(String(env.BAJZI_SESSION_LEVEL || '').replace(WS, '')); }
-  if (!word && typeof cwd === 'string' && cwd) { src = 'repo'; word = readModeFile(path.join(cwd, 'runtime', 'worker-mode')); }
+  const proj = String(env.CLAUDE_PROJECT_DIR || '') || cwd;   // the repo default is anchored at the project root, never at a cd'd-into subfolder
+  if (!word && typeof proj === 'string' && proj) { src = 'repo'; word = readModeFile(path.join(proj, 'runtime', 'worker-mode')); }
   if (!word) { src = 'machine'; word = readModeFile(path.join(home, '.claude', 'worker-mode')); }
   if (!word) { src = 'none'; word = 'claude'; }
   if (nonAnthropic) word = 'tight';
@@ -71,4 +72,4 @@ function resolveLevel({ env = process.env, home = os.homedir(), sessionId, cwd }
   return { level, word, src };
 }
 
-module.exports = { resolveLevel, hostOf, LEVELS };
+module.exports = { resolveLevel, hostOf, readModeFile, LEVELS };

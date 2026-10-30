@@ -37,35 +37,38 @@ function parseLevel(t) {
   return WORDS.includes(t) ? t : null;
 }
 
-// First line, lowercased, whitespace removed: what resolveLevel reads; '-' = nothing there.
-function show(file, LEVELS) {
-  try {
-    const w = fs.readFileSync(file, 'utf8').split('\n')[0].replace(/^﻿/, '').replace(/\s/g, '').toLowerCase();
-    return w ? `L${Object.prototype.hasOwnProperty.call(LEVELS, w) ? LEVELS[w] : 0}` : '-';
-  } catch { return '-'; }
+// The word resolveLevel reads from the file (the same readModeFile); '-' = nothing there.
+function show(file, LEVELS, readModeFile) {
+  const w = readModeFile(file);
+  return w ? `L${Object.prototype.hasOwnProperty.call(LEVELS, w) ? LEVELS[w] : 0}` : '-';
 }
 
 function handle(input, env, home) {
-  const { resolveLevel, LEVELS } = require('./lib/saver-level');
+  const { resolveLevel, hostOf, readModeFile, LEVELS } = require('./lib/saver-level');
   const ss = require('./lib/session-status');
   if (env.CLAUDE_CODE_SESSION_ATTENDED === '0' || String(env.CLAUDE_CODE_ENTRYPOINT || '').startsWith('sdk')) {
     return '/bajzi:level works only in an interactive session (the owner types it).';
   }
   const sid = input.session_id;
   const cwd = typeof input.cwd === 'string' ? input.cwd : '';
+  const proj = String(env.CLAUDE_PROJECT_DIR || '') || cwd;   // the repo default sits at the project root, as in resolveLevel
   const dir = ss.statusDir(Object.assign({}, env, { BAJZI_HOME: env.BAJZI_HOME || home }));
   const safe = typeof sid === 'string' && ss.SAFE_ID.test(sid);
   const files = {
     session: safe ? path.join(dir, `${sid}.level`) : null,
-    repo: cwd ? path.join(cwd, 'runtime', 'worker-mode') : null,
+    repo: proj ? path.join(proj, 'runtime', 'worker-mode') : null,
     global: path.join(home, '.claude', 'worker-mode'),
   };
   const eff = () => resolveLevel({ env, home, sessionId: sid, cwd });
+  const host = hostOf(env.ANTHROPIC_BASE_URL);
+  const provider = host !== null && host !== 'anthropic.com' && !host.endsWith('.anthropic.com');   // resolveLevel forces tight there but keeps the src of the word
+  const from = (r) => provider ? 'ANTHROPIC_BASE_URL (a non-Anthropic provider)' : r.src;
   const tail = (scope) => {
     const r = eff();
-    let s = `This session is now L${r.level} (${r.word}) from ${r.src}.`;
+    let s = `This session is now L${r.level} (${r.word}) from ${from(r)}.`;
     const own = { session: 'session', repo: 'repo', global: 'machine' }[scope];
-    if (scope && r.src !== own) s += ` Note: ${r.src === 'env' ? 'CC_WORKER_MODE' : r.src === 'inherited' ? 'BAJZI_SESSION_LEVEL' : `the ${r.src} level`} still wins over the ${scope} scope.`;
+    if (scope && provider) s += ` Note: ANTHROPIC_BASE_URL (a non-Anthropic provider) still wins over the ${scope} scope: the level is always L3 there.`;
+    else if (scope && r.src !== own) s += ` Note: ${r.src === 'env' ? 'CC_WORKER_MODE' : r.src === 'inherited' ? 'BAJZI_SESSION_LEVEL' : `the ${r.src} level`} still wins over the ${scope} scope.`;
     return s + (r.level >= 2 ? NOSWITCH : '');
   };
   const need = (scope) => {
@@ -78,10 +81,10 @@ function handle(input, env, home) {
 
   if (args.length === 0) {
     const r = eff();
-    return [`This session: L${r.level} (${r.word}) from ${r.src}.`,
-      `session: ${files.session ? show(files.session, LEVELS) : '-'}`,
-      `repo: ${show(files.repo || '', LEVELS)} (${path.join(cwd, 'runtime', 'worker-mode')})`,
-      `global: ${show(files.global, LEVELS)} (~/.claude/worker-mode)`].join('\n');
+    return [`This session: L${r.level} (${r.word}) from ${from(r)}.`,
+      `session: ${files.session ? show(files.session, LEVELS, readModeFile) : '-'}`,
+      `repo: ${files.repo ? show(files.repo, LEVELS, readModeFile) : '-'} (${files.repo || 'no project directory'})`,
+      `global: ${show(files.global, LEVELS, readModeFile)} (~/.claude/worker-mode)`].join('\n');
   }
   if (args[0] === 'unset') {
     const scope = args.length <= 2 ? scopeOf(args[1]) : null;

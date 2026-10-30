@@ -402,3 +402,16 @@ test('repo default: <cwd>/runtime/worker-mode changes the shown level, beats the
   assert.strictEqual(lvl('A'), 3);
   assert.strictEqual(lvl('B'), 1);
 });
+
+test('repo default: the status line reads it at workspace.project_dir, not at the cwd subfolder', () => {
+  const proj = tmpDir('bajzi-nr-');
+  const sub = path.join(proj, 'sub');
+  const home = tmpDir('bajzi-h-');
+  fs.mkdirSync(path.join(sub, 'runtime'), { recursive: true });
+  fs.mkdirSync(path.join(proj, 'runtime'));
+  fs.writeFileSync(path.join(proj, 'runtime', 'worker-mode'), 'tight\n');
+  fs.writeFileSync(path.join(sub, 'runtime', 'worker-mode'), 'claude\n');
+  const facts = {};
+  render({ session_id: 'A', workspace: { current_dir: sub, project_dir: proj } }, { env: {}, home, nowMs: NIGHT, color: false, facts });
+  assert.strictEqual(facts.level, 3);
+});

@@ -107,6 +107,31 @@ test('no leftover tmp files after a write', () => {
   assert.deepEqual(fs.readdirSync(t.status), ['s1.level']);
   assert.deepEqual(fs.readdirSync(path.dirname(t.f.repo)), ['worker-mode']);
 });
+test('F5: under a non-Anthropic provider the reply names ANTHROPIC_BASE_URL as what decides, not the file just written', () => {
+  const t = fx({ ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic' });
+  const r = t.run('/bajzi:level 0');
+  assert.match(r.json.reason, /L3 \(tight\) from ANTHROPIC_BASE_URL/);
+  assert.match(r.json.reason, /ANTHROPIC_BASE_URL .* still wins over the session scope/);
+  assert.doesNotMatch(r.json.reason, /from session/);
+  assert.match(t.run('/bajzi:level').json.reason, /from ANTHROPIC_BASE_URL/);
+});
+test('F6: a scope line reads the file like the resolver (latin1, ASCII whitespace): no-break space makes glm unknown, L0 on both lines', () => {
+  const t = fx(); t.put(t.f.repo, 'glm \n');
+  const lines = t.run('/bajzi:level').json.reason.split('\n');
+  assert.match(lines[0], /^This session: L0 \(glm ?[^)]*\) from repo\./);
+  assert.match(lines.find(l => l.startsWith('repo:')), /^repo: L0 /);
+});
+test('the repo scope is anchored at CLAUDE_PROJECT_DIR, not at the hook cwd', () => {
+  const proj = tmpDir('lv-proj-');
+  const t = fx({ CLAUDE_PROJECT_DIR: proj });
+  const r = t.run('/bajzi:level 2 repo');
+  assert.equal(fs.readFileSync(path.join(proj, 'runtime', 'worker-mode'), 'utf8'), 'glm\n');
+  assert.equal(t.get(t.f.repo), null);
+  assert.match(r.json.reason, /L2 \(glm\) from repo\./);
+  assert.match(t.run('/bajzi:level').json.reason, new RegExp('repo: L2 \\(' + proj.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')));
+  t.run('/bajzi:level unset repo');
+  assert.equal(fs.existsSync(path.join(proj, 'runtime', 'worker-mode')), false);
+});
 test('hooks.json registers level.js on UserPromptSubmit with timeout 5', () => {
   const h = JSON.parse(fs.readFileSync(path.join(NODE_DIR, '..', 'hooks.json'), 'utf8'));
   const e = h.hooks.UserPromptSubmit.flatMap(x => x.hooks).filter(c => c.command.endsWith('hooks/node/level.js"'));

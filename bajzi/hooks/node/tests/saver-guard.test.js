@@ -366,8 +366,8 @@ test('plugin scripts, mode/level file reads and a message or brief naming a cont
 
 test('windows tier accepted limits: delete/move/copy of a control file is not seen (Linux sandbox closes it)', () => {
   const c = ctx({ CC_WORKER_MODE: 'tight' });
-  for (const cmd of ['rm runtime/bajzi-mode', 'rm ~/.claude/worker-mode', 'rm ~/.claude/cc-router.json', 'rm ~/.claude/bajzi/sessions/s1.level',
-    'rm .claude/settings.local.json', 'mv runtime/x ~/.claude/worker-mode', 'cp a ~/.claude/settings.json', 'echo x | cp a ~/.claude/settings.json']) {
+  for (const cmd of ['rm runtime/bajzi-mode', 'rm ~/.claude/cc-router.json', 'rm ~/.claude/bajzi/sessions/s1.level',
+    'rm .claude/settings.local.json', 'cp a ~/.claude/settings.json', 'echo x | cp a ~/.claude/settings.json']) {
     assert.strictEqual(bash(c, cmd), null, cmd);
   }
   for (const cmd of ['Remove-Item ~/.claude/bajzi-mode', 'Move-Item a ~/.claude/cc-router.json']) assert.strictEqual(bash(c, cmd, 'PowerShell'), null, cmd);
@@ -893,4 +893,51 @@ test('the repo default level applies to the guard: <cwd>/runtime/worker-mode tig
   assert.strictEqual(edit(c, 'src/x.js'), null);   // claude
   put(path.join(c.cwd, 'runtime', 'worker-mode'), 'tight\n');
   isDeny(edit(c, 'src/x.js'), 'repo default tight');
+});
+
+test('F1: the repo default level is read at the project root, never at the hook cwd', () => {
+  const c = ctx({});
+  const proj = tmpDir('bajzi-sgp-');
+  const at = (cwd, env) => ({ cwd, home: c.home, tmp: c.tmp, opts: { env: Object.assign({ CLAUDE_PROJECT_DIR: proj }, env), home: c.home, now: NOON, tmpdir: c.tmp } });
+  // 1: machine default tight, day-run on; a planted claude in <project>/runtime/x/runtime/worker-mode must not lower the level
+  put(path.join(proj, 'runtime', 'bajzi-mode'), 'day-run\n');
+  put(path.join(c.home, '.claude', 'worker-mode'), 'tight\n');
+  put(path.join(proj, 'runtime', 'x', 'runtime', 'worker-mode'), 'claude\n');
+  isDeny(edit(at(path.join(proj, 'runtime', 'x')), path.join(proj, 'src', 'x.js')), 'cwd = runtime/x');
+  // 2: root repo default tight, no machine file; a cd into src must not drop it
+  fs.rmSync(path.join(c.home, '.claude', 'worker-mode'));
+  put(path.join(proj, 'runtime', 'worker-mode'), 'tight\n');
+  put(path.join(proj, 'src', 'x'), '');
+  isDeny(edit(at(path.join(proj, 'src')), 'x.js'), 'cwd = src');
+});
+
+test('F2: a worker-mode file is protected while the guard is idle (day-run off, z.ai, level light)', () => {
+  const idles = [
+    ['day-run off', {}, c => put(path.join(c.home, '.claude', 'worker-mode'), 'tight\n')],
+    ['z.ai', { ANTHROPIC_BASE_URL: GLM_URL }, c => put(path.join(c.cwd, 'runtime', 'bajzi-mode'), 'day-run\n')],
+    ['light', {}, c => { put(path.join(c.cwd, 'runtime', 'bajzi-mode'), 'day-run\n'); put(path.join(c.home, '.claude', 'worker-mode'), 'light\n'); }],
+  ];
+  for (const [name, env, setup] of idles) {
+    const c = ctx(env);
+    setup(c);
+    for (const f of ['runtime/worker-mode', '~/.claude/worker-mode']) {
+      for (const d of [edit(c, f), bash(c, `echo claude > ${f}`)]) {
+        isDeny(d, `${name} ${f}`);
+        assert.match(d.reason, /this file controls the saver guard or the saver level/, name);
+      }
+    }
+    assert.strictEqual(edit(c, 'src/x.js'), null, name);   // idle: a code write still passes
+    assert.strictEqual(edit(c, 'runtime/bajzi-mode'), null, name);   // bajzi-mode is not extended
+  }
+});
+
+test('F3: rm/mv/cp/Remove-Item on a worker-mode file are protected hits at L3', () => {
+  const c = ctx({ CC_WORKER_MODE: 'tight' });
+  for (const cmd of ['rm runtime/worker-mode', 'mv x runtime/worker-mode', 'cp x runtime/worker-mode', 'mv runtime/worker-mode x', 'ln -sf x runtime/worker-mode', 'truncate -s0 runtime/worker-mode', 'rm -f ~/.claude/worker-mode']) {
+    const d = bash(c, cmd);
+    isDeny(d, cmd);
+    assert.match(d.reason, /this file controls the saver guard or the saver level/, cmd);
+  }
+  for (const cmd of ['Remove-Item runtime/worker-mode', 'del runtime/worker-mode', 'Move-Item -Path x -Destination runtime/worker-mode', 'Copy-Item x runtime/worker-mode', 'Clear-Content runtime/worker-mode']) isDeny(bash(c, cmd, 'PowerShell'), cmd);
+  assert.strictEqual(bash(c, 'rm runtime/x.md'), null);
 });

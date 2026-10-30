@@ -106,7 +106,7 @@ A token-efficient working method for Claude Code and Cowork.
   A typed `/bajzi:tired` or `/bajzi:tired off` prompt also writes or deletes `<id>.tired`.
 - **Tired mode** — `hooks/node/tired.js`, SessionStart. After a compaction, when `<id>.tired` exists,
   re-adds the `/bajzi:tired` rules once; on startup, clear and resume it deletes the marker. Fails open.
-- **Level command** — `hooks/node/level.js`, UserPromptSubmit. A typed `/bajzi:level …` line is handled and blocked there (the model never sees it): sets or unsets the saver level for this session, the repo (`runtime/worker-mode`) or the machine; refused when no person is at the keyboard. Fails open.
+- **Level command** — `hooks/node/level.js`, UserPromptSubmit. A typed `/bajzi:level …` line is handled and blocked there (the model never sees it): sets or unsets the saver level for this session, the repo (`<project>/runtime/worker-mode`, project = `CLAUDE_PROJECT_DIR`, else the cwd) or the machine; refused when no person is at the keyboard. Fails open.
 - **Owner questions rule** — `hooks/node/ask-owner.js`, SessionStart. Only when `ORCH_BUS_PANE` is set (a session
   in an external orchestrator's pane with an `ask_owner` tool), adds the rule that routes every owner question and
   manual owner step through that tool. Silent otherwise; fails open.
