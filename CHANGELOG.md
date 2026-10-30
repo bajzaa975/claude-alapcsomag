@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.32.2
+- Added: the owner-questions rule tells the session to call `owner_answered` when the owner answers a panel question in chat, so the panel card closes
+
 ## 1.32.1
 - Added: night-run notifications show a Linux desktop toast through `notify-send` when it is installed (off with `ORCH_NOTIFY_NO_TOAST=1`, as on Windows); the Windows toast is unchanged
 - Changed: the gitleaks install hint for Linux and macOS names `pacman -S gitleaks` (Arch) next to brew and the release binary
