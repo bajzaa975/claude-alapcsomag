@@ -960,6 +960,19 @@ test('F11: idle: a dangling link runtime/x -> worker-mode is denied for Edit and
   assert.strictEqual(edit(c, 'src/x.js'), null, 'idle: a plain code write still passes');
 });
 
+test('F12: idle: a shell write to the standard streams or /dev/fd is not refused', () => {
+  if (process.platform === 'win32') return;
+  const c = ctx({});   // day-run off: idle
+  for (const cmd of ['echo x >/dev/stderr', 'echo x > /dev/stdout', 'echo x > /dev/fd/2', 'ls | tee /dev/stderr']) assert.strictEqual(bash(c, cmd), null, cmd);
+});
+
+test('F12: idle: a /dev/../ path into the project stays checked when it hits a dangling link', t => {
+  const c = ctx({});
+  fs.mkdirSync(path.join(c.cwd, 'runtime'), { recursive: true });
+  if (!link(t, 'worker-mode', path.join(c.cwd, 'runtime', 'x'))) return;
+  isDeny(bash(c, `echo x > /dev/../${c.cwd}/runtime/x`), 'idle /dev/.. write through the dangling link');
+});
+
 test('F3: rm/mv/cp/Remove-Item on a worker-mode file are protected hits at L3', () => {
   const c = ctx({ CC_WORKER_MODE: 'tight' });
   for (const cmd of ['rm runtime/worker-mode', 'mv x runtime/worker-mode', 'cp x runtime/worker-mode', 'mv runtime/worker-mode x', 'ln -sf x runtime/worker-mode', 'truncate -s0 runtime/worker-mode', 'rm -f ~/.claude/worker-mode']) {
