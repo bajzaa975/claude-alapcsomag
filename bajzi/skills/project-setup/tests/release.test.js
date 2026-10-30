@@ -55,7 +55,7 @@ test('project-setup SKILL: the start assessment never runs under --check', () =>
 test('every node hook command in hooks.json points at an existing file', () => {
   const h = JSON.parse(read(path.join(BAJZI, 'hooks', 'hooks.json'))).hooks;
   const cmds = Object.values(h).flat().flatMap(e => e.hooks.map(k => k.command)).filter(c => c.startsWith('node '));
-  assert.strictEqual(cmds.length, 12);   // pre-tool, post-tool, radar notice, writer-guard notice, session-signal x6, tired, ask-owner
+  assert.strictEqual(cmds.length, 13);   // pre-tool, post-tool, radar notice, writer-guard notice, session-signal x6, tired, ask-owner, level
   for (const c of cmds) {
     const rel = /\$\{CLAUDE_PLUGIN_ROOT\}\/([^"]+)"/.exec(c)[1];
     assert.ok(fs.existsSync(path.join(BAJZI, rel)), rel);

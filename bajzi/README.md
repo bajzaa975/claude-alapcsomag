@@ -13,6 +13,7 @@ A token-efficient working method for Claude Code and Cowork.
 | `/bajzi:modszertan` | GSD vs superpowers vs none → `.claude/METHODOLOGY` | once per repo |
 | `/bajzi:autopilot` | unsupervised work session with a decision log | when you leave the machine |
 | `/bajzi:mode` | day-run working mode on/off, status | any time |
+| `/bajzi:level [<n> [session\|repo\|global]]` | owner-only saver level command, handled by a hook (no model turn): status, set, `unset`; refused in an unattended session | any time |
 | `/bajzi:night-run` | plans and launches an unattended overnight run | at bedtime |
 | `/bajzi:implement <id>` | implements one slice from `runtime/slices/<id>.md` through the implementer agents | per slice |
 | `/bajzi:review <slice> <range>` | reviews a commit range through the reviewer agent | after the sprint's last slice is committed |
@@ -105,6 +106,7 @@ A token-efficient working method for Claude Code and Cowork.
   A typed `/bajzi:tired` or `/bajzi:tired off` prompt also writes or deletes `<id>.tired`.
 - **Tired mode** — `hooks/node/tired.js`, SessionStart. After a compaction, when `<id>.tired` exists,
   re-adds the `/bajzi:tired` rules once; on startup, clear and resume it deletes the marker. Fails open.
+- **Level command** — `hooks/node/level.js`, UserPromptSubmit. A typed `/bajzi:level …` line is handled and blocked there (the model never sees it): sets or unsets the saver level for this session, the repo (`runtime/worker-mode`) or the machine; refused when no person is at the keyboard. Fails open.
 - **Owner questions rule** — `hooks/node/ask-owner.js`, SessionStart. Only when `ORCH_BUS_PANE` is set (a session
   in an external orchestrator's pane with an `ask_owner` tool), adds the rule that routes every owner question and
   manual owner step through that tool. Silent otherwise; fails open.

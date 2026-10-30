@@ -70,6 +70,8 @@ function handle(input, env, nowMs, dir) {
           else { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, `${id}.tired`), ''); }
         } catch { /* fail-open */ }
       }
+      // /bajzi:level is blocked by level.js (no model turn follows), so nothing would clear 'working': leave the state alone.
+      if (/^\s*\/bajzi:level(\s|$)/.test(str(input.prompt))) return;
       put('working', cut(str(input.prompt), 120)); return;
     }
     case 'Notification':

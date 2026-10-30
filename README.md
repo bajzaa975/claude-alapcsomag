@@ -203,6 +203,7 @@ Check the install with `claude plugin list`.
 | `grilling` | (model-invocable) | Numbered interview rounds that record each settled decision with a Proof line and mark the spec `Grilled:`. Adapted from mattpocock/skills (MIT). |
 | `handoff` | `/bajzi:handoff` | Saves session state into `runtime/handoff/<slug>.md` plus a suggested opening prompt for after `/clear`. |
 | `implement` | `/bajzi:implement <id>` | Implements one slice from `runtime/slices/<id>.md` through the implementer agents and commits it for review. |
+| `level` | `/bajzi:level [<n> [session\|repo\|global]]` | Owner-only saver level command, handled by a hook (no model turn): shows, sets or unsets the level for this session, the repo or the machine; refused in an unattended session. |
 | `mode` | `/bajzi:mode` | Switches between day-run (autonomous, model-routed) and normal mode, or reports which is active. |
 | `modszertan` | `/bajzi:modszertan` | Selects or changes the repo's leading methodology (GSD, superpowers or neither). |
 | `night-run` | `/bajzi:night-run` | Plans an unattended multi-hour overnight run: preflight, queue, brief, approval gate, launch. |

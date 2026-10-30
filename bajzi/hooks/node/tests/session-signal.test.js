@@ -172,7 +172,9 @@ test('hooks.json wires session-signal.js on the six events, timeout 5, Notificat
   const CMD = 'node "${CLAUDE_PLUGIN_ROOT}/hooks/node/session-signal.js"'
   const wired = Object.entries(h).flatMap(([e, a]) => a.filter(m => m.hooks.some(k => k.command === CMD)).map(m => [e, m]))
   assert.deepEqual(wired.map(([e]) => e).sort(), ['Notification', 'SessionEnd', 'SessionStart', 'Stop', 'StopFailure', 'UserPromptSubmit'])
-  for (const [e, m] of wired) assert.deepEqual(m.hooks, [{ type: 'command', command: CMD, timeout: 5 }], e)
+  // UserPromptSubmit also carries level.js (the owner-only /bajzi:level), after session-signal.js
+  const LVL = { type: 'command', command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/node/level.js"', timeout: 5 }
+  for (const [e, m] of wired) assert.deepEqual(m.hooks, [{ type: 'command', command: CMD, timeout: 5 }, ...(e === 'UserPromptSubmit' ? [LVL] : [])], e)
   assert.equal(wired.find(([e]) => e === 'Notification')[1].matcher, 'permission_prompt|idle_prompt|elicitation_dialog|agent_needs_input')
   for (const [e, m] of wired) if (e !== 'Notification') assert.equal(m.matcher, undefined, e)
 })
@@ -281,4 +283,17 @@ test('prune removes a stale <id>.tired', () => {
   const old = new Date(1759340000000 - 8 * 86400e3); fs.utimesSync(f, old, old)
   sig.handle({ session_id: 's1', hook_event_name: 'SessionStart' }, {}, 1759340000000, d)
   assert.ok(!fs.existsSync(f))
+})
+test('/bajzi:level keeps the previous state (level.js blocks it, no model turn clears working); an ordinary prompt writes working', () => {
+  const d = tmp()
+  sig.handle({ session_id: 's1', hook_event_name: 'Stop' }, {}, 1, d)
+  for (const p of ['/bajzi:level 2', '  /bajzi:level', '/bajzi:level\tunset repo']) {
+    sig.handle({ session_id: 's1', hook_event_name: 'UserPromptSubmit', prompt: p }, {}, 2, d)
+    assert.equal(ev(d).state, 'done', p)
+  }
+  sig.handle({ session_id: 's1', hook_event_name: 'UserPromptSubmit', prompt: '/bajzi:levels' }, {}, 3, d)
+  assert.equal(ev(d).state, 'working')
+  sig.handle({ session_id: 's1', hook_event_name: 'Stop' }, {}, 4, d)
+  sig.handle({ session_id: 's1', hook_event_name: 'UserPromptSubmit', prompt: 'hello' }, {}, 5, d)
+  assert.equal(ev(d).state, 'working')
 })
