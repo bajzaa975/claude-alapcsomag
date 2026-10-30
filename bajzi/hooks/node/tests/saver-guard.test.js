@@ -867,3 +867,30 @@ test('Windows/guard tier (no BAJZI_SANDBOX): a tmp Write is allowed and logs not
   assert.strictEqual(call(c, 'Write', { file_path: path.join(c.tmp, 'scratch', 'notes.md'), content: 'x' }), null);
   assert.strictEqual(logOf(c), '');
 });
+
+test('repo default level file <project>/runtime/worker-mode and <cwd>/runtime/worker-mode: Edit and shell redirect denied, also in peak and for the risk agent', () => {
+  for (const now of [NOON, PEAK]) {
+    const c = ctx({}, now);
+    put(path.join(c.home, '.claude', 'worker-mode'), 'tight\n');
+    put(path.join(c.cwd, 'runtime', 'bajzi-mode'), 'day-run\n');
+    const proj = tmpDir('bajzi-sgp-');
+    const c2 = Object.assign({}, c, { opts: Object.assign({}, c.opts, { env: { CLAUDE_PROJECT_DIR: proj } }) });
+    put(path.join(proj, 'runtime', 'bajzi-mode'), 'day-run\n');
+    for (const f of ['runtime/worker-mode', path.join(c.cwd, 'runtime', 'worker-mode')]) {
+      isDeny(edit(c, f), `Edit ${f}`);
+      isDeny(call(c, 'Write', { file_path: f, content: 'x' }, { agent_id: 'a1', agent_type: 'bajzi:implementer-risk' }), `risk Write ${f}`);
+    }
+    isDeny(edit(c2, path.join(proj, 'runtime', 'worker-mode')), 'Edit <project>/runtime/worker-mode');
+    isDeny(edit(c2, path.join(c.cwd, 'runtime', 'worker-mode')), 'Edit <cwd>/runtime/worker-mode');
+    for (const cmd of ['echo glm > runtime/worker-mode', `echo glm > ${path.join(c.cwd, 'runtime', 'worker-mode').split(path.sep).join('/')}`, 'sed -i s/a/b/ runtime/worker-mode']) isDeny(bash(c, cmd), cmd);
+    isDeny(bash(c2, `echo glm > ${path.join(proj, 'runtime', 'worker-mode').split(path.sep).join('/')}`), 'shell to <project>/runtime/worker-mode');
+    assert.strictEqual(edit(c, 'runtime/x.md'), null);
+  }
+});
+test('the repo default level applies to the guard: <cwd>/runtime/worker-mode tight with the gate open denies a code write', () => {
+  const c = ctx({ CC_WORKER_MODE: ' ' });
+  put(path.join(c.cwd, 'runtime', 'bajzi-mode'), 'day-run\n');
+  assert.strictEqual(edit(c, 'src/x.js'), null);   // claude
+  put(path.join(c.cwd, 'runtime', 'worker-mode'), 'tight\n');
+  isDeny(edit(c, 'src/x.js'), 'repo default tight');
+});

@@ -26,6 +26,15 @@
     {"name": "query-right-after-host", "base_url": "https://api.anthropic.com?x=1", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
     {"name": "fragment-right-after-host", "base_url": "https://api.anthropic.com#frag", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "claude", "expect_level": 0},
     {"name": "query-hides-userinfo-trick", "base_url": "https://evil.com?@api.anthropic.com", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3},
-    {"name": "fragment-hides-userinfo-trick", "base_url": "https://evil.com#@api.anthropic.com", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3}
+    {"name": "fragment-hides-userinfo-trick", "base_url": "https://evil.com#@api.anthropic.com", "worker_mode_env": null, "worker_mode_file": null, "expect_word": "tight", "expect_level": 3},
+    {"name": "repo-only", "base_url": null, "worker_mode_env": null, "worker_mode_file": null, "repo_file": "glm\n", "expect_word": "glm", "expect_level": 2},
+    {"name": "repo-beats-machine", "base_url": null, "worker_mode_env": null, "worker_mode_file": "tight\n", "repo_file": "light\n", "expect_word": "light", "expect_level": 1},
+    {"name": "env-beats-repo", "base_url": null, "worker_mode_env": "light", "worker_mode_file": null, "repo_file": "tight\n", "expect_word": "light", "expect_level": 1},
+    {"name": "repo-empty-falls-to-machine", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "repo_file": "", "expect_word": "glm", "expect_level": 2},
+    {"name": "repo-blank-line-falls-to-machine", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "repo_file": " \r\ntight\n", "expect_word": "glm", "expect_level": 2},
+    {"name": "repo-unknown-word-wins", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "repo_file": "turbo\n", "expect_word": "turbo", "expect_level": 0},
+    {"name": "repo-bom-crlf-padded", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "repo_file": "\ufeff Light\r\n", "expect_word": "light", "expect_level": 1},
+    {"name": "zai-forces-tight-over-repo", "base_url": "https://api.z.ai/api/anthropic", "worker_mode_env": null, "worker_mode_file": null, "repo_file": "claude\n", "expect_word": "tight", "expect_level": 3},
+    {"name": "no-cwd-no-repo-tier", "base_url": null, "worker_mode_env": null, "worker_mode_file": "glm\n", "repo_file": "tight\n", "no_cwd": true, "expect_word": "glm", "expect_level": 2}
   ]
 }

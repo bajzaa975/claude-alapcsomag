@@ -652,3 +652,30 @@ test('split: the bajzi root honours scope/projectPath and CLAUDE_CONFIG_DIR', ()
   assert.strictEqual(r.code, 0, r.stderr);
   assert.deepStrictEqual(readJson(sbFile(c.home, c.cwd)).sandbox.excludedCommands.slice(-2), fcPair(viaCfg));
 });
+
+// --- repo default: <cwd>/runtime/worker-mode between BAJZI_SESSION_LEVEL and the machine file ---
+test('resolveMode repo tier: --status names "repo default <file>"; env, session and inherited beat it; it beats the machine file', () => {
+  const sb = run('worker', ['--level', '2', '--global']);
+  const env = { CC_WORKER_MODE_FILE: path.join(sb.dir, 'worker-mode'), BAJZI_STATUS_DIR: path.join(sb.dir, 'sessions') };
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-repo-'));
+  fs.mkdirSync(path.join(cwd, 'runtime'));
+  assert.match(run('worker', ['--status'], env, { cwd }).stdout, /^level\s+L2 \(glm\)\s+\(machine default/m);
+  fs.writeFileSync(path.join(cwd, 'runtime', 'worker-mode'), '﻿ Light\r\n');
+  const s = run('worker', ['--status'], env, { cwd });
+  assert.match(s.stdout, /^level\s+L1 \(light\)\s+\(repo default .*worker-mode\)/m);
+  assert.match(run('worker', ['--mode'], env, { cwd }).stdout, /^light$/m);
+  assert.match(run('worker', ['--status'], Object.assign({ CC_WORKER_MODE: 'tight' }, env), { cwd }).stdout, /^level\s+L3 \(tight\)\s+\(env /m);
+  assert.match(run('worker', ['--status'], Object.assign({ BAJZI_SESSION_LEVEL: 'tight' }, env), { cwd }).stdout, /^level\s+L3 \(tight\)\s+\(session \(inherited\)/m);
+  fs.writeFileSync(path.join(cwd, 'runtime', 'worker-mode'), 'turbo\n');   // unknown word wins and reads as claude
+  assert.match(run('worker', ['--status'], env, { cwd }).stdout, /^level\s+L0 \(claude\)\s+\(repo default /m);
+  fs.writeFileSync(path.join(cwd, 'runtime', 'worker-mode'), '\n');   // empty falls through
+  assert.match(run('worker', ['--status'], env, { cwd }).stdout, /^level\s+L2 \(glm\)\s+\(machine default/m);
+});
+test('a repo default of glm makes a launch run on GLM, and the child gets no session-level pin', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-repo-'));
+  fs.mkdirSync(path.join(cwd, 'runtime'));
+  fs.writeFileSync(path.join(cwd, 'runtime', 'worker-mode'), 'glm\n');
+  const r = run('worker', ['-p', 'x'], {}, { cwd });
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.ok(r.childEnv.ANTHROPIC_BASE_URL, 'repo glm launches on the GLM provider');
+});

@@ -46,7 +46,7 @@ const SESSION_FILE = SID ? path.join(STATUS_DIR, SID + '.level') : '';
 function readWord(p) {
   try { return fs.readFileSync(p, 'utf8').split('\n')[0].replace(/^\uFEFF/, '').replace(/[ \t\n\v\f\r]/g, '').toLowerCase(); } catch (_) { return ''; }
 }
-// CC_WORKER_MODE > the session level file > BAJZI_SESSION_LEVEL (inherited from a parent session) > worker-mode > claude. An unknown word in a file or in BAJZI_SESSION_LEVEL reads as claude.
+// CC_WORKER_MODE > the session level file > BAJZI_SESSION_LEVEL (inherited from a parent session) > <cwd>/runtime/worker-mode (repo default) > worker-mode > claude. An unknown word in a file or in BAJZI_SESSION_LEVEL reads as claude.
 function resolveMode() {
   const e = (process.env.CC_WORKER_MODE || '').trim().toLowerCase();
   if (e) { if (!MODES.includes(e)) die('CC_WORKER_MODE must be one of: ' + MODES.join(', '), 64); return { mode: e, src: 'env CC_WORKER_MODE' }; }
@@ -54,6 +54,9 @@ function resolveMode() {
   if (s) return { mode: MODES.includes(s) ? s : 'claude', src: 'session ' + SID };
   const i = (process.env.BAJZI_SESSION_LEVEL || '').replace(/[ \t\n\v\f\r]/g, '').toLowerCase();
   if (i) return { mode: MODES.includes(i) ? i : 'claude', src: 'session (inherited)' };
+  const rf = path.join(process.cwd(), 'runtime', 'worker-mode');
+  const r = readWord(rf);
+  if (r) return { mode: MODES.includes(r) ? r : 'claude', src: 'repo default ' + rf };
   const f = readWord(MODE_FILE);
   if (f) return { mode: MODES.includes(f) ? f : 'claude', src: 'machine default ' + MODE_FILE };
   return { mode: 'claude', src: 'none' };

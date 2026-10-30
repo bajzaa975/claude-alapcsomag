@@ -4,7 +4,8 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tmpDir } = require('./helpers');
-const { resolveLevel } = require('../lib/saver-level');
+const { resolveLevel: resolveFull } = require('../lib/saver-level');
+const resolveLevel = a => { const { level, word } = resolveFull(a); return { level, word }; };   // the older tests pin {level, word}; src has its own test below
 
 const CASES = require(path.join(__dirname, '..', '..', 'tests', 'saver-level-cases.json')).cases;
 
@@ -18,7 +19,14 @@ for (const c of CASES) {
     const env = {};
     if (c.base_url !== null) env.ANTHROPIC_BASE_URL = c.base_url;
     if (c.worker_mode_env !== null) env.CC_WORKER_MODE = c.worker_mode_env;
-    assert.deepStrictEqual(resolveLevel({ env, home }), { level: c.expect_level, word: c.expect_word });
+    let cwd;
+    if (c.repo_file != null || c.no_cwd) {
+      cwd = tmpDir('bajzi-lvc-');
+      if (c.repo_file != null) fs.mkdirSync(path.join(cwd, 'runtime')), fs.writeFileSync(path.join(cwd, 'runtime', 'worker-mode'), Buffer.from(c.repo_file, 'utf8'));
+      if (c.no_cwd) cwd = '';
+    }
+    const { level, word } = resolveLevel({ env, home, cwd });
+    assert.deepStrictEqual({ level, word }, { level: c.expect_level, word: c.expect_word });
   });
 }
 
@@ -87,4 +95,37 @@ test('a session-file DIRECTORY is not a file: falls through', () => {
   const { home, dir } = fixture({ machine: 'light\n' });
   fs.mkdirSync(path.join(dir, 'A.level'));
   assert.deepStrictEqual(resolveLevel({ env: {}, home, sessionId: 'A' }), { level: 1, word: 'light' });
+});
+
+// --- repo default: <cwd>/runtime/worker-mode sits between BAJZI_SESSION_LEVEL and the machine file; src names the tier ---
+function repo(body) {
+  const cwd = tmpDir('bajzi-lvr-');
+  fs.mkdirSync(path.join(cwd, 'runtime'));
+  if (body !== null) fs.writeFileSync(path.join(cwd, 'runtime', 'worker-mode'), body);
+  return cwd;
+}
+test('src names the tier that decided: env / session / inherited / repo / machine / none', () => {
+  const { home } = fixture({ machine: 'glm\n', sessions: { A: 'tight\n' } });
+  const cwd = repo('light\n');
+  assert.strictEqual(resolveFull({ env: { CC_WORKER_MODE: 'claude' }, home, sessionId: 'A', cwd }).src, 'env');
+  assert.strictEqual(resolveFull({ env: {}, home, sessionId: 'A', cwd }).src, 'session');
+  assert.strictEqual(resolveFull({ env: { BAJZI_SESSION_LEVEL: 'glm' }, home, cwd }).src, 'inherited');
+  assert.deepStrictEqual(resolveFull({ env: {}, home, cwd }), { level: 1, word: 'light', src: 'repo' });
+  assert.strictEqual(resolveFull({ env: {}, home }).src, 'machine');
+  assert.strictEqual(resolveFull({ env: {}, home, cwd: repo(null) }).src, 'machine');
+  assert.deepStrictEqual(resolveFull({ env: {}, home: tmpDir('bajzi-lvl-') }), { level: 0, word: 'claude', src: 'none' });
+});
+test('the session file and BAJZI_SESSION_LEVEL beat the repo file; the repo file beats the machine file', () => {
+  const { home } = fixture({ machine: 'glm\n', sessions: { A: 'light\n' } });
+  const cwd = repo('tight\n');
+  assert.strictEqual(resolveFull({ env: {}, home, sessionId: 'A', cwd }).word, 'light');
+  assert.strictEqual(resolveFull({ env: { BAJZI_SESSION_LEVEL: 'light' }, home, cwd }).word, 'light');
+  assert.strictEqual(resolveFull({ env: {}, home, sessionId: 'B', cwd }).word, 'tight');
+});
+test('a repo-file DIRECTORY is not a file; a relative or empty cwd with no file falls through', () => {
+  const { home } = fixture({ machine: 'glm\n' });
+  const cwd = tmpDir('bajzi-lvr-');
+  fs.mkdirSync(path.join(cwd, 'runtime', 'worker-mode'), { recursive: true });
+  assert.strictEqual(resolveFull({ env: {}, home, cwd }).word, 'glm');
+  assert.strictEqual(resolveFull({ env: {}, home, cwd: 42 }).word, 'glm');
 });

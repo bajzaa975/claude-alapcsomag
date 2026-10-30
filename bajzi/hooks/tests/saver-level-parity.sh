@@ -30,7 +30,7 @@ let s = "";
 process.stdin.on("data", d => s += d).on("end", () => {
   const b = v => v === null ? "-" : "b:" + Buffer.from(v, "utf8").toString("base64");
   for (const c of JSON.parse(s).cases) {
-    console.log([c.name, b(c.base_url), b(c.worker_mode_env), b(c.worker_mode_file), c.expect_word].join("|"));
+    console.log([c.name, b(c.base_url), b(c.worker_mode_env), b(c.worker_mode_file), c.expect_word, b(c.repo_file === undefined ? null : c.repo_file), c.no_cwd ? "1" : "0"].join("|"));
   }
 });' < "$CASES")
 
@@ -38,7 +38,7 @@ process.stdin.on("data", d => s += d).on("end", () => {
 
 dec() { printf '%s' "${1#b:}" | base64 -d; }
 
-while IFS='|' read -r name url envm file expect; do
+while IFS='|' read -r name url envm file expect repo nocwd; do
     [ -z "$name" ] && continue
     unset ANTHROPIC_BASE_URL CC_WORKER_MODE
     home="$TMP/$name"
@@ -46,7 +46,9 @@ while IFS='|' read -r name url envm file expect; do
     [ "$url" != "-" ] && export ANTHROPIC_BASE_URL="$(dec "$url")"
     [ "$envm" != "-" ] && export CC_WORKER_MODE="$(dec "$envm")"
     [ "$file" != "-" ] && dec "$file" > "$home/.claude/worker-mode"
-    HOME="$home" saver_resolve "$home/cwd"
+    [ "$repo" != "-" ] && { mkdir -p "$home/cwd/runtime"; dec "$repo" > "$home/cwd/runtime/worker-mode"; }
+    cwdarg="$home/cwd"; [ "$nocwd" = "1" ] && cwdarg=""
+    HOME="$home" saver_resolve "$cwdarg"
     if [ "$SAVER_LEVEL" = "$expect" ]; then
         pass "parity $name -> $expect"
     else
@@ -58,15 +60,16 @@ done <<< "$rows"
 # worker-mode. These cases are not in the shared table: each runs BOTH resolvers on the same
 # fixture (bash saver_resolve <cwd> <id>, node resolveLevel({sessionId})) and both must give
 # the expected word. Fields: name | ANTHROPIC_BASE_URL | CC_WORKER_MODE | worker-mode body |
-# session file name (under <home>/.claude/bajzi/sessions) | its body | session id passed | expect.
+# session file name (under <home>/.claude/bajzi/sessions) | its body | session id passed | expect |
+# BAJZI_SESSION_LEVEL | <cwd>/runtime/worker-mode body (repo default).
 # "-" = unset / no file; bodies go through printf %b.
 node_level() { # $1 = home, $2 = session id -> the node resolver's word
-    (cd "$HOOKS_DIR/node" && LVL_HOME="$1" LVL_SID="$2" node -e '
+    (cd "$HOOKS_DIR/node" && LVL_HOME="$1" LVL_SID="$2" LVL_CWD="$1/cwd" node -e '
 const { resolveLevel } = require("./lib/saver-level");
-process.stdout.write(resolveLevel({ env: process.env, home: process.env.LVL_HOME, sessionId: process.env.LVL_SID }).word);')
+process.stdout.write(resolveLevel({ env: process.env, home: process.env.LVL_HOME, sessionId: process.env.LVL_SID, cwd: process.env.LVL_CWD }).word);')
 }
 X128=$(printf 'x%.0s' $(seq 1 128))
-while IFS='|' read -r name url envm wm sfile sbody sid expect inh; do
+while IFS='|' read -r name url envm wm sfile sbody sid expect inh repo; do
     [ -z "$name" ] && continue
     unset ANTHROPIC_BASE_URL CC_WORKER_MODE BAJZI_SESSION_LEVEL
     [ -n "$inh" ] && export BAJZI_SESSION_LEVEL="$inh"
@@ -79,6 +82,7 @@ while IFS='|' read -r name url envm wm sfile sbody sid expect inh; do
     sfile="${sfile//X128/$X128}"; sid="${sid//X128/$X128}"
     [ "$sfile" != "-" ] && printf '%b' "$sbody" > "$sdir/$sfile"
     [ "$sid" = "-" ] && sid=""
+    [ -n "$repo" ] && { mkdir -p "$home/cwd/runtime"; printf '%b' "$repo" > "$home/cwd/runtime/worker-mode"; }
     HOME="$home" saver_resolve "$home/cwd" "$sid"
     nw=$(node_level "$home" "$sid")
     if [ "$SAVER_LEVEL" = "$expect" ] && [ "$nw" = "$expect" ]; then

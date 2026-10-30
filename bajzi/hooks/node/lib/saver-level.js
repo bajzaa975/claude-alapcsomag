@@ -53,19 +53,22 @@ function readSessionFile(env, home, sessionId) {
   return readModeFile(path.join(dir, sessionId + '.level'));
 }
 
-// CC_WORKER_MODE > <status dir>/<sessionId>.level (a SAFE_ID id only) > BAJZI_SESSION_LEVEL > <home>/.claude/worker-mode > claude.
-// The status dir is session-status.js's, with `home` standing in for os.homedir() when BAJZI_HOME is unset.
-function resolveLevel({ env = process.env, home = os.homedir(), sessionId } = {}) {
+// CC_WORKER_MODE > <status dir>/<sessionId>.level (a SAFE_ID id only) > BAJZI_SESSION_LEVEL > <cwd>/runtime/worker-mode (repo default; no cwd = skipped)
+// > <home>/.claude/worker-mode > claude. The status dir is session-status.js's, with `home` standing in for os.homedir() when BAJZI_HOME is unset.
+// src: env|session|inherited|repo|machine|none -- where the word came from (a non-Anthropic provider still forces tight, src unchanged).
+function resolveLevel({ env = process.env, home = os.homedir(), sessionId, cwd } = {}) {
   const host = hostOf(env.ANTHROPIC_BASE_URL);
   const nonAnthropic = host !== null && !(host === 'anthropic.com' || host.endsWith('.anthropic.com'));
+  let src = 'env';
   let word = lowerAscii(String(env.CC_WORKER_MODE || '').replace(WS, ''));
-  if (!word) word = readSessionFile(env, home, sessionId);
-  if (!word) word = lowerAscii(String(env.BAJZI_SESSION_LEVEL || '').replace(WS, ''));
-  if (!word) word = readModeFile(path.join(home, '.claude', 'worker-mode'));
-  if (!word) word = 'claude';
+  if (!word) { src = 'session'; word = readSessionFile(env, home, sessionId); }
+  if (!word) { src = 'inherited'; word = lowerAscii(String(env.BAJZI_SESSION_LEVEL || '').replace(WS, '')); }
+  if (!word && typeof cwd === 'string' && cwd) { src = 'repo'; word = readModeFile(path.join(cwd, 'runtime', 'worker-mode')); }
+  if (!word) { src = 'machine'; word = readModeFile(path.join(home, '.claude', 'worker-mode')); }
+  if (!word) { src = 'none'; word = 'claude'; }
   if (nonAnthropic) word = 'tight';
   const level = Object.prototype.hasOwnProperty.call(LEVELS, word) ? LEVELS[word] : 0;
-  return { level, word };
+  return { level, word, src };
 }
 
 module.exports = { resolveLevel, hostOf, LEVELS };

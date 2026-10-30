@@ -184,7 +184,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     const proj = String(env.CLAUDE_PROJECT_DIR || '') || cwd;
     const gate = String(env.CC_WORKER_MODE || '').replace(WS, '') !== '' || dayRunOn(proj, home);
     if (!gate) return null;
-    const { level, word } = resolveLevel({ env, home, sessionId: input.session_id });
+    const { level, word } = resolveLevel({ env, home, sessionId: input.session_id, cwd });
     if (level < 2) return null;
 
     // BAJZI_SANDBOX=1 (a Linux `split` session): the Edit tools are the only unsandboxed write path, so they get the narrow list.
@@ -229,7 +229,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     const claude = path.join(home, '.claude');
     const sets = [lex, key].map(f => ({
       f,
-      files: [path.join(proj, 'runtime', 'bajzi-mode'), path.join(cwd, 'runtime', 'bajzi-mode'), env.CC_WORKER_MODE_FILE || '',
+      files: [path.join(proj, 'runtime', 'bajzi-mode'), path.join(cwd, 'runtime', 'bajzi-mode'), path.join(proj, 'runtime', 'worker-mode'), path.join(cwd, 'runtime', 'worker-mode'), env.CC_WORKER_MODE_FILE || '',
         ...['bajzi-mode', 'worker-mode', 'cc-router.json'].map(n => path.join(claude, n))].filter(Boolean).map(f),
       levelDirs: [path.join(env.BAJZI_HOME || home, '.claude', 'bajzi', 'sessions'), path.join(claude, 'bajzi', 'sessions'), env.BAJZI_STATUS_DIR || ''].filter(Boolean).map(f),
       settingsDirs: [claude, path.join(proj, '.claude')].map(f),

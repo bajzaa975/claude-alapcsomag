@@ -23,13 +23,16 @@
 #                       non-Anthropic provider. The worker-mode FILE alone never
 #                       opens it: a bare install must stay silent.
 #   SAVER_LEVEL         order: CC_WORKER_MODE > own session file > BAJZI_SESSION_LEVEL
-#                       > ~/.claude/worker-mode > "claude". That is: CC_WORKER_MODE, else
+#                       > <cwd>/runtime/worker-mode > ~/.claude/worker-mode > "claude". That is: CC_WORKER_MODE, else
 #                       THIS session's level file <status dir>/<session_id>.level when
 #                       the id is SAFE_ID-valid and the file's first line reads non-empty,
 #                       else BAJZI_SESSION_LEVEL (the level a parent session passed to a
 #                       launch; it never opens the gate), else the first line of
-#                       $HOME/.claude/worker-mode (the machine default), else "claude".
-#                       Both files are read by saver_read_word (leading UTF-8 BOM dropped,
+#                       <cwd>/runtime/worker-mode (the repo default; skipped when <cwd> is
+#                       empty; it never opens the gate and survives /clear because no session
+#                       id keys it), else the first line of $HOME/.claude/worker-mode (the
+#                       machine default), else "claude".
+#                       All the level files are read by saver_read_word (leading UTF-8 BOM dropped,
 #                       whitespace incl. CR stripped, lowercased); forced to "tight" on a
 #                       non-Anthropic provider. NOT validated: the caller rejects unknowns.
 #
@@ -116,6 +119,7 @@ saver_resolve() { # $1 = cwd, $2 = session id (optional)
     fi
     # BAJZI_SESSION_LEVEL: a level inherited from a parent session; like a level file it never opens the gate.
     [ -z "$SAVER_LEVEL" ] && SAVER_LEVEL=$(printf '%s' "${BAJZI_SESSION_LEVEL:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    [ -z "$SAVER_LEVEL" ] && [ -n "$_cwd" ] && SAVER_LEVEL=$(saver_read_word "$_cwd/runtime/worker-mode")
     [ -z "$SAVER_LEVEL" ] && SAVER_LEVEL=$(saver_read_word "${HOME:-}/.claude/worker-mode")
     [ -z "$SAVER_LEVEL" ] && SAVER_LEVEL="claude"
     # Mechanical: a non-Anthropic session is always L3.

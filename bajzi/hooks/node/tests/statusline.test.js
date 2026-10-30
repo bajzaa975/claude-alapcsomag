@@ -382,3 +382,23 @@ test('per-session level end to end: the script reads the session file named by t
   assert.match(r.stdout, /^L1( |\n)/);
   assert.strictEqual(lineFile(d, 's9').bajzi_level, 'L1');
 });
+
+test('repo default: <cwd>/runtime/worker-mode changes the shown level, beats the machine file, loses to the session file', () => {
+  const cwd = tmpDir('bajzi-nr-');
+  const home = tmpDir('bajzi-h-');
+  const dir = path.join(home, '.claude', 'bajzi', 'sessions');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(path.join(cwd, 'runtime'));
+  fs.writeFileSync(path.join(home, '.claude', 'worker-mode'), 'glm\n');
+  const lvl = id => {
+    const facts = {};
+    render({ session_id: id, workspace: { current_dir: cwd } }, { env: {}, home, nowMs: NIGHT, color: false, facts });
+    return facts.level;
+  };
+  assert.strictEqual(lvl('A'), 2);
+  fs.writeFileSync(path.join(cwd, 'runtime', 'worker-mode'), 'light\n');
+  assert.strictEqual(lvl('A'), 1);
+  fs.writeFileSync(path.join(dir, 'A.level'), 'tight\n');
+  assert.strictEqual(lvl('A'), 3);
+  assert.strictEqual(lvl('B'), 1);
+});

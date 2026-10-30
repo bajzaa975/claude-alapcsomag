@@ -378,7 +378,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
    fatal; the other file is still checked. Never recommend a bracket class. Never edit the
    user's settings yourself; the owner does.
 8. **Saver level: GLM preflight, only at L1-L3.** Resolve the level with the resolver the bajzi
-   hooks share (`CC_WORKER_MODE`, else `~/.claude/worker-mode`, forced to `tight` on a
+   hooks share (`CC_WORKER_MODE`, else `<BASE>/runtime/worker-mode` (the repo default: a night session runs in its own dir, so it applies only where that dir holds the file), else `~/.claude/worker-mode`, forced to `tight` on a
    non-Anthropic `ANTHROPIC_BASE_URL`):
 
    ```bash

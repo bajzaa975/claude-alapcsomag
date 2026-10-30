@@ -60,8 +60,8 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
   `day-run-mode.sh` level block): level = `$CC_WORKER_MODE` if set, else THIS session's level
   file `<status dir>/$CLAUDE_CODE_SESSION_ID.level` if the id matches `^[A-Za-z0-9_-]{1,128}$` and
   the file's first line reads non-empty (`<status dir>` = `$BAJZI_STATUS_DIR`, else
-  `${BAJZI_HOME:-$HOME}/.claude/bajzi/sessions`), else `$BAJZI_SESSION_LEVEL` (inherited from a parent session; never opens the gate), else the content of `$HOME/.claude/worker-mode` (the machine
-  default). Read both level files like a mode file above, after dropping a leading UTF-8 BOM.
+  `${BAJZI_HOME:-$HOME}/.claude/bajzi/sessions`), else `$BAJZI_SESSION_LEVEL` (inherited from a parent session; never opens the gate), else the content of `<cwd>/runtime/worker-mode` (the repo default; skipped when absent or empty; never opens the gate), else the content of `$HOME/.claude/worker-mode` (the machine
+  default). Read all the level files like a mode file above, after dropping a leading UTF-8 BOM.
   If `ANTHROPIC_BASE_URL` is set and its host is not
   `*.anthropic.com`, the level is `tight` whatever the file says. Then read ONE file from
   `${CLAUDE_PLUGIN_ROOT}/skills/mode/`: `light` -> `SAVER-L1.md`, `glm` -> `SAVER-RULES.md` (the
@@ -78,12 +78,12 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
      the user-level file - yes/no),
   4. the saver level, resolved exactly as the `day-run` switch above resolves it
      (`$CC_WORKER_MODE` if set, else this session's level file, else `$BAJZI_SESSION_LEVEL`, else
-     `$HOME/.claude/worker-mode`, read the same way as above;
+     `<cwd>/runtime/worker-mode` (repo default), else `$HOME/.claude/worker-mode`, read the same way as above;
      a non-Anthropic `ANTHROPIC_BASE_URL` forces tight): `light`, `glm` and `tight` print
      `saver: L1 (light)` / `saver: L2 (glm)` / `saver: L3 (tight)`, `claude` prints
-     `saver: off`, no level from any of the three prints `saver: off (no worker-mode file)`, and any other
+     `saver: off`, no level from any of the four prints `saver: off (no worker-mode file)`, and any other
      word prints `saver: unknown (<word>)`; append ` - this session` when the session file set it,
-     ` - machine default` when worker-mode did. Never write either file from this skill.
+     ` - repo default` when `<cwd>/runtime/worker-mode` did, ` - machine default` when `~/.claude/worker-mode` did. Never write either file from this skill.
 
 ## Saver levels (GLM rungs under day-run)
 
@@ -112,8 +112,8 @@ peak-window ban applies at every level that uses GLM (L1-L3), enforced by the sh
   as `! worker --level N` in the prompt it sets THIS session's level only - other running sessions keep
   theirs (Claude's own Bash/PowerShell call of it is denied by the saver guard at L2/L3); `worker --level N --global`, or the same command from a plain shell, sets the machine
   default (`~/.claude/worker-mode`), which every session without its own level follows.
-  `worker --status` prints the level and where it came from (env / session / machine default /
-  none), the GLM models and the state files; `worker --usage <since> --until <t>`
+  `worker --status` prints the level and where it came from (env / session / repo default /
+  machine default / none), the GLM models and the state files; `worker --usage <since> --until <t>`
   reports the Anthropic/GLM weighted-token split since a time. Those commands come from the
   owner's `worker` wrapper (`bin/cc-router.js`), not from this plugin - this skill only
   READS the level files and never writes them. Day-run on/off stays machine-wide.
