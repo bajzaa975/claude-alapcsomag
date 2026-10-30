@@ -973,6 +973,21 @@ test('F12: idle: a /dev/../ path into the project stays checked when it hits a d
   isDeny(bash(c, `echo x > /dev/../${c.cwd}/runtime/x`), 'idle /dev/.. write through the dangling link');
 });
 
+test('F15: idle: a dangling link reached through /proc/self/root or planted in /dev/shm is still denied', t => {
+  if (process.platform === 'win32' || !fs.existsSync('/proc/self/root')) return t.skip('needs Linux /proc');
+  const c = ctx({});   // day-run off: idle
+  fs.mkdirSync(path.join(c.cwd, 'runtime'), { recursive: true });
+  if (!link(t, 'worker-mode', path.join(c.cwd, 'runtime', 'x'))) return;
+  const d = bash(c, `echo claude > /proc/self/root${c.cwd}/runtime/x`);
+  isDeny(d, 'idle write through /proc/self/root');
+  assert.match(d.reason, /this file controls the saver guard or the saver level/);
+  try { fs.accessSync('/dev/shm', fs.constants.W_OK); } catch { return; }
+  const shm = `/dev/shm/bajzi-f15-${process.pid}-${Date.now()}`;
+  t.after(() => fs.rmSync(shm, { force: true }));
+  if (!link(t, path.join(c.cwd, 'runtime', 'worker-mode'), shm)) return;
+  isDeny(bash(c, `echo claude > ${shm}`), 'idle write through a /dev/shm dangling link');
+});
+
 test('F3: rm/mv/cp/Remove-Item on a worker-mode file are protected hits at L3', () => {
   const c = ctx({ CC_WORKER_MODE: 'tight' });
   for (const cmd of ['rm runtime/worker-mode', 'mv x runtime/worker-mode', 'cp x runtime/worker-mode', 'mv runtime/worker-mode x', 'ln -sf x runtime/worker-mode', 'truncate -s0 runtime/worker-mode', 'rm -f ~/.claude/worker-mode']) {

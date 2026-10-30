@@ -188,7 +188,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
     const { level, word } = resolveLevel({ env, home, sessionId: input.session_id, cwd: proj });
     // Idle (non-Anthropic provider, gate closed, level < 2): refuses a write to a worker-mode file (a `claude` planted there while the guard sleeps
     // would outrank the owner's later `worker --level N --global`) and, failing closed, an Edit to a device-prefixed or unresolvable target and a
-    // shell write to a device-prefixed target or to an unresolvable target outside /dev and /proc that is not a remove/move/copy/link argument.
+    // shell write to a device-prefixed target or to an unresolvable target that is not a remove/move/copy/link argument.
     const idle = (host !== null && host !== 'anthropic.com' && !host.endsWith('.anthropic.com')) || !gate || level < 2;
     if (idle && isAgent) return null;
 
@@ -267,8 +267,6 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       }));
     };
     const rawDevice = p => process.platform === 'win32' && /^[\\/]{2}[?.][\\/]/.test(p);
-    // OS device/process files (/dev/stderr, /proc/self/fd/2): root-owned, so no planted link; the `..` rule keeps /dev/../<project>/x checked.
-    const OS_FILE = p => /^\/(?:dev|proc)\//.test(p) && !p.split(/[\\/]/).includes('..');
     const blocked = (reason, cause = 'blocked') => {
       logLine(proj, now, word, cause, tool);
       return { kind: 'deny', rule: RULE, reason };
@@ -301,7 +299,7 @@ function check(input, { env = process.env, home = os.homedir(), now = new Date()
       // Quoted and heredoc text is data, unless a shell/eval wrapper may run it.
       // Second argument `destruct`: true only for an rm/mv/cp/ln/... argument, which removes or replaces a link instead of writing through it, so an unresolvable (dangling) path is no hit there.
       if (idle) return env.BAJZI_SANDBOX !== '1' && shellWrites(cmd, () => true, (p, destruct) => protectedPath(p, true) || rawDevice(p) ||
-        (!destruct && !OS_FILE(p) && (() => { try { realPath(abs(p)); realPath(path.resolve(abs(p))); return false; } catch { return true; } })())) === 2 ? blocked(PROTECTED_REASON) : null;
+        (!destruct && (() => { try { realPath(abs(p)); realPath(path.resolve(abs(p))); return false; } catch { return true; } })())) === 2 ? blocked(PROTECTED_REASON) : null;
       const bare = stripHeredoc(cmd);
       if (WORKER_LEVEL.test(inert(bare)) || [...bare.matchAll(WRAP_ARG)].some(m => WORKER_LEVEL.test(m[1] ?? m[2]))) return blocked(LEVEL_REASON);   // never relaxes, not even in peak
       if (env.BAJZI_SANDBOX === '1') return null;   // Linux `split` session: the OS sandbox judges shell writes, no heuristic false denies
