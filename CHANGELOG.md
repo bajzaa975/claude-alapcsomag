@@ -2,6 +2,11 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.33.0
+- Added: `/bajzi:level` — an owner-only command (handled by a UserPromptSubmit hook) that shows or sets the saver level for this session, this repo or the machine (`/bajzi:level <0-3|claude|light|glm|tight> [session|repo|global]`, `unset [scope]`, no argument = status); refused in unattended and SDK sessions
+- Added: a repo default saver level in `<project>/runtime/worker-mode` (the project is `CLAUDE_PROJECT_DIR`, else the working directory); it ranks below the session level and above the machine default `~/.claude/worker-mode`
+- Changed: the saver guard protects the `worker-mode` files even while it is otherwise idle, and treats `rm`/`mv`/`cp`/`ln`/`truncate` (and the PowerShell equivalents) on them as a protected write; while idle it also refuses an Edit through a Windows device-style path or a link that points nowhere, and a shell write through either; its level-change refusal also names `/bajzi:level <n>`
+
 ## 1.32.2
 - Added: the owner-questions rule tells the session to call `owner_answered` when the owner answers a panel question in chat, so the panel card closes
 
