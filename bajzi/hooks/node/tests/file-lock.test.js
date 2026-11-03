@@ -189,7 +189,8 @@ process.stdout.write(r?'deny':'allow');`;
 test('a linked worktree whose path ends in `main` is not the main checkout (own worktree id)', () => {
   const r = repo(), st = tmpDir('bajzi-st-');
   const wt = path.join(tmpDir('bajzi-wt-'), 'main');
-  git(r, 'worktree', 'add', '-q', wt);
+  git(r, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'i');
+  git(r, 'worktree', 'add', '-q', '-b', 'wt-main', wt);
   assert.equal(pre(edit(r, path.join(r, 'x'), 'A'), env(st)).stdout, '');
   assert.equal(pre(edit(r, path.join(wt, 'x'), 'B'), env(st)).stdout, '');
   assert.equal(locksOf(r).length, 2);
