@@ -100,7 +100,15 @@ line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-settin
    written which plugin is known to be problematic and what to do.
 4. **GSD:** never install it (`gsd.default_install` is `false`, `gsd.status` says retired).
 5. **Global rules:** per the manifest's `global_rules` field.
-6. **settings.json merge:** the manifest's `settings_merge` object.
+6. **settings.json merge:** the manifest's `settings_merge` object, then the optional machine-local
+   overlay `~/.claude/bajzi/settings-local.json` (same shape; strip a UTF-8 BOM; unparseable = report
+   it and skip the overlay). Merge both the same way: scalars and objects are set/recursed; in every
+   array `"$defaults"` stays first, add each missing wanted entry, and remove a stale same-tag entry
+   (an entry with the same leading `[tag]` as a wanted entry that is not itself wanted); never remove
+   untagged entries. Take a timestamped backup `settings.json.bak-bajzi-<stamp>` first and write
+   through a temp file in the same directory, then rename it over `settings.json`.
+   Global rules (step 5): append each `## ` section of the marketplace `shared/CLAUDE.md` whose
+   heading line is missing from `~/.claude/CLAUDE.md` (the check reports `global-rules missing`).
 7. **rtk:** per the manifest's `rtk` block. Not required. Add the hook ONLY if
    the `check` command works. Then make sure the rtk config file (`rtk.config`, per OS) has every
    entry of `rtk.exclude_commands` in `[hooks] exclude_commands`, keeping entries already there.

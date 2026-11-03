@@ -1320,6 +1320,27 @@ writes, creates or deletes anything (test `check.js is read-only: no file under 
     (`setting-drift <key> missing <item>`); extra user keys/items are not drift. Covers
     **`permissions.defaultMode: "auto"`**. Missing file =
     `settings-missing`, bad JSON = `unreadable` (no crash, empty stderr).
+  - **Auto-mode baseline.** `settings_merge` carries the public rule `autoMode.allow` =
+    `["$defaults", "[bajzi] saver-mode worker: ..."]` (`$defaults` keeps Claude Code's built-in rules
+    and stays first; the rule allows the GLM headless worker `glm -p`, and `bypassPermissions` only with
+    a deny-list `--settings` file) and `permissions.allow` = `Bash(glm -p:*)`; neither contains a
+    `forbidden_leftovers.settings_substrings` entry (a test pins it). `defaultMode` stays `auto`.
+  - **Machine-local overlay** `~/.claude/bajzi/settings-local.json` (optional, same shape as
+    `settings_merge`; private entries that never belong in this repo, e.g. site-specific `autoMode`
+    prose tagged `[tag] `). It is merged into the wanted settings before `leafDiffs` (objects recurse,
+    arrays append deduped, scalars: overlay wins). Missing = not an error: one line `note: no
+    machine-local settings overlay (~/.claude/bajzi/settings-local.json)` (plain mode only, not drift,
+    not in `--json`). Unparseable (a UTF-8 BOM is stripped) = `DRIFT settings-overlay unreadable`.
+    **Stale tagged entries:** for every wanted array (manifest + overlay), a settings entry with the
+    same leading `[tag]` as a wanted entry that is not itself wanted = `DRIFT setting-drift <key> stale
+    <first 60 chars>`, so a narrowed rule never lingers; untagged entries are never stale. Apply
+    (SKILL.md PHASE D step 6) merges the same way, timestamped backup, temp file + rename.
+  - **Global rules:** every `## ` heading line of the marketplace `shared/CLAUDE.md`
+    (`~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md`) must be a line of
+    `~/.claude/CLAUDE.md` -> else `DRIFT global-rules missing "## <heading>"`; a missing source file is
+    skipped silently, a missing target means all headings missing. Apply appends missing sections.
+  - Out of scope: night-run tick processes still run with `bypassPermissions`; this baseline only
+    governs interactive auto mode.
   - `statusLine.command` must reference `/.claude/bajzi/statusline.js` → `statusline-missing` /
     `statusline-foreign <command>`; the file itself → `statusline-file-missing`.
   - `~/.claude.json` `mcpServers` must contain every `user_mcps` name → `mcp-missing`.

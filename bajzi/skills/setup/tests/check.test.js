@@ -55,6 +55,7 @@ function machine() {
   const cfg = rtkConfigPath(home, env);
   fs.mkdirSync(path.dirname(cfg), { recursive: true });
   fs.writeFileSync(cfg, '[hooks]\nexclude_commands = [\n  "ssh",\n  "curl",\n]\n');
+  w('.claude/bajzi/settings-local.json', {});
   const mpath = path.join(home, 'manifest.json');
   fs.writeFileSync(mpath, JSON.stringify(MANIFEST));
   env.BAJZI_MANIFEST = mpath;
@@ -380,4 +381,109 @@ test('spec passages quoting the DAY-RUN.log field pattern carry the finish-only 
     assert.ok((/when it is FINISHED/.test(w) && /never a full id/.test(w)) || /Saver-level routing table row/.test(w), `no finish-only rule near offset ${m.index}`);
   }
   assert.ok(n >= 2);
+});
+
+// ---- machine-local settings overlay, public autoMode rule, global rules ----
+const OVERLAY = '.claude/bajzi/settings-local.json';
+const AUTO = { autoMode: { allow: ['$defaults', '[bajzi] rule v2'] }, permissions: { allow: ['Bash(glm -p:*)'] } };
+const withManifest = (m, sm) => fs.writeFileSync(m.env.BAJZI_MANIFEST, JSON.stringify(Object.assign({}, MANIFEST, { settings_merge: Object.assign({}, MANIFEST.settings_merge, sm) })));
+
+test('overlay: missing prints exactly one note line, not drift, exit 0; --json stays pure JSON', () => {
+  const m = machine();
+  fs.unlinkSync(path.join(m.home, OVERLAY));
+  const r = run(m);
+  assert.strictEqual(r.code, 0);
+  assert.strictEqual(r.out, 'note: no machine-local settings overlay (~/.claude/bajzi/settings-local.json)\nsetup --check: clean\n');
+  assert.deepStrictEqual(JSON.parse(run(m, ['--json']).out), { drift: [] });
+});
+
+test('overlay: present entries are merged into the wanted settings (scalars, arrays), BOM tolerated', () => {
+  const m = machine();
+  fs.writeFileSync(path.join(m.home, OVERLAY), '\uFEFF' + JSON.stringify({ theme: 'light', autoMode: { environment: ['$defaults', '[x] one'] } }));
+  let r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT setting-drift theme is "dark", want "light"$/m);
+  assert.match(r.out, /^DRIFT setting-drift autoMode\.environment missing "\$defaults"$/m);
+  assert.match(r.out, /^DRIFT setting-drift autoMode\.environment missing "\[x\] one"$/m);
+  assert.doesNotMatch(r.out, /^note:/m);
+  edit(m, '.claude/settings.json', v => { v.theme = 'light'; v.autoMode = { environment: ['$defaults', '[x] one'] }; });
+  assert.strictEqual(run(m).out, 'setup --check: clean\n');
+});
+
+test('overlay: unparseable = one DRIFT settings-overlay unreadable line, no crash', () => {
+  const m = machine();
+  fs.writeFileSync(path.join(m.home, OVERLAY), '{ nope');
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT settings-overlay unreadable$/m);
+  assert.match(r.out, /setup --check: 1 drift item\(s\)\n$/);
+  assert.strictEqual(r.err, '');
+});
+
+test('overlay: stale same-tag entry in settings is reported with its first 60 chars; untagged extras are not', () => {
+  const m = machine();
+  fs.writeFileSync(path.join(m.home, OVERLAY), JSON.stringify({ autoMode: { allow: ['$defaults', '[owner] new rule'] } }));
+  const old = '[owner] old narrowed rule ' + 'x'.repeat(80);
+  edit(m, '.claude/settings.json', v => { v.autoMode = { allow: ['$defaults', '[owner] new rule', old, 'user prose'] }; });
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.ok(r.out.split('\n').includes(`DRIFT setting-drift autoMode.allow stale ${old.slice(0, 60)}`));
+  assert.doesNotMatch(r.out, /user prose/);
+  assert.match(r.out, /setup --check: 1 drift item\(s\)\n$/);
+});
+
+test('public autoMode rule: manifest drift is reported; stale old [bajzi] rule too', () => {
+  const m = machine();
+  withManifest(m, AUTO);
+  let r = run(m);
+  assert.match(r.out, /^DRIFT setting-drift autoMode\.allow missing "\[bajzi\] rule v2"$/m);
+  assert.match(r.out, /^DRIFT setting-drift permissions\.allow missing "Bash\(glm -p:\*\)"$/m);
+  edit(m, '.claude/settings.json', v => { v.autoMode = { allow: ['$defaults', '[bajzi] rule v1', '[bajzi] rule v2'] }; v.permissions.allow = ['Bash(glm -p:*)']; });
+  r = run(m);
+  assert.match(r.out, /^DRIFT setting-drift autoMode\.allow stale \[bajzi\] rule v1$/m);
+  edit(m, '.claude/settings.json', v => { v.autoMode.allow = ['$defaults', '[bajzi] rule v2']; });
+  assert.strictEqual(run(m).out, 'setup --check: clean\n');
+});
+
+test('real manifest: public autoMode rule + glm permission, neither trips forbidden_leftovers', () => {
+  const real = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8'));
+  const sm = real.settings_merge;
+  assert.strictEqual(sm.permissions.defaultMode, 'auto');
+  assert.strictEqual(sm.autoMode.allow[0], '$defaults');
+  assert.strictEqual(sm.autoMode.allow.length, 2);
+  assert.match(sm.autoMode.allow[1], /^\[bajzi\] saver-mode worker: .*`glm -p`/);
+  assert.ok(sm.permissions.allow.includes('Bash(glm -p:*)'));
+  const hay = JSON.stringify(sm.autoMode) + JSON.stringify(sm.permissions.allow);
+  for (const s of real.forbidden_leftovers.settings_substrings) assert.ok(!hay.includes(s), s);
+});
+
+const MP = '.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md';
+const writeRules = (m, rel, text) => { const p = path.join(m.home, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text); };
+
+test('global rules: source missing = skipped silently', () => {
+  const m = machine();
+  assert.strictEqual(run(m).out, 'setup --check: clean\n');
+});
+
+test('global rules: each missing ## heading is drift; present headings (CRLF ok) are clean; no ~/.claude/CLAUDE.md = all missing', () => {
+  const m = machine();
+  writeRules(m, MP, '# t\n## One\nbody\n## Two\nbody\n### Sub\n');
+  let r = run(m);
+  assert.match(r.out, /^DRIFT global-rules missing "## One"$/m);
+  assert.match(r.out, /^DRIFT global-rules missing "## Two"$/m);
+  assert.doesNotMatch(r.out, /Sub/);
+  writeRules(m, '.claude/CLAUDE.md', 'x\r\n## One\r\nmine\r\n');
+  r = run(m);
+  assert.doesNotMatch(r.out, /missing "## One"/);
+  assert.match(r.out, /^DRIFT global-rules missing "## Two"$/m);
+  writeRules(m, '.claude/CLAUDE.md', '## One\n## Two\n');
+  assert.strictEqual(run(m).out, 'setup --check: clean\n');
+});
+
+test('SKILL.md apply phase documents overlay merge and global-rules append', () => {
+  const t = fs.readFileSync(SKILL, 'utf8');
+  assert.match(t, /settings-local\.json/);
+  assert.match(t, /\$defaults/);
+  assert.match(t, /same-tag|same `\[tag\]`/);
+  assert.match(t, /temp file/);
 });

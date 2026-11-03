@@ -208,8 +208,17 @@
     "agentPushNotifEnabled": true,
     "remoteControlAtStartup": true,
     "disableClaudeAiConnectors": true,
+    "autoMode": {
+      "allow": [
+        "$defaults",
+        "[bajzi] saver-mode worker: running the GLM headless worker `glm -p` (optionally `--model haiku`) with a task prompt given inline or read from a brief file this session wrote (e.g. under runtime/briefs/), in any git repository or worktree of the user's. `--permission-mode bypassPermissions` is allowed only together with `--settings` pointing at a deny-list settings file. Running it as a background task, waiting for it, reading its output and the read-only checks that follow are routine."
+      ]
+    },
     "permissions": {
       "defaultMode": "auto",
+      "allow": [
+        "Bash(glm -p:*)"
+      ],
       "deny": [
         "Read(.env)",
         "Read(.env.local)",

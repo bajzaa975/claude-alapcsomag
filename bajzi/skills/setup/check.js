@@ -59,6 +59,39 @@ function leafDiffs(want, have, prefix, out) {
   }
 }
 
+// Overlay merge: objects recurse, arrays concatenate (deduped), scalars: overlay wins.
+function mergeSettings(a, b) {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    const seen = new Set(a.map(x => JSON.stringify(x)));
+    return a.concat(b.filter(x => !seen.has(JSON.stringify(x))));
+  }
+  if (isObj(a) && isObj(b)) {
+    const o = Object.assign({}, a);
+    for (const k of Object.keys(b)) o[k] = k in a ? mergeSettings(a[k], b[k]) : b[k];
+    return o;
+  }
+  return b;
+}
+
+const TAG = /^\[[^\]\s][^\]]*\]/;
+// Entries carrying a `[tag]` prefix that the wanted array no longer has, while it still has the tag.
+function staleDiffs(want, have, prefix, out) {
+  for (const k of Object.keys(want)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    const w = want[k];
+    const h = isObj(have) ? have[k] : undefined;
+    if (Array.isArray(w) && Array.isArray(h)) {
+      const tags = new Set(w.filter(x => typeof x === 'string').map(x => (TAG.exec(x) || [])[0]).filter(Boolean));
+      for (const x of h) {
+        const t = typeof x === 'string' ? (TAG.exec(x) || [])[0] : undefined;
+        if (t && tags.has(t) && !w.includes(x)) out.push(['setting-drift', `${key} stale ${x.slice(0, 60)}`]);
+      }
+    } else if (isObj(w)) staleDiffs(w, h, key, out);
+  }
+}
+
+const OVERLAY_REL = ['.claude', 'bajzi', 'settings-local.json'];
+
 // "~/"-relative pattern, "*" allowed in the LAST segment only.
 function globLast(home, pattern) {
   const rel = String(pattern).replace(/^~[\\/]/, '');
@@ -100,7 +133,11 @@ function checkAll({ home, manifest, env = process.env }) {
   const st = readJson(path.join(c, 'settings.json'));
   if (!st.ok) d.push([st.missing ? 'settings-missing' : 'unreadable', 'settings.json']);
   const settings = st.ok && isObj(st.value) ? st.value : {};
-  if (st.ok) leafDiffs(manifest.settings_merge || {}, settings, '', d);
+  let wantSettings = manifest.settings_merge || {};
+  const ov = readJson(path.join(home, ...OVERLAY_REL));
+  if (ov.ok && isObj(ov.value)) wantSettings = mergeSettings(wantSettings, ov.value);
+  else if (!ov.missing) d.push(['settings-overlay', 'unreadable']);
+  if (st.ok) { leafDiffs(wantSettings, settings, '', d); staleDiffs(wantSettings, settings, '', d); }
 
   const cmd = isObj(settings.statusLine) && typeof settings.statusLine.command === 'string' ? settings.statusLine.command : '';
   if (!cmd) d.push(['statusline-missing', 'settings.json has no statusLine.command']);
@@ -123,6 +160,15 @@ function checkAll({ home, manifest, env = process.env }) {
         for (const w of want) if (!have.includes(w)) d.push(['rtk-exclude-missing', w]);
       }
     }
+  }
+
+  let rulesSrc = null;
+  try { rulesSrc = fs.readFileSync(path.join(c, 'plugins', 'marketplaces', 'bajzi-plugins', 'shared', 'CLAUDE.md'), 'utf8'); } catch { /* no source: skip */ }
+  if (rulesSrc !== null) {
+    let mine = '';
+    try { mine = fs.readFileSync(path.join(c, 'CLAUDE.md'), 'utf8'); } catch { /* none yet: every heading missing */ }
+    const have = new Set(mine.split(/\r?\n/).map(l => l.trimEnd()));
+    for (const l of rulesSrc.split(/\r?\n/)) if (l.startsWith('## ') && !have.has(l.trimEnd())) d.push(['global-rules', `missing "${l.trimEnd()}"`]);
   }
 
   if (!fs.existsSync(path.join(c, 'bajzi-mode'))) d.push(['bajzi-mode-missing', '~/.claude/bajzi-mode']);
@@ -157,6 +203,7 @@ function main(argv = process.argv.slice(2), env = process.env) {
   if (argv.includes('--json')) {
     process.stdout.write(JSON.stringify({ drift: drift.map(([id, detail]) => ({ id, detail })) }, null, 2) + '\n');
   } else {
+    if (!fs.existsSync(path.join(home, ...OVERLAY_REL))) process.stdout.write('note: no machine-local settings overlay (~/.claude/bajzi/settings-local.json)\n');
     for (const [id, detail] of drift) process.stdout.write(`DRIFT ${id} ${detail}\n`);
     process.stdout.write(drift.length ? `setup --check: ${drift.length} drift item(s)\n` : 'setup --check: clean\n');
   }
@@ -165,4 +212,4 @@ function main(argv = process.argv.slice(2), env = process.env) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { checkAll, main, onPath, rtkConfigPath, rtkExcludes };
+module.exports = { checkAll, mergeSettings, main, onPath, rtkConfigPath, rtkExcludes };
