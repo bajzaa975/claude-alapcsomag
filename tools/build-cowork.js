@@ -18,7 +18,7 @@ const DST = path.join(ROOT, 'bajzi-cowork');
 const MARKET = path.join(ROOT, '.claude-plugin', 'marketplace.json');
 const SKILLS = ['autopilot', 'explain', 'handoff', 'modszertan'];
 const CLONE_REF = /~\/\.claude\/plugins\/marketplaces\//;
-const dropCloneRefs = (buf) => Buffer.from(buf.toString('utf8').split(/(?<=\n)/).filter((l) => !CLONE_REF.test(l)).join(''));
+const dropCloneRefs = (buf) => Buffer.from(buf.toString('utf8').replace(/^[^\n]*~\/\.claude\/plugins\/marketplaces\/[^\n]*\n(\n|$)/gm, ''));
 const EXCLUDE_DIRS = new Set(['tests']);
 const DESCRIPTION = 'claude.ai / Cowork-safe subset of bajzi: /bajzi-cowork:handoff session handover, ' +
   '/bajzi-cowork:autopilot unattended mode, /bajzi-cowork:modszertan methodology selector, /bajzi-cowork:explain plain re-explanation. ' +

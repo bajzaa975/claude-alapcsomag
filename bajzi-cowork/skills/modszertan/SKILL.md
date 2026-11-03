@@ -10,7 +10,6 @@ debug, verification. If both are installed, for the same task I would sometimes 
 sometimes the other. This decision is made **per repo**, and lives in the
 `<repo>/.claude/METHODOLOGY` file.
 
-
 ## What to do
 
 1. Check whether `.claude/METHODOLOGY` already exists and what is in it.

@@ -8,7 +8,6 @@ Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](doc
 - Added: `setup --check` reports missing global-rules sections; `shared/CLAUDE.md` gains `## Methodology (all projects)` pointing to the methodology guide
 - Added: `docs/methodology-guide.md` (project size, methodology choice, GitHub or local decided by data sensitivity, lifecycle); `/bajzi:project-setup` question 5 names the GitHub-or-local criteria and recommends local when unsure
 - Added: night-run watcher relaunch tests
-- Changed: bajzi-cowork's modszertan skill no longer carries the methodology-guide pointer (Cowork has no marketplace clone)
 
 ## 1.33.0
 - Added: `/bajzi:level` — an owner-only command (handled by a UserPromptSubmit hook) that shows or sets the saver level for this session, this repo or the machine (`/bajzi:level <0-3|claude|light|glm|tight> [session|repo|global]`, `unset [scope]`, no argument = status); refused in unattended and SDK sessions
