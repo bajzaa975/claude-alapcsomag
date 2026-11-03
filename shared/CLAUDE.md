@@ -37,5 +37,5 @@
 
 ## Methodology (all projects)
 - Project size (XS/S/M/L), methodology (gsd/superpowers/none) and GitHub-or-local (decided by data
-  sensitivity) are explained in `~/.claude/plugins/marketplaces/bajzi-plugins/bajzi/skills/modszertan/GUIDE.md`.
+  sensitivity) are explained in `~/.claude/plugins/marketplaces/bajzi-plugins/docs/methodology-guide.md`.
 - The start assessment (size + hosting) runs in `/bajzi:project-setup`; when unsure, hosting is `local`.
