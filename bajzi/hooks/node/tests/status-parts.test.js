@@ -91,9 +91,25 @@ test('goal: shrink, path change and ino change reset', () => {
   const g = gfile(SET + EV + EV + EV);
   assert.strictEqual(gs(g, id).evals, 3);
   const g2 = g + '.new';
-  fs.writeFileSync(g2, SET + EV + EV + EV + EV);              // same size class, new inode
+  fs.writeFileSync(g2, SET + '{"type":"user","m":"filler"}\n'.repeat(60));   // larger, no evals, new inode
   fs.renameSync(g2, g);
-  assert.strictEqual(gs(g, id).evals, 4);
+  assert.strictEqual(gs(g, id).evals, 0);                     // a read from the stale offset would keep 3
+});
+
+test('goal: a met value that is neither true nor false deactivates', () => {
+  assert.strictEqual(gs(gfile(SET + EV + gline({ met: 'x' })), gid()), null);
+});
+
+test('goal: inode above 2^53 keeps the cache valid', () => {
+  const f = gfile(SET + EV.repeat(5));
+  const id = gid();
+  const real = fs.statSync;
+  fs.statSync = (p, ...a) => { const s = real(p, ...a); return p === f ? { size: s.size, ino: 2 ** 60 } : s; };
+  try {
+    let r;
+    for (let i = 0; i < 12; i++) r = gs(f, id, 300);
+    assert.strictEqual(r.evals, 5);
+  } finally { fs.statSync = real; }
 });
 
 test('goal: tiny chunk reaches the same state, incl. a line longer than the chunk', () => {
