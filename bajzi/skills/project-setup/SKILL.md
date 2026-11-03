@@ -34,7 +34,7 @@ Run when `.claude/project-profile.json` is missing or has no `size` or no `hosti
    2. Will it be deployed anywhere (server, VM, store, another machine), used by anyone else, or handle personal data or money? (yes -> at least M)
    3. Will it have production users with a release cycle? (yes -> L)
    4. More than one developer, or more than one service or repo? (yes -> L)
-   5. May the code and its data be uploaded to GitHub? (no or unsure -> hosting local; yes -> github)
+   5. May the code and its data be uploaded to GitHub? It may not when it includes personal data of others, client or employer confidential material, credentials, or financial/regulated data. (no or unsure -> hosting local; yes -> github, private by default)
 
    Size = the highest size any answer gives; none -> S. Hosting is independent of size.
 3. Write the keys into the profile (create `{ "version": 1, ... }` when missing; keep every other key). For M/L

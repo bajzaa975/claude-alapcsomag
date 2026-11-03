@@ -34,3 +34,8 @@
 - For batch or automated runs: `claude --strict-mcp-config --mcp-config .mcp.json`.
 - Review: use a code-graph MCP (graph build, then review context for the blast-radius files only).
 - Symbol navigation: `find_symbol` / `get_function_source` instead of reading whole files.
+
+## Methodology (all projects)
+- Project size (XS/S/M/L), methodology (gsd/superpowers/none) and GitHub-or-local (decided by data
+  sensitivity) are explained in `~/.claude/plugins/marketplaces/bajzi-plugins/bajzi/skills/modszertan/GUIDE.md`.
+- The start assessment (size + hosting) runs in `/bajzi:project-setup`; when unsure, hosting is `local`.
