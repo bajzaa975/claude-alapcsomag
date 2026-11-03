@@ -2,6 +2,14 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.34.0
+- Added: `worker --usage` ends with an ALARM line when the GLM share is under the target (default 60%, `--target N`; `--json` adds `target` and `below_target`; no usage = no alarm); the status line shows `GLM NN%!` at saver level 2 and above
+- Added: the manifest's auto-mode allow list (`$defaults` plus a `[bajzi]` saver-mode worker rule); `/bajzi:setup` merges an optional machine-local overlay `~/.claude/bajzi/settings-local.json` (same shape as settings), and `setup --check` reports missing or stale entries per tag and notes when no overlay exists
+- Added: `setup --check` reports missing global-rules sections; `shared/CLAUDE.md` gains `## Methodology (all projects)` pointing to the methodology guide
+- Added: `docs/methodology-guide.md` (project size, methodology choice, GitHub or local decided by data sensitivity, lifecycle); `/bajzi:project-setup` question 5 names the GitHub-or-local criteria and recommends local when unsure
+- Added: night-run watcher relaunch tests
+- Changed: bajzi-cowork's modszertan skill no longer carries the methodology-guide pointer (Cowork has no marketplace clone)
+
 ## 1.33.0
 - Added: `/bajzi:level` — an owner-only command (handled by a UserPromptSubmit hook) that shows or sets the saver level for this session, this repo or the machine (`/bajzi:level <0-3|claude|light|glm|tight> [session|repo|global]`, `unset [scope]`, no argument = status); refused in unattended and SDK sessions
 - Added: a repo default saver level in `<project>/runtime/worker-mode` (the project is `CLAUDE_PROJECT_DIR`, else the working directory); it ranks below the session level and above the machine default `~/.claude/worker-mode`
