@@ -4,8 +4,8 @@
 // (bajzi has bin/ since 1.7.0; claude.ai stayed on 1.5.15 with "Sync failed").
 // The variant ships ONLY skills that need nothing outside their own folder:
 // no bin/, hooks/, agents/, gate/, lib/. Source of truth stays bajzi/skills/<name>.
-// Byte-exact copy except: .md lines naming the marketplace clone path are dropped (Cowork has no
-// marketplace clone, so such a pointer would dangle; bajzi keeps it).
+// Byte-exact copy except: in .md files the build drops each line naming the marketplace clone path and the
+// blank line right after it (Cowork has no marketplace clone, so such a pointer would dangle; bajzi keeps it).
 // Usage: node tools/build-cowork.js          (rebuild + stamp versions)
 //        node tools/build-cowork.js --check  (exit 1 on any drift, writes nothing)
 'use strict';
@@ -18,7 +18,7 @@ const DST = path.join(ROOT, 'bajzi-cowork');
 const MARKET = path.join(ROOT, '.claude-plugin', 'marketplace.json');
 const SKILLS = ['autopilot', 'explain', 'handoff', 'modszertan'];
 const CLONE_REF = /~\/\.claude\/plugins\/marketplaces\//;
-const dropCloneRefs = (buf) => Buffer.from(buf.toString('utf8').replace(/^[^\n]*~\/\.claude\/plugins\/marketplaces\/[^\n]*\n(\n|$)/gm, ''));
+const dropCloneRefs = (buf) => Buffer.from(buf.toString('utf8').split(/(?<=\n)/).filter((l, i, a) => !CLONE_REF.test(l) && !(i > 0 && CLONE_REF.test(a[i - 1]) && /^\r?\n$/.test(l))).join(''));
 const EXCLUDE_DIRS = new Set(['tests']);
 const DESCRIPTION = 'claude.ai / Cowork-safe subset of bajzi: /bajzi-cowork:handoff session handover, ' +
   '/bajzi-cowork:autopilot unattended mode, /bajzi-cowork:modszertan methodology selector, /bajzi-cowork:explain plain re-explanation. ' +
@@ -103,4 +103,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { drift, SKILLS, DST };
+module.exports = { drift, dropCloneRefs, SKILLS, DST };

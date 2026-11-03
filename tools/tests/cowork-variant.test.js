@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { drift, SKILLS, DST } = require('../build-cowork');
+const { drift, dropCloneRefs, SKILLS, DST } = require('../build-cowork');
 
 test('bajzi-cowork is in sync with bajzi/ (run node tools/build-cowork.js)', () => {
   assert.deepStrictEqual(drift(), []);
@@ -47,4 +47,15 @@ test('no shipped file names a bajzi skill outside the cowork skill list', () => 
 test('SKILLS whitelist has explain, not tired', () => {
   assert.ok(SKILLS.includes('explain'));
   assert.ok(!SKILLS.includes('tired'));
+});
+
+test('dropCloneRefs drops pointer lines and the one blank line after them, in every layout', () => {
+  const P = 'see ~/.claude/plugins/marketplaces/x';
+  const cases = [
+    [`a\n\n${P}\ntext\n`, 'a\n\ntext\n'],
+    [`a\n\n${P}`, 'a\n\n'],
+    [`a\r\n\r\n${P}\r\n\r\nb\r\n`, 'a\r\n\r\nb\r\n'],
+    [`a\n\n${P}\n\nb\n`, 'a\n\nb\n'],
+  ];
+  for (const [i, o] of cases) assert.strictEqual(dropCloneRefs(Buffer.from(i)).toString(), o);
 });
