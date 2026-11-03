@@ -157,15 +157,17 @@ test('toLocal / parseGitFile translate the other OS gitdir (pure)', () => {
   assert.equal(fl.parseGitFile('nothing', '/r', 'linux'), null);
 });
 
-test('a .git file with a Windows-form gitdir resolves to the same common dir and worktree id', { skip: process.platform !== 'linux' }, () => {
+test('a .git file with a posix gitdir resolves to the main checkout common dir and a wt: worktree id', { skip: process.platform !== 'linux' }, () => {
   const base = fs.realpathSync(tmpDir('bajzi-x-'));
   const gitdir = path.join(base, 'main', '.git', 'worktrees', 'w');
   fs.mkdirSync(gitdir, { recursive: true });
   fs.writeFileSync(path.join(gitdir, 'commondir'), '../..\n');
   fs.mkdirSync(path.join(base, 'wt'));
   const st = tmpDir('bajzi-st-');
-  // /mnt/<d>/x is the form of a real WSL mount; here the posix path is written as-is (the same file by either spelling)
   fs.writeFileSync(path.join(base, 'wt', '.git'), `gitdir: ${gitdir}\n`);
+  const repo0 = fl.repoOf(path.join(base, 'wt', 'f'));
+  assert.equal(repo0.common, path.join(base, 'main', '.git'));
+  assert.equal(repo0.wt, 'wt:w');
   assert.equal(pre(edit(base, 'wt/f', 'A'), env(st)).stdout, '');
   assert.ok(fs.existsSync(path.join(base, 'main', '.git', 'bajzi', 'file-locks')));
   assert.notEqual(pre(edit(base, 'wt/f', 'B'), env(st)).stdout, '');
@@ -183,6 +185,35 @@ process.stdout.write(r?'deny':'allow');`;
     let o = ''; c.stdout.on('data', d => { o += d; }); c.on('close', () => res(o));
   })));
 }
+
+test('a linked worktree whose path ends in `main` is not the main checkout (own worktree id)', () => {
+  const r = repo(), st = tmpDir('bajzi-st-');
+  const wt = path.join(tmpDir('bajzi-wt-'), 'main');
+  git(r, 'worktree', 'add', '-q', wt);
+  assert.equal(pre(edit(r, path.join(r, 'x'), 'A'), env(st)).stdout, '');
+  assert.equal(pre(edit(r, path.join(wt, 'x'), 'B'), env(st)).stdout, '');
+  assert.equal(locksOf(r).length, 2);
+});
+
+test('a headless child (BAJZI_LOCK_OWNER = parent) whose pid is gone keeps the parent lock alive', () => {
+  const r = repo(), st = tmpDir('bajzi-st-');
+  const dead = spawnSync(process.execPath, ['-e', '']).pid;   // exited: its pid is gone
+  assert.equal(pre(edit(r, 'x.js', 'child'), env(st, { BAJZI_LOCK_OWNER: 'PPPPPPPP', CLAUDE_PID: String(dead) })).stdout, '');
+  const o = denyOf(pre(edit(r, 'x.js', 'Q'), env(st)));
+  assert.equal(o.permissionDecision, 'deny');
+  assert.match(o.permissionDecisionReason, /session PPPPPPPP \(/);
+});
+
+test('a refused edit (writer-guard) leaves no lock behind, even for a file in another repo', () => {
+  const a = repo(), b = repo(), st = tmpDir('bajzi-st-');
+  fs.mkdirSync(path.join(b, '.claude-plugin'));
+  fs.writeFileSync(path.join(b, '.claude-plugin', 'marketplace.json'), JSON.stringify({ name: 'bajzi-plugins' }));
+  const o = denyOf(pre(edit(a, path.join(b, 'bajzi', 'f.js'), 'A'), env(st)));
+  assert.match(o.permissionDecisionReason, /bajzi plugin changes/);
+  assert.equal(locksOf(b).length, 0);
+  fl.releaseAll({ session_id: 'A', cwd: a }, {});
+  assert.equal(fl.check(edit(b, path.join(b, 'bajzi', 'f.js'), 'B'), { BAJZI_STATUS_DIR: st }), null);
+});
 
 test('RACE: 8 concurrent processes, different owners, same file -> exactly one allowed', async () => {
   const r = repo(), res = await racers(8, r, tmpDir('bajzi-st-'), i => `owner${i}`);

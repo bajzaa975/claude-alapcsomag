@@ -2116,7 +2116,7 @@ once per session, end to end through `post-tool.js`.
 
 ### 6.21 File lock — technical
 
-`bajzi/hooks/node/file-lock.js`, the last `CHECKS` row of `pre-tool.js`, tools `Edit`, `Write`, `MultiEdit`, `NotebookEdit`
+`bajzi/hooks/node/file-lock.js`, the last `CHECKS` row of `pre-tool.js` (run only when no other check denied the edit, so a refused edit leaves no lock), tools `Edit`, `Write`, `MultiEdit`, `NotebookEdit`
 only (every other tool returns before any fs access). One Claude session at a time edits a given file of a git repo: the
 first editor takes a lock, another session is denied (`[bajzi:file-lock]`) while the holder is live. Fails open: any error
 allows. No git process, no sleep, no retry loop or wait (the entry has timeout 10 and fails closed).
@@ -2124,7 +2124,7 @@ allows. No git process, no sleep, no retry loop or wait (the entry has timeout 1
 **Repo and key.** The path (`file_path`, or `notebook_path`) is resolved against `cwd`; the walk up from its directory to
 the first `.git` decides the repo (none: no lock). A `.git` directory is the common dir, worktree id `main`. A `.git` file
 is parsed (`gitdir:`, relative or absolute): common dir = `<gitdir>/commondir` resolved against the gitdir (a submodule has
-none: gitdir itself, id `main`), worktree id = the gitdir's basename. A gitdir/commondir written by the other OS is
+none: gitdir itself, id `main`), worktree id = `wt:` + the gitdir's basename (a linked worktree named `main` never collides with the main checkout). A gitdir/commondir written by the other OS is
 translated (`/mnt/<d>/x` <-> `<D>:/x`, drive letter case-insensitive), so Windows and WSL agree on the common dir and on
 the key. Paths inside `.git` are never locked. Key = `sha1(worktree id + "\0" + path relative to the worktree root, "/"
 separators, lower-cased)`; lock file = `<common dir>/bajzi/file-locks/<key>.json`. A session editing a file of ANOTHER
@@ -2137,7 +2137,7 @@ they share its locks. `cc-router.js` sets `BAJZI_LOCK_OWNER` in the env of the `
 `BAJZI_LOCK_OWNER || CLAUDE_CODE_SESSION_ID` (a `claude -p` child gets a new session id), so `glm`/`worker` headless
 children share their parent's locks.
 
-**Record** (JSON, written once at create, never rewritten): `owner`, `pid` (env `CLAUDE_PID` or null), `ident`
+**Record** (JSON, written once at create, never rewritten): `owner`, `pid` (env `CLAUDE_PID`; null when it is unknown or when `BAJZI_LOCK_OWNER` differs from the session id, a headless child's pid dies before its parent's turn does, so only the TTL ends such a lock), `ident`
 (`hostname|platform|` + on Linux the `/proc/self/ns/pid` link), `cwd`, `file` (relative), `created`. Heartbeat = the lock
 file's mtime, touched on every edit by the owner.
 

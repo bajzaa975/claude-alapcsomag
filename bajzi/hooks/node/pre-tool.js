@@ -19,7 +19,11 @@ const CHECKS = [
 
 function main() {
   runHook('pre-tool', () => {
-    const [first, ...rest] = runChecks(CHECKS, readInput()).filter(r => r.kind === 'deny');
+    const input = readInput();
+    // file-lock runs only when no other check refused the edit: a refused edit must not leave a lock behind.
+    let denies = runChecks(CHECKS.filter(c => c[0] !== 'file-lock'), input).filter(r => r.kind === 'deny');
+    if (!denies.length) denies = runChecks(CHECKS.filter(c => c[0] === 'file-lock'), input).filter(r => r.kind === 'deny');
+    const [first, ...rest] = denies;
     if (first) deny([first.reason, ...rest.map(d => `[bajzi:${d.rule}] ${d.reason}`)].join('\n'), first.rule);
   });
 }

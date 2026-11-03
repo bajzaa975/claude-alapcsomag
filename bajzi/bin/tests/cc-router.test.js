@@ -20,7 +20,7 @@ function run(entry, args, extraEnv = {}, opts = {}) {   // opts.cwd: the router'
     BAJZI_STATUS_DIR: path.join(dir, 'sessions'),   // session level files land in the sandbox, never the real home
   });
   // The test process may run inside Claude Code: its session id must never reach the router unless a test sets it.
-  for (const k of ['CC_WORKER_MODE', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'BAJZI_HOME', 'BAJZI_SESSION_LEVEL',
+  for (const k of ['CC_WORKER_MODE', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'BAJZI_HOME', 'BAJZI_SESSION_LEVEL', 'BAJZI_LOCK_OWNER',
     'GLM_MODEL', 'GLM_FAST_MODEL', 'GLM_ORCHESTRATOR_MODEL']) delete env[k];
   for (const [k, v] of Object.entries(extraEnv)) {
     for (const o of Object.keys(env)) if (o !== k && o.toUpperCase() === k.toUpperCase()) delete env[o];   // win32 copies PATH as Path

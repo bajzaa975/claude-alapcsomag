@@ -46,8 +46,8 @@ function repoOf(target, platform = process.platform) {
       if (!gitdir) return null;
       let c = null;
       try { c = fs.readFileSync(path.join(gitdir, 'commondir'), 'utf8').trim(); } catch { /* a submodule: no commondir */ }
-      if (!c) return { root: dir, common: gitdir, wt: 'main' };
-      return { root: dir, common: path.resolve(gitdir, toLocal(c, platform)), wt: gitdir.split(/[\\/]/).filter(Boolean).pop() };
+      if (!c) return { root: dir, common: gitdir, wt: 'main' };   // 'wt:' below keeps a linked worktree named `main` apart
+      return { root: dir, common: path.resolve(gitdir, toLocal(c, platform)), wt: `wt:${gitdir.split(/[\\/]/).filter(Boolean).pop()}` };
     }
     const up = path.dirname(dir);
     if (up === dir) return null;
@@ -173,7 +173,8 @@ function check(input, env = process.env, now = Date.now()) {
     const dir = lockDir(repo);
     const lock = path.join(dir, `${keyOf(repo, rel)}.json`);
     fs.mkdirSync(dir, { recursive: true });
-    const pid = parseInt(env.CLAUDE_PID, 10);
+    // A headless child (owner is its parent session) has a short-lived pid: no pid, so only the TTL ends the lock.
+    const pid = env.BAJZI_LOCK_OWNER && env.BAJZI_LOCK_OWNER !== input.session_id ? NaN : parseInt(env.CLAUDE_PID, 10);
     const rec = { owner, pid: pid > 0 ? pid : null, ident: ident(), cwd: input.cwd, file: rel, created: new Date(now).toISOString() };
     if (create(lock, rec)) return null;
     const held = inspect(lock);
@@ -206,4 +207,4 @@ function releaseAll(input, env = process.env) {
   } catch { /* release never changes the caller */ }
 }
 
-module.exports = { check, releaseAll, toLocal, parseGitFile, TTL_MS };
+module.exports = { check, releaseAll, toLocal, parseGitFile, repoOf, TTL_MS };
