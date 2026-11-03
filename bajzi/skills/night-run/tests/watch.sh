@@ -154,6 +154,31 @@ OUT=$(run_watch "$ND"); RC=$?
 check "5 past quota-until: no second margin" " quota=none" "$OUT"
 case "$OUT" in *QUOTA-WAIT*) bad "5 QUOTA_MARGIN_SEC was added a second time";; *) ok "5 QUOTA_MARGIN_SEC is not applied twice";; esac
 
+# ------------------------------------------- 20. TICK FIXED and relaunch -----
+# Tier 0 (night-watch.sh) never parses `TICK FIXED`: a relaunch is decided only
+# by runner liveness + the restart budget (scenarios 3+4). The fix-budget rules
+# (one FIXED per fingerprint, fewer than 2 per run window) live in the tier-1
+# brief's prose, not in tier-0 code.
+SHA_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+SHA_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+# 20c: a tick that ended `TICK FIXED fp=.. commit=..` and a dead runner -> relaunched.
+ND=$(mkenv fixed1); touch "$ND/heartbeat"; : >"$WT/stub.calls"
+printf 'TICK FIXED fp=abc123 commit=%s\n' "$SHA_A" >"$ND/triage.log"
+printf '01:10 FIXED abc123 %s harness\n' "$SHA_A" >>"$ND/state.txt"
+OUT=$(run_watch "$ND"); RC=$?
+check "20c TICK FIXED + dead runner: RESTART 1/2" "RESTART 1/2" "$OUT"
+i=0; while [ ! -s "$WT/stub.calls" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+check "20c stub re-executed with the run.args argv" "RAN --config $ND/config.env --deadline 04:30" "$(cat "$WT/stub.calls" 2>/dev/null)"
+# 20d: a SECOND `TICK FIXED` with the SAME fingerprint in the window -> must NOT relaunch.
+# EXPECTED FAIL: tier 0 does not read FIXED lines (finding, separate risk slice).
+ND=$(mkenv fixed2); touch "$ND/heartbeat"; : >"$WT/stub.calls"
+printf 'TICK FIXED fp=abc123 commit=%s\nTICK FIXED fp=abc123 commit=%s\n' "$SHA_A" "$SHA_B" >"$ND/triage.log"
+printf '01:10 FIXED abc123 %s harness\n01:20 FIXED abc123 %s harness\n' "$SHA_A" "$SHA_B" >>"$ND/state.txt"
+OUT=$(run_watch "$ND"); RC=$?
+sleep 1
+if [ -s "$WT/stub.calls" ]; then printf 'XFAIL  20d same-fp second TICK FIXED still relaunches (tier 0 ignores FIXED; prose-only rule)\n'
+else ok "20d same-fp second TICK FIXED: no relaunch (XPASS: tier 0 now enforces it, drop the XFAIL)"; fi
+
 else echo "SKIP (no flock): scenarios 1-5"; fi
 # -------------------------------------------------------------- 6. disk -----
 ND=$(mkenv disk 999999); touch "$ND/heartbeat"
