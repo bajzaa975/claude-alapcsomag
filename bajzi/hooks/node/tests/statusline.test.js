@@ -355,12 +355,42 @@ test('line file: seven_day_pct next to five_hour_pct', () => {
   assert.strictEqual(f.seven_day_pct, 33.6);
 });
 
+test('goal field sits after the task, before the bar; absent when inactive or no transcript_path', () => {
+  const cwd = fixtureRepo();
+  const f = path.join(tmpDir('bajzi-tr-'), 't.jsonl');
+  const rec = a => JSON.stringify({ type: 'attachment', timestamp: new Date(NIGHT - 125 * 60000).toISOString(), attachment: Object.assign({ type: 'goal_status', condition: 'c' }, a) }) + '\n';
+  fs.writeFileSync(f, rec({ met: false, sentinel: true }) + rec({ met: false }));
+  const o = { env: {}, home: tmpDir('bajzi-h-'), nowMs: NIGHT, color: false };
+  const sid = `gl-${process.pid}-${Date.now()}`;
+  const line = strip(render(input(cwd, { session_id: sid, transcript_path: f }), o));
+  assert.strictEqual(line, 'Opus 5.5 \u00b7 L0 \u00b7 feat/x* \u00b7 status line port \u00b7 \u25ce goal 1 eval 2h 5m \u00b7 \u2593\u2593\u2593\u2593\u2591\u2591\u2591\u2591\u2591\u2591 42% \u00b7 Q1');
+  assert.ok(!render(input(cwd, { session_id: sid }), o).includes('goal'));
+  assert.ok(!render(input(cwd, { session_id: sid, transcript_path: '' }), o).includes('goal'));
+  fs.appendFileSync(f, rec({ met: true }));
+  assert.ok(!render(input(cwd, { session_id: sid, transcript_path: f }), o).includes('goal'));
+});
+
 test('p95 of 20 warm runs < 150 ms', PERF, () => {
   const cwd = fixtureRepo();
   const home = tmpDir('bajzi-h-');
   const tmp = tmpDir('bajzi-t-');
   const stdin = JSON.stringify(input(cwd));
   runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd });   // warm the git cache
+  const ms = [];
+  for (let i = 0; i < 20; i++) ms.push(runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd }).ms);
+  assert.ok(p95(ms) < 150, `p95 ${p95(ms).toFixed(1)} ms`);
+});
+
+test('p95 < 150 ms with a ~20 MB transcript and an active goal near the end', PERF, () => {
+  const cwd = fixtureRepo();
+  const home = tmpDir('bajzi-h-');
+  const tmp = tmpDir('bajzi-t-');
+  const f = path.join(tmp, 'big.jsonl');
+  const filler = JSON.stringify({ type: 'user', message: 'x'.repeat(1000) }) + '\n';
+  const rec = a => JSON.stringify({ type: 'attachment', timestamp: new Date().toISOString(), attachment: Object.assign({ type: 'goal_status', condition: 'c' }, a) }) + '\n';
+  fs.writeFileSync(f, filler.repeat(20000) + rec({ met: false, sentinel: true }) + rec({ met: false }));
+  const stdin = JSON.stringify(input(cwd, { transcript_path: f }));
+  for (let i = 0; i < 8; i++) runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd });   // warm: git + goal cache catch-up
   const ms = [];
   for (let i = 0; i < 20; i++) ms.push(runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd }).ms);
   assert.ok(p95(ms) < 150, `p95 ${p95(ms).toFixed(1)} ms`);

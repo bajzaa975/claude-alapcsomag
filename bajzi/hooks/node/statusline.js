@@ -1,6 +1,6 @@
 'use strict';
 // Claude Code statusLine command. Installed by /bajzi:setup to ~/.claude/bajzi/statusline.js
-// (+ lib/). Line: model · Lx · branch* · task · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN% · Qn · peak ...
+// (+ lib/). Line: model · Lx · branch* · task · ◎ goal N evals Xm · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN% · Qn · peak ...
 // Missing data = that field is omitted; never an error text. Side effects: writes the ctx
 // bridge <tmpdir>/bajzi-ctx-<session_id>.json that hooks/node/context-guard.js reads, and AFTER the
 // line is out, <status dir>/<session_id>.line.json for an external orchestrator (spec §6.5, writeLine).
@@ -72,6 +72,8 @@ function render(input, opts = {}) {
   if (git) out.push(git.branch + (git.dirty ? '*' : ''));
   const task = parts.handoffTask(cwd);
   if (task) out.push(task);
+  const goal = parts.goalStatus({ transcriptPath: inp.transcript_path, sessionId: inp.session_id, nowMs });
+  if (goal) out.push(`\u25ce goal ${goal.evals} eval${goal.evals === 1 ? '' : 's'} ${fmtMins(goal.setAt === null ? 0 : Math.max(0, Math.floor((nowMs - goal.setAt) / 60000)))}`);
   const used = usedPct(inp);
   if (used !== null) out.push(bar(used, color));
   const lim = obj(inp.rate_limits);

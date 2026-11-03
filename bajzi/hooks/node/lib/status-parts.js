@@ -216,4 +216,71 @@ if (require.main === module && process.argv[2] === '--refresh-glm' && process.ar
   try { refreshGlm(process.argv[3]); } catch { /* detached child: nobody to report to */ }
 }
 
-module.exports = { gitInfo, gitCachePath, validGitInfo, parseGitStatus, handoffTask, openQueueCount, glmShare, glmBelowTarget, refreshGlm, glmCachePath };
+// --- goal field: incremental fold of the transcript's goal_status records (spec 6.5, 7.2) ---
+const GOAL_CHUNK = 4 * 1024 * 1024;
+const freshGoal = () => ({ v: 1, path: '', ino: 0, offset: 0, skip: false, active: false, setAt: null, evals: 0 });
+function validGoal(c) {
+  return !!c && typeof c === 'object' && c.v === 1 && typeof c.path === 'string' && Number.isSafeInteger(c.ino)
+    && Number.isSafeInteger(c.offset) && c.offset >= 0 && typeof c.skip === 'boolean' && typeof c.active === 'boolean'
+    && (c.setAt === null || (typeof c.setAt === 'number' && Number.isFinite(c.setAt))) && Number.isSafeInteger(c.evals) && c.evals >= 0;
+}
+function foldGoal(st, line) {
+  let r;
+  try { r = JSON.parse(line); } catch { return; }
+  const a = r && r.type === 'attachment' && r.isSidechain !== true ? r.attachment : null;
+  if (!a || a.type !== 'goal_status') return;
+  if (a.met === true || a.failed === true) { st.active = false; return; }
+  if (a.met !== false) return;
+  const t = typeof r.timestamp === 'string' ? Date.parse(r.timestamp) : NaN;
+  if (a.sentinel === true) { st.active = true; st.evals = 0; st.setAt = Number.isFinite(t) ? t : null; return; }
+  st.active = true; st.evals += 1;
+  if (st.setAt === null && Number.isFinite(t)) st.setAt = t;
+}
+// null | {evals, setAt}. Fail-open: any problem = null. Reads at most `chunk` new bytes per call.
+function goalStatus({ transcriptPath, sessionId, nowMs, chunk = GOAL_CHUNK } = {}) {
+  try {
+    if (typeof sessionId !== 'string' || !require('./session-status').SAFE_ID.test(sessionId)) return null;
+    if (typeof transcriptPath !== 'string' || !transcriptPath) return null;
+    const cache = path.join(os.tmpdir(), `bajzi-goal-${sessionId}.json`);
+    const c = readJson(cache);
+    let st = validGoal(c) ? c : freshGoal();
+    const before = JSON.stringify(st);
+    const stat = fs.statSync(transcriptPath);
+    if (st.path !== transcriptPath || st.ino !== stat.ino || stat.size < st.offset) st = Object.assign(freshGoal(), { path: transcriptPath, ino: stat.ino });
+    const n = Math.min(chunk, stat.size - st.offset);
+    if (n > 0) {
+      const buf = Buffer.alloc(n);
+      const fd = fs.openSync(transcriptPath, 'r');
+      let got;
+      try { got = fs.readSync(fd, buf, 0, n, st.offset); } finally { fs.closeSync(fd); }
+      const base = st.offset;
+      let start = 0;
+      let done = false;
+      if (st.skip) {
+        const nl = buf.indexOf(10);
+        if (nl < 0 || nl >= got) { st.offset += got; done = true; } else { start = nl + 1; st.skip = false; st.offset = base + start; }
+      }
+      if (!done) {
+        const last = buf.lastIndexOf(10, got - 1);
+        if (last < start) {
+          if (got === chunk && start === 0) { st.offset += got; st.skip = true; }   // a line longer than a chunk is not a goal record
+        } else {
+          let pos = start;
+          for (;;) {
+            const hit = buf.indexOf('"goal_status"', pos);
+            if (hit < 0 || hit > last) break;
+            const ls = Math.max(start, buf.lastIndexOf(10, hit) + 1);
+            const le = buf.indexOf(10, hit);
+            foldGoal(st, buf.toString('utf8', ls, le));
+            pos = le + 1;
+          }
+          st.offset = base + last + 1;
+        }
+      }
+    }
+    if (JSON.stringify(st) !== before) writeJsonAtomic(cache, st);
+    return st.active ? { evals: st.evals, setAt: st.setAt } : null;
+  } catch { return null; }
+}
+
+module.exports = { goalStatus, GOAL_CHUNK, gitInfo, gitCachePath, validGitInfo, parseGitStatus, handoffTask, openQueueCount, glmShare, glmBelowTarget, refreshGlm, glmCachePath };
