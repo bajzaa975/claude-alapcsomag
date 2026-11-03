@@ -82,7 +82,10 @@ function render(input, opts = {}) {
   let g = null;
   if (level >= 1) {
     g = parts.glmShare({ nowMs, home, env });
-    if (g !== null) out.push(`GLM ${g}%` + (level >= 2 && g < 60 ? '!' : ''));   // minimum-share alarm, L2+ only
+    if (g !== null) {
+      const flag = parts.glmBelowTarget({ home });   // the worker's flag (off for a zero total); an old cache has none -> share < 60
+      out.push(`GLM ${g}%` + (level >= 2 && (flag === null ? g < 60 : flag) ? '!' : ''));
+    }   // minimum-share alarm, L2+ only
   }
   const q = parts.openQueueCount(cwd);
   if (q > 0) out.push('Q' + q);

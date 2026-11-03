@@ -216,9 +216,6 @@
     },
     "permissions": {
       "defaultMode": "auto",
-      "allow": [
-        "Bash(glm -p:*)"
-      ],
       "deny": [
         "Read(.env)",
         "Read(.env.local)",

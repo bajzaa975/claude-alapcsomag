@@ -183,13 +183,21 @@ function glmShare({ nowMs = Date.now(), home = os.homedir(), env = process.env, 
   return c && typeof c.pct === 'number' && Number.isFinite(c.pct) ? c.pct : null;
 }
 
+// The worker's own alarm flag from the cache (false for a zero total); null in an old cache without it.
+function glmBelowTarget({ home = os.homedir() } = {}) {
+  const c = readJson(glmCachePath(home));
+  return c && typeof c.below_target === 'boolean' ? c.below_target : null;
+}
+
 function refreshGlm(cachePath, env = process.env) {
   const cmd = (env.BAJZI_WORKER_CMD || 'worker') + ' --usage 24h --json';
   let pct = null;
+  let belowTarget;
   try {
     const out = execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 60000, windowsHide: true, env });
     const j = JSON.parse(out);
     if (typeof j.glm_share_pct === 'number' && Number.isFinite(j.glm_share_pct)) pct = Math.round(j.glm_share_pct);
+    if (typeof j.below_target === 'boolean') belowTarget = j.below_target;
   } catch {
     pct = null;
   }
@@ -200,7 +208,7 @@ function refreshGlm(cachePath, env = process.env) {
     if (prev && typeof prev.pct === 'number' && Number.isFinite(prev.pct)) return;
   }
   try { fs.mkdirSync(path.dirname(cachePath), { recursive: true }); } catch { /* write below fails quietly */ }
-  writeJsonAtomic(cachePath, { ts: Date.now(), pct });
+  writeJsonAtomic(cachePath, belowTarget === undefined ? { ts: Date.now(), pct } : { ts: Date.now(), pct, below_target: belowTarget });
   try { fs.unlinkSync(cachePath + '.lock'); } catch { /* already gone */ }
 }
 
@@ -208,4 +216,4 @@ if (require.main === module && process.argv[2] === '--refresh-glm' && process.ar
   try { refreshGlm(process.argv[3]); } catch { /* detached child: nobody to report to */ }
 }
 
-module.exports = { gitInfo, gitCachePath, validGitInfo, parseGitStatus, handoffTask, openQueueCount, glmShare, refreshGlm, glmCachePath };
+module.exports = { gitInfo, gitCachePath, validGitInfo, parseGitStatus, handoffTask, openQueueCount, glmShare, glmBelowTarget, refreshGlm, glmCachePath };

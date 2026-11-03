@@ -122,8 +122,8 @@ Depth follows the slice's risk, not who wrote it.
 | 3 | docs, comments, decision log | the gate only |
 
 Rules: the weaker model never gives final approval on the stronger one's work. Two rounds at most;
-what is still serious after round 2 goes to the owner. CLEAN = 0 critical + 0 important findings and
-a green gate. Machine checks (tests, grep) come before model opinion.
+what is still serious after round 2 goes to the owner. CLEAN = nothing open but test gaps (no
+blocker, major, minor or nit) and a green gate. Machine checks (tests, grep) come before model opinion.
 
 ## 6. Execution modes
 

@@ -179,7 +179,7 @@ sleep 1
 if [ -s "$WT/stub.calls" ]; then printf 'XFAIL  20d same-fp second TICK FIXED still relaunches (tier 0 ignores FIXED; prose-only rule)\n'
 else ok "20d same-fp second TICK FIXED: no relaunch (XPASS: tier 0 now enforces it, drop the XFAIL)"; fi
 
-else echo "SKIP (no flock): scenarios 1-5"; fi
+else echo "SKIP (no flock): scenarios 1-5, 20c, 20d"; fi
 # -------------------------------------------------------------- 6. disk -----
 ND=$(mkenv disk 999999); touch "$ND/heartbeat"
 OUT=$(run_watch "$ND"); RC=$?

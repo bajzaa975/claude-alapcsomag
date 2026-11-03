@@ -445,15 +445,20 @@ test('public autoMode rule: manifest drift is reported; stale old [bajzi] rule t
   assert.strictEqual(run(m).out, 'setup --check: clean\n');
 });
 
-test('real manifest: public autoMode rule + glm permission, neither trips forbidden_leftovers', () => {
+test('real manifest: public autoMode rule, no broad glm -p allow rule, nothing trips forbidden_leftovers', () => {
   const real = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8'));
   const sm = real.settings_merge;
   assert.strictEqual(sm.permissions.defaultMode, 'auto');
   assert.strictEqual(sm.autoMode.allow[0], '$defaults');
   assert.strictEqual(sm.autoMode.allow.length, 2);
   assert.match(sm.autoMode.allow[1], /^\[bajzi\] saver-mode worker: .*`glm -p`/);
-  assert.ok(sm.permissions.allow.includes('Bash(glm -p:*)'));
-  const hay = JSON.stringify(sm.autoMode) + JSON.stringify(sm.permissions.allow);
+  // no allow rule may pre-approve a bypassPermissions / skip-permissions glm -p run that has no --settings deny list
+  const risky = ['glm -p "x" --permission-mode bypassPermissions', 'glm -p "x" --dangerously-skip-permissions'];
+  for (const e of sm.permissions.allow || []) {
+    const mm = /^Bash\((.*?)(:\*|\*)?\)$/.exec(e);
+    if (mm) for (const c of risky) assert.ok(!c.startsWith(mm[1].trim()) || /--settings/.test(e), `${e} approves: ${c}`);
+  }
+  const hay = JSON.stringify(sm.autoMode) + JSON.stringify(sm.permissions.allow || []);
   for (const s of real.forbidden_leftovers.settings_substrings) assert.ok(!hay.includes(s), s);
 });
 

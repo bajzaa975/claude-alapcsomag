@@ -79,6 +79,19 @@ test('GLM share is shown only at L1-L3, from a fresh cache', () => {
   assert.strictEqual(l0, 'L0');
 });
 
+test('GLM alarm: a cache refreshed from a zero-total worker run (below_target false) shows no !', () => {
+  const home = tmpDir('bajzi-h-');
+  const dir = tmpDir('bajzi-w-');
+  const fake = path.join(dir, 'fake-worker.js');
+  fs.writeFileSync(fake, 'process.stdout.write(JSON.stringify({ glm_share_pct: 0, target: 60, below_target: false }))');
+  parts.refreshGlm(parts.glmCachePath(home), Object.assign({}, process.env, { BAJZI_WORKER_CMD: `"${process.execPath}" "${fake}"` }));
+  const cwd = tmpDir('bajzi-nr-');
+  const r = () => strip(render({ workspace: { current_dir: cwd } }, { env: { CC_WORKER_MODE: 'glm' }, home, nowMs: Date.now() }));
+  assert.strictEqual(r(), 'L2 \u00b7 GLM 0%');
+  fs.writeFileSync(parts.glmCachePath(home), JSON.stringify({ ts: Date.now(), pct: 0 }));   // old cache, no flag: falls back to share < 60
+  assert.strictEqual(r(), 'L2 \u00b7 GLM 0%!');
+});
+
 test('peak part: 2 h before and inside the window only', () => {
   const home = tmpDir('bajzi-h-');
   const cwd = tmpDir('bajzi-nr-');

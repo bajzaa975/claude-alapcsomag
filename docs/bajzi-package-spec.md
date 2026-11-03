@@ -933,7 +933,7 @@ frontmatter is the upgrade if that bites.
 `rate_limits.five_hour.used_percentage`, `rate_limits.seven_day.used_percentage` (the line also
 shows both).
 
-**Line**: `model · Lx · branch* · task · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN% · Qn · peak ...`
+**Line**: `model · Lx · branch* · task · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN%[!] · Qn · peak ...`
 (`statusline.js` `SEP = ' · '`). Fields, in order (`render()`):
 1. `model.display_name`, trimmed; omitted if blank.
 2. `L<level>` from `resolveLevel()` (`saver-level.js`) — always present.
@@ -949,6 +949,11 @@ shows both).
 6. `GLM NN%` — **only at level ≥ 1** (`glmShare()`, 5-minute cache, refreshed by a
    **detached** child so the line never waits on `worker --usage`; a 60 s lock file prevents
    concurrent status lines from all spawning a refresh, `takeLock`; files in §7.2).
+   **Alarm**: at level ≥ 2 the field gets a `!` suffix (`GLM 42%!`) when the share is under the 60 %
+   default target of `worker --usage` (§6.1). The refresh caches the worker's `below_target` next to
+   `pct` in `glm-share.json` and the line uses it, so a zero-usage window (share 0, `below_target`
+   false) shows `GLM 0%` with no `!`; an old cache without the field falls back to `pct < 60`.
+   Level 1 is unchanged. No hard limit: the alarm is display only.
 7. `Qn` — open review-queue item count (`runtime/review-queue/*.md` whose `status:` line within
    the first 1 KB is `open`/`pending`, `openQueueCount()`) — omitted if zero. This
    counts the **file's display status**, not a verified review, so it is a hint, never a verdict.
@@ -1324,7 +1329,9 @@ writes, creates or deletes anything (test `check.js is read-only: no file under 
   - **Auto-mode baseline.** `settings_merge` carries the public rule `autoMode.allow` =
     `["$defaults", "[bajzi] saver-mode worker: ..."]` (`$defaults` keeps Claude Code's built-in rules
     and stays first; the rule allows the GLM headless worker `glm -p`, and `bypassPermissions` only with
-    a deny-list `--settings` file) and `permissions.allow` = `Bash(glm -p:*)`; neither contains a
+    a deny-list `--settings` file). There is deliberately no `permissions.allow` prefix rule for `glm -p`
+    (a prefix rule would also approve `--permission-mode bypassPermissions` without `--settings`, so the
+    rule's condition would never be checked; a test pins this). The rule contains no
     `forbidden_leftovers.settings_substrings` entry (a test pins it). `defaultMode` stays `auto`.
   - **Machine-local overlay** `~/.claude/bajzi/settings-local.json` (optional, same shape as
     `settings_merge`; private entries that never belong in this repo, e.g. site-specific `autoMode`
