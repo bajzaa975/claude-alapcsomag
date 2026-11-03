@@ -47,6 +47,11 @@ function artifact(ss, input, nowMs, dir, id) {
   ss.appendLine(dir, `${id}.artifacts.jsonl`, { v: 1, url: m[0].replace(/[.,;:!?]+$/, ''), title, ts: Math.floor(nowMs / 1000) });
 }
 
+// The turn ended: free this session's file locks (file-lock.js). Never changes the hook's behaviour.
+function release(input, env) {
+  try { require('./file-lock').releaseAll(input, env); } catch { /* fail-open */ }
+}
+
 // The event file is written whole on every row of the contract table; it is read only by the idle
 // rule and the resume rule.
 function handle(input, env, nowMs, dir) {
@@ -80,11 +85,12 @@ function handle(input, env, nowMs, dir) {
       if (input.notification_type === 'idle_prompt' && ['done', 'appears', 'problem'].includes(state())) return;
       put('needs_you', cut(str(input.message), 500));
       return;
-    case 'Stop': put('done', ''); return;
+    case 'Stop': put('done', ''); release(input, e); return;
     case 'StopFailure':
       put('problem', cut(str(input.last_assistant_message) || str(input.error_details) || str(input.error), 500));
+      release(input, e);
       return;
-    case 'SessionEnd': put('closed', str(input.reason)); return;
+    case 'SessionEnd': put('closed', str(input.reason)); release(input, e); return;
     case 'PostToolUse':
       if (input.tool_name === 'Artifact') artifact(ss, input, nowMs, dir, id);
       // Resume rule: a tool ran in the thread that asked (same agent_id, '' = main thread), so the

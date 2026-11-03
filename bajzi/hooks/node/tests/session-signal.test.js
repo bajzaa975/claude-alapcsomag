@@ -306,3 +306,20 @@ test('/bajzi:level keeps the previous state (level.js blocks it, no model turn c
   sig.handle({ session_id: 's1', hook_event_name: 'UserPromptSubmit', prompt: 'hello' }, {}, 5, d)
   assert.equal(ev(d).state, 'working')
 })
+
+// file-lock release (spec §6.21): Stop, StopFailure and SessionEnd free this session's file locks.
+test('Stop, StopFailure and SessionEnd release the session file locks; a headless child with a foreign BAJZI_LOCK_OWNER releases nothing', () => {
+  const { spawnSync } = require('node:child_process')
+  const fl = require('../file-lock.js')
+  const repo = fs.realpathSync(tmp())
+  assert.equal(spawnSync('git', ['init', '-q'], { cwd: repo }).status, 0)
+  const lock = id => fl.check({ session_id: id, tool_name: 'Write', cwd: repo, tool_input: { file_path: 'x.js' } }, {})
+  const n = () => { const d = path.join(repo, '.git', 'bajzi', 'file-locks'); return fs.existsSync(d) ? fs.readdirSync(d).length : 0 }
+  for (const ev of ['Stop', 'StopFailure', 'SessionEnd']) {
+    assert.equal(lock('s1'), null); assert.equal(n(), 1)
+    sig.handle({ session_id: 's1', hook_event_name: ev, cwd: repo }, { BAJZI_LOCK_OWNER: 'parent' }, 1, tmp())
+    assert.equal(n(), 1, ev + ' as a child')
+    sig.handle({ session_id: 's1', hook_event_name: ev, cwd: repo }, {}, 1, tmp())
+    assert.equal(n(), 0, ev)
+  }
+})

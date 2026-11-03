@@ -342,6 +342,8 @@ if (provider === 'glm' && process.env.CC_GLM_PEAK_OK !== '1') {
 
 const env = Object.assign({}, process.env);
 for (const k of Object.keys(env)) if (/^(ANTHROPIC_|CLAUDE_CODE_SUBAGENT_MODEL$|CLAUDECODE$|CC_ROUTER_ENTRY$|CC_ROUTER_WORKER$)/.test(k)) delete env[k];
+// file-lock (spec §6.21): a headless child shares its parent session's file locks.
+if (process.env.BAJZI_LOCK_OWNER || process.env.CLAUDE_CODE_SESSION_ID) env.BAJZI_LOCK_OWNER = process.env.BAJZI_LOCK_OWNER || process.env.CLAUDE_CODE_SESSION_ID;
 const asked = modelArg(args);
 
 if (provider === 'glm') {

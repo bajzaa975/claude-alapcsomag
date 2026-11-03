@@ -57,6 +57,13 @@ test('baseline: worker in claude mode passes no z.ai URL', () => {
   assert.strictEqual(r.code, 0, r.stderr);
   assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, undefined);
 });
+test('file-lock: the child gets BAJZI_LOCK_OWNER = the parent BAJZI_LOCK_OWNER, else its CLAUDE_CODE_SESSION_ID, else nothing', () => {
+  const script = 'console.log("OWNER", JSON.stringify(process.env.BAJZI_LOCK_OWNER))';
+  const owner = e => run('worker', ['-e', script], Object.assign({ CC_CLAUDE_PREFIX_ARGS: '' }, e)).stdout.match(/OWNER (.*)/)[1];
+  assert.strictEqual(owner({ CLAUDE_CODE_SESSION_ID: 'sess-1' }), '"sess-1"');
+  assert.strictEqual(owner({ CLAUDE_CODE_SESSION_ID: 'sess-1', BAJZI_LOCK_OWNER: 'grand' }), '"grand"');
+  assert.strictEqual(owner({}), 'undefined');
+});
 test('seam: invalid JSON in CC_CLAUDE_PREFIX_ARGS is ignored (worker --status still exits 0)', () => {
   const r = run('worker', ['--status'], { CC_CLAUDE_PREFIX_ARGS: 'notjson' });
   assert.strictEqual(r.code, 0, r.stderr);
