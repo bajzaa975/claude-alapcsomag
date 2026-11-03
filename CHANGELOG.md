@@ -2,6 +2,10 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.35.0
+- Added: a cross-session file lock: when two Claude sessions edit the same file of a git repo, the second is refused (`[bajzi:file-lock]`, naming the holder session, its directory, host and last edit) while the first is live; locks live under the repo's git common dir, end at the holder's turn end (Stop/StopFailure/SessionEnd), after 10 minutes without an edit, or when the holder's pid is dead; `glm`/`worker` headless children share their parent's locks (`BAJZI_LOCK_OWNER`)
+- Added: the status line shows `◎ goal N evals Xm` after the task field while a Claude Code `/goal` is active (read incrementally from the session transcript; the field is omitted when no goal is active or the records cannot be read)
+
 ## 1.34.0
 - Added: `worker --usage` ends with an ALARM line when the GLM share is under the target (default 60%, `--target N`; `--json` adds `target` and `below_target`; no usage = no alarm); the status line shows `GLM NN%!` at saver level 2 and above
 - Added: the manifest's auto-mode allow list (`$defaults` plus a `[bajzi]` saver-mode worker rule); `/bajzi:setup` merges an optional machine-local overlay `~/.claude/bajzi/settings-local.json` (same shape as settings), and `setup --check` reports missing or stale entries per tag and notes when no overlay exists
