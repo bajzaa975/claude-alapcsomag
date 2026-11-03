@@ -679,3 +679,38 @@ test('a repo default of glm makes a launch run on GLM, and the child gets no ses
   assert.strictEqual(r.code, 0, r.stderr);
   assert.ok(r.childEnv.ANTHROPIC_BASE_URL, 'repo glm launches on the GLM provider');
 });
+
+// --- ob-t2: GLM minimum-share alarm ---
+function usageRun(glmOut, claudeOut, extra) {
+  const sb = run('worker', ['--status']);
+  const pj = path.join(sb.dir, 'projects', 'p'); fs.mkdirSync(pj, { recursive: true });
+  const rec = (model, out, id) => JSON.stringify({ type: 'assistant', requestId: id, timestamp: new Date().toISOString(), message: { model, usage: { output_tokens: out } } });
+  fs.writeFileSync(path.join(pj, 'x.jsonl'), [glmOut && rec('glm-5.3', glmOut, 'g'), claudeOut && rec('claude-opus-5-5', claudeOut, 'c')].filter(Boolean).join('\n'));
+  return run('worker', ['--usage', '1h'].concat(extra || []), { CC_PROJECTS_DIR: path.join(sb.dir, 'projects') });
+}
+test('usage alarm: below the default 60% target the last line gets the suffix', () => {
+  const r = usageRun(40, 60);
+  assert.strictEqual(r.code, 0, r.stderr);
+  const last = r.stdout.trimEnd().split('\n').pop();
+  assert.match(last, /^approx\. Max quota avoided by GLM: 40%.*  ALARM: GLM share 40% is under the 60% target$/);
+});
+test('usage alarm: at target no suffix; --target raises it', () => {
+  assert.doesNotMatch(usageRun(60, 40).stdout, /ALARM/);
+  assert.match(usageRun(60, 40, ['--target', '70']).stdout, /ALARM: GLM share 60% is under the 70% target/);
+});
+test('usage alarm: zero total -> no alarm, JSON below_target false', () => {
+  const r = usageRun(0, 0);
+  assert.doesNotMatch(r.stdout, /ALARM|NaN/);
+  const j = JSON.parse(usageRun(0, 0, ['--json']).stdout);
+  assert.strictEqual(j.below_target, false); assert.strictEqual(j.target, 60);
+});
+test('usage alarm: --json carries target and below_target', () => {
+  const j = JSON.parse(usageRun(40, 60, ['--json', '--target', '50']).stdout);
+  assert.strictEqual(j.target, 50); assert.strictEqual(j.below_target, true);
+});
+test('usage --target must be an integer 1-100', () => {
+  for (const v of [['--target'], ['--target', '0'], ['--target', '101'], ['--target', 'x'], ['--target', '5.5']]) {
+    const r = run('worker', ['--usage', '1h'].concat(v));
+    assert.strictEqual(r.code, 64, v.join(' ')); assert.match(r.stderr, /--target needs an integer 1-100/);
+  }
+});

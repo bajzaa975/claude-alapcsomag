@@ -415,3 +415,14 @@ test('repo default: the status line reads it at workspace.project_dir, not at th
   render({ session_id: 'A', workspace: { current_dir: sub, project_dir: proj } }, { env: {}, home, nowMs: NIGHT, color: false, facts });
   assert.strictEqual(facts.level, 3);
 });
+
+test('GLM share below 60 gets a ! marker at L2+, not at L1; old cache shape still renders', () => {
+  const home = tmpDir('bajzi-h-');
+  fs.mkdirSync(path.join(home, '.claude', 'bajzi'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'bajzi', 'glm-share.json'), JSON.stringify({ ts: NIGHT - 1000, pct: 42 }));
+  const cwd = tmpDir('bajzi-nr-');
+  const r = mode => strip(render({ workspace: { current_dir: cwd } }, { env: { CC_WORKER_MODE: mode }, home, nowMs: NIGHT }));
+  assert.strictEqual(r('glm'), 'L2 \u00b7 GLM 42%!');
+  assert.doesNotMatch(r('light'), /GLM 42%!/);   // L1
+  assert.match(r('light'), /GLM 42%/);
+});

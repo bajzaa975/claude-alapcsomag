@@ -82,7 +82,7 @@ function render(input, opts = {}) {
   let g = null;
   if (level >= 1) {
     g = parts.glmShare({ nowMs, home, env });
-    if (g !== null) out.push(`GLM ${g}%`);
+    if (g !== null) out.push(`GLM ${g}%` + (level >= 2 && g < 60 ? '!' : ''));   // minimum-share alarm, L2+ only
   }
   const q = parts.openQueueCount(cwd);
   if (q > 0) out.push('Q' + q);

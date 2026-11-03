@@ -116,7 +116,7 @@ const okModel = s => /^[A-Za-z0-9._:\[\]-]{2,64}$/.test(s || '');
 
 // --- usage report: approximates how many tokens went to GLM/Z.ai instead of Anthropic,
 // by scanning Claude Code's own local transcripts. Zero LLM calls. ---
-const USAGE_HELP = 'usage: worker --usage [since] [--until <t>] [--json]   since: 24h | 30m | 8h | 2d | today | 2026-09-21 | 2026-09-21T18:00 (default 24h)   --until <t>: exclusive upper bound; relative forms (2h) mean that long ago';
+const USAGE_HELP = 'usage: worker --usage [since] [--until <t>] [--target <pct>] [--json]   since: 24h | 30m | 8h | 2d | today | 2026-09-21 | 2026-09-21T18:00 (default 24h)   --until <t>: exclusive upper bound; relative forms (2h) mean that long ago   --target <pct>: minimum GLM share, integer 1-100 (default 60); below it the last line ends with an ALARM suffix';
 function parseSince(raw) {
   const now = new Date();
   if (!raw) raw = '24h';
@@ -215,6 +215,14 @@ function cmdUsage(rest) {
     if (!rest[ui + 1] || rest[ui + 1].startsWith('--') || !until) die('--until needs a time\n' + USAGE_HELP, 64);
     rest = rest.slice(0, ui).concat(rest.slice(ui + 2));
   }
+  let target = 60;
+  const ti = rest.indexOf('--target');
+  if (ti >= 0) {
+    const tv = rest[ti + 1];
+    if (!/^\d+$/.test(tv || '') || +tv < 1 || +tv > 100) die('--target needs an integer 1-100\n' + USAGE_HELP, 64);
+    target = +tv;
+    rest = rest.slice(0, ti).concat(rest.slice(ti + 2));
+  }
   const bad = rest.find(x => x.startsWith('--') && x !== '--json');
   if (bad) die('unknown option ' + bad + '\n' + USAGE_HELP, 64);
   const jsonMode = rest.includes('--json');
@@ -226,12 +234,13 @@ function cmdUsage(rest) {
   const models = usageModels(entries);
   const bk = usageBuckets(models);
   const requests = entries.length;
+  const belowTarget = (bk.anthropic.weighted + bk.glm.weighted + bk.other.weighted) > 0 && bk.glm.share < target;
   if (jsonMode) {
     const out = { since: fmtLocal(since), since_iso: since.toISOString(), until: until ? fmtLocal(until) : null, until_iso: until ? until.toISOString() : null, files, requests, models: Object.create(null),
       buckets: { anthropic: { weighted: Math.round(bk.anthropic.weighted), share: bk.anthropic.share },
         glm: { weighted: Math.round(bk.glm.weighted), share: bk.glm.share },
         other: { weighted: Math.round(bk.other.weighted), share: bk.other.share } },
-      glm_share_pct: bk.glm.share };
+      glm_share_pct: bk.glm.share, target, below_target: belowTarget };
     for (const k of Object.keys(models)) {
       const m = models[k];
       out.models[k] = { reqs: m.reqs, input: m.input, cache_create: m.cache_create, cache_read: m.cache_read, output: m.output, weighted: Math.round(m.weighted) };
@@ -249,7 +258,7 @@ function cmdUsage(rest) {
   const hidden = names.length - MAX_ROWS;
   console.log(hidden > 0 ? '... and ' + hidden + ' more model' + (hidden === 1 ? '' : 's') : '----');   // keeps the report at <= 12 lines below the header
   console.log('anthropic  weighted=' + fmtInt(bk.anthropic.weighted) + ' (' + bk.anthropic.share + '%)   glm  weighted=' + fmtInt(bk.glm.weighted) + ' (' + bk.glm.share + '%)   other ' + fmtInt(bk.other.weighted));
-  console.log('approx. Max quota avoided by GLM: ' + bk.glm.share + '%  (weighted = in*1 + cache_create*1.25 + cache_read*0.1 + out*5)');
+  console.log('approx. Max quota avoided by GLM: ' + bk.glm.share + '%  (weighted = in*1 + cache_create*1.25 + cache_read*0.1 + out*5)' + (belowTarget ? '  ALARM: GLM share ' + bk.glm.share + '% is under the ' + target + '% target' : ''));
   return true;
 }
 
