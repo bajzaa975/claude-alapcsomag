@@ -10,7 +10,6 @@ debug, verification. If both are installed, for the same task I would sometimes 
 sometimes the other. This decision is made **per repo**, and lives in the
 `<repo>/.claude/METHODOLOGY` file.
 
-Full guide (project size, methodology, GitHub or local, lifecycle): `~/.claude/plugins/marketplaces/bajzi-plugins/docs/methodology-guide.md`.
 
 ## What to do
 

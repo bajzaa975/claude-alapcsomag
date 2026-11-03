@@ -1,5 +1,5 @@
 'use strict';
-// bajzi-cowork must stay (1) a byte-exact build of bajzi/skills, (2) free of anything the
+// bajzi-cowork must stay (1) a byte-exact build of bajzi/skills (except dropped marketplace-path lines), (2) free of anything the
 // claude.ai-hosted marketplace sync rejects or that cannot run there.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -18,7 +18,7 @@ test('bajzi-cowork ships no bin/, hooks/, agents/, gate/, lib/', () => {
 });
 
 test('shipped skills reference nothing outside their own folder', () => {
-  const bad = /CLAUDE_PLUGIN_ROOT|\.\.\/\.\.\/|cc-router/;
+  const bad = /CLAUDE_PLUGIN_ROOT|\.\.\/\.\.\/|cc-router|~\/\.claude\/plugins\/marketplaces\//;
   for (const s of SKILLS) {
     const md = fs.readFileSync(path.join(DST, 'skills', s, 'SKILL.md'), 'utf8');
     assert.ok(!bad.test(md), `${s}/SKILL.md references plugin-level files`);

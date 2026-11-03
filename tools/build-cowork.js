@@ -4,6 +4,8 @@
 // (bajzi has bin/ since 1.7.0; claude.ai stayed on 1.5.15 with "Sync failed").
 // The variant ships ONLY skills that need nothing outside their own folder:
 // no bin/, hooks/, agents/, gate/, lib/. Source of truth stays bajzi/skills/<name>.
+// Byte-exact copy except: .md lines naming the marketplace clone path are dropped (Cowork has no
+// marketplace clone, so such a pointer would dangle; bajzi keeps it).
 // Usage: node tools/build-cowork.js          (rebuild + stamp versions)
 //        node tools/build-cowork.js --check  (exit 1 on any drift, writes nothing)
 'use strict';
@@ -15,6 +17,8 @@ const SRC = path.join(ROOT, 'bajzi');
 const DST = path.join(ROOT, 'bajzi-cowork');
 const MARKET = path.join(ROOT, '.claude-plugin', 'marketplace.json');
 const SKILLS = ['autopilot', 'explain', 'handoff', 'modszertan'];
+const CLONE_REF = /~\/\.claude\/plugins\/marketplaces\//;
+const dropCloneRefs = (buf) => Buffer.from(buf.toString('utf8').split(/(?<=\n)/).filter((l) => !CLONE_REF.test(l)).join(''));
 const EXCLUDE_DIRS = new Set(['tests']);
 const DESCRIPTION = 'claude.ai / Cowork-safe subset of bajzi: /bajzi-cowork:handoff session handover, ' +
   '/bajzi-cowork:autopilot unattended mode, /bajzi-cowork:modszertan methodology selector, /bajzi-cowork:explain plain re-explanation. ' +
@@ -35,7 +39,10 @@ function expected() {
   const files = new Map();
   for (const s of SKILLS) {
     const dir = path.join(SRC, 'skills', s);
-    for (const f of listFiles(dir)) files.set(`skills/${s}/${f}`, fs.readFileSync(path.join(dir, f)));
+    for (const f of listFiles(dir)) {
+      const buf = fs.readFileSync(path.join(dir, f));
+      files.set(`skills/${s}/${f}`, f.endsWith('.md') ? dropCloneRefs(buf) : buf);
+    }
   }
   const plugin = {
     name: 'bajzi-cowork', version: src.version, description: DESCRIPTION,
