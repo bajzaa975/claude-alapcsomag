@@ -86,7 +86,8 @@ test('GLM alarm: a cache refreshed from a zero-total worker run (below_target fa
   fs.writeFileSync(fake, 'process.stdout.write(JSON.stringify({ glm_share_pct: 0, target: 60, below_target: false }))');
   parts.refreshGlm(parts.glmCachePath(home), Object.assign({}, process.env, { BAJZI_WORKER_CMD: `"${process.execPath}" "${fake}"` }));
   const cwd = tmpDir('bajzi-nr-');
-  const r = () => strip(render({ workspace: { current_dir: cwd } }, { env: { CC_WORKER_MODE: 'glm' }, home, nowMs: Date.now() }));
+  // real clock (the refreshed cache must be fresh); drop the peak part, which depends on the time of day
+  const r = () => strip(render({ workspace: { current_dir: cwd } }, { env: { CC_WORKER_MODE: 'glm' }, home, nowMs: Date.now() })).replace(/ · peak .*$/, '');
   assert.strictEqual(r(), 'L2 \u00b7 GLM 0%');
   fs.writeFileSync(parts.glmCachePath(home), JSON.stringify({ ts: Date.now(), pct: 0 }));   // old cache, no flag: falls back to share < 60
   assert.strictEqual(r(), 'L2 \u00b7 GLM 0%!');
