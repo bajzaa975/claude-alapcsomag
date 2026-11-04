@@ -2,6 +2,10 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.36.0
+- Added: optional `addon_marketplaces` list in `~/.claude/bajzi/config.json`; `setup --check` never reports a listed add-on marketplace or its plugins (`@<name>`) as extra, and an invalid list gives one `DRIFT bajzi-config addon_marketplaces invalid`
+- Fixed: `setup --check` no longer reports false `global-rules` drift when a shared `## ` section exists under a reworded heading (headings now match by their stem); a missing docs pointer in such a section is reported as `missing-pointer` and setup inserts only that list item
+
 ## 1.35.0
 - Added: a cross-session file lock: when two Claude sessions edit the same file of a git repo, the second is refused (`[bajzi:file-lock]`, naming the holder session, its directory, host and last edit) while the first is live; locks live under the repo's git common dir, end at the holder's turn end (Stop/StopFailure/SessionEnd), after 10 minutes without an edit, or when the holder's pid is dead; `glm`/`worker` headless children share their parent's locks (`BAJZI_LOCK_OWNER`)
 - Added: the status line shows `◎ goal N evals Xm` after the task field while a Claude Code `/goal` is active (read incrementally from the session transcript; the field is omitted when no goal is active or the records cannot be read)

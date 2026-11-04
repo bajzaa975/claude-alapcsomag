@@ -1386,7 +1386,8 @@ writes, creates or deletes anything (test `check.js is read-only: no file under 
     config.json gives no `bajzi-config` line (`reviewer-models-invalid` reports it) and an empty list.
     SKILL.md PHASE C steps 1-2 act on exactly the `plugin-extra` / `marketplace-extra` lines and do
     nothing when a `bajzi-config` or a not-valid-JSON `reviewer-models-invalid` line is present; PHASE D
-    step 11 keeps every other key of an existing object config.json; an unparseable one is first copied to config.json.bak.
+    step 11 keeps every other key of an existing object config.json; an unparseable one is first
+    copied to config.json.bak.
   - `forbidden_leftovers.paths` (`~`-relative, `*` only in the last segment) → `leftover
     <path>`; `forbidden_leftovers.settings_substrings` found in `settings.hooks` or
     `permissions.allow` → `leftover-setting <substring>`.
@@ -2527,8 +2528,8 @@ Current versions (the `release.test.js` row reads the first line below):
 
 | Release unit | Current version | Where the version lives |
 |---|---|---|
-| bajzi plugin release | 1.35.0 | `bajzi/.claude-plugin/plugin.json` `version` and `.claude-plugin/marketplace.json` `plugins[0].version` (they must be equal) |
-| `bajzi-cowork` variant | 1.35.0 | generated: `node tools/build-cowork.js` restamps `bajzi-cowork/.claude-plugin/plugin.json` and its marketplace entry |
+| bajzi plugin release | 1.36.0 | `bajzi/.claude-plugin/plugin.json` `version` and `.claude-plugin/marketplace.json` `plugins[0].version` (they must be equal) |
+| `bajzi-cowork` variant | 1.36.0 | generated: `node tools/build-cowork.js` restamps `bajzi-cowork/.claude-plugin/plugin.json` and its marketplace entry |
 | `cache-timer`, `nightrun-pane` mods | 0.1.0 | each mod's own `.claude-plugin/plugin.json` and its marketplace entry |
 
 Steps for a bajzi release (details and the reinstall are in §8.3):

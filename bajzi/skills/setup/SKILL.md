@@ -153,8 +153,8 @@ read: steps 1 and 2 uninstall and remove NOTHING; report that the add-on list co
     `reviewer-models-drift` is a valid list that differs from the manifest (the owner's local
     swap): overwrite it only when the owner says so in this chat, else report it as "manual".
     The one-liner keeps every other key of an existing config.json that parses as a JSON object
-    (`language`, `addon_marketplaces`, ...). An existing file that does not parse is first copied to `config.json.bak`
-    (the old add-on list stays recoverable) and the owner is told.
+    (`language`, `addon_marketplaces`, ...). An existing file that does not parse is first copied
+    to `config.json.bak` (the old add-on list stays recoverable) and the owner is told.
 
     **Add-ons:** the owner lists add-on marketplaces by editing the `addon_marketplaces` key of
     `~/.claude/bajzi/config.json` by hand, e.g. `"addon_marketplaces": ["my-addons"]` (names match
