@@ -485,6 +485,24 @@ test('global rules: each missing ## heading is drift; present headings (CRLF ok)
   assert.strictEqual(run(m).out, 'setup --check: clean\n');
 });
 
+test('global rules: stem match and missing-pointer', () => {
+  const m = machine();
+  const P = 'See `~/.claude/plugins/marketplaces/bajzi-plugins/docs/methodology-guide.md`.';
+  writeRules(m, MP, `## Token budget (all projects)\n## Methodology (all projects)\n${P}\n`);
+  writeRules(m, '.claude/CLAUDE.md', '## TOKEN  budget (HARD rules)\n## Methodology\nmine\n');
+  let r = run(m);
+  assert.doesNotMatch(r.out, /missing "/);
+  assert.match(r.out, /^DRIFT global-rules missing-pointer "docs\/methodology-guide\.md"$/m);
+  writeRules(m, '.claude/CLAUDE.md', `\uFEFF## Token budget\n## Methodology (x)\n${P}\n`);
+  assert.strictEqual(run(m).out, 'setup --check: clean\n');
+});
+
+test('SKILL.md documents stem rule and missing-pointer', () => {
+  const t = fs.readFileSync(SKILL, 'utf8');
+  assert.match(t, /stem/);
+  assert.match(t, /missing-pointer/);
+});
+
 test('SKILL.md apply phase documents overlay merge and global-rules append', () => {
   const t = fs.readFileSync(SKILL, 'utf8');
   assert.match(t, /settings-local\.json/);

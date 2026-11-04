@@ -115,8 +115,11 @@ read: steps 1 and 2 uninstall and remove NOTHING; report that the add-on list co
    (an entry with the same leading `[tag]` as a wanted entry that is not itself wanted); never remove
    untagged entries. Take a timestamped backup `settings.json.bak-bajzi-<stamp>` first and write
    through a temp file in the same directory, then rename it over `settings.json`.
-   Global rules (step 5): append each `## ` section of the marketplace `shared/CLAUDE.md` whose
-   heading line is missing from `~/.claude/CLAUDE.md` (the check reports `global-rules missing`).
+   Global rules (step 5): headings match by stem (drop `## `, cut at the first ` (`, lowercase, collapse
+   whitespace), so an owner-customised heading counts as present. Append a whole `## ` section of the marketplace
+   `shared/CLAUDE.md` only when no stem matches (`global-rules missing`). For `global-rules missing-pointer`,
+   insert the shared section's `bajzi-plugins/docs/...` pointer line(s) at the end of the owner's stem-matched
+   section, never a second heading.
 7. **rtk:** per the manifest's `rtk` block. Not required. Add the hook ONLY if
    the `check` command works. Then make sure the rtk config file (`rtk.config`, per OS) has every
    entry of `rtk.exclude_commands` in `[hooks] exclude_commands`, keeping entries already there.

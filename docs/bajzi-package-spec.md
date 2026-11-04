@@ -1355,10 +1355,14 @@ writes, creates or deletes anything (test `check.js is read-only: no file under 
     same leading `[tag]` as a wanted entry that is not itself wanted = `DRIFT setting-drift <key> stale
     <first 60 chars>`, so a narrowed rule never lingers; untagged entries are never stale. Apply
     (SKILL.md PHASE D step 6) merges the same way, timestamped backup, temp file + rename.
-  - **Global rules:** every `## ` heading line of the marketplace `shared/CLAUDE.md`
-    (`~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md`) must be a line of
-    `~/.claude/CLAUDE.md` -> else `DRIFT global-rules missing "## <heading>"`; a missing source file is
-    skipped silently, a missing target means all headings missing. Apply appends missing sections.
+  - **Global rules:** every `## ` heading of the marketplace `shared/CLAUDE.md`
+    (`~/.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md`) must match, by stem, a `## ` line of
+    `~/.claude/CLAUDE.md` (stem: BOM and `## ` dropped, cut at the first ` (`, lowercased, whitespace collapsed,
+    so owner-customised headings are not drift) -> else `DRIFT global-rules missing "## <heading>"`. In
+    sections whose stem is present, every `bajzi-plugins/docs/<file>` path of the shared text must occur in the
+    target -> else `DRIFT global-rules missing-pointer "docs/<file>"`. A missing source file is skipped
+    silently, a missing target means all headings missing. Apply appends whole sections only when no stem
+    matches; for `missing-pointer` it inserts the pointer line(s) at the end of the owner's matching section.
   - Out of scope: night-run tick processes still run with `bypassPermissions`; this baseline only
     governs interactive auto mode.
   - `statusLine.command` must reference `/.claude/bajzi/statusline.js` → `statusline-missing` /

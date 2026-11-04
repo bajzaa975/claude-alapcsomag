@@ -180,8 +180,17 @@ function checkAll({ home, manifest, env = process.env }) {
   if (rulesSrc !== null) {
     let mine = '';
     try { mine = fs.readFileSync(path.join(c, 'CLAUDE.md'), 'utf8'); } catch { /* none yet: every heading missing */ }
-    const have = new Set(mine.split(/\r?\n/).map(l => l.trimEnd()));
-    for (const l of rulesSrc.split(/\r?\n/)) if (l.startsWith('## ') && !have.has(l.trimEnd())) d.push(['global-rules', `missing "${l.trimEnd()}"`]);
+    const stem = l => l.replace(/^\uFEFF/, '').replace(/^## /, '').split(' (')[0].toLowerCase().replace(/\s+/g, ' ').trim();
+    const have = new Set(mine.split(/\r?\n/).map(l => l.replace(/^\uFEFF/, '')).filter(l => l.startsWith('## ')).map(stem));
+    const ptrs = new Set();
+    let present = false;
+    for (const l of rulesSrc.split(/\r?\n/)) {
+      if (l.startsWith('## ')) {
+        present = have.has(stem(l));
+        if (!present) d.push(['global-rules', `missing "${l.trimEnd()}"`]);
+      } else if (present) for (const m of l.matchAll(/bajzi-plugins\/(docs\/[\w.\/-]+\.\w+)/g)) ptrs.add(m[1]);
+    }
+    for (const f of ptrs) if (!mine.includes(`bajzi-plugins/${f}`)) d.push(['global-rules', `missing-pointer "${f}"`]);
   }
 
   if (!fs.existsSync(path.join(c, 'bajzi-mode'))) d.push(['bajzi-mode-missing', '~/.claude/bajzi-mode']);
