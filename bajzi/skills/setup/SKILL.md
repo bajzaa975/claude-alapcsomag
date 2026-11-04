@@ -49,17 +49,25 @@ the contents of `~/.claude/{skills,commands,agents,hooks}`, the
 hooks/statusLine/enabledPlugins/permissions/skillOverrides blocks of `settings.json`, and the
 output of `node "${CLAUDE_PLUGIN_ROOT}/skills/setup/check.js"`.
 
-Mark every item: **NEEDED** (present in the manifest) or **TO DELETE**. Mark separately the ones on
+Mark every item: **NEEDED** (present in the manifest, or a plugin/marketplace of a marketplace listed
+in `addon_marketplaces`: NEEDED (add-on)) or **TO DELETE**. Mark separately the ones on
 the manifest's `deliberately_skipped` list — those are not missing by accident. Every `leftover`
 line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-setting` line is
 **TO REMOVE** (PHASE C step 4).
 
 ## PHASE C — Cleanup
 
-1. **Foreign plugins:** `claude plugin uninstall <id>` for every plugin that is not on the manifest's
-   `plugins` list. **Never delete by hand** under `~/.claude/plugins/` — `installed_plugins.json`
+**Gate for steps 1 and 2:** if the check output has a `bajzi-config` line, or a
+`reviewer-models-invalid` line saying config.json is not valid JSON, the add-on list could not be
+read: steps 1 and 2 uninstall and remove NOTHING; report that the add-on list could not be read
+(this phase runs before PHASE D step 11, which cannot repair it in time).
+
+1. **Foreign plugins:** `claude plugin uninstall <id>` for EXACTLY the `plugin-extra` lines of the
+   check output (it already excludes add-ons), not a list you re-derive from the manifest.
+   **Never delete by hand** under `~/.claude/plugins/` — `installed_plugins.json`
    would become inconsistent. Use only the CLI.
-2. **Foreign marketplaces:** `claude plugin marketplace remove <name>`.
+2. **Foreign marketplaces:** `claude plugin marketplace remove <name>` for EXACTLY the
+   `marketplace-extra` lines of the check output.
 3. **Non-plugin skills/commands/agents:** under `~/.claude/{skills,commands,agents}`
    everything is to be deleted that was not installed by a plugin. **Pay special
    attention** to the names `autopilot`, `handoff` and to `hooks/handoff-load.sh`: these
@@ -137,10 +145,18 @@ line of the check output is **TO MOVE** (PHASE C step 6); every `leftover-settin
     the check reports `reviewer-models-invalid` (a missing file included), write the manifest's
     `bajzi_config.reviewer_models` there:
     ```
-    node -e "const fs=require('fs'),p=require('path'),os=require('os');const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const d=p.join(process.env.BAJZI_HOME||os.homedir(),'.claude','bajzi');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(p.join(d,'config.json'),JSON.stringify({reviewer_models:m.bajzi_config.reviewer_models},null,2)+'\n')" "${CLAUDE_PLUGIN_ROOT}/skills/setup/manifest.json"
+    node -e "const fs=require('fs'),p=require('path'),os=require('os');const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const d=p.join(process.env.BAJZI_HOME||os.homedir(),'.claude','bajzi'),f=p.join(d,'config.json');let cur={};try{const j=JSON.parse(fs.readFileSync(f,'utf8').replace(/^\uFEFF/,''));if(j&&typeof j=='object'&&!Array.isArray(j))cur=j}catch(e){}fs.mkdirSync(d,{recursive:true});fs.writeFileSync(f,JSON.stringify({...cur,reviewer_models:m.bajzi_config.reviewer_models},null,2)+'\n')" "${CLAUDE_PLUGIN_ROOT}/skills/setup/manifest.json"
     ```
     `reviewer-models-drift` is a valid list that differs from the manifest (the owner's local
     swap): overwrite it only when the owner says so in this chat, else report it as "manual".
+    The one-liner keeps every other key of an existing config.json that parses as a JSON object
+    (`language`, `addon_marketplaces`, ...).
+
+    **Add-ons:** the owner lists add-on marketplaces by editing the `addon_marketplaces` key of
+    `~/.claude/bajzi/config.json` by hand, e.g. `"addon_marketplaces": ["my-addons"]` (names match
+    `^[A-Za-z0-9][A-Za-z0-9._-]*$`). Marketplaces so listed, and their user-scope plugins, are never
+    reported as `marketplace-extra` / `plugin-extra`, so PHASE C leaves them alone. An invalid value
+    gives `DRIFT bajzi-config addon_marketplaces invalid` and the list is treated as empty.
 
 ## PHASE E — Verification, specifically for duplicates
 

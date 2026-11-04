@@ -492,3 +492,91 @@ test('SKILL.md apply phase documents overlay merge and global-rules append', () 
   assert.match(t, /same-tag|same `\[tag\]`/);
   assert.match(t, /temp file/);
 });
+
+// addon_marketplaces (~/.claude/bajzi/config.json): listed add-on marketplaces are never "extra".
+function addonMachine(list) {
+  const m = machine();
+  edit(m, '.claude/bajzi/config.json', v => { v.addon_marketplaces = list; });
+  edit(m, '.claude/plugins/known_marketplaces.json', v => {
+    v['my-addons'] = { source: { source: 'github', repo: 'someone/my-addons' } };
+  });
+  edit(m, '.claude/plugins/installed_plugins.json', v => { v.plugins['y@my-addons'] = [{ scope: 'user' }]; });
+  return m;
+}
+
+test('addon_marketplaces: a listed marketplace and its plugin are clean', () => {
+  const r = run(addonMachine(['my-addons']));
+  assert.strictEqual(r.out, 'setup --check: clean\n');
+  assert.strictEqual(r.code, 0);
+});
+
+test('addon_marketplaces: unlisted marketplace/plugin still drift; x@other drifts, y@listed does not', () => {
+  const m = addonMachine(['my-addons']);
+  edit(m, '.claude/plugins/known_marketplaces.json', v => { v.other = { source: { source: 'github', repo: 'a/other' } }; });
+  edit(m, '.claude/plugins/installed_plugins.json', v => { v.plugins['x@other'] = [{ scope: 'user' }]; });
+  const r = run(m);
+  assert.match(r.out, /^DRIFT marketplace-extra other$/m);
+  assert.match(r.out, /^DRIFT plugin-extra x@other$/m);
+  assert.doesNotMatch(r.out, /my-addons|y@/);
+  assert.match(r.out, /2 drift item\(s\)/);
+});
+
+test('addon_marketplaces: no list or no config.json = extras still reported, no bajzi-config line', () => {
+  const m = addonMachine(['my-addons']);
+  edit(m, '.claude/bajzi/config.json', v => { delete v.addon_marketplaces; });
+  let r = run(m);
+  assert.match(r.out, /^DRIFT marketplace-extra my-addons$/m);
+  assert.match(r.out, /^DRIFT plugin-extra y@my-addons$/m);
+  assert.doesNotMatch(r.out, /bajzi-config/);
+  fs.rmSync(path.join(m.home, '.claude/bajzi/config.json'));
+  r = run(m);
+  assert.match(r.out, /^DRIFT marketplace-extra my-addons$/m);
+  assert.match(r.out, /^DRIFT plugin-extra y@my-addons$/m);
+  assert.doesNotMatch(r.out, /bajzi-config/);
+});
+
+test('addon_marketplaces: an invalid value is one bajzi-config drift and extras are still reported', () => {
+  for (const bad of ['my-addons', 5, null, ['my-addons', '-bad'], ['ok', 3], ['a b']]) {
+    const m = addonMachine(bad);
+    const r = run(m);
+    assert.strictEqual(r.code, 1, JSON.stringify(bad));
+    assert.strictEqual(r.out.match(/^DRIFT bajzi-config addon_marketplaces invalid$/gm).length, 1, JSON.stringify(bad));
+    assert.match(r.out, /^DRIFT marketplace-extra my-addons$/m);
+    assert.match(r.out, /^DRIFT plugin-extra y@my-addons$/m);
+  }
+});
+
+test('addon_marketplaces: an unparseable config.json gives no bajzi-config line (reviewer-models-invalid reports it)', () => {
+  const m = addonMachine(['my-addons']);
+  fs.writeFileSync(path.join(m.home, '.claude/bajzi/config.json'), '{nope');
+  const r = run(m);
+  assert.doesNotMatch(r.out, /bajzi-config/);
+  assert.match(r.out, /^DRIFT reviewer-models-invalid /m);
+  assert.match(r.out, /^DRIFT marketplace-extra my-addons$/m);
+});
+
+test('SKILL.md: add-on gate, exact extra lines, and step 11 keeps other config keys', () => {
+  const s = fs.readFileSync(SKILL, 'utf8');
+  assert.match(s, /addon_marketplaces/);
+  assert.match(s, /`bajzi-config`/);
+  assert.match(s, /EXACTLY the `plugin-extra`/);
+  assert.match(s, /\.\.\.cur/);
+});
+
+test('SKILL.md step 11 one-liner keeps the other keys of an existing config.json', () => {
+  const sk = fs.readFileSync(SKILL, 'utf8');
+  const cmd = /^ {4}(node -e ".*") "\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/setup\/manifest\.json"$/m.exec(sk)[1];
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bajzi-s11-'));
+  const f = path.join(home, '.claude', 'bajzi', 'config.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify({ language: 'hu', addon_marketplaces: ['my-addons'] }));
+  const r = spawnSync('bash', ['-c', `${cmd} "${REAL_MANIFEST}"`], { env: Object.assign({}, process.env, { BAJZI_HOME: home }), encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const v = JSON.parse(fs.readFileSync(f, 'utf8'));
+  assert.strictEqual(v.language, 'hu');
+  assert.deepStrictEqual(v.addon_marketplaces, ['my-addons']);
+  assert.ok(Array.isArray(v.reviewer_models) && v.reviewer_models.length);
+  fs.writeFileSync(f, '{nope');
+  assert.strictEqual(spawnSync('bash', ['-c', `${cmd} "${REAL_MANIFEST}"`], { env: Object.assign({}, process.env, { BAJZI_HOME: home }) }).status, 0);
+  assert.ok(JSON.parse(fs.readFileSync(f, 'utf8')).reviewer_models);
+});

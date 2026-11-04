@@ -108,9 +108,22 @@ function repoMatches(have, want) {
   return have === want || have.endsWith('/' + want) || have.endsWith('/' + want + '.git');
 }
 
+// Optional `addon_marketplaces` in ~/.claude/bajzi/config.json: marketplace names whose entries and
+// plugins are never "extra". Missing/unparseable file or missing key = [] (an unparseable file is
+// already reported as reviewer-models-invalid); a present but invalid value = [] + invalid:true.
+const ADDON_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+function addonMarketplaces(home) {
+  const cfg = readJson(path.join(home, '.claude', 'bajzi', 'config.json'));
+  if (!cfg.ok || !isObj(cfg.value) || !Object.prototype.hasOwnProperty.call(cfg.value, 'addon_marketplaces')) return { names: [], invalid: false };
+  const v = cfg.value.addon_marketplaces;
+  if (!Array.isArray(v) || v.some(x => typeof x !== 'string' || !ADDON_NAME.test(x))) return { names: [], invalid: true };
+  return { names: v, invalid: false };
+}
+
 function checkAll({ home, manifest, env = process.env }) {
   const d = [];
   const c = path.join(home, '.claude');
+  const addons = addonMarketplaces(home);
 
   const km = readJson(path.join(c, 'plugins', 'known_marketplaces.json'));
   if (!km.ok && !km.missing) d.push(['unreadable', 'plugins/known_marketplaces.json']);
@@ -120,7 +133,7 @@ function checkAll({ home, manifest, env = process.env }) {
   }));
   const wantRepos = (manifest.marketplaces || []).map(m => String(m.source).toLowerCase());
   for (const w of wantRepos) if (!haveRepos.some(h => repoMatches(h.repo, w))) d.push(['marketplace-missing', w]);
-  for (const h of haveRepos) if (!wantRepos.some(w => repoMatches(h.repo, w))) d.push(['marketplace-extra', h.name]);
+  for (const h of haveRepos) if (!addons.names.includes(h.name) && !wantRepos.some(w => repoMatches(h.repo, w))) d.push(['marketplace-extra', h.name]);
 
   const ip = readJson(path.join(c, 'plugins', 'installed_plugins.json'));
   if (!ip.ok && !ip.missing) d.push(['unreadable', 'plugins/installed_plugins.json']);
@@ -128,7 +141,7 @@ function checkAll({ home, manifest, env = process.env }) {
   const userIds = Object.keys(pl).filter(id => Array.isArray(pl[id]) && pl[id].some(e => e && e.scope === 'user'));
   const wantIds = (manifest.plugins || []).map(p => p.id);
   for (const id of wantIds) if (!userIds.includes(id)) d.push(['plugin-missing', id]);
-  for (const id of userIds) if (!wantIds.includes(id)) d.push(['plugin-extra', id]);
+  for (const id of userIds) if (!wantIds.includes(id) && !addons.names.some(n => id.endsWith('@' + n))) d.push(['plugin-extra', id]);
 
   const st = readJson(path.join(c, 'settings.json'));
   if (!st.ok) d.push([st.missing ? 'settings-missing' : 'unreadable', 'settings.json']);
@@ -179,6 +192,8 @@ function checkAll({ home, manifest, env = process.env }) {
     if (!rm.ok) d.push(['reviewer-models-invalid', rm.why]);
     else if (rm.ids.join(',') !== wantRm.join(',')) d.push(['reviewer-models-drift', `have ${rm.ids.join(',')}, manifest ${wantRm.join(',')}`]);
   }
+
+  if (addons.invalid) d.push(['bajzi-config', 'addon_marketplaces invalid']);
 
   const fl = manifest.forbidden_leftovers || {};
   for (const pat of fl.paths || []) {
