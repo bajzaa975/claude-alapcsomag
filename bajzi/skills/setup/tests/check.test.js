@@ -565,18 +565,24 @@ test('SKILL.md: add-on gate, exact extra lines, and step 11 keeps other config k
 
 test('SKILL.md step 11 one-liner keeps the other keys of an existing config.json', () => {
   const sk = fs.readFileSync(SKILL, 'utf8');
-  const cmd = /^ {4}(node -e ".*") "\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/setup\/manifest\.json"$/m.exec(sk)[1];
+  const script = /^ {4}node -e "(.*)" "\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/setup\/manifest\.json"$/m.exec(sk)[1];
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bajzi-s11-'));
   const f = path.join(home, '.claude', 'bajzi', 'config.json');
+  const go = () => spawnSync(process.execPath, ['-e', script, REAL_MANIFEST], { env: Object.assign({}, process.env, { BAJZI_HOME: home }), encoding: 'utf8' });
   fs.mkdirSync(path.dirname(f), { recursive: true });
   fs.writeFileSync(f, JSON.stringify({ language: 'hu', addon_marketplaces: ['my-addons'] }));
-  const r = spawnSync('bash', ['-c', `${cmd} "${REAL_MANIFEST}"`], { env: Object.assign({}, process.env, { BAJZI_HOME: home }), encoding: 'utf8' });
+  const r = go();
   assert.strictEqual(r.status, 0, r.stderr);
   const v = JSON.parse(fs.readFileSync(f, 'utf8'));
   assert.strictEqual(v.language, 'hu');
   assert.deepStrictEqual(v.addon_marketplaces, ['my-addons']);
   assert.ok(Array.isArray(v.reviewer_models) && v.reviewer_models.length);
-  fs.writeFileSync(f, '{nope');
-  assert.strictEqual(spawnSync('bash', ['-c', `${cmd} "${REAL_MANIFEST}"`], { env: Object.assign({}, process.env, { BAJZI_HOME: home }) }).status, 0);
+  // unparseable file with an add-on entry: not silently lost, a copy is kept and reported
+  const broken = '{"addon_marketplaces": ["my-addons"],}';
+  fs.writeFileSync(f, broken);
+  const r2 = go();
+  assert.strictEqual(r2.status, 0, r2.stderr);
+  assert.strictEqual(fs.readFileSync(f + '.bak', 'utf8'), broken);
+  assert.match(r2.stderr, /config\.json\.bak/);
   assert.ok(JSON.parse(fs.readFileSync(f, 'utf8')).reviewer_models);
 });

@@ -145,12 +145,13 @@ read: steps 1 and 2 uninstall and remove NOTHING; report that the add-on list co
     the check reports `reviewer-models-invalid` (a missing file included), write the manifest's
     `bajzi_config.reviewer_models` there:
     ```
-    node -e "const fs=require('fs'),p=require('path'),os=require('os');const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const d=p.join(process.env.BAJZI_HOME||os.homedir(),'.claude','bajzi'),f=p.join(d,'config.json');let cur={};try{const j=JSON.parse(fs.readFileSync(f,'utf8').replace(/^\uFEFF/,''));if(j&&typeof j=='object'&&!Array.isArray(j))cur=j}catch(e){}fs.mkdirSync(d,{recursive:true});fs.writeFileSync(f,JSON.stringify({...cur,reviewer_models:m.bajzi_config.reviewer_models},null,2)+'\n')" "${CLAUDE_PLUGIN_ROOT}/skills/setup/manifest.json"
+    node -e "const fs=require('fs'),p=require('path'),os=require('os');const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const d=p.join(process.env.BAJZI_HOME||os.homedir(),'.claude','bajzi'),f=p.join(d,'config.json');let cur={},raw=null;try{raw=fs.readFileSync(f,'utf8')}catch(e){}if(raw!==null)try{const j=JSON.parse(raw.replace(/^\uFEFF/,''));if(!j||typeof j!='object'||Array.isArray(j))throw 0;cur=j}catch(e){fs.copyFileSync(f,f+'.bak');console.error('config.json was not a JSON object; old copy kept at '+f+'.bak')}fs.mkdirSync(d,{recursive:true});fs.writeFileSync(f,JSON.stringify({...cur,reviewer_models:m.bajzi_config.reviewer_models},null,2)+'\n')" "${CLAUDE_PLUGIN_ROOT}/skills/setup/manifest.json"
     ```
     `reviewer-models-drift` is a valid list that differs from the manifest (the owner's local
     swap): overwrite it only when the owner says so in this chat, else report it as "manual".
     The one-liner keeps every other key of an existing config.json that parses as a JSON object
-    (`language`, `addon_marketplaces`, ...).
+    (`language`, `addon_marketplaces`, ...). An existing file that does not parse is first copied to `config.json.bak`
+    (the old add-on list stays recoverable) and the owner is told.
 
     **Add-ons:** the owner lists add-on marketplaces by editing the `addon_marketplaces` key of
     `~/.claude/bajzi/config.json` by hand, e.g. `"addon_marketplaces": ["my-addons"]` (names match

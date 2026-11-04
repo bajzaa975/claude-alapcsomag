@@ -1382,7 +1382,7 @@ writes, creates or deletes anything (test `check.js is read-only: no file under 
     config.json gives no `bajzi-config` line (`reviewer-models-invalid` reports it) and an empty list.
     SKILL.md PHASE C steps 1-2 act on exactly the `plugin-extra` / `marketplace-extra` lines and do
     nothing when a `bajzi-config` or a not-valid-JSON `reviewer-models-invalid` line is present; PHASE D
-    step 11 keeps every other key of an existing object config.json.
+    step 11 keeps every other key of an existing object config.json; an unparseable one is first copied to config.json.bak.
   - `forbidden_leftovers.paths` (`~`-relative, `*` only in the last segment) → `leftover
     <path>`; `forbidden_leftovers.settings_substrings` found in `settings.hooks` or
     `permissions.allow` → `leftover-setting <substring>`.
@@ -2322,8 +2322,11 @@ Where each piece comes from is in §5.1. Run every command from the shell named 
 - **PHASE B**: inventory (`claude plugin list`, `marketplace list`, `mcp list`,
   `~/.claude/{skills,commands,agents,hooks}`, settings blocks, `check.js` output); every
   `leftover` line is marked TO MOVE, every `leftover-setting` line TO REMOVE.
-- **PHASE C**: (gate: a `bajzi-config` line, or a `reviewer-models-invalid` line for a not-valid-JSON config.json, makes steps 1-2 do nothing and report that the add-on list could not be read) (1) uninstall exactly the `plugin-extra` lines of the check output (add-ons already excluded), via the CLI only; (2) remove
-  exactly the `marketplace-extra` marketplaces; (3) delete non-plugin skills/commands/agents that duplicate bajzi's;
+- **PHASE C**: (gate: a `bajzi-config` line, or a `reviewer-models-invalid` line for a
+  not-valid-JSON config.json, makes steps 1-2 do nothing and report that the add-on list could
+  not be read) (1) uninstall exactly the `plugin-extra` lines of the check output (add-ons
+  already excluded), via the CLI only; (2) remove exactly the `marketplace-extra` marketplaces;
+  (3) delete non-plugin skills/commands/agents that duplicate bajzi's;
   (4) `settings.json`, after a `settings.json.bak-<date>` backup: remove orphan hooks, the
   `handoff-load.sh` SessionStart entry, dead `skillOverrides`, and every hook command or
   `permissions.allow` entry containing a `forbidden_leftovers.settings_substrings` item (`SKILL.md`); (5) known leftover data directories; (6) move
