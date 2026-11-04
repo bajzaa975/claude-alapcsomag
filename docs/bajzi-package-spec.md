@@ -1362,7 +1362,7 @@ writes, creates or deletes anything (test `check.js is read-only: no file under 
     sections whose stem is present, every `bajzi-plugins/docs/<file>` path of the shared text must occur in the
     target -> else `DRIFT global-rules missing-pointer "docs/<file>"`. A missing source file is skipped
     silently, a missing target means all headings missing. Apply appends whole sections only when no stem
-    matches; for `missing-pointer` it inserts the pointer line(s) at the end of the owner's matching section.
+    matches; for `missing-pointer` it inserts the whole shared list item containing the path (from its `- ` bullet, including wrapped lines, never a bare wrapped line) at the end of the owner's matching section.
   - Out of scope: night-run tick processes still run with `bypassPermissions`; this baseline only
     governs interactive auto mode.
   - `statusLine.command` must reference `/.claude/bajzi/statusline.js` → `statusline-missing` /

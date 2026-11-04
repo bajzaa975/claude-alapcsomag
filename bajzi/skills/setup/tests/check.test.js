@@ -604,3 +604,8 @@ test('SKILL.md step 11 one-liner keeps the other keys of an existing config.json
   assert.match(r2.stderr, /config\.json\.bak/);
   assert.ok(JSON.parse(fs.readFileSync(f, 'utf8')).reviewer_models);
 });
+
+test('SKILL.md missing-pointer step inserts the whole list item', () => {
+  const skill = fs.readFileSync(SKILL, 'utf8');
+  assert.match(skill, /insert the whole shared list item[^]*?contains the `bajzi-plugins\/docs/);
+});

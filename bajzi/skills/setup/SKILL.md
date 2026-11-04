@@ -118,7 +118,7 @@ read: steps 1 and 2 uninstall and remove NOTHING; report that the add-on list co
    Global rules (step 5): headings match by stem (drop `## `, cut at the first ` (`, lowercase, collapse
    whitespace), so an owner-customised heading counts as present. Append a whole `## ` section of the marketplace
    `shared/CLAUDE.md` only when no stem matches (`global-rules missing`). For `global-rules missing-pointer`,
-   insert the shared section's `bajzi-plugins/docs/...` pointer line(s) at the end of the owner's stem-matched
+   insert the whole shared list item (all its wrapped lines, from its `- ` bullet) that contains the `bajzi-plugins/docs/...` path, never a bare wrapped line, at the end of the owner's stem-matched
    section, never a second heading.
 7. **rtk:** per the manifest's `rtk` block. Not required. Add the hook ONLY if
    the `check` command works. Then make sure the rtk config file (`rtk.config`, per OS) has every
