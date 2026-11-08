@@ -35,7 +35,7 @@
 #   3.3  a story killed by its own timeout -> released, the next story runs
 #   3.4  TERM to the runner -> released, INTERRUPTED row, exit 143
 #   3.5  STOP -> finish: every acquire has its release
-#   3.6  failing heartbeats (>= 2) -> one WARNING, the story completes
+#   3.6  failing heartbeats (>= 1) -> one WARNING, the story completes
 #   3.7  TERM during a slow acquire, before START -> the EXIT trap releases that id once
 #   +    without BRANCH_LOCK_CMD nothing changes: no adapter, no pre-created worktree
 # Non-dry cases need Linux (setsid, flock, pgrep, /proc); the slow ones run in parallel.
@@ -293,7 +293,7 @@ yes_no '[ "${s:-999}" -le 60 ] && ! grep -q " START S1 (" "$LOG"' "2.3 within th
 echo "== 3.1 / 3.2 / 3.5 heartbeat, release, STOP =="
 use beat; id=$(acq_id S1); hb=$(grep -c "^heartbeat ${id:-none}\$" "$LK/lock.log")
 printf 'lock id %s, %s heartbeat(s)\n' "${id:-<none>}" "$hb"
-yes_no '[ "$hb" -ge 2 ]' "3.1 >= 2 heartbeats during an 80 s story"
+yes_no '[ "$hb" -ge 1 ]' "3.1 >= 1 heartbeat during an 80 s story (none after the session ended)"
 yes_no '[ "$(last "^heartbeat ")" -lt "$(first "^session-end")" ] && [ "$(first "^session-end")" -lt "$(first "^release $id\$")" ]' "3.2 release after the session ended"
 yes_no '[ ! -e "$ND/story/S1.lockid" ] && [ -n "$(row S1 | grep "^S1 0 ")" ]' "3.2 S1 exit 0, .lockid removed"
 yes_no 'grep -q "STOP file present" "$LOG" && [ "$(grep -c "^acquire " "$LK/lock.log")" -eq 1 ] && balanced' "3.5 STOP -> finish: one acquire, released"
@@ -312,7 +312,7 @@ yes_no '[ -n "$id" ] && [ -n "$(first "^release $id\$")" ] && [ ! -e "$ND/story/
 echo "== 3.6 heartbeat failure =="
 use hbfail
 hb=$(grep -c "^heartbeat " "$LK/lock.log"); printf '%s failed heartbeat(s)\n' "$hb"
-yes_no '[ "$(grep -c "WARNING.*heartbeat" "$LOG")" -eq 1 ] && [ "$hb" -ge 2 ]' "3.6 >= 2 failed heartbeats, exactly one WARNING line"
+yes_no '[ "$(grep -c "WARNING.*heartbeat" "$LOG")" -eq 1 ] && [ "$hb" -ge 1 ]' "3.6 >= 1 failed heartbeat, exactly one WARNING line"
 yes_no '[ -n "$(row S1 | grep "^S1 0 ")" ] && balanced' "3.6 the story completed and was released"
 
 echo "== 3.2c six recorded ids, every release hangs =="

@@ -622,7 +622,9 @@ await_session(){ # pid
     beat; nap "$poll"
     if [ "$poll" -lt 20 ]; then poll=$(( poll * 2 )); [ "$poll" -gt 20 ] && poll=20; fi
   done
-  beat
+  # A plain touch, not beat(): the session has ended, so no lock heartbeat may follow it
+  # (a dry run still writes nothing).
+  [ $DRY -ne 0 ] || touch "$HEARTBEAT" 2>/dev/null || true
   wait "$p"
 }
 # The pids that are still in a story's SESSION. `pgrep -s 0` means "my own

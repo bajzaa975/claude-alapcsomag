@@ -660,7 +660,7 @@ The adapter (`run.sh:lock_call`) is called as an argv, never through a shell str
 | call | when | exit codes |
 |---|---|---|
 | `acquire <worktree> <lock-id> <branch>` | before the story session starts | 0 = acquired; 1 = held, the first stdout line = the holder; anything else (timeout included) = error |
-| `heartbeat <lock-id>` | from `beat()`, at most every 30 s while the lock is held | non-zero = one WARNING per held lock; the story goes on |
+| `heartbeat <lock-id>` | from `beat()`, at most every 30 s while the lock is held, and only while the story session runs: `await_session` touches the run heartbeat file once more after the session ended (a dry run writes nothing) but never calls `beat()` there, so no heartbeat follows the session end | non-zero = one WARNING per held lock; the story goes on |
 | `release <lock-id>` | on every exit path below | 0 = released; must be idempotent (a release of an id it no longer holds exits 0) |
 
 `<lock-id>` is exactly 8 lowercase hex chars from `/dev/urandom`, opaque: an adapter may map it to its own id shape, and bajzi never adds a prefix. `<worktree>` is `$NIGHT_DIR/wt/<id>`. `<branch>` is the story branch `<BRANCH_NAMESPACE>/<BRANCH_PREFIX>-<id>-<slug>`, passed on every acquire because the tree's HEAD may be detached; an adapter may ignore it.
