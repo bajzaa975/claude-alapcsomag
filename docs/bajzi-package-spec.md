@@ -928,7 +928,7 @@ frontmatter is the upgrade if that bites.
 ### 6.5 Status line — technical
 
 **Trigger**: the Claude Code `statusLine` command, re-rendered on the UI's own cadence, not a
-`hooks.json` event. **Inputs** (stdin JSON): `session_id`, `model.display_name`,
+`hooks.json` event. **Inputs** (stdin JSON): `session_id`, `model.display_name`, `effort.level` (optional),
 `workspace.current_dir` (falls back to `cwd`, then `process.cwd()`), `context_window
 .remaining_percentage`; for the line file also `session_name`, `workspace.project_dir`,
 `workspace.git_worktree`, `context_window.used_percentage`, `cost.total_cost_usd`,

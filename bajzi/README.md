@@ -47,7 +47,7 @@ A token-efficient working method for Claude Code and Cowork.
 ## Node hooks and the status line (Node >= 18, no dependencies)
 
 - **Status line** — `hooks/node/statusline.js`, installed by `/bajzi:setup` to `~/.claude/bajzi/`:
-  `model · Lx · branch* · task · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN% · Qn · peak …`. NN% = `100 -
+  `model (effort) · Lx · branch* · task · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN% · Qn · peak …`. NN% = `100 -
   context_window.remaining_percentage`, the number `/context` shows; green < 40, yellow 40-49,
   red >= 50. `GLM` only at L1-L3, `Qn` only with open review-queue items, `peak` only within 2 h
   before or inside the Z.ai peak window (14:00-18:00 UTC+8). It writes
