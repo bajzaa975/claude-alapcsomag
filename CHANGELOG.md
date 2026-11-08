@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.37.1
+- Fixed: the night-run runner no longer sends a branch-lock heartbeat after a story session has ended (the run heartbeat file is still touched); `branch-lock.sh` case 3.2 no longer fails depending on timing
+
 ## 1.37.0
 - Added: the status line shows the reasoning effort after the model name, e.g. `Opus 5.5 (xhigh)`, when Claude Code reports one
 
