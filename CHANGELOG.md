@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.37.0
+- Added: the status line shows the reasoning effort after the model name, e.g. `Opus 5.5 (xhigh)`, when Claude Code reports one
+
 ## 1.36.0
 - Added: optional `addon_marketplaces` list in `~/.claude/bajzi/config.json`; `setup --check` never reports a listed add-on marketplace or its plugins (`@<name>`) as extra, and an invalid list gives one `DRIFT bajzi-config addon_marketplaces invalid`
 - Fixed: `setup --check` no longer reports false `global-rules` drift when a shared `## ` section exists under a reworded heading (headings now match by their stem); a missing docs pointer in such a section is reported as `missing-pointer` and setup inserts only that list item
