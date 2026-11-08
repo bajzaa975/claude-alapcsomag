@@ -1,6 +1,6 @@
 'use strict';
 // Claude Code statusLine command. Installed by /bajzi:setup to ~/.claude/bajzi/statusline.js
-// (+ lib/). Line: model · Lx · branch* · task · ◎ goal N evals Xm · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN% · Qn · peak ...
+// (+ lib/). Line: model (effort) · Lx · branch* · task · ◎ goal N evals Xm · ▓▓░░ NN% · 5h NN% · 7d NN% · GLM NN% · Qn · peak ...
 // Missing data = that field is omitted; never an error text. Side effects: writes the ctx
 // bridge <tmpdir>/bajzi-ctx-<session_id>.json that hooks/node/context-guard.js reads, and AFTER the
 // line is out, <status dir>/<session_id>.line.json for an external orchestrator (spec §6.5, writeLine).
@@ -65,7 +65,8 @@ function render(input, opts = {}) {
   const cwd = cwdOf(inp);
   const out = [];
   const model = inp.model && typeof inp.model.display_name === 'string' ? inp.model.display_name.trim() : '';
-  if (model) out.push(model);
+  const effort = (strOr(obj(inp.effort).level) || '').trim();
+  if (model) out.push(effort ? `${model} (${effort})` : model);
   const { level } = resolveLevel({ env, home, sessionId: inp.session_id, cwd: strOr(obj(inp.workspace).project_dir) || cwd });   // the repo default sits at the project root; this session's level, spec §6.1
   out.push('L' + level);
   const git = parts.gitInfo(cwd, nowMs);

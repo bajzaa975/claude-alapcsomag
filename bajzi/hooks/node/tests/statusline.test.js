@@ -48,6 +48,14 @@ test('exact line for a full fixture (ANSI off)', () => {
   assert.strictEqual(line, 'Opus 5.5 \u00b7 L0 \u00b7 feat/x* \u00b7 status line port \u00b7 \u2593\u2593\u2593\u2593\u2591\u2591\u2591\u2591\u2591\u2591 42% \u00b7 Q1');
 });
 
+test('effort level follows the model name; absent/blank/non-string/non-object or blank model -> no suffix', () => {
+  const cwd = fixtureRepo();
+  const go = extra => strip(render(input(cwd, extra), { env: {}, home: tmpDir('bajzi-h-'), nowMs: NIGHT, color: false }));
+  assert.ok(go({ effort: { level: ' xhigh ' } }).startsWith('Opus 5.5 (xhigh) \u00b7 L0'));
+  for (const e of [undefined, {}, { level: '  ' }, { level: 3 }, 'high', null]) assert.ok(go({ effort: e }).startsWith('Opus 5.5 \u00b7 L0'));
+  assert.ok(go({ model: { display_name: ' ' }, effort: { level: 'max' } }).startsWith('L0'));
+});
+
 test('usedPct = round(100 - remaining_percentage), clamped; missing -> null', () => {
   assert.strictEqual(usedPct({ context_window: { remaining_percentage: 58 } }), 42);
   assert.strictEqual(usedPct({ context_window: { remaining_percentage: 49.6 } }), 50);
