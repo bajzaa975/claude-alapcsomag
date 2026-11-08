@@ -293,8 +293,8 @@ yes_no '[ "${s:-999}" -le 60 ] && ! grep -q " START S1 (" "$LOG"' "2.3 within th
 echo "== 3.1 / 3.2 / 3.5 heartbeat, release, STOP =="
 use beat; id=$(acq_id S1); hb=$(grep -c "^heartbeat ${id:-none}\$" "$LK/lock.log")
 printf 'lock id %s, %s heartbeat(s)\n' "${id:-<none>}" "$hb"
-yes_no '[ "$hb" -ge 1 ]' "3.1 >= 1 heartbeat during an 80 s story (none after the session ended)"
-yes_no '[ "$(last "^heartbeat ")" -lt "$(first "^session-end")" ] && [ "$(first "^session-end")" -lt "$(first "^release $id\$")" ]' "3.2 release after the session ended"
+yes_no '[ "$hb" -ge 1 ]' "3.1 >= 1 heartbeat during an 80 s story"
+yes_no '[ "$(last "^heartbeat ")" -lt "$(first "^session-end")" ] && [ "$(first "^session-end")" -lt "$(first "^release $id\$")" ]' "3.2 no heartbeat after the session ended, release after it"
 yes_no '[ ! -e "$ND/story/S1.lockid" ] && [ -n "$(row S1 | grep "^S1 0 ")" ]' "3.2 S1 exit 0, .lockid removed"
 yes_no 'grep -q "STOP file present" "$LOG" && [ "$(grep -c "^acquire " "$LK/lock.log")" -eq 1 ] && balanced' "3.5 STOP -> finish: one acquire, released"
 
