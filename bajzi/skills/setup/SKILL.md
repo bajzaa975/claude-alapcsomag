@@ -139,6 +139,8 @@ read: steps 1 and 2 uninstall and remove NOTHING; report that the add-on list co
    It copies the status line to `~/.claude/bajzi/` and points `settings.json` `statusLine` at that
    copy, backing `settings.json` up as `settings.json.bak-bajzi-<stamp>` first. Never write the
    plugin cache path into settings yourself. If it prints `FAILED`, report the message and go on.
+   The copy is also refreshed silently on every session start (only where it is already installed;
+   never downgrades; `settings.json` untouched).
 10. **User-scope MCPs:** for every entry of the manifest's `user_mcps` object that `claude mcp list`
     does not show, add it with the entry as JSON (Git Bash / Linux quoting shown):
     ```
