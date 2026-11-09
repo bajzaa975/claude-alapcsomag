@@ -10,7 +10,8 @@ ROUTING TABLE, task class -> model, effort:
 - implement a specified slice / TDD -> sonnet, medium, the default fixer
 - risk-bearing slice (locks, concurrency, quotas, auth, money, migrations, destructive scripts) -> sonnet, high; opus only reviews; file count alone is not risk
 - fix review findings -> sonnet (bajzi:fixer), medium (high for a risk-bearing slice); one wave per sprint, then the close; never the reviewer
-- review, once per sprint over its whole range = the whole-branch review -> REVIEWER, xhigh; round 2 -> REVIEWER, high.
+- review, once per sprint over its whole range = the whole-branch review -> REVIEWER, xhigh; round 2 -> REVIEWER, high;
+  Tier 2/3 reviews run at medium (`FC effort` decides); Tier 1 or unknown keeps xhigh/high.
   ALWAYS. Never ORCH's or the implementer's model. EVIDENCE line required or FAIL. REVIEWER = a model from the REVIEWER MODELS line after
   this block, else `reviewer_models` in ~/.claude/bajzi/config.json; never GLM.
 - debugging -> high; sonnet when a failing test/repro exists (give it verbatim), climbing the LADDER; else opus, then ORCH, never down to sonnet

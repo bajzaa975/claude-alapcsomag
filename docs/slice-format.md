@@ -17,7 +17,7 @@ test: node --test
 ```
 
 - Title: `# Slice · <slice-id>`, matching the filename.
-- Fields, all mandatory, one per line (`key: value`):
+- Fields, one per line (`key: value`); all mandatory except `changes`:
   - `tier`: `1`, `2` or `3` (see the change map in `docs/bajzi-package-spec.md` §2; Tier 1 = locks, concurrency, quotas,
     auth, money, migrations, destructive scripts; file count alone is not Tier 1).
   - `files`: comma-separated paths the agent may touch — the ownership boundary: the agent edits
@@ -25,6 +25,8 @@ test: node --test
     agent too), and never `runtime/**`, guard files, hooks, settings or `.githooks/**`.
     Anything else needed is a `BLOCKED`.
   - `acceptance`: what must be true when the slice is done, in plain language.
+  - `changes` (optional): comma-separated literals the slice renames or removes. `findings-cli.js preflight` lists tracked files
+    outside `files:` that still contain them (`git grep -w -F`; report only: widen `files:` or proceed).
   - `test`: the command that proves it (`none` only for slices with nothing to test).
     `findings-cli.js slice` prints `none` as `test: skip`: /bajzi:implement and /bajzi:fix then run
     no test (the bajzi gate still runs on the commit).
@@ -61,6 +63,7 @@ A session turns an approved plan file into slices by this rule (no script):
 - `files` = the task's Files list (create/modify/test).
 - `acceptance` = the task's expected result / goal line.
 - `test` = the task's test command (`none` when it has none).
+- `changes` = the identifiers or strings the task renames or removes (kinds, constants, flags, function names), when it has any; omit otherwise.
 - Two tasks touching the same file run sequentially, never in parallel.
 - A consumer task runs in parallel with its provider task when the plan fixes the interface it consumes (disjoint files, same tree); the provider is committed first (a pre-commit gate that checks the whole tree sees both).
 - A task without a Files list is BLOCKED.

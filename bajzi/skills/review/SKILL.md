@@ -13,7 +13,8 @@ the skill has no other round.
 1. `FC brief review "<slice-id>" <round> <range>` — writes the diff file and the brief (paths,
    not contents), prints the brief path. Exit 3 = STOP: round 1, but `<slice-id>-r2.md` exists
    (the slice had its two rounds); print the message, do nothing else. Exit 2 -> print, STOP.
-2. Dispatch per dispatch.md: class `review` (round 1) or `rereview` (round 2). A guard deny ->
+2. Dispatch per dispatch.md: class `review` (round 1) or `rereview` (round 2); `effort` = the output of `FC effort "<slice-id>" <round>`
+   (Tier 2/3 medium both rounds; Tier 1, unknown or missing tier xhigh round 1, high round 2). A guard deny ->
    print the reason and its rule id, STOP (dispatch.md step 3).
 3. Save the reviewer's final message verbatim to `runtime/findings/<slice-id>-r<round>.md`
    (the reviewer has no write path), then `FC validate <that file>`.

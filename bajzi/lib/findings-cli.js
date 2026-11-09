@@ -10,6 +10,10 @@
 //
 //   slice <id>                     runtime/slices/<id>.md -> the agent to dispatch; `test: none`
 //                                  prints `test: skip` (the skills run no test); id `debt` is reserved
+//   effort <id> <1|2>              the reviewer's effort: `medium` when the slice file has tier lines that are all 2 or 3,
+//                                  else `xhigh` (round 1) / `high` (round 2); never fails on a malformed slice file
+//   preflight <id>                 optional `changes:` literals -> tracked files outside `files:` that still hold them
+//                                  (git grep -w -F; report only, exit 0)
 //   validate <findings-file>       verdict + counts by severity (test gaps last); name must match slice/round
 //   sprint <stem>                  runtime/slices/<stem>-t<N>.md -> runtime/slices/<stem>.md (lowest tier,
 //                                  union files, joined acceptance, distinct tests); prints `slice:` and the
@@ -109,14 +113,14 @@ function writeDebt(findings) {
   fs.writeFileSync(at('debt.md'), text);
 }
 
-// runtime/slices/<id>.md -> {tier, files, acceptance, test}; exits 2 on a malformed file.
+// runtime/slices/<id>.md -> {tier, files, acceptance, test, changes?}; exits 2 on a malformed file.
 function readSlice(id) {
   checkId(id);
   const p = path.posix.join('runtime/slices', `${id}.md`);
   const lines = mustRead(p).split(/\r?\n/);
   if ((lines.find((l) => l.trim()) || '').trim() !== `# Slice · ${id}`) die(2, `${p}: title must be "# Slice · ${id}"`);
   const s = {};
-  for (const l of lines) { const m = l.match(/^(tier|files|acceptance|test):[ \t]*(.*)$/); if (m) s[m[1]] = m[2].trim(); }
+  for (const l of lines) { const m = l.match(/^(tier|files|acceptance|test|changes):[ \t]*(.*)$/); if (m) s[m[1]] = m[2].trim(); }
   for (const k of ['tier', 'files', 'acceptance', 'test']) if (!s[k]) die(2, `${p}: missing field: ${k}`);
   if (!['1', '2', '3'].includes(s.tier)) die(2, `${p}: tier must be 1, 2 or 3, got ${s.tier}`);
   checkFiles(p, s.files);
@@ -131,6 +135,40 @@ const cmds = {
     const s = readSlice(id);
     console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${/^none$/i.test(s.test) ? 'skip' : s.test}
 acceptance: ${s.acceptance}`);
+  },
+
+  effort(id, round) {
+    checkId(id);
+    if (!['1', '2'].includes(round)) die(2, 'usage: effort <slice-id> <1|2>');
+    // Lenient on purpose (not readSlice): a missing or malformed file falls through to the Tier 1 values.
+    const tiers = [];
+    try {
+      for (const l of read(path.posix.join('runtime/slices', `${id}.md`)).split(/\r?\n/)) { const m = l.match(/^tier:[ \t]*(\S*)/); if (m) tiers.push(m[1]); }
+    } catch { /* unreadable = unknown */ }
+    const low = tiers.length > 0 && tiers.every((x) => x === '2' || x === '3');
+    console.log(low ? 'medium' : round === '1' ? 'xhigh' : 'high');
+  },
+
+  preflight(id) {
+    if (!id) die(2, 'usage: preflight <slice-id>');
+    const s = readSlice(id);
+    const terms = [...new Set((s.changes || '').split(',').map((x) => x.trim()).filter(Boolean))];
+    if (!terms.length) return console.log('preflight: no changes: field, nothing checked');
+    const norm = (f) => fwd(f.trim()).replace(/^(\.\/)+/, '');
+    const own = new Set(s.files.split(',').map(norm).filter(Boolean));
+    const hits = new Map();
+    for (const term of terms) {
+      let out = '';
+      try {
+        out = execFileSync('git', ['grep', '-l', '-I', '-F', '-w', '-e', term, '--'], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] });
+      } catch (e) {
+        if (e.status !== 1) return console.log('preflight: git grep failed, nothing checked'); // 1 = no match
+      }
+      for (const f of out.split('\n').filter(Boolean)) if (!own.has(f)) hits.set(f, [...(hits.get(f) || []), term]);
+    }
+    if (!hits.size) return console.log(`preflight: clean (${terms.length} literal(s), no reference outside files:)`);
+    console.log(`preflight: ${hits.size} file(s) outside files: reference changed literals (report only: widen files: or proceed)`);
+    for (const f of [...hits.keys()].sort()) console.log(`${f}: ${hits.get(f).join(', ')}`);
   },
 
   sprint(stem) {

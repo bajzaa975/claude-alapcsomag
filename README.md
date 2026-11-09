@@ -121,7 +121,7 @@ Check the install with `claude plugin list`.
   Each class also carries a subagent effort (Claude Code 2.1.292+), passed as the Agent tool's
   `effort` parameter: low for locating/mapping, tests/lint/build and long-file reads; medium for
   implementation, fixes and documents; high for risk slices (and their fixes), debugging; the one sprint review runs at xhigh
-  (its round 2 at high). Your own session's effort is never changed. Briefs for
+  (its round 2 at high), or at medium both rounds when every slice is Tier 2/3 (Tier 1 or unknown tier keeps xhigh/high). Your own session's effort is never changed. Briefs for
   locate/map, tests, long-file read, implement and fix end with a pacing sentence
   ("Time matters here: ..."); review, debugging and documents briefs never do.
 - **Slice** — one unit of work described in `runtime/slices/<id>.md` (tier, files it may touch,
