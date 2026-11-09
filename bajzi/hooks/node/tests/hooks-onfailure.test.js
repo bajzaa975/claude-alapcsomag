@@ -59,3 +59,11 @@ test('pre-tool.js: a deny (secret read) -> exit 0 with the deny envelope, never 
   assert.strictEqual(r.code, 0, r.stderr);
   assert.strictEqual(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision, 'deny');
 });
+
+test('SessionStart startup wires the silent status line copy refresh (timeout 5, no onFailure)', () => {
+  const e = entries.filter(x => /^SessionStart:startup:.*install-statusline\.js" refresh$/.test(x.key));
+  assert.strictEqual(e.length, 1);
+  assert.strictEqual(e[0].h.timeout, 5);
+  assert.ok(!('onFailure' in e[0].h));
+  assert.match(require(path.join(NODE_DIR, '..', 'hooks.json')).description, /status line copy auto-refresh/);
+});
