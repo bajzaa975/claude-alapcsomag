@@ -789,3 +789,81 @@ test('FC drain: two drains with the same fresh test-gap id both keep their gap',
     assert.ok(gaps.includes('app/one.py:1') && gaps.includes('app/two.py:2'), gaps);
   } finally { t.rm(); }
 });
+
+// ---------- FC effort / FC preflight ----------
+
+test('FC effort: Tier 2/3 -> medium both rounds; Tier 1, unknown or malformed -> xhigh r1, high r2; bad round or id -> exit 2', () => {
+  const t = cliRepo('effort-');
+  try {
+    const eff = (id, r) => { const x = t.run('effort', id, r); assert.strictEqual(x.status, 0, x.stderr); return x.stdout; };
+    const both = (id) => `${eff(id, '1')}|${eff(id, '2')}`;
+    t.w('runtime/slices/a1.md', sliceDoc('a1', 1, 'x', 'y', 'z'));
+    t.w('runtime/slices/a2.md', sliceDoc('a2', 2, 'x', 'y', 'z'));
+    t.w('runtime/slices/a3.md', sliceDoc('a3', 3, 'x', 'y', 'z'));
+    t.w('runtime/slices/bad.md', 'garbage\ntier: x\n');
+    t.w('runtime/slices/mix.md', 'tier: 2\ntier: 1\n');
+    t.w('runtime/slices/none.md', '# Slice · none\nfiles: x\n');
+    t.w('runtime/slices/spt1.md', sliceDoc('spt1', 1, 'a', 'one', 'none'));
+    t.w('runtime/slices/spt2.md', sliceDoc('spt2', 2, 'b', 'two', 'none'));
+    assert.strictEqual(both('a1'), 'xhigh\n|high\n');
+    assert.strictEqual(both('a2'), 'medium\n|medium\n');
+    assert.strictEqual(both('a3'), 'medium\n|medium\n');
+    assert.strictEqual(both('missing'), 'xhigh\n|high\n');
+    assert.strictEqual(both('bad'), 'xhigh\n|high\n');
+    assert.strictEqual(both('mix'), 'xhigh\n|high\n');
+    assert.strictEqual(both('none'), 'xhigh\n|high\n');
+    assert.strictEqual(both('debt'), 'xhigh\n|high\n');
+    t.g('init', '-q'); t.w('a', '0'); t.g('add', '.'); t.g('commit', '-qm', 'base');
+    for (const n of [1, 2]) { t.w(`f${n}`, 'x'); t.g('add', `f${n}`); t.g('commit', '-qm', `sp-t${n}: implement`); }
+    t.w('runtime/slices/sp-t1.md', sliceDoc('sp-t1', 1, 'a', 'one', 'none'));
+    t.w('runtime/slices/sp-t2.md', sliceDoc('sp-t2', 2, 'b', 'two', 'none'));
+    assert.strictEqual(t.run('sprint', 'sp').status, 0);
+    assert.strictEqual(both('sp'), 'xhigh\n|high\n');
+    assert.strictEqual(t.run('effort', 'a1', '3').status, 2);
+    assert.strictEqual(t.run('effort', 'a1').status, 2);
+    assert.strictEqual(t.run('effort', 'Bad Id', '1').status, 2);
+    assert.strictEqual(t.run('effort').status, 2);
+  } finally { t.rm(); }
+});
+
+test('FC preflight: lists tracked files outside files: that hold a changed literal; report only, exit 0', () => {
+  const t = cliRepo('preflight-');
+  try {
+    const pf = () => { const x = t.run('preflight', 'rn'); assert.strictEqual(x.status, 0, x.stderr); return x.stdout.trim().split('\n'); };
+    t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py, ./tests\\test_app.py', 'rename', 'none').replace('test: none', 'changes: english, reading, english\ntest: none'));
+    t.w('app.py', 'KINDS = ["english", "reading"]\n');
+    t.w('tests/test_app.py', 'english\n');
+    t.w('tests/test_english.py', 'assert kind == "english"\n');
+    t.w('tests/test_reading.py', 'assert kind == "reading"\n');
+    t.w('tests/test_other.py', 'englishness = 1\n');
+    t.g('init', '-q'); t.g('add', 'app.py', 'tests'); t.g('commit', '-qm', 'base');
+    t.w('untracked.py', 'english\n');
+    assert.deepStrictEqual(pf(), [
+      'preflight: 2 file(s) outside files: reference changed literals (report only: widen files: or proceed)',
+      'tests/test_english.py: english',
+      'tests/test_reading.py: reading',
+    ]);
+    t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py, tests/test_app.py, tests/test_english.py, tests/test_reading.py', 'r', 'none').replace('test: none', 'changes: english, reading\ntest: none'));
+    assert.deepStrictEqual(pf(), ['preflight: clean (2 literal(s), no reference outside files:)']);
+    t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none').replace('test: none', 'changes: english, reading\ntest: none'));
+    assert.match(pf()[0], /^preflight: 3 file\(s\)/);
+    assert.ok(pf().includes('tests/test_app.py: english'));
+    t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none'));
+    assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    assert.strictEqual(t.run('slice', 'rn').stdout.includes('changes'), false);
+    t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none').replace('test: none', 'changes: nomatchanywhere\ntest: none'));
+    assert.deepStrictEqual(pf(), ['preflight: clean (1 literal(s), no reference outside files:)']);
+    assert.strictEqual(t.run('preflight', 'missing').status, 2);
+    assert.strictEqual(t.run('preflight', 'Bad Id').status, 2);
+  } finally { t.rm(); }
+});
+
+test('FC preflight: no git repo -> git grep failed line, exit 0', () => {
+  const t = cliRepo('preflight-norepo-');
+  try {
+    t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none').replace('test: none', 'changes: english\ntest: none'));
+    const x = t.run('preflight', 'rn');
+    assert.strictEqual(x.status, 0, x.stderr);
+    assert.strictEqual(x.stdout.trim(), 'preflight: git grep failed, nothing checked');
+  } finally { t.rm(); }
+});

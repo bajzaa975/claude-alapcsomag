@@ -82,3 +82,11 @@ test('spec agent contract names the optional effort key', () => {
   assert.match(sec, /`effort`/);
   assert.doesNotMatch(sec, /no frontmatter\s+key outside `name`\/`description`\/`model`\/`tools`\)/);
 });
+
+test('DAY-RUN-RULES and dispatch.md name FC effort and medium for Tier 2/3 reviews', () => {
+  for (const f of [['skills', 'mode', 'DAY-RUN-RULES.md'], ['skills', 'lib', 'dispatch.md']]) {
+    const t = read(...f);
+    assert.match(t, /FC effort/, f.join('/'));
+    assert.match(t, /Tier 2\/3[^.]*medium/, f.join('/'));
+  }
+});

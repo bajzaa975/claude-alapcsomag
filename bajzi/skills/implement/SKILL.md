@@ -11,6 +11,8 @@ You orchestrate; the agent writes the code. `FC` = `node "${CLAUDE_PLUGIN_ROOT}/
    `/bajzi:debt --drain` brings the debt under the cap (D6). Any other non-zero exit: print, STOP.
 2. `FC slice "<slice-id>"` — prints `agent:`, `tier:`, `files:`, `test:`. Exit 2 = a bad slice
    file or id (`docs/slice-format.md`; `debt` is reserved): print the error, STOP. The agent is this lookup, never your choice.
+2a. `FC preflight "<slice-id>"` — print its output. Listed files are a decision, not a STOP: widen `files:` in the slice file
+   (then re-run step 2) or proceed. Exit 2 is already caught by step 2.
 3. `base=$(git rev-parse HEAD)`; no tracked file may be modified
    (`git status --porcelain --untracked-files=no` empty), else STOP.
    Parallel pair (the plan names a provider and a consumer slice with disjoint `files:`, the interface fixed in the plan): dispatch both
