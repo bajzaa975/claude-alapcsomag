@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.37.2
+- Added: the status line copy in `~/.claude/bajzi/` refreshes itself from the running plugin at session startup, so a plugin update reaches the status line without `/bajzi:setup` (only where it is already installed; never downgrades; settings untouched)
+
 ## 1.37.1
 - Fixed: the night-run runner no longer sends a branch-lock heartbeat after a story session has ended (the run heartbeat file is still touched); `branch-lock.sh` case 3.2 no longer fails depending on timing
 
