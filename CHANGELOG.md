@@ -2,6 +2,10 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.38.0
+- Added: `/bajzi:review` sets the reviewer's effort from the slice tier (`findings-cli.js effort`): Tier 2/3 reviews run at medium in both rounds; Tier 1 or an unknown tier keeps xhigh for round 1 and high for round 2
+- Added: `findings-cli.js preflight <slice>`, run by `/bajzi:implement` before dispatch: lists tracked files outside the slice's `files:` that still reference the literals named in the new optional `changes:` slice field (report only, never blocks)
+
 ## 1.37.2
 - Added: the status line copy in `~/.claude/bajzi/` refreshes itself from the running plugin at session startup, so a plugin update reaches the status line without `/bajzi:setup` (only where it is already installed; never downgrades; settings untouched)
 
