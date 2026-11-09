@@ -60,7 +60,7 @@ changes nothing).
 
 ### Update
 
-Claude Code: `claude plugin update bajzi`, then `/bajzi:setup` to refresh the status line copy.
+Claude Code: `claude plugin update bajzi`, the status line copy refreshes itself at the next session start.
 If the update changed `bin/cc-router.js`, re-run `bash <plugin root>/bin/install.sh` (spec §8.3).
 Cowork: use **Update** on the marketplace, then update `bajzi-cowork`.
 

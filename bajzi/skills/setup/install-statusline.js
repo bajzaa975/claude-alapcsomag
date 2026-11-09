@@ -2,8 +2,9 @@
 'use strict';
 // /bajzi:setup step: copy hooks/node/statusline.js + hooks/node/lib/*.js to ~/.claude/bajzi/
 // and point settings.json statusLine at the COPY (never at the versioned plugin cache path,
-// which changes on every plugin update). `refresh` (SessionStart hook) re-copies an installed copy. settings.json is parsed BEFORE anything is written:
-// an unparseable file is never overwritten. It is backed up before every change.
+// which changes on every plugin update). Install only: settings.json is parsed BEFORE anything is
+// written (an unparseable file is never overwritten) and backed up before every change.
+// `refresh` (SessionStart hook) only re-copies an already installed copy; it never touches settings.json.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
