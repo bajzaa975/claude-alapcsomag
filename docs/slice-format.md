@@ -17,7 +17,7 @@ test: node --test
 ```
 
 - Title: `# Slice · <slice-id>`, matching the filename.
-- Fields, all mandatory, one per line (`key: value`):
+- Fields, one per line (`key: value`); all mandatory except `changes`:
   - `tier`: `1`, `2` or `3` (see the change map in `docs/bajzi-package-spec.md` §2; Tier 1 = locks, concurrency, quotas,
     auth, money, migrations, destructive scripts; file count alone is not Tier 1).
   - `files`: comma-separated paths the agent may touch — the ownership boundary: the agent edits

@@ -803,8 +803,6 @@ test('FC effort: Tier 2/3 -> medium both rounds; Tier 1, unknown or malformed ->
     t.w('runtime/slices/bad.md', 'garbage\ntier: x\n');
     t.w('runtime/slices/mix.md', 'tier: 2\ntier: 1\n');
     t.w('runtime/slices/none.md', '# Slice · none\nfiles: x\n');
-    t.w('runtime/slices/spt1.md', sliceDoc('spt1', 1, 'a', 'one', 'none'));
-    t.w('runtime/slices/spt2.md', sliceDoc('spt2', 2, 'b', 'two', 'none'));
     assert.strictEqual(both('a1'), 'xhigh\n|high\n');
     assert.strictEqual(both('a2'), 'medium\n|medium\n');
     assert.strictEqual(both('a3'), 'medium\n|medium\n');
