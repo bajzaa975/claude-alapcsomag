@@ -219,6 +219,21 @@ test('CLI refresh: real plugin, installed copy -> empty stdout, exit 0, copy ref
   assert.ok(fs.existsSync(path.join(home, '.claude', 'bajzi', 'lib', 'hook-io.js')));
 });
 
+test('CLI refresh: copy throws mid-way -> catch-all keeps stdout+stderr empty, exit 0, no tmp left', () => {
+  const home = tmp('bajzi-ref-');
+  const dest = path.join(home, '.claude', 'bajzi');
+  fs.mkdirSync(path.join(dest, 'lib', 'hook-io.js'), { recursive: true });   // a directory where a lib file goes -> rename throws
+  fs.writeFileSync(path.join(dest, 'lib', 'hook-io.js', 'keep'), 'x');
+  fs.writeFileSync(path.join(dest, 'statusline.js'), '// old');
+  const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'install-statusline.js'), 'refresh'],
+    { env: Object.assign({}, process.env, { BAJZI_HOME: home }), encoding: 'utf8' });
+  assert.strictEqual(r.status, 0);
+  assert.strictEqual(r.stdout, '');
+  assert.strictEqual(r.stderr, '');
+  assert.strictEqual(readDest(home, 'statusline.js'), '// old');
+  assert.deepStrictEqual(leftovers(home), []);
+});
+
 test('CLI refresh: no installed copy -> empty stdout, exit 0, nothing created', () => {
   const home = tmp('bajzi-ref-');
   const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'install-statusline.js'), 'refresh'],
