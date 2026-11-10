@@ -9,7 +9,7 @@ description: Run the read-only plan critic on a final execution plan and triage 
 Plan = `runtime/plans/<stem>.md` or `docs/superpowers/plans/<stem>.md`; slices = `runtime/slices/<stem>-t<N>.md`.
 
 0. Size M or L only. `FC critic-ready "<stem>"` exit 0 -> print "already triaged", stop. S or XS repo (project-profile `size`) -> print "critic not needed", stop.
-1. `FC critic-model` -> `<model>` (exit 2 = invalid `plan_critic_model`: print it, stop).
+1. `FC critic-slices "<stem>"` exit 2 -> print "cut the slices first", stop (before any dispatch). `FC critic-model` -> `<model>` (exit 2 = invalid `plan_critic_model`: print it, stop).
 2. Brief (`runtime/briefs/<stem>-critic.txt`): the plan path, the slice paths, the stem. Dispatch per dispatch.md with
    `subagent_type: bajzi:plan-critic`, `model: <model>`, `effort: high`, description `critic <stem>`.
    The dispatch fails on the Fable session or usage limit -> re-dispatch once with `model: opus` and set the header line

@@ -12,7 +12,8 @@ function check(input) {
   const ti = input.tool_input;
   if (!ti || typeof ti.skill !== 'string' || !SKILLS.test(ti.skill)) return null;
   const C = require('../../lib/critic');
-  const cwd = typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
+  // The project root, not the hook cwd (which follows a cd into a subfolder), as saver-level.js does.
+  const cwd = String(process.env.CLAUDE_PROJECT_DIR || '') || (typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd());
   const size = C.projectSize(cwd);
   if (size !== 'M' && size !== 'L') return null;
   const m = String(ti.args || '').replace(/\\/g, '/').match(PLAN);

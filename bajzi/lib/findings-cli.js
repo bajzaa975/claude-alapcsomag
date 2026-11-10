@@ -24,6 +24,7 @@
 //   ledger <stem>                  appends the sprint's metrics + cost line to runtime/ledger.jsonl (a repeat replaces it)
 //   ledger escaped <stem> "<text>" appends an escaped-bug line; ledger report prints raw rows, then `savings (estimate)`
 //   critic-model                   the plan critic's model alias (profile plan_critic_model, default fable; invalid -> exit 2)
+//   critic-slices <stem>           exit 2 when no runtime/slices/<stem>-t<N>.md exists (cut the slices first)
 //   critic-check <stem>            validates runtime/critic/<stem>.md (limits, slice ids, confidence); exit 2 lists errors
 //   critic-ready <stem>            exit 0 when the critic file is valid and fully triaged (or `skipped: <reason>`), else 5
 //   validate <findings-file>       verdict + counts by severity (test gaps last); name must match slice/round
@@ -186,7 +187,7 @@ acceptance: ${s.acceptance}`);
 
   'report-check'(file) {
     if (!file) die(2, 'usage: report-check <report-file>');
-    const all = mustRead(file).split(/\r?\n/).map((l) => l.match(/^\s*CAVEAT:[ \t]*(.*)$/)).filter((m) => m && m[1].trim()).map((m) => m[1].trim());
+    const all = mustRead(file).split(/\r?\n/).map((l) => l.match(/^\s*(?:[-*]\s+)?(?:\*\*)?CAVEAT:(?:\*\*)?[ \t]*(.*)$/)).filter((m) => m && m[1].trim()).map((m) => m[1].trim());
     if (!all.length) die(2, `${file}: no "CAVEAT:" line (the fixer ends its report with CAVEAT: none or one CAVEAT: <text> per caveat)`);
     const real = all.filter((t) => !/^none$/i.test(t));
     console.log(real.length ? `caveats: ${real.length}\n${real.map((t) => `CAVEAT: ${t}`).join('\n')}` : 'caveats: none');
@@ -219,6 +220,12 @@ acceptance: ${s.acceptance}`);
 
   'critic-model'() {
     try { console.log(require('./critic').criticModel(process.cwd())); } catch (e) { die(2, e.message); }
+  },
+
+  'critic-slices'(stem) {
+    checkId(stem, 'plan stem');
+    if (!require('./critic').sliceIds(process.cwd(), stem).length) die(2, `no runtime/slices/${stem}-t<N>.md: cut the slices first`);
+    console.log('critic-slices: ok');
   },
 
   'critic-check'(stem) {
@@ -352,6 +359,10 @@ acceptance: ${s.acceptance}`);
       const sliceFile = path.posix.join('runtime/slices', `${slice}.md`);
       if (slice !== 'debt' && fs.existsSync(sliceFile)) {
         lines.push(`slice: ${sliceFile} -- Read it; check every acceptance item against the diff.`);
+      }
+      const criticFile = path.posix.join('runtime/critic', `${slice.replace(/-t\d+$/, '')}.md`);
+      if (slice !== 'debt' && fs.existsSync(criticFile)) {
+        lines.push(`critic: ${criticFile} -- Read it; tag a finding that is the same failure as a scenario with critic: S<n>.`);
       }
       // review-policy: read at the BASE commit so the diff under review cannot change it.
       let policy = null;

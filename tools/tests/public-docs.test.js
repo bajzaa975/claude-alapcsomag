@@ -227,3 +227,11 @@ test('shared/CLAUDE.md Methodology section carries the auto-grill bullet and its
   assert.ok(b.includes('## Decisions') && b.includes('Grilled:'));
   assert.ok(fs.existsSync(path.join(ROOT, 'docs/design-grilling.md')));
 });
+
+test('the dev-process agents table names every agent in bajzi/agents/', () => {
+  const doc = read('docs/dev-process.md');
+  const table = doc.slice(doc.indexOf('## 3. Agents'), doc.indexOf('## 4.'));
+  for (const f of fs.readdirSync(path.join(ROOT, 'bajzi', 'agents'))) {
+    if (f.endsWith('.md')) assert.ok(new RegExp('^\\| ' + f.replace(/\.md$/, '') + ' \\|', 'm').test(table), `${f}: no row in the dev-process agents table`);
+  }
+});

@@ -20,7 +20,7 @@ const RULE = 'saver-guard';
 const EDIT_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit)$/;
 const RISK_AGENT = /(^|:)implementer-risk$/i;
 const BUILTIN_AGENTS = new Set(['Explore', 'Plan', 'claude-code-guide']);   // case-sensitive
-const BAJZI_AGENTS = new Set(['bajzi:reviewer', 'bajzi:implementer-risk']);   // case-insensitive
+const BAJZI_AGENTS = new Set(['bajzi:reviewer', 'bajzi:implementer-risk', 'bajzi:plan-critic']);   // case-insensitive
 const WS = /[ \t\n\v\f\r]/g;
 const WORKER_LEVEL = /(?:^|[\s;&|(`'"/\\])(?:worker(?:\.cmd)?|cc-router(?:\.js)?)(?=[\s;&|)`'"]|$)[^;&|\n]*?(?<![\w-])(?:--?)?(?:level|set)(?![-\w])/i;
 const SEP = String.raw`(?:^|[\s;&|(])`;   // a command word starts the text or follows a space/separator

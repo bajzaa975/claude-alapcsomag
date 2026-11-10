@@ -91,3 +91,8 @@ test('FC critic-model / critic-check / critic-ready', () => {
   fs.writeFileSync(path.join(d, '.claude', 'project-profile.json'), '{"plan_critic_model":"gpt"}');
   assert.strictEqual(run('critic-model').status, 2);
 });
+
+test('criticCheck: a scenario heading in any other shape is an error naming its id', () => {
+  const errs = C.criticCheck(HEAD + '## S2 · p-t1 · high (stateful)\ntrigger: a\nbreaks: b\ntest: c\n', ['p-t1']);
+  assert.match(errs.join('\n'), /S2: .*heading/);
+});

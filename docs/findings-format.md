@@ -41,7 +41,7 @@ test: none
 - Optional fields: `class: lifecycle | other` (blocker/major: `lifecycle` = state lost or wrong across restart,
   eviction, switch/reload, a failed or repeated send, a second block or rollover, or a missing failure path);
   `needs_decision: <the choice, one line>` (a design choice the owner makes before the fixer runs); `critic: S<n>`
-  (the finding matches a plan-critic scenario, set at sprint close). The validator refuses a `class` other than the two
+  (the finding is the same failure as a plan-critic scenario; the reviewer sets it when its brief has a `critic:` line). The validator refuses a `class` other than the two
   values, an empty `needs_decision` and a `critic` not of the form `S<n>`.
 - Round 2 only: `status: resolved | open` on every finding. Previous ids keep their id; a new
   finding the fix introduced gets a fresh id.

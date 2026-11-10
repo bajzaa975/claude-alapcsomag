@@ -33,6 +33,18 @@ test('critic-gate: plan path, critic not ready -> deny naming /bajzi:critic; rea
     assert.strictEqual(G.check(inp(repo('M', true), SDD, p)), null);
   }
 });
+test('critic-gate: the project is CLAUDE_PROJECT_DIR, not a cd\'d-into subfolder', () => {
+  const d = repo('M');
+  const sub = path.join(d, 'src');
+  fs.mkdirSync(sub);
+  const old = process.env.CLAUDE_PROJECT_DIR;
+  process.env.CLAUDE_PROJECT_DIR = d;
+  try {
+    assert.strictEqual(G.check(inp(sub, SDD, 'go')).kind, 'deny');
+    process.env.CLAUDE_PROJECT_DIR = repo('S');
+    assert.strictEqual(G.check(inp(sub, SDD, 'go')), null);
+  } finally { if (old === undefined) delete process.env.CLAUDE_PROJECT_DIR; else process.env.CLAUDE_PROJECT_DIR = old; }
+});
 test('critic-gate: S repo, no profile, other skills and tools -> null', () => {
   assert.strictEqual(G.check(inp(repo('S'), SDD, 'x')), null);
   assert.strictEqual(G.check(inp(repo(), SDD, 'x')), null);

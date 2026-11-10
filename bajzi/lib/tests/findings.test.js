@@ -527,7 +527,7 @@ test('dispatch.md "The brief holds:" names every line prefix brief review emits'
   const emitted = [...new Set([...block.matchAll(/[`']([A-Za-z][\w -]*?):[ `'$]/g)].map((m) => m[1]))].sort();
   const names = {
     'slice_id': '`slice_id/round/range` line', 'GRAPH': 'code-review-graph marker line', 'diff': 'the diff path',
-    'slice': '`slice:` line', 'policy': '`policy:` line', 'always read': '`always read:`', 'policy-warning': '`policy-warning:`',
+    'slice': '`slice:` line', 'critic': '`critic:` line', 'policy': '`policy:` line', 'always read': '`always read:`', 'policy-warning': '`policy-warning:`',
     'policy-changed': '`policy-changed: yes`', 'known': '`known:` line', 'round-1 findings': 'round-1 file',
     'fixer report': 'fixer report paths', 'fix diff': '`fix diff:` line', 'changed files': 'changed-file list',
   };
@@ -1006,4 +1006,47 @@ test('FC decisions lists needs_decision findings; FC directive writes/replaces d
     assert.strictEqual(t.run('directive', f, 'F9', 'x').status, 2);
     assert.strictEqual(t.run('directive', f, 'F1', '  ').status, 2);
   } finally { t.rm(); }
+});
+
+// ---------- review-round fixes ----------
+
+test('FC report-check accepts a CAVEAT line behind a list marker or bold', () => {
+  const t = cliRepo('repchk2-');
+  try {
+    for (const [n, line] of [['dash', '- CAVEAT: none'], ['star', '* CAVEAT: none'], ['bold', '**CAVEAT:** none']]) {
+      t.w(`r/${n}.md`, `FIX s DONE 1/1\n${line}\n`);
+      const x = t.run('report-check', `r/${n}.md`);
+      assert.strictEqual(x.status, 0, n + x.stderr); assert.match(x.stdout, /caveats: none/);
+    }
+  } finally { t.rm(); }
+});
+
+test('FC critic-slices refuses before any dispatch when the plan has no slice files', () => {
+  const t = cliRepo('cslices-');
+  try {
+    let x = t.run('critic-slices', 'pl');
+    assert.strictEqual(x.status, 2);
+    assert.match(x.stderr, /cut the slices first/);
+    t.w('runtime/slices/pl-t1.md', 'x');
+    x = t.run('critic-slices', 'pl');
+    assert.strictEqual(x.status, 0, x.stderr);
+  } finally { t.rm(); }
+  const skill = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'skills', 'critic', 'SKILL.md'), 'utf8');
+  assert.ok(skill.indexOf('critic-slices') > 0 && skill.indexOf('critic-slices') < skill.indexOf('subagent_type'));
+});
+
+test('sprint close: the review brief points at the critic file; reviewer tags critic: S<n>; the review skill runs FC ledger', () => {
+  const t = cliRepo('bcritic-');
+  try {
+    t.g('init', '-q'); t.w('a', '1'); t.g('add', '.'); t.g('commit', '-qm', 'a'); t.w('a', '2'); t.g('commit', '-qam', 'b');
+    const brief = (s) => t.fs.readFileSync(t.path.join(t.d, t.run('brief', 'review', s, '1', 'HEAD~1..HEAD').stdout.trim()), 'utf8');
+    assert.doesNotMatch(brief('pl'), /^critic:/m);
+    t.w('runtime/critic/pl.md', '# Critic\n\n## Triage\nskipped: x\n');
+    for (const s of ['pl', 'pl-t1']) assert.match(brief(s), /^critic: runtime\/critic\/pl\.md -- .*critic: S<n>/m, s);
+    assert.doesNotMatch(brief('debt'), /^critic:/m);
+  } finally { t.rm(); }
+  const root = require('path').join(__dirname, '..', '..');
+  const rd = (p) => require('fs').readFileSync(require('path').join(root, p), 'utf8');
+  assert.match(rd('agents/reviewer.md'), /critic: S<n>/);
+  assert.match(rd('skills/review/SKILL.md'), /FC ledger "<stem>"/);
 });

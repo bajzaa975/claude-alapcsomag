@@ -31,7 +31,8 @@ the skill has no other round.
    the owner lines are written but `debt.md` refused the merge (the ids it names are NOT parked):
    print it and tell the owner. Then step 7 (the closing gate and report run before the stop). STOP after step 7: there is no
    further round in the skill; a third round is the owner's call, started by hand.
-7. **Sprint end** (after a round-1 `CLEAN`, after the round-2 close, same for a lone slice). The repo's full gate (the command its README
+7. **Sprint end** (after a round-1 `CLEAN`, after the round-2 close, same for a lone slice). For a plan sprint (slice ids `<stem>-t<N>`) first run
+   `FC ledger "<stem>"` (stem = the slice id without `-t<N>`) and print its line. The repo's full gate (the command its README
    or CLAUDE.md names) runs ONCE per sprint, here, with `run_in_background`, while you write the closing bookkeeping (decision-log
    entry, handoff). Slice `test:` commands and the pre-commit gate are the per-slice and fix-round checks, not the full gate. The gate is
    never skipped: CLEAN needs its exit 0; red -> fix through the debugging row and re-run the gate, no third review round. A night-run

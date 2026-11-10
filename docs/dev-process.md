@@ -46,6 +46,7 @@ Sources: `docs/methodology-guide.md`, `docs/slice-format.md`, `docs/findings-for
 4. **Plan:** `superpowers:writing-plans` writes `docs/superpowers/plans/<date>-<topic>.md`.
    - **Plan critic (M/L):** `/bajzi:critic <stem>` runs the read-only `plan-critic` agent (model: profile key `plan_critic_model`, default fable; a Fable limit falls back to opus, never a stop). It reads the plan, the slices and the code and writes `runtime/critic/<stem>.md`: at most 3 ranked scenarios per slice and 10 per plan (trigger, user-visible break, slice, proving test, confidence). It asks what happens to in-memory state on eviction or rebuild, to browser-only state on chat switch or reload, whether every fetch and model output (including empty output) has a failure path, and which block an event binds to when a new block started meanwhile.
    - The owner sorts the scenarios in the batch of plan questions (`## Triage`: accept or reject). Accepted ones become specific, testable acceptance items. Unattended, high-confidence scenarios are accepted automatically and marked `auto`; a plan can skip the critic with one line `skipped: <reason>`, visible in the ledger.
+   - The critic needs the slices: `/bajzi:critic` refuses until `runtime/slices/<stem>-t<N>.md` exist (cut them first, step 5).
    - **Enforcement:** `FC slice <stem>-t<N>` and `FC sprint <stem>` exit 5 in an M/L repo without a ready critic file, and a hook covers the superpowers execution skills. S repos and non-plan ids pass.
    - The owner reviews the plan; nobody asks about the execution method.
    - With no mode active, execution is subagent-driven-development plus the bajzi review loop.
@@ -70,6 +71,7 @@ Sources: `docs/methodology-guide.md`, `docs/slice-format.md`, `docs/findings-for
 | implementer | Sonnet / medium | Read, Edit, Write, Grep, Glob, Bash | Tier 2/3 slices. Edits only `files:`, test first. Ends with `SLICE <id> DONE` or `BLOCKED`. Never commits, pushes, rebases, self-reviews, or touches `runtime/**`, hooks, settings or `.githooks`. |
 | implementer-risk | Sonnet / high | same | Tier 1. Same rules, plus a failing test for every changed branch. |
 | fixer | Sonnet / medium (high when risk-bearing) | Read, Edit, Grep, Glob, Bash | Severity-blind copy, all findings treated as equal. Names the invariant a finding breaks and greps for every other path that breaks it; effort high on Tier 1. Reports `FIX DONE n/m`, `OUT_OF_SLICE` / `ATTEMPTED` lines and a mandatory `CAVEAT:` line. Never dispatches agents. |
+| plan-critic | Fable / high (profile `plan_critic_model`; a Fable limit falls back to opus) | Read, Grep, Glob, Bash | Read-only (Bash only for git show, log and diff). Runs after the slices are cut, in an M/L repo; writes `runtime/critic/<stem>.md` (at most 3 scenarios per slice, 10 per plan). The planner is Opus at high effort and the critic a different model (Fable at high), so the read is independent. |
 | reviewer | Opus / high (sprint review at xhigh, round 2 at high; Tier 2/3 reviews at medium) | Read, Grep, Glob, 2 code-review-graph tools | Read-only, no shell. Its final message is the findings file. Never writes code and never rates lower because a fix looks hard. Model allow-list in `~/.claude/bajzi/config.json`. |
 
 The orchestrating session never writes slice code, fixes or reviews itself. Every agent goes through the dispatch brief, log and save steps.
@@ -155,6 +157,7 @@ The orchestrating session never writes slice code, fixes or reviews itself. Ever
   - kill-guard: no kills by process name;
   - writer-guard: no edits to installed bajzi copies;
   - saver-guard;
+  - critic-gate: in an M/L repo the superpowers execution skills need the plan path and a ready critic file;
   - file-lock: one session per file;
   - dispatch-guard (Agent, in day-run or saver mode):
     - reviews must use `bajzi:reviewer` with a range and a graph marker;

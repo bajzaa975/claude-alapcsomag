@@ -18,7 +18,10 @@ const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return 
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
 
 function readLedger(cwd) {
-  return read(path.join(cwd, LEDGER)).split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  // A line that does not parse refuses: writeLedger rewrites the whole file, so dropping it would delete it.
+  return read(path.join(cwd, LEDGER)).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean).map((l, i) => {
+    try { return JSON.parse(l); } catch { throw new Error(`${LEDGER} line ${i + 1} is not valid JSON; fix or remove it, nothing was written`); }
+  });
 }
 function writeLedger(cwd, rows) {
   fs.mkdirSync(path.join(cwd, 'runtime'), { recursive: true });
@@ -30,16 +33,20 @@ function findingsOf(cwd, id, round) {
   return t ? F.parse(t).findings : null;
 }
 
-function sliceRow(cwd, id) {
-  const r1 = findingsOf(cwd, id, 1);
-  const r2 = findingsOf(cwd, id, 2);
-  const big = (fs_) => (fs_ || []).filter((f) => SEV.includes(f.severity));
+// A slice without its own findings files falls back to the sprint's stem-named files; sprint.owner (the first such
+// slice) alone counts their findings, so a sprint review is not counted once per slice.
+function sliceRow(cwd, id, sprint) {
+  let r1 = findingsOf(cwd, id, 1);
+  let r2 = findingsOf(cwd, id, 2);
+  let count = true;
+  if (!r1 && !r2 && sprint) { r1 = sprint.r1; r2 = sprint.r2; count = sprint.owner === id; }
+  const big = (fs_) => (count ? fs_ || [] : []).filter((f) => SEV.includes(f.severity));
   const r1ids = new Set((r1 || []).map((f) => f.id));
   const row = { id, r1: { lifecycle: 0, other: 0 }, r2_new_majors: 0, open_after_r2: 0, rounds: (r1 ? 1 : 0) + (r2 ? 1 : 0) };
   for (const f of big(r1)) row.r1[f.class === 'lifecycle' ? 'lifecycle' : 'other']++;
   row.r2_new_majors = big(r2).filter((f) => !r1ids.has(f.id)).length;
   row.open_after_r2 = big(r2).filter((f) => f.status === 'open').length;
-  row.critics = [...(r1 || []), ...(r2 || [])].map((f) => f.critic).filter(Boolean);
+  row.critics = (count ? [...(r1 || []), ...(r2 || [])] : []).map((f) => f.critic).filter(Boolean);
   return row;
 }
 
@@ -109,17 +116,28 @@ async function sprintUsage(cwd, since, until) {
   return { files: files.length, agents, phases };
 }
 
+// Earliest of: the plan file, the critic file, and the parent of the oldest implement commit (the critic, the planning and
+// the first slice's build all happen before that commit). null when there is no implement commit.
 function windowStart(cwd, stem) {
   try {
-    const out = execFileSync('git', ['log', '--format=%ct', '-E', `--grep=^${stem}-t[0-9]+: implement`], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    const t = out.split('\n').filter(Boolean).map(Number);
-    return t.length ? Math.min(...t) * 1000 : null;
+    const git = (a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const rows = git(['log', '--format=%ct %P', '-E', `--grep=^${stem}-t[0-9]+: implement`]).split('\n').filter(Boolean).map((l) => l.split(' '));
+    if (!rows.length) return null;
+    const [ct, parent] = rows.reduce((a, b) => (Number(b[0]) < Number(a[0]) ? b : a));
+    const times = [Number(ct) * 1000];
+    if (parent) times.push(Number(git(['log', '-1', '--format=%ct', parent]).trim()) * 1000);
+    for (const f of [`runtime/plans/${stem}.md`, `docs/superpowers/plans/${stem}.md`, `runtime/critic/${stem}.md`]) {
+      try { times.push(fs.statSync(path.join(cwd, f)).mtimeMs); } catch { /* absent */ }
+    }
+    return Math.min(...times);
   } catch { return null; }
 }
 
 async function sendSprint(cwd, stem) {
   const ids = C.sliceIds(cwd, stem).sort((a, b) => Number(a.split('-t').pop()) - Number(b.split('-t').pop()));
-  const slices = ids.map((id) => sliceRow(cwd, id));
+  const own = (id) => findingsOf(cwd, id, 1) || findingsOf(cwd, id, 2);
+  const sprint = { r1: findingsOf(cwd, stem, 1), r2: findingsOf(cwd, stem, 2), owner: ids.find((id) => !own(id)) };
+  const slices = ids.map((id) => sliceRow(cwd, id, sprint));
   const critic = criticRow(cwd, stem, slices);
   slices.forEach((s) => delete s.critics);
   const since = windowStart(cwd, stem);

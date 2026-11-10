@@ -11,6 +11,8 @@ const CLI = path.join(__dirname, '..', 'findings-cli.js');
 const STEM = 's1';
 const T0 = '2026-11-01T10:00:00Z';
 const IN = '2026-11-01T11:00:00Z';
+const BASE = '2026-11-01T08:00:00Z';
+const EARLY = '2026-11-01T09:00:00Z'; // after the base commit, before the first implement commit
 
 const finding = (id, sev, extra = '', tail = '') => `## ${id} · ${sev} · a.js:1\nfinding: x\nif_unfixed: y\nwhy_severity: z\ntest: none\n${extra}${tail}\n`;
 const doc = (slice, round, body) => `# Findings · ${slice} · round ${round}\nrange: a..b\nreviewer: opus\nverdict: FINDINGS 1\nfiles_reviewed: 1\n\n${body}`;
@@ -45,6 +47,9 @@ function fixture({ transcripts = true, r2 = true, critic = true } = {}) {
   }
   sh(repo, ['git', 'init', '-q']);
   const cenv = (d) => ({ GIT_COMMITTER_DATE: d, GIT_AUTHOR_DATE: d, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
+  fs.writeFileSync(path.join(repo, '.keep'), '');
+  sh(repo, ['git', 'add', '.keep']);
+  sh(repo, ['git', 'commit', '-q', '-m', 'base'], cenv(BASE));
   sh(repo, ['git', 'add', '-A']);
   sh(repo, ['git', 'commit', '-q', '-m', 's1-t1: implement'], cenv(T0));
   if (transcripts) {
@@ -185,4 +190,51 @@ test('prices.json carries as_of and no model without a documented price', () => 
   for (const [m, v] of Object.entries(p.models)) {
     assert.ok(v.input > 0 && v.output > 0 && v.cache_write_mult > 0 && v.cache_read_mult > 0, m);
   }
+});
+
+test('ledger: a sprint reviewed under the stem name (<stem>-r1.md, -r2.md) fills the slice rows', () => {
+  const f = fixture({ r2: false });
+  for (const n of ['s1-t1-r1', 's1-t2-r1']) fs.rmSync(path.join(f.repo, 'runtime/findings', `${n}.md`));
+  const w = (n, c) => fs.writeFileSync(path.join(f.repo, 'runtime/findings', `${n}.md`), c);
+  w('s1-r1', doc('s1', 1, finding('F1', 'major', 'class: lifecycle\n') + finding('F2', 'blocker', 'critic: S1\n')));
+  w('s1-r2', doc('s1', 2, finding('F1', 'major', '', 'status: resolved\n') + finding('F3', 'major', '', 'status: open\n')));
+  assert.strictEqual(ledger(f, STEM).status, 0);
+  const [row] = lines(f);
+  const sum = (k) => row.slices.reduce((t, s) => t + (typeof k === 'function' ? k(s) : s[k]), 0);
+  assert.strictEqual(sum((s) => s.r1.lifecycle), 1);
+  assert.strictEqual(sum((s) => s.r1.other), 1);
+  assert.strictEqual(sum('r2_new_majors'), 1);
+  assert.strictEqual(sum('open_after_r2'), 1);
+  assert.ok(row.slices.every((s) => s.rounds === 2));
+  assert.strictEqual(row.critic.matched, 1);
+});
+
+test('usage: the critic and the first implementer run before the first implement commit are costed', () => {
+  const f = fixture();
+  const sd = path.join(f.tdir, 'proj', 'sess', 'subagents');
+  const u = (i, o, cr = 0) => ({ input_tokens: i, output_tokens: o, cache_read_input_tokens: cr, cache_creation_input_tokens: 0 });
+  const sub = (name, type, m) => {
+    fs.writeFileSync(path.join(sd, `${name}.jsonl`), m + '\n');
+    fs.writeFileSync(path.join(sd, `${name}.meta.json`), JSON.stringify({ agentType: type }));
+  };
+  sub('agent-e1', 'bajzi:plan-critic', msg('e1', 'claude-opus-5-5', u(0, 0, 1000000), EARLY, f.repo));
+  sub('agent-e2', 'bajzi:implementer', msg('e2', 'claude-sonnet-5-5', u(1000000, 0), EARLY, f.repo));
+  ledger(f, STEM);
+  const [row] = lines(f);
+  assert.strictEqual(row.cost.phases.critic.usd, 0.4); // 0.2 in the window as before + 0.2 early
+  assert.strictEqual(row.cost.phases.build.usd, 5); // 3 + 1M in at $2
+});
+
+test('ledger: a BOM line is kept; an unparseable line refuses (exit 2) and nothing is rewritten', () => {
+  const f = fixture();
+  const file = path.join(f.repo, 'runtime', 'ledger.jsonl');
+  const good = JSON.stringify({ type: 'escaped', stem: 'x', text: 'a', ts: 'now' });
+  fs.writeFileSync(file, `\uFEFF${good}\n`);
+  assert.strictEqual(ledger(f, 'escaped', STEM, 'b').status, 0);
+  assert.strictEqual(lines(f).length, 2);
+  const bad = `${good}\n${good},\n`;
+  fs.writeFileSync(file, bad);
+  const r = ledger(f, 'escaped', STEM, 'c');
+  assert.strictEqual(r.status, 2);
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), bad);
 });

@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SIZES = ['XS', 'S', 'M', 'L'];
+const { SIZES } = require('../skills/project-setup/kit');
 const MODELS = ['sonnet', 'opus', 'haiku', 'fable'];
 const CONF = ['high', 'medium', 'low'];
 const MAX_PER_SLICE = 3;
@@ -34,6 +34,8 @@ function parseCritic(text) {
   for (const line of String(text).split(/\r?\n/)) {
     const h = line.match(/^## (S\d+) · (\S+) · (\S+)\s*$/);
     if (h) { cur = { id: h[1], slice: h[2], confidence: h[3] }; scenarios.push(cur); section.kind = 'scenario'; continue; }
+    const bad = line.match(/^## (S\d+)\b/);
+    if (bad) { cur = { id: bad[1], slice: '', confidence: '', malformed: true }; scenarios.push(cur); section.kind = 'scenario'; continue; }
     if (/^## Triage\s*$/.test(line)) { triage = { auto: false, skipped: null, verdicts: {} }; section.kind = 'triage'; continue; }
     if (/^#{1,2} /.test(line) && section.kind === 'header') continue;
     const kv = line.match(/^([A-Za-z][\w-]*):[ \t]*(.*?)\s*$/);
@@ -55,6 +57,7 @@ function criticCheck(text, sliceIds) {
   for (const s of scenarios) {
     if (seen.has(s.id)) errors.push(`${s.id}: duplicate scenario id`);
     seen.add(s.id);
+    if (s.malformed) { errors.push(`${s.id}: heading must be "## S<n> · <slice-id> · <high|medium|low>"`); continue; }
     if (!sliceIds.includes(s.slice)) errors.push(`${s.id}: unknown slice id ${s.slice}`);
     if (!CONF.includes(s.confidence)) errors.push(`${s.id}: confidence must be high|medium|low, got ${s.confidence}`);
     for (const f of ['trigger', 'breaks', 'test']) if (!s[f]) errors.push(`${s.id}: missing ${f}:`);
@@ -82,4 +85,4 @@ function criticReady(cwd, stem) {
   return open.length ? { ok: false, why: `triage missing for ${open.join(', ')}` } : { ok: true, why: 'triaged' };
 }
 
-module.exports = { projectSize, criticModel, parseCritic, criticCheck, criticReady, sliceIds };
+module.exports = { MODELS, projectSize, criticModel, parseCritic, criticCheck, criticReady, sliceIds };

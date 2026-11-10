@@ -11,7 +11,7 @@ const { spawnSync } = require('node:child_process');
 
 const SUPPORTED_VERSION = 1;
 const KEYS = new Set(['version', 'methodology', 'plugins', 'mcpServers', 'skills', 'instructions', 'gate', 'size', 'hosting', 'plan_critic_model']);
-const CRITIC_MODELS = ['sonnet', 'opus', 'haiku', 'fable'];
+const CRITIC_MODELS = require('../../lib/critic').MODELS;
 const METHODOLOGIES = new Set(['superpowers', 'gsd', 'none']);
 const BLOCK_BEGIN = '<!-- bajzi:project-setup instructions begin -->';
 const BLOCK_END = '<!-- bajzi:project-setup instructions end -->';
