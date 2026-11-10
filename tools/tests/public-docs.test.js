@@ -217,3 +217,11 @@ test('bajzi/README.md pacing classes match DAY-RUN-RULES.md', () => {
   assert.strictEqual(pacingDoc('bajzi/README.md'), pacing());
   assert.match(read('bajzi/README.md').replace(/\s+/g, ' '), /review, debugging and documents briefs never do/);
 });
+
+test('shared/CLAUDE.md Methodology section carries the auto-grill bullet and its doc exists', () => {
+  const t = read('shared/CLAUDE.md');
+  const m = t.slice(t.indexOf('## Methodology'));
+  assert.ok(m.includes('bajzi:grilling'));
+  assert.ok(m.split('\n').some((l) => l.includes('bajzi-plugins/docs/design-grilling.md')));
+  assert.ok(fs.existsSync(path.join(ROOT, 'docs/design-grilling.md')));
+});
