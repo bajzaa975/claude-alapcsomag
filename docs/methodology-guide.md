@@ -102,6 +102,7 @@ effect from the next session.
 | Refine | Claude asks, one question at a time; you answer, or say you do not know. | `superpowers:brainstorming` (always the base); `/bajzi:grill-me` to stress-test a feature plan; `/bajzi:respec-cards` for a new or large system (L). A project-sized design is grilled automatically (`bajzi:grilling`) before approval, see `docs/design-grilling.md` |
 | Spec | The goal, non-goals and decisions in a design doc. You read it and correct it. | `superpowers:brainstorming` writes it |
 | Plan | A step-by-step plan; no open question may remain before execution. | `superpowers:writing-plans` |
+| Critic (M/L) | A read-only agent lists the plan's likely failure scenarios; you accept or reject each before execution starts. | `/bajzi:critic <plan-stem>`; the whole process is in `docs/dev-process.md` |
 | Implement | One slice at a time, test first. | `/bajzi:implement <slice-id>`, or `superpowers:subagent-driven-development` |
 | Review | Risk decides depth (below). Result in `runtime/findings/<id>-r1.md`. | `/bajzi:review <slice-id> <range>` |
 | Fix | Fix, gate, commit, then the second review round, then stop. | `/bajzi:fix runtime/findings/<id>-r1.md` |

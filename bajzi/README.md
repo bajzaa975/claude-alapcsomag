@@ -19,6 +19,7 @@ A token-efficient working method for Claude Code and Cowork.
 | `/bajzi:review <slice> <range>` | reviews a commit range through the reviewer agent | after the sprint's last slice is committed |
 | `/bajzi:fix <findings-file>` | fixes round-1 findings, then runs the round-2 re-review | after a review with findings |
 | `/bajzi:debt` | checks, drains or calibrates parked review debt | before a slice / at a milestone |
+| `/bajzi:critic <plan-stem>` | read-only critic on an M/L plan: ranked failure scenarios, then your triage (model: profile `plan_critic_model`, default fable) | before executing a plan |
 | `/bajzi:radar [now\|install]` | biweekly read-only review of the Claude setup | every two weeks |
 | `/bajzi:which <intent>` | names the skill or command that fits what you want to do | any time |
 

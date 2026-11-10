@@ -31,8 +31,16 @@ Format (docs/findings-format.md):
     if_unfixed: <what a user or the system experiences, plain words, no code>
     why_severity: <severity> - <the rubric line it relies on>
     test: <the test that would catch it, "(to write)" if new> | none (never for a test-gap)
+    class: lifecycle | other              (blocker/major only; optional)
+    needs_decision: <the choice, one line>   (optional)
+    critic: S<n>                          (optional)
 
 - The separator is ` · ` (middle dot). One field per line; every field mandatory and non-empty.
+- `class:` on a blocker/major: `lifecycle` when state is lost or wrong across restart, eviction, switch/reload, a failed or
+  repeated send, a second block or rollover, or a failure path is missing; else `other`. `needs_decision:` when the fix
+  is a design choice the owner should make (name both options in one line); the owner's answer reaches the fixer as a `directive:`.
+- `critic: S<n>`: when the brief has a `critic:` line, read that file; a finding that is the same failure as one of its
+  scenarios gets the field (the scenario id). Never invent one.
 - Round 2 only: each finding also gets a last field, `status: resolved` or `status: open`.
 - `verdict` is `CLEAN` when nothing but test gaps is open, else `FINDINGS <n>`: the findings that are
   not test gaps in round 1, the `open` ones of those in round 2. Ids F1, F2, ... are unique; round 2 keeps round-1 ids, new ones go on.

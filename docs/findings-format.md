@@ -38,6 +38,11 @@ test: none
   future regression going unnoticed. Everywhere else the severity is blocker, major, minor or nit.
 - Finding fields, all mandatory and non-empty: `finding`, `if_unfixed`, `why_severity`, `test`
   (`none` when no test applies).
+- Optional fields: `class: lifecycle | other` (blocker/major: `lifecycle` = state lost or wrong across restart,
+  eviction, switch/reload, a failed or repeated send, a second block or rollover, or a missing failure path);
+  `needs_decision: <the choice, one line>` (a design choice the owner makes before the fixer runs); `critic: S<n>`
+  (the finding is the same failure as a plan-critic scenario; the reviewer sets it when its brief has a `critic:` line). The validator refuses a `class` other than the two
+  values, an empty `needs_decision` and a `critic` not of the form `S<n>`.
 - Round 2 only: `status: resolved | open` on every finding. Previous ids keep their id; a new
   finding the fix introduced gets a fresh id.
 - One field per line (`key: value`); a non-blank line that is not a field continues the previous
@@ -64,7 +69,9 @@ The validator (`validate`, exit 2) enforces the test-gap rules: refused in a `# 
 
 ## Derived files
 
-- `<slice-id>-r<n>.fixer.md` (`stripForFixer`) - ids, locations, `finding`, `test`; test gaps are
+- `<slice-id>-r<n>.fixer.md` (`stripForFixer`) - ids, locations, `finding`, `test`, `needs_decision` and `directive`
+  (`FC directive <findings-file> <Fn> "<text>"` writes or replaces the owner's one-line choice); `class` and `critic` are
+  dropped; test gaps are
   dropped (a copy with nothing else left reads `CLEAN: nothing to fix`). Severity,
   `why_severity` and `if_unfixed` are removed: the fixer never learns how bad a finding is (D4).
 - Blind re-rate copy (`stripSeverity`, `/bajzi:debt --calibrate`) - ids, locations, `finding`,
@@ -87,7 +94,9 @@ The validator (`validate`, exit 2) enforces the test-gap rules: refused in a `# 
 ## Fixer report
 
 The fixer's final message: `FIX <slice> DONE <fixed>/<total>`, then one line per untouched id,
-`<id> OUT_OF_SLICE` or `<id> ATTEMPTED: <why>`.
+`<id> OUT_OF_SLICE` or `<id> ATTEMPTED: <why>`, and last `CAVEAT: none` or one `CAVEAT: <text>` per caveat.
+`FC report-check <report-file>` prints the caveats and exits 2 when the report has no `CAVEAT:` line; the fix skill then
+re-dispatches once and records a missing-caveat caveat. A non-none caveat goes to `needs-owner.md` (round 2 still runs).
 
 ## Close policy after the one re-review (D4, `applyClosePolicy`)
 

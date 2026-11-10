@@ -484,3 +484,23 @@ test('kit-ci: a run whose only pending action is kit-ci prints the TODO, not "al
   assert.match(out.out, /TODO kit-ci/);
   assert.doesNotMatch(out.out, /already in the profile state/);
 });
+
+test('validate: plan_critic_model accepts an alias, rejects anything else', () => {
+  assert.deepStrictEqual(P.validate({ plan_critic_model: 'opus' }), { ok: true, errors: [] });
+  assert.deepStrictEqual(P.validate({ plan_critic_model: 'fable' }), { ok: true, errors: [] });
+  assert.match(P.validate({ plan_critic_model: 'claude-opus-4-1' }).errors.join('\n'), /plan_critic_model/);
+});
+
+test('validate: plan_critic_model accepts exactly the aliases critic.js criticModel accepts', () => {
+  const C = require('../../../lib/critic');
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  for (const m of ['sonnet', 'opus', 'haiku', 'fable', 'gpt', 'Opus', 'claude-opus-4-1', '']) {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pcm-'));
+    fs.mkdirSync(path.join(d, '.claude'));
+    fs.writeFileSync(path.join(d, '.claude', 'project-profile.json'), JSON.stringify({ plan_critic_model: m }));
+    let ok = true; try { C.criticModel(d); } catch { ok = false; }
+    fs.rmSync(d, { recursive: true, force: true });
+    assert.strictEqual(P.validate({ plan_critic_model: m }).ok, ok, m);
+  }
+  assert.deepStrictEqual(C.MODELS, ['sonnet', 'opus', 'haiku', 'fable']);
+});

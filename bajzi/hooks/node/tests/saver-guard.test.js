@@ -106,7 +106,7 @@ test('Agent/Task: only the read-only and risk agents pass', () => {
     for (const t of ['bajzi:implementer', 'bajzi:fixer', 'general-purpose', 'claude', 'statusline-setup', 'my-agent', 'explore', 'PLAN', undefined, '']) {
       isDeny(agent(c, t, tool), `${tool} ${t}`);
     }
-    for (const t of ['bajzi:reviewer', 'BAJZI:Reviewer', 'bajzi:implementer-risk', 'Explore', 'Plan', 'claude-code-guide']) {
+    for (const t of ['bajzi:reviewer', 'BAJZI:Reviewer', 'bajzi:implementer-risk', 'bajzi:plan-critic', 'Explore', 'Plan', 'claude-code-guide']) {
       assert.strictEqual(agent(c, t, tool), null, `${tool} ${t}`);
     }
   }

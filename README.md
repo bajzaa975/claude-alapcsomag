@@ -128,7 +128,8 @@ Check the install with `claude plugin list`.
   acceptance criteria, test command); format in [`docs/slice-format.md`](docs/slice-format.md).
 - **Agents** — `implementer` (sonnet, medium effort, tier 2/3 slices), `implementer-risk` (sonnet,
   high, tier 1 slices), `reviewer` (opus, high, read-only, returns a findings file), `fixer`
-  (sonnet, medium, fixes every finding, never sees severity). Findings file format: [`docs/findings-format.md`](docs/findings-format.md).
+  (sonnet, medium, fixes every finding, never sees severity), `plan-critic` (fable, high, read-only,
+  returns failure scenarios for an M/L plan). Findings file format: [`docs/findings-format.md`](docs/findings-format.md).
 - **Review loop** — `/bajzi:implement <id>`, per slice; after the last slice `/bajzi:review <sprint> <range>` (`findings-cli.js sprint`), then
   `/bajzi:fix <findings-file>`. Test gaps go to `runtime/findings/test-gaps.md`. Routing and the two-round cap are decided by code on files, not by
   the model. After round 2, open findings go to the owner (`needs-owner.md`) or are parked as debt
@@ -196,6 +197,7 @@ Check the install with `claude plugin list`.
 | Skill | Command | Description |
 |---|---|---|
 | `autopilot` | `/bajzi:autopilot` | Autonomous work session: carries several tasks or a sprint through without questions, with a decision log and a closing report. |
+| `critic` | `/bajzi:critic <plan-stem>` | Read-only critic on an M/L plan: ranked failure scenarios (lost state, missing failure paths), then your accept/reject triage; model from profile `plan_critic_model`, default fable. |
 | `debt` | `/bajzi:debt --check\|--drain\|--calibrate` | Parked review debt (`runtime/findings/debt.md`): check the cap before a slice, drain it with one fixer pass plus one review, calibrate with a blind re-rate. |
 | `explain` | `/bajzi:explain ["<what I did not understand>"]`, `/bajzi:explain --set-language <code>` | Re-explains the last answer (or a named point) simply, in the language set in `config.json` (`language`); also in `bajzi-cowork`. |
 | `fix` | `/bajzi:fix <findings-file>` | Fixes a round-1 findings file through the fixer agent, runs the gate, commits, then runs the round-2 re-review. |
@@ -255,6 +257,8 @@ repo root:
 ```bash
 node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js bajzi/tests/agents/*.test.js bajzi/lib/tests/*.test.js bajzi/bin/tests/*.test.js bajzi/gate/tests/*.test.js tools/tests/*.test.js
 ```
+
+The end-to-end development process (phases, agents, tiers, review loop, modes, hooks, measurement) is in [`docs/dev-process.md`](docs/dev-process.md).
 
 ## Changelog and license
 

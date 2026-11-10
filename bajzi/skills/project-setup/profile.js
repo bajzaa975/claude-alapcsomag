@@ -10,7 +10,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const SUPPORTED_VERSION = 1;
-const KEYS = new Set(['version', 'methodology', 'plugins', 'mcpServers', 'skills', 'instructions', 'gate', 'size', 'hosting']);
+const KEYS = new Set(['version', 'methodology', 'plugins', 'mcpServers', 'skills', 'instructions', 'gate', 'size', 'hosting', 'plan_critic_model']);
+const CRITIC_MODELS = require('../../lib/critic').MODELS;
 const METHODOLOGIES = new Set(['superpowers', 'gsd', 'none']);
 const BLOCK_BEGIN = '<!-- bajzi:project-setup instructions begin -->';
 const BLOCK_END = '<!-- bajzi:project-setup instructions end -->';
@@ -85,6 +86,7 @@ function validate(profile) {
       if ('baseline' in g && !relOk(g.baseline)) errors.push('gate.baseline must be a relative path inside the repo');
     }
   }
+  if ('plan_critic_model' in profile && !CRITIC_MODELS.includes(profile.plan_critic_model)) errors.push(`"plan_critic_model" must be one of ${CRITIC_MODELS.join(', ')}`);
   if ('size' in profile && !kit.SIZES.includes(profile.size)) errors.push('"size" must be XS, S, M or L');
   if ('hosting' in profile && profile.hosting !== 'local' && profile.hosting !== 'github') errors.push('"hosting" must be local or github');
   if ('size' in profile && !('hosting' in profile)) errors.push('"size" needs "hosting" (local or github)');

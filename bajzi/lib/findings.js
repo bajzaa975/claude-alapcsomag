@@ -15,6 +15,7 @@ const DEBT_MAX_PER_FILE = 3;
 
 const HEADER_FIELDS = ['range', 'reviewer', 'verdict', 'files_reviewed'];
 const FINDING_FIELDS = ['finding', 'if_unfixed', 'why_severity', 'test'];
+const CLASSES = ['lifecycle', 'other']; // optional `class:` on blocker/major findings (sprint ledger)
 const DEBT_FIELDS = [...FINDING_FIELDS, 'origin', 'parked'];
 // Enumerated values may carry a trailing "  # comment"; free-text fields never lose a '#'.
 const COMMENTABLE = new Set([...HEADER_FIELDS, 'status']);
@@ -97,6 +98,9 @@ function validate(text) {
       if (/^none$/i.test(f.test || '')) errors.push(`${f.id}: test-gap must name the test to write (test: none is not a test gap)`);
     }
     for (const k of required) if (!f[k]) errors.push(`${f.id}: missing field: ${k}`);
+    if ('class' in f && !CLASSES.includes(f.class)) errors.push(`${f.id}: bad class: ${f.class || '(empty)'} (want ${CLASSES.join('|')})`);
+    if ('critic' in f && !/^S\d+$/.test(f.critic)) errors.push(`${f.id}: bad critic: ${f.critic || '(empty)'} (want S<n>)`);
+    if ('needs_decision' in f && !f.needs_decision) errors.push(`${f.id}: empty needs_decision`);
     if (doc.round === 2) {
       if (!f.status) errors.push(`${f.id}: missing field: status`);
       else if (f.status !== 'resolved' && f.status !== 'open') errors.push(`${f.id}: bad status: ${f.status}`);
@@ -131,12 +135,12 @@ function renderBlocks(title, findings, keep, withSeverity) {
   return out.join('\n');
 }
 
-// The fixer's copy (D4): ids, locations, findings, tests. No severity, no why_severity, and no
+// The fixer's copy (D4): ids, locations, findings, tests, needs_decision and the owner's directive. No severity, no why_severity, and no
 // if_unfixed either -- the consequence line tells the fixer how bad a finding is.
 function stripForFixer(text) {
   const doc = mustValidate(text);
   const title = doc.kind === 'debt' ? '# Fixer copy · debt' : `# Fixer copy · ${doc.slice} · round ${doc.round}`;
-  return renderBlocks(title, doc.findings.filter((f) => f.severity !== TEST_GAP), ['finding', 'test'], false);
+  return renderBlocks(title, doc.findings.filter((f) => f.severity !== TEST_GAP), ['finding', 'test', 'needs_decision', 'directive'], false);
 }
 
 // The blind re-rate copy (D7): severity, why_severity and any earlier blind_severity removed;

@@ -5,15 +5,28 @@
 // here, on files, so it is testable without a model (bajzi/skills/mode/tests/mode.sh case 16).
 // Paths are relative to the cwd (the target repo) and printed with forward slashes. Exit codes:
 // 0 ok, 1 unexpected error (a Node crash), 2 usage or invalid input, 3 STOP (round cap),
-// 4 DEBT CAP HIT (the D6 cap, an unreadable debt.md, or a debt.md merge refused).
+// 4 DEBT CAP HIT (the D6 cap, an unreadable debt.md, or a debt.md merge refused), 5 CRITIC MISSING
+// (slice <stem>-t<N> / sprint <stem> in an M/L repo without a ready runtime/critic/<stem>.md).
 // Slice ids and log class names must match ID_RE (they become paths and TSV fields).
 //
 //   slice <id>                     runtime/slices/<id>.md -> the agent to dispatch; `test: none`
 //                                  prints `test: skip` (the skills run no test); id `debt` is reserved
+//   effort <id> fix                the fixer's effort: `high` for Tier 1, unknown or missing slices, else `medium`
+//   report-check <report-file>     prints the fixer report's `CAVEAT:` lines (`caveats: none` | `caveats: <n>`); exit 2 when it has none
+//   decisions <findings-file>      lists the open `needs_decision:` findings (`<id> · <location> · <choice>`), or `decisions: none`
+//   directive <findings-file> <Fn> "<text>"   writes (replaces) `directive: <text>` on Fn in the .fixer.md copy
 //   effort <id> <1|2>              the reviewer's effort: `medium` when the slice file has tier lines that are all 2 or 3,
 //                                  else `xhigh` (round 1) / `high` (round 2); never fails on a malformed slice file
 //   preflight <id>                 optional `changes:` literals -> tracked files outside `files:` that still hold them
 //                                  (git grep -w -F; report only, exit 0)
+//   (preflight also prints `preflight: no lifecycle: field (M/L slice)` for a tier 1/2 slice without `lifecycle:` when
+//    .claude/project-profile.json size is M or L)
+//   ledger <stem>                  appends the sprint's metrics + cost line to runtime/ledger.jsonl (a repeat replaces it)
+//   ledger escaped <stem> "<text>" appends an escaped-bug line; ledger report prints raw rows, then `savings (estimate)`
+//   critic-model                   the plan critic's model alias (profile plan_critic_model, default fable; invalid -> exit 2)
+//   critic-slices <stem>           exit 2 when no runtime/slices/<stem>-t<N>.md exists (cut the slices first)
+//   critic-check <stem>            validates runtime/critic/<stem>.md (limits, slice ids, confidence); exit 2 lists errors
+//   critic-ready <stem>            exit 0 when the critic file is valid and fully triaged (or `skipped: <reason>`), else 5
 //   validate <findings-file>       verdict + counts by severity (test gaps last); name must match slice/round
 //   sprint <stem>                  runtime/slices/<stem>-t<N>.md -> runtime/slices/<stem>.md (lowest tier,
 //                                  union files, joined acceptance, distinct tests); prints `slice:` and the
@@ -120,11 +133,27 @@ function readSlice(id) {
   const lines = mustRead(p).split(/\r?\n/);
   if ((lines.find((l) => l.trim()) || '').trim() !== `# Slice · ${id}`) die(2, `${p}: title must be "# Slice · ${id}"`);
   const s = {};
-  for (const l of lines) { const m = l.match(/^(tier|files|acceptance|test|changes):[ \t]*(.*)$/); if (m) s[m[1]] = m[2].trim(); }
+  for (const l of lines) {
+    const m = l.match(/^(tier|files|acceptance|test|changes):[ \t]*(.*)$/);
+    if (m) s[m[1]] = m[2].trim();
+    const lc = l.match(/^\s*lifecycle:[ \t]*(.*)$/);
+    if (lc) (s.lifecycle = s.lifecycle || []).push(lc[1].trim());
+  }
+  if (s.lifecycle) s.lifecycle = s.lifecycle.filter((x) => x && !/^none$/i.test(x));
   for (const k of ['tier', 'files', 'acceptance', 'test']) if (!s[k]) die(2, `${p}: missing field: ${k}`);
   if (!['1', '2', '3'].includes(s.tier)) die(2, `${p}: tier must be 1, 2 or 3, got ${s.tier}`);
   checkFiles(p, s.files);
   return s;
+}
+
+// Exit 5 when an M/L repo has no ready critic file for the plan stem; m = [_, stem] or null (not a plan slice id).
+function criticGate(m) {
+  if (!m) return;
+  const C = require('./critic');
+  const size = C.projectSize(process.cwd());
+  if (size !== 'M' && size !== 'L') return;
+  const r = C.criticReady(process.cwd(), m[1]);
+  if (!r.ok) die(5, `critic not ready for ${m[1]}: ${r.why} (run /bajzi:critic ${m[1]})`);
 }
 
 const cmds = {
@@ -132,26 +161,95 @@ const cmds = {
     if (!id) die(2, 'usage: slice <id>');
     checkId(id);
     if (id === 'debt') die(2, 'slice id "debt" is reserved for the debt drain (debt.md, debt-r2.md); rename the slice');
+    criticGate(id.match(/^(.+)-t\d+$/));
     const s = readSlice(id);
     console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${/^none$/i.test(s.test) ? 'skip' : s.test}
 acceptance: ${s.acceptance}`);
   },
 
+  async ledger(...args) {
+    if (args[0] && args[0] !== 'report' && args[0] !== 'escaped') checkId(args[0], 'sprint stem');
+    if (args[0] === 'escaped' && args[1]) checkId(args[1], 'sprint stem');
+    try { process.stdout.write(await require('./ledger').run(process.cwd(), args)); } catch (e) { die(2, e.message); }
+  },
+
   effort(id, round) {
     checkId(id);
-    if (!['1', '2'].includes(round)) die(2, 'usage: effort <slice-id> <1|2>');
+    if (!['1', '2', 'fix'].includes(round)) die(2, 'usage: effort <slice-id> <1|2|fix>');
     // Lenient on purpose (not readSlice): a missing or malformed file falls through to the Tier 1 values.
     const tiers = [];
     try {
       for (const l of read(path.posix.join('runtime/slices', `${id}.md`)).split(/\r?\n/)) { const m = l.match(/^tier:[ \t]*(\S*)/); if (m) tiers.push(m[1]); }
     } catch { /* unreadable = unknown */ }
     const low = tiers.length > 0 && tiers.every((x) => x === '2' || x === '3');
-    console.log(low ? 'medium' : round === '1' ? 'xhigh' : 'high');
+    console.log(low ? 'medium' : round === '1' ? 'xhigh' : 'high'); // fix: Tier 1/unknown high, else medium
+  },
+
+  'report-check'(file) {
+    if (!file) die(2, 'usage: report-check <report-file>');
+    const all = mustRead(file).split(/\r?\n/).map((l) => l.match(/^\s*(?:[-*]\s+)?(?:\*\*)?CAVEAT:(?:\*\*)?[ \t]*(.*)$/)).filter((m) => m && m[1].trim()).map((m) => m[1].trim());
+    if (!all.length) die(2, `${file}: no "CAVEAT:" line (the fixer ends its report with CAVEAT: none or one CAVEAT: <text> per caveat)`);
+    const real = all.filter((t) => !/^none$/i.test(t));
+    console.log(real.length ? `caveats: ${real.length}\n${real.map((t) => `CAVEAT: ${t}`).join('\n')}` : 'caveats: none');
+  },
+
+  decisions(file) {
+    if (!file) die(2, 'usage: decisions <findings-file>');
+    const doc = mustParse(mustRead(file), file);
+    const ds = doc.findings.filter((f) => f.needs_decision && f.status !== 'resolved' && f.severity !== F.TEST_GAP);
+    console.log(ds.length ? ds.map((f) => `${f.id} · ${f.location} · ${f.needs_decision}`).join('\n') : 'decisions: none');
+  },
+
+  directive(file, id, text) {
+    const one = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!file || !id || !one) die(2, 'usage: directive <findings-file> <Fn> "<text>"');
+    mustParse(mustRead(file), file);
+    const out = fwd(file).replace(/\.md$/, '.fixer.md');
+    const lines = mustRead(out).split('\n');
+    const start = lines.findIndex((l) => l.startsWith(`## ${id} · `));
+    if (start < 0) die(2, `${out}: no finding ${id}`);
+    let end = lines.findIndex((l, i) => i > start && l.startsWith('## '));
+    if (end < 0) end = lines.length;
+    const block = lines.slice(start, end).filter((l) => !/^directive:/.test(l));
+    let last = block.length;
+    while (last > 1 && !block[last - 1].trim()) last--;
+    block.splice(last, 0, `directive: ${one}`);
+    fs.writeFileSync(out, [...lines.slice(0, start), ...block, ...lines.slice(end)].join('\n'));
+    console.log(out);
+  },
+
+  'critic-model'() {
+    try { console.log(require('./critic').criticModel(process.cwd())); } catch (e) { die(2, e.message); }
+  },
+
+  'critic-slices'(stem) {
+    checkId(stem, 'plan stem');
+    if (!require('./critic').sliceIds(process.cwd(), stem).length) die(2, `no runtime/slices/${stem}-t<N>.md: cut the slices first`);
+    console.log('critic-slices: ok');
+  },
+
+  'critic-check'(stem) {
+    checkId(stem, 'plan stem');
+    const C = require('./critic');
+    const errors = C.criticCheck(mustRead(path.posix.join('runtime/critic', `${stem}.md`)), C.sliceIds(process.cwd(), stem));
+    if (errors.length) die(2, errors.join('\n'));
+    console.log('critic-check: ok');
+  },
+
+  'critic-ready'(stem) {
+    checkId(stem, 'plan stem');
+    const r = require('./critic').criticReady(process.cwd(), stem);
+    if (!r.ok) die(5, `critic not ready for ${stem}: ${r.why} (run /bajzi:critic ${stem})`);
+    console.log(`critic-ready: ${r.why}`);
   },
 
   preflight(id) {
     if (!id) die(2, 'usage: preflight <slice-id>');
     const s = readSlice(id);
+    if (s.lifecycle === undefined && ['1', '2'].includes(s.tier)) {
+      const size = require('./critic').projectSize(process.cwd());
+      if (size === 'M' || size === 'L') console.log('preflight: no lifecycle: field (M/L slice)');
+    }
     const terms = [...new Set((s.changes || '').split(',').map((x) => x.trim()).filter((x) => x && !/^none$/i.test(x)))];
     if (!terms.length) return console.log('preflight: no changes: field, nothing checked');
     const norm = (f) => fwd(f.trim()).replace(/^(\.\/)+/, '');
@@ -174,6 +272,7 @@ acceptance: ${s.acceptance}`);
   sprint(stem) {
     if (!stem) die(2, 'usage: sprint <stem>');
     checkId(stem, 'sprint stem');
+    criticGate([null, stem]);
     const re = new RegExp(`^${stem}-t(\\d+)\\.md$`);
     const ids = (fs.existsSync('runtime/slices') ? fs.readdirSync('runtime/slices') : []).map((f) => f.match(re)).filter(Boolean)
       .sort((a, b) => Number(a[1]) - Number(b[1])).map((m) => m[0].slice(0, -3));
@@ -260,6 +359,10 @@ acceptance: ${s.acceptance}`);
       const sliceFile = path.posix.join('runtime/slices', `${slice}.md`);
       if (slice !== 'debt' && fs.existsSync(sliceFile)) {
         lines.push(`slice: ${sliceFile} -- Read it; check every acceptance item against the diff.`);
+      }
+      const criticFile = path.posix.join('runtime/critic', `${slice.replace(/-t\d+$/, '')}.md`);
+      if (slice !== 'debt' && fs.existsSync(criticFile)) {
+        lines.push(`critic: ${criticFile} -- Read it; tag a finding that is the same failure as a scenario with critic: S<n>.`);
       }
       // review-policy: read at the BASE commit so the diff under review cannot change it.
       let policy = null;
@@ -441,6 +544,9 @@ acceptance: ${s.acceptance}`);
   },
 };
 
-const [cmd, ...args] = process.argv.slice(2);
-if (!cmds[cmd]) die(2, `usage: findings-cli.js <${Object.keys(cmds).join('|')}> ...`);
-cmds[cmd](...args);
+if (require.main !== module) module.exports = { readSlice };
+else {
+  const [cmd, ...args] = process.argv.slice(2);
+  if (!cmds[cmd]) die(2, `usage: findings-cli.js <${Object.keys(cmds).join('|')}> ...`);
+  cmds[cmd](...args);
+}

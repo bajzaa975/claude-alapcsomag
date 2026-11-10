@@ -13,7 +13,7 @@ const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
 const FORMAT_DOC = path.join(__dirname, '..', '..', '..', 'docs', 'findings-format.md');
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 
-const ALLOWED_MODELS = ['haiku', 'sonnet', 'opus'];
+const ALLOWED_MODELS = ['haiku', 'sonnet', 'opus', 'fable'];
 // The union of every "tools" column in the agent table.
 const ALLOWED_TOOLS = [
   'Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash',
@@ -62,7 +62,7 @@ function validateAgent(content, name) {
   }
 
   if (!ALLOWED_MODELS.includes(fields.model)) {
-    return { ok: false, why: `model is not an alias (haiku|sonnet|opus): ${fields.model}` };
+    return { ok: false, why: `model is not an alias (haiku|sonnet|opus|fable): ${fields.model}` };
   }
 
   const tools = toolList(fields);
@@ -152,6 +152,7 @@ const PINS = {
   reviewer: { model: 'opus', tools: ['Read', 'Grep', 'Glob',
     'mcp__code-review-graph__detect_changes_tool', 'mcp__code-review-graph__get_review_context_tool'] },
   fixer: { model: 'sonnet', tools: ['Read', 'Edit', 'Grep', 'Glob', 'Bash'] },
+  'plan-critic': { model: 'fable', tools: ['Read', 'Grep', 'Glob', 'Bash'] },
   implementer: { model: 'sonnet', tools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'] },
   'implementer-risk': { model: 'sonnet', tools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'] },
 };
@@ -317,4 +318,15 @@ test('spec §6.12 lens sentence carries the reviewer lens severities', () => {
   assert.match(spec, /a comment or docstring the changed code contradicts is a nit/);
   assert.match(spec, /a completed TODO left in place is a nit/);
   assert.match(spec, /an invalid-constructible type is major when it guards money, security or persisted data, else minor/);
+});
+
+test('fixer pins the invariant sweep, directive and CAVEAT rules; reviewer names class and needs_decision', () => {
+  const fx = read('fixer.md').replace(/\s+/g, ' ');
+  assert.match(fx, /name the invariant it breaks, then grep every other path/);
+  assert.match(fx, /`OUT_OF_SLICE`/);
+  assert.match(fx, /`directive:` line is the owner's decision/);
+  assert.match(fx, /`CAVEAT: none` or one `CAVEAT: <text>` per caveat/);
+  const rv = read('reviewer.md').replace(/\s+/g, ' ');
+  assert.match(rv, /class: lifecycle \| other/);
+  assert.match(rv, /needs_decision: <the choice, one line>/);
 });

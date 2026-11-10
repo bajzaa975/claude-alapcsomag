@@ -8,8 +8,8 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const readline = require('readline');
 const { spawnSync } = require('child_process');
+const { num, mtime, ls, eachLine, transcripts, addUsage } = require('../../lib/usage');
 
 const DAY = 864e5;
 const RO_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'];
@@ -24,10 +24,7 @@ const label = v => (typeof v === 'string' && LABEL.test(v) ? v : '(other)');
 const head = v => label((/^[A-Za-z0-9_.:@/-]+/.exec(v) || [''])[0]);
 const basename = cwd => label(cwd.split(/[\\/]/).filter(Boolean).pop() || '');
 const iso = t => new Date(t).toISOString();
-const num = v => (Number.isFinite(v) ? v : 0);
 const inc = (m, k, n = 1) => m.set(k, (m.get(k) || 0) + n);
-const mtime = p => { try { return fs.statSync(p).mtimeMs; } catch { return null; } };
-const ls = d => { try { return fs.readdirSync(d, { withFileTypes: true }); } catch { return []; } };
 
 function stateDir(env = process.env) {
   return env.BAJZI_RADAR_HOME || path.join(os.homedir(), '.claude', 'bajzi', 'radar');
@@ -36,29 +33,6 @@ function stateDir(env = process.env) {
 function ymd(t) {
   const d = new Date(t), p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-async function eachLine(file, fn) {
-  const rl = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
-  for await (const l of rl) fn(l);
-}
-
-// <projectsDir>/*/*.jsonl and <projectsDir>/*/*/subagents/*.jsonl, mtime >= since.
-function transcripts(dir, since) {
-  const out = [];
-  for (const p of ls(dir)) {
-    if (!p.isDirectory()) continue;
-    const pd = path.join(dir, p.name);
-    for (const e of ls(pd)) {
-      const ep = path.join(pd, e.name);
-      if (e.isFile() && e.name.endsWith('.jsonl')) out.push(ep);
-      else if (e.isDirectory()) {
-        const sd = path.join(ep, 'subagents');
-        for (const s of ls(sd)) if (s.isFile() && s.name.endsWith('.jsonl')) out.push(path.join(sd, s.name));
-      }
-    }
-  }
-  return out.filter(f => (mtime(f) ?? -Infinity) >= since);
 }
 
 function newState() {
@@ -95,18 +69,7 @@ function entry(st, o, since) {
     }
   }
   if (o.type === 'assistant' && msg) {
-    // Claude Code writes one line per content block, each repeating message.id and usage.
-    const id = typeof msg.id === 'string' ? msg.id : null;
-    if (!id || !st.msgIds.has(id)) {
-      if (id) st.msgIds.add(id);
-      const k = msg.model ? label(msg.model) : '(none)';
-      const r = st.models.get(k) || { msgs: 0, in: 0, out: 0, cr: 0, cw: 0 };
-      const u = msg.usage || {};
-      r.msgs++;
-      r.in += num(u.input_tokens); r.out += num(u.output_tokens);
-      r.cr += num(u.cache_read_input_tokens); r.cw += num(u.cache_creation_input_tokens);
-      st.models.set(k, r);
-    }
+    addUsage(st.models, st.msgIds, msg, msg.model ? label(msg.model) : '(none)');
     if (Array.isArray(content)) {
       for (const b of content) {
         if (!b || b.type !== 'tool_use' || st.counted.has(b.id)) continue;

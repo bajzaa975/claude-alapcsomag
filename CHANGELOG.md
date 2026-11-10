@@ -2,6 +2,12 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.39.0
+- Added: plan critic for M/L repos: `/bajzi:critic <stem>` runs the read-only `plan-critic` agent (model from profile key `plan_critic_model`, default fable, opus fallback) and writes ranked failure scenarios plus your triage to `runtime/critic/<stem>.md`; `FC slice`/`FC sprint` exit 5 and a hook on the superpowers execution skills block plan-derived work until the triage exists (`skipped: <reason>` and unattended `auto` triage are accepted)
+- Added: sprint ledger (`FC ledger`, `FC ledger escaped`, `FC ledger report`): raw per-slice and per-sprint metrics, token/cost by phase from transcripts, savings labelled an estimate against an optional `ledger_baselines` baseline
+- Changed: the fixer names the invariant a finding breaks, runs at high effort on Tier 1 and reports a mandatory `CAVEAT:` line (goes to `needs-owner.md`, round 2 still runs; unattended runs never stop on it); slices carry a lifecycle line
+- Added: `docs/dev-process.md`, the end-to-end development process
+
 ## 1.38.1
 - Added: global rule (shared `CLAUDE.md`, Methodology): when brainstorming sizes the work as a project, the written design is grilled with `bajzi:grilling` automatically before it is called ready or sent for approval; quick tasks and small changes are not grilled. Details in `docs/design-grilling.md`; `/bajzi:setup` adds the bullet to an existing `~/.claude/CLAUDE.md` once
 - Fixed: `findings-cli.js preflight` treats `changes: none` as no field instead of searching for the word "none"

@@ -527,7 +527,7 @@ test('dispatch.md "The brief holds:" names every line prefix brief review emits'
   const emitted = [...new Set([...block.matchAll(/[`']([A-Za-z][\w -]*?):[ `'$]/g)].map((m) => m[1]))].sort();
   const names = {
     'slice_id': '`slice_id/round/range` line', 'GRAPH': 'code-review-graph marker line', 'diff': 'the diff path',
-    'slice': '`slice:` line', 'policy': '`policy:` line', 'always read': '`always read:`', 'policy-warning': '`policy-warning:`',
+    'slice': '`slice:` line', 'critic': '`critic:` line', 'policy': '`policy:` line', 'always read': '`always read:`', 'policy-warning': '`policy-warning:`',
     'policy-changed': '`policy-changed: yes`', 'known': '`known:` line', 'round-1 findings': 'round-1 file',
     'fixer report': 'fixer report paths', 'fix diff': '`fix diff:` line', 'changed files': 'changed-file list',
   };
@@ -871,4 +871,182 @@ test('FC preflight: no git repo -> git grep failed line, exit 0', () => {
     assert.strictEqual(x.status, 0, x.stderr);
     assert.strictEqual(x.stdout.trim(), 'preflight: git grep failed, nothing checked');
   } finally { t.rm(); }
+});
+
+// ---------- lifecycle field ----------
+
+test('FC preflight: lifecycle: field warning on M/L repos only (tier 1/2); readSlice parses lifecycle lines', () => {
+  const t = cliRepo('lifecycle-');
+  try {
+    const pf = () => { const x = t.run('preflight', 'lc'); assert.strictEqual(x.status, 0, x.stderr); return x.stdout.trim().split('\n'); };
+    const warn = 'preflight: no lifecycle: field (M/L slice)';
+    t.w('runtime/slices/lc.md', sliceDoc('lc', 2, 'a.js', 'x', 'none'));
+    t.w('.claude/project-profile.json', '﻿{\r\n"size": "M"\r\n}\r\n');
+    assert.deepStrictEqual(pf(), [warn, 'preflight: no changes: field, nothing checked']);
+    t.w('.claude/project-profile.json', '{"size":"S"}');
+    assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    t.fs.rmSync(t.path.join(t.d, '.claude/project-profile.json'));
+    assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    t.w('.claude/project-profile.json', '{"size":"L"}');
+    t.w('runtime/slices/lc.md', sliceDoc('lc', 2, 'a.js', 'x', 'none').replace('test: none', 'lifecycle: none\ntest: none'));
+    assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    t.w('runtime/slices/lc.md', sliceDoc('lc', 3, 'a.js', 'x', 'none'));
+    assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    // readSlice via the CLI module export
+    const code = `const c=require(${JSON.stringify(t.path.join(__dirname, '..', 'findings-cli.js'))});` +
+      `const r=['two','none','absent'].map((n)=>c.readSlice('lc-'+n).lifecycle);console.log(JSON.stringify(r));`;
+    t.w('runtime/slices/lc-two.md', sliceDoc('lc-two', 2, 'a.js', 'x', 'none').replace('test: none', 'lifecycle: a @ db: restart=kept\n  lifecycle:  b @ file: restart=lost  \ntest: none'));
+    t.w('runtime/slices/lc-none.md', sliceDoc('lc-none', 2, 'a.js', 'x', 'none').replace('test: none', 'lifecycle: none\ntest: none'));
+    t.w('runtime/slices/lc-absent.md', sliceDoc('lc-absent', 2, 'a.js', 'x', 'none'));
+    const o = require('child_process').spawnSync('node', ['-e', code], { cwd: t.d, encoding: 'utf8' });
+    assert.strictEqual(o.status, 0, o.stderr);
+    assert.deepStrictEqual(JSON.parse(o.stdout), [['a @ db: restart=kept', 'b @ file: restart=lost'], [], null]);
+  } finally { t.rm(); }
+});
+
+// ---------- critic gate (exit 5) ----------
+
+test('FC slice/sprint: M/L plan slice without a ready critic file -> exit 5 naming /bajzi:critic <stem>; ready, non-plan id, S repo -> ok', () => {
+  const t = cliRepo('cgate-');
+  try {
+    t.g('init', '-q'); t.w('a', '0'); t.g('add', '.'); t.g('commit', '-qm', 'base');
+    t.w('runtime/slices/gp-t1.md', sliceDoc('gp-t1', 2, 'a.js', 'x', 'none'));
+    t.w('runtime/slices/plain.md', sliceDoc('plain', 2, 'a.js', 'x', 'none'));
+    t.g('commit', '--allow-empty', '-qm', 'gp-t1: implement');
+    t.w('.claude/project-profile.json', '{"size":"M"}');
+    for (const args of [['slice', 'gp-t1'], ['sprint', 'gp']]) {
+      const r = t.run(...args);
+      assert.strictEqual(r.status, 5, args.join(' ') + r.stderr);
+      assert.match(r.stderr, /\/bajzi:critic gp\b/);
+    }
+    assert.strictEqual(t.run('slice', 'plain').status, 0);
+    t.w('runtime/critic/gp.md', '# Critic · gp\n\n## Triage\nskipped: hotfix\n');
+    assert.strictEqual(t.run('slice', 'gp-t1').status, 0);
+    assert.strictEqual(t.run('sprint', 'gp').status, 0);
+    t.fs.rmSync(t.path.join(t.d, 'runtime/critic/gp.md'));
+    t.w('.claude/project-profile.json', '{"size":"S"}');
+    assert.strictEqual(t.run('slice', 'gp-t1').status, 0);
+    assert.strictEqual(t.run('sprint', 'gp').status, 0);
+  } finally { t.rm(); }
+});
+
+// ---------- t4: class / needs_decision / critic fields, fixer rules ----------
+
+const withFields = (extra) => R1.replace(/(## F1 .*\n(?:.*\n){3}test: .*\n)/, `$1${extra}\n`);
+
+test('validate accepts class lifecycle|other, needs_decision and critic; rejects a bad class', () => {
+  assert.deepStrictEqual(F.validate(withFields('class: lifecycle\nneeds_decision: keep the draft or drop it\ncritic: S2')).errors, []);
+  assert.deepStrictEqual(F.validate(withFields('class: other')).errors, []);
+  assert.match(F.validate(withFields('class: logic')).errors.join(';'), /F1: bad class: logic/);
+  assert.match(F.validate(withFields('class:')).errors.join(';'), /F1: bad class/);
+  assert.match(F.validate(withFields('critic: later')).errors.join(';'), /F1: bad critic: later/);
+  assert.match(F.validate(withFields('needs_decision:')).errors.join(';'), /F1: empty needs_decision/);
+});
+
+test('stripForFixer keeps needs_decision and directive, strips class, critic and severity', () => {
+  const out = F.stripForFixer(withFields('class: lifecycle\nneeds_decision: keep the draft or drop it\ncritic: S2\ndirective: drop it'));
+  assert.ok(out.includes('needs_decision: keep the draft or drop it'));
+  assert.ok(out.includes('directive: drop it'));
+  for (const s of ['class:', 'critic:', 'lifecycle', 'blocker', 'why_severity', 'if_unfixed']) assert.ok(!out.includes(s), `leaked: ${s}`);
+});
+
+test('FC effort <id> fix: Tier 1, unknown or missing -> high; Tier 2/3 -> medium; round check unchanged', () => {
+  const t = cliRepo('efffix-');
+  try {
+    const fix = (id) => { const x = t.run('effort', id, 'fix'); assert.strictEqual(x.status, 0, x.stderr); return x.stdout; };
+    t.w('runtime/slices/a1.md', sliceDoc('a1', 1, 'x', 'y', 'z'));
+    t.w('runtime/slices/a2.md', sliceDoc('a2', 2, 'x', 'y', 'z'));
+    t.w('runtime/slices/mix.md', 'tier: 2\ntier: 1\n');
+    assert.strictEqual(fix('a1'), 'high\n');
+    assert.strictEqual(fix('a2'), 'medium\n');
+    assert.strictEqual(fix('mix'), 'high\n');
+    assert.strictEqual(fix('missing'), 'high\n');
+    assert.strictEqual(t.run('effort', 'a1', '3').status, 2);
+  } finally { t.rm(); }
+});
+
+test('FC report-check: CAVEAT lines printed; none ok; no CAVEAT line or missing file -> exit 2', () => {
+  const t = cliRepo('repchk-');
+  try {
+    t.w('r/none.md', 'FIX s DONE 1/1\nCAVEAT: none\n');
+    t.w('r/text.md', 'FIX s DONE 1/1\nCAVEAT: retry path in b.js not covered\nCAVEAT: none needed here\n');
+    t.w('r/missing.md', 'FIX s DONE 1/1\nF2 ATTEMPTED: x\n');
+    t.w('r/empty.md', 'FIX s DONE 1/1\nCAVEAT:\n');
+    let x = t.run('report-check', 'r/none.md');
+    assert.strictEqual(x.status, 0, x.stderr); assert.match(x.stdout, /caveats: none/);
+    x = t.run('report-check', 'r/text.md');
+    assert.strictEqual(x.status, 0, x.stderr);
+    assert.match(x.stdout, /caveats: 2/); assert.match(x.stdout, /CAVEAT: retry path in b\.js not covered/);
+    for (const f of ['r/missing.md', 'r/empty.md', 'r/absent.md']) assert.strictEqual(t.run('report-check', f).status, 2, f);
+    assert.strictEqual(t.run('report-check').status, 2);
+  } finally { t.rm(); }
+});
+
+test('FC decisions lists needs_decision findings; FC directive writes/replaces directive: in the fixer copy', () => {
+  const t = cliRepo('decis-');
+  try {
+    const f = 'runtime/findings/s42-r1.md';
+    t.w(f, withFields('needs_decision: keep the draft or drop it'));
+    let x = t.run('decisions', f);
+    assert.strictEqual(x.status, 0, x.stderr);
+    assert.match(x.stdout, /^F1 · app\/billing\/retry\.py:41 · keep the draft or drop it$/m);
+    assert.ok(!/F2/.test(x.stdout));
+    t.w('runtime/findings/none-r1.md', R1.replace('s42', 'none'));
+    assert.match(t.run('decisions', 'runtime/findings/none-r1.md').stdout, /decisions: none/);
+    assert.strictEqual(t.run('directive', f, 'F1', 'drop it').status, 2, 'no fixer copy yet');
+    assert.strictEqual(t.run('copy', 'fixer', f).status, 0);
+    const copy = () => t.fs.readFileSync(t.path.join(t.d, 'runtime/findings/s42-r1.fixer.md'), 'utf8');
+    assert.strictEqual(t.run('directive', f, 'F1', 'drop it').status, 0);
+    assert.strictEqual(t.run('directive', f, 'F1', 'keep it\nand log').status, 0);
+    const c = copy();
+    assert.strictEqual(c.split('directive:').length, 2, 'replaced, not appended');
+    assert.match(c, /^directive: keep it and log$/m);
+    assert.match(c.split('## F2')[0], /directive: keep it and log/);
+    assert.ok(!c.split('## F2')[1].includes('directive'));
+    assert.strictEqual(t.run('directive', f, 'F9', 'x').status, 2);
+    assert.strictEqual(t.run('directive', f, 'F1', '  ').status, 2);
+  } finally { t.rm(); }
+});
+
+// ---------- review-round fixes ----------
+
+test('FC report-check accepts a CAVEAT line behind a list marker or bold', () => {
+  const t = cliRepo('repchk2-');
+  try {
+    for (const [n, line] of [['dash', '- CAVEAT: none'], ['star', '* CAVEAT: none'], ['bold', '**CAVEAT:** none']]) {
+      t.w(`r/${n}.md`, `FIX s DONE 1/1\n${line}\n`);
+      const x = t.run('report-check', `r/${n}.md`);
+      assert.strictEqual(x.status, 0, n + x.stderr); assert.match(x.stdout, /caveats: none/);
+    }
+  } finally { t.rm(); }
+});
+
+test('FC critic-slices refuses before any dispatch when the plan has no slice files', () => {
+  const t = cliRepo('cslices-');
+  try {
+    let x = t.run('critic-slices', 'pl');
+    assert.strictEqual(x.status, 2);
+    assert.match(x.stderr, /cut the slices first/);
+    t.w('runtime/slices/pl-t1.md', 'x');
+    x = t.run('critic-slices', 'pl');
+    assert.strictEqual(x.status, 0, x.stderr);
+  } finally { t.rm(); }
+  const skill = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'skills', 'critic', 'SKILL.md'), 'utf8');
+  assert.ok(skill.indexOf('critic-slices') > 0 && skill.indexOf('critic-slices') < skill.indexOf('subagent_type'));
+});
+
+test('sprint close: the review brief points at the critic file; reviewer tags critic: S<n>; the review skill runs FC ledger', () => {
+  const t = cliRepo('bcritic-');
+  try {
+    t.g('init', '-q'); t.w('a', '1'); t.g('add', '.'); t.g('commit', '-qm', 'a'); t.w('a', '2'); t.g('commit', '-qam', 'b');
+    const brief = (s) => t.fs.readFileSync(t.path.join(t.d, t.run('brief', 'review', s, '1', 'HEAD~1..HEAD').stdout.trim()), 'utf8');
+    assert.doesNotMatch(brief('pl'), /^critic:/m);
+    t.w('runtime/critic/pl.md', '# Critic\n\n## Triage\nskipped: x\n');
+    for (const s of ['pl', 'pl-t1']) assert.match(brief(s), /^critic: runtime\/critic\/pl\.md -- .*critic: S<n>/m, s);
+    assert.doesNotMatch(brief('debt'), /^critic:/m);
+  } finally { t.rm(); }
+  const root = require('path').join(__dirname, '..', '..');
+  const rd = (p) => require('fs').readFileSync(require('path').join(root, p), 'utf8');
+  assert.match(rd('agents/reviewer.md'), /critic: S<n>/);
+  assert.match(rd('skills/review/SKILL.md'), /FC ledger "<stem>"/);
 });
