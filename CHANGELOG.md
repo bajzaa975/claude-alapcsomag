@@ -2,6 +2,10 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.38.1
+- Added: global rule (shared `CLAUDE.md`, Methodology): when brainstorming sizes the work as a project, the written design is grilled with `bajzi:grilling` automatically before it is called ready or sent for approval; quick tasks and small changes are not grilled. Details in `docs/design-grilling.md`; `/bajzi:setup` adds the bullet to an existing `~/.claude/CLAUDE.md` once
+- Fixed: `findings-cli.js preflight` treats `changes: none` as no field instead of searching for the word "none"
+
 ## 1.38.0
 - Added: `/bajzi:review` sets the reviewer's effort from the slice tier (`findings-cli.js effort`): Tier 2/3 reviews run at medium in both rounds; Tier 1 or an unknown tier keeps xhigh for round 1 and high for round 2
 - Added: `findings-cli.js preflight <slice>`, run by `/bajzi:implement` before dispatch: lists tracked files outside the slice's `files:` that still reference the literals named in the new optional `changes:` slice field (report only, never blocks)
