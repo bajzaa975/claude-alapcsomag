@@ -5,7 +5,8 @@
 // here, on files, so it is testable without a model (bajzi/skills/mode/tests/mode.sh case 16).
 // Paths are relative to the cwd (the target repo) and printed with forward slashes. Exit codes:
 // 0 ok, 1 unexpected error (a Node crash), 2 usage or invalid input, 3 STOP (round cap),
-// 4 DEBT CAP HIT (the D6 cap, an unreadable debt.md, or a debt.md merge refused).
+// 4 DEBT CAP HIT (the D6 cap, an unreadable debt.md, or a debt.md merge refused), 5 CRITIC MISSING
+// (slice <stem>-t<N> / sprint <stem> in an M/L repo without a ready runtime/critic/<stem>.md).
 // Slice ids and log class names must match ID_RE (they become paths and TSV fields).
 //
 //   slice <id>                     runtime/slices/<id>.md -> the agent to dispatch; `test: none`
@@ -138,11 +139,22 @@ function readSlice(id) {
   return s;
 }
 
+// Exit 5 when an M/L repo has no ready critic file for the plan stem; m = [_, stem] or null (not a plan slice id).
+function criticGate(m) {
+  if (!m) return;
+  const C = require('./critic');
+  const size = C.projectSize(process.cwd());
+  if (size !== 'M' && size !== 'L') return;
+  const r = C.criticReady(process.cwd(), m[1]);
+  if (!r.ok) die(5, `critic not ready for ${m[1]}: ${r.why} (run /bajzi:critic ${m[1]})`);
+}
+
 const cmds = {
   slice(id) {
     if (!id) die(2, 'usage: slice <id>');
     checkId(id);
     if (id === 'debt') die(2, 'slice id "debt" is reserved for the debt drain (debt.md, debt-r2.md); rename the slice');
+    criticGate(id.match(/^(.+)-t\d+$/));
     const s = readSlice(id);
     console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${/^none$/i.test(s.test) ? 'skip' : s.test}
 acceptance: ${s.acceptance}`);
@@ -208,6 +220,7 @@ acceptance: ${s.acceptance}`);
   sprint(stem) {
     if (!stem) die(2, 'usage: sprint <stem>');
     checkId(stem, 'sprint stem');
+    criticGate([null, stem]);
     const re = new RegExp(`^${stem}-t(\\d+)\\.md$`);
     const ids = (fs.existsSync('runtime/slices') ? fs.readdirSync('runtime/slices') : []).map((f) => f.match(re)).filter(Boolean)
       .sort((a, b) => Number(a[1]) - Number(b[1])).map((m) => m[0].slice(0, -3));

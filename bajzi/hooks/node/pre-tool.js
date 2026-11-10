@@ -14,6 +14,7 @@ const CHECKS = [
   ['kill-guard', t => /^(?:Bash|PowerShell)$/.test(t), () => require('./kill-guard')],
   ['writer-guard', t => /^(?:Edit|Write|MultiEdit|NotebookEdit)$/.test(t), () => require('./writer-guard')],
   ['saver-guard', t => /^(?:Edit|Write|MultiEdit|NotebookEdit|Agent|Task|Bash|PowerShell)$/.test(t), () => require('./saver-guard')],
+  ['critic-gate', t => t === 'Skill', () => require('./critic-gate')],
   ['file-lock', t => /^(?:Edit|Write|MultiEdit|NotebookEdit)$/.test(t), () => require('./file-lock')],
 ];
 

@@ -903,3 +903,29 @@ test('FC preflight: lifecycle: field warning on M/L repos only (tier 1/2); readS
     assert.deepStrictEqual(JSON.parse(o.stdout), [['a @ db: restart=kept', 'b @ file: restart=lost'], [], null]);
   } finally { t.rm(); }
 });
+
+// ---------- critic gate (exit 5) ----------
+
+test('FC slice/sprint: M/L plan slice without a ready critic file -> exit 5 naming /bajzi:critic <stem>; ready, non-plan id, S repo -> ok', () => {
+  const t = cliRepo('cgate-');
+  try {
+    t.g('init', '-q'); t.w('a', '0'); t.g('add', '.'); t.g('commit', '-qm', 'base');
+    t.w('runtime/slices/gp-t1.md', sliceDoc('gp-t1', 2, 'a.js', 'x', 'none'));
+    t.w('runtime/slices/plain.md', sliceDoc('plain', 2, 'a.js', 'x', 'none'));
+    t.g('commit', '--allow-empty', '-qm', 'gp-t1: implement');
+    t.w('.claude/project-profile.json', '{"size":"M"}');
+    for (const args of [['slice', 'gp-t1'], ['sprint', 'gp']]) {
+      const r = t.run(...args);
+      assert.strictEqual(r.status, 5, args.join(' ') + r.stderr);
+      assert.match(r.stderr, /\/bajzi:critic gp\b/);
+    }
+    assert.strictEqual(t.run('slice', 'plain').status, 0);
+    t.w('runtime/critic/gp.md', '# Critic · gp\n\n## Triage\nskipped: hotfix\n');
+    assert.strictEqual(t.run('slice', 'gp-t1').status, 0);
+    assert.strictEqual(t.run('sprint', 'gp').status, 0);
+    t.fs.rmSync(t.path.join(t.d, 'runtime/critic/gp.md'));
+    t.w('.claude/project-profile.json', '{"size":"S"}');
+    assert.strictEqual(t.run('slice', 'gp-t1').status, 0);
+    assert.strictEqual(t.run('sprint', 'gp').status, 0);
+  } finally { t.rm(); }
+});
