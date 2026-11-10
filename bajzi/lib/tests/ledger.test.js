@@ -45,6 +45,7 @@ function fixture({ transcripts = true, r2 = true, critic = true } = {}) {
       '## S3 · s1-t2 · medium', 'trigger: a', 'breaks: b', 'test: c', '',
       '## Triage', 'S1: accept', 'S2: reject', 'S3: accept', ''].join('\n'));
   }
+  if (critic) { const m = new Date('2026-11-01T08:30:00Z'); fs.utimesSync(path.join(repo, 'runtime/critic/s1.md'), m, m); }
   sh(repo, ['git', 'init', '-q']);
   const cenv = (d) => ({ GIT_COMMITTER_DATE: d, GIT_AUTHOR_DATE: d, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
   fs.writeFileSync(path.join(repo, '.keep'), '');
@@ -223,6 +224,29 @@ test('usage: the critic and the first implementer run before the first implement
   const [row] = lines(f);
   assert.strictEqual(row.cost.phases.critic.usd, 0.4); // 0.2 in the window as before + 0.2 early
   assert.strictEqual(row.cost.phases.build.usd, 5); // 3 + 1M in at $2
+});
+
+test('usage: work before the plan/critic file existed is excluded; no plan/critic file falls back to the parent commit', () => {
+  const PRE = '2026-11-01T08:15:00Z'; // after the base commit, before the critic file (08:30)
+  const add = (f) => {
+    const sd = path.join(f.tdir, 'proj', 'sess', 'subagents');
+    const u = (i) => ({ input_tokens: i, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 });
+    const sub = (name, type, m) => {
+      fs.writeFileSync(path.join(sd, `${name}.jsonl`), m + '\n');
+      fs.writeFileSync(path.join(sd, `${name}.meta.json`), JSON.stringify({ agentType: type }));
+    };
+    sub('agent-p1', 'bajzi:implementer', msg('p1', 'claude-sonnet-5-5', u(1000000), PRE, f.repo));
+    sub('agent-p2', 'bajzi:reviewer', msg('p2', 'claude-sonnet-5-5', u(1000000), PRE, f.repo));
+  };
+  const f = fixture(); add(f);
+  ledger(f, STEM);
+  let [row] = lines(f);
+  assert.strictEqual(row.cost.phases.build.usd, 3); // previous sprint's implementer not counted
+  assert.strictEqual(row.cost.phases.review.usd, null); // only the haiku run (no price); p2 not counted
+  const g = fixture({ critic: false }); add(g);
+  ledger(g, STEM);
+  [row] = lines(g);
+  assert.strictEqual(row.cost.phases.build.usd, 5); // no plan/critic file: parent commit (08:00) opens the window
 });
 
 test('ledger: a BOM line is kept; an unparseable line refuses (exit 2) and nothing is rewritten', () => {

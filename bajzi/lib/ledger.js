@@ -116,8 +116,8 @@ async function sprintUsage(cwd, since, until) {
   return { files: files.length, agents, phases };
 }
 
-// Earliest of: the plan file, the critic file, and the parent of the oldest implement commit (the critic, the planning and
-// the first slice's build all happen before that commit). null when there is no implement commit.
+// Earliest of the plan file and the critic file mtimes (and the oldest implement commit); only when neither file exists,
+// the committer time of that commit's parent. null when there is no implement commit.
 function windowStart(cwd, stem) {
   try {
     const git = (a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -125,10 +125,11 @@ function windowStart(cwd, stem) {
     if (!rows.length) return null;
     const [ct, parent] = rows.reduce((a, b) => (Number(b[0]) < Number(a[0]) ? b : a));
     const times = [Number(ct) * 1000];
-    if (parent) times.push(Number(git(['log', '-1', '--format=%ct', parent]).trim()) * 1000);
+    let found = false;
     for (const f of [`runtime/plans/${stem}.md`, `docs/superpowers/plans/${stem}.md`, `runtime/critic/${stem}.md`]) {
-      try { times.push(fs.statSync(path.join(cwd, f)).mtimeMs); } catch { /* absent */ }
+      try { times.push(fs.statSync(path.join(cwd, f)).mtimeMs); found = true; } catch { /* absent */ }
     }
+    if (!found && parent) times.push(Number(git(['log', '-1', '--format=%ct', parent]).trim()) * 1000);
     return Math.min(...times);
   } catch { return null; }
 }
