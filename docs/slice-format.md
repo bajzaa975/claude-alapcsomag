@@ -26,7 +26,7 @@ test: node --test
     Anything else needed is a `BLOCKED`.
   - `acceptance`: what must be true when the slice is done, in plain language.
   - `changes` (optional): comma-separated literals the slice renames or removes. `findings-cli.js preflight` lists tracked files
-    outside `files:` that still contain them (`git grep -w -F`; report only: widen `files:` or proceed).
+    outside `files:` that still contain them (`git grep -w -F`; report only: widen `files:` or proceed). `none` = no field, like `test: none`.
   - `test`: the command that proves it (`none` only for slices with nothing to test).
     `findings-cli.js slice` prints `none` as `test: skip`: /bajzi:implement and /bajzi:fix then run
     no test (the bajzi gate still runs on the commit).

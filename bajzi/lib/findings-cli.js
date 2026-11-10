@@ -152,7 +152,7 @@ acceptance: ${s.acceptance}`);
   preflight(id) {
     if (!id) die(2, 'usage: preflight <slice-id>');
     const s = readSlice(id);
-    const terms = [...new Set((s.changes || '').split(',').map((x) => x.trim()).filter(Boolean))];
+    const terms = [...new Set((s.changes || '').split(',').map((x) => x.trim()).filter((x) => x && !/^none$/i.test(x)))];
     if (!terms.length) return console.log('preflight: no changes: field, nothing checked');
     const norm = (f) => fwd(f.trim()).replace(/^(\.\/)+/, '');
     const own = new Set(s.files.split(',').map(norm).filter(Boolean));

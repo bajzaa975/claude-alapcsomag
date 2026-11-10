@@ -849,6 +849,13 @@ test('FC preflight: lists tracked files outside files: that hold a changed liter
     t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none'));
     assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
     assert.strictEqual(t.run('slice', 'rn').stdout.includes('changes'), false);
+    t.w('tests/test_none.py', 'none\n'); t.g('add', 'tests/test_none.py'); t.g('commit', '-qm', 'none');
+    for (const v of ['none', ' NONE ']) {
+      t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none').replace('test: none', `changes: ${v}\ntest: none`));
+      assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    }
+    t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none').replace('test: none', 'changes: none, english\ntest: none'));
+    assert.deepStrictEqual(pf().slice(1).sort(), ['tests/test_app.py: english', 'tests/test_english.py: english']);
     t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none').replace('test: none', 'changes: nomatchanywhere\ntest: none'));
     assert.deepStrictEqual(pf(), ['preflight: clean (1 literal(s), no reference outside files:)']);
     assert.strictEqual(t.run('preflight', 'missing').status, 2);
