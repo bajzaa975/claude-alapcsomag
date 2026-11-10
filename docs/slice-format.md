@@ -17,7 +17,7 @@ test: node --test
 ```
 
 - Title: `# Slice · <slice-id>`, matching the filename.
-- Fields, one per line (`key: value`); all mandatory except `changes`:
+- Fields, one per line (`key: value`); all mandatory except `changes` and `lifecycle`:
   - `tier`: `1`, `2` or `3` (see the change map in `docs/bajzi-package-spec.md` §2; Tier 1 = locks, concurrency, quotas,
     auth, money, migrations, destructive scripts; file count alone is not Tier 1).
   - `files`: comma-separated paths the agent may touch — the ownership boundary: the agent edits
@@ -27,6 +27,10 @@ test: node --test
   - `acceptance`: what must be true when the slice is done, in plain language.
   - `changes` (optional): comma-separated literals the slice renames or removes. `findings-cli.js preflight` lists tracked files
     outside `files:` that still contain them (`git grep -w -F`; report only: widen `files:` or proceed). `none` = no field, like `test: none`.
+  - `lifecycle` (optional, repeatable; one line per new piece of state, or `lifecycle: none`):
+    `lifecycle: <state> @ <db|process|browser|file>: restart=<..>; eviction=<..>; switch=<..>; failed-send=<..>; repeat-send=<..>; second-block=<..>; rollover=<..>`.
+    `findings-cli.js` reads each line (trimmed) as a list; `none` = empty list, no line = absent. `findings-cli.js preflight` prints
+    `preflight: no lifecycle: field (M/L slice)` for a tier 1/2 slice without one when the project size (`.claude/project-profile.json`) is M or L (report only).
   - `test`: the command that proves it (`none` only for slices with nothing to test).
     `findings-cli.js slice` prints `none` as `test: skip`: /bajzi:implement and /bajzi:fix then run
     no test (the bajzi gate still runs on the commit).

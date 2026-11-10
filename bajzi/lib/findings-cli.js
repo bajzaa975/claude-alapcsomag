@@ -14,6 +14,8 @@
 //                                  else `xhigh` (round 1) / `high` (round 2); never fails on a malformed slice file
 //   preflight <id>                 optional `changes:` literals -> tracked files outside `files:` that still hold them
 //                                  (git grep -w -F; report only, exit 0)
+//   (preflight also prints `preflight: no lifecycle: field (M/L slice)` for a tier 1/2 slice without `lifecycle:` when
+//    .claude/project-profile.json size is M or L)
 //   validate <findings-file>       verdict + counts by severity (test gaps last); name must match slice/round
 //   sprint <stem>                  runtime/slices/<stem>-t<N>.md -> runtime/slices/<stem>.md (lowest tier,
 //                                  union files, joined acceptance, distinct tests); prints `slice:` and the
@@ -120,7 +122,13 @@ function readSlice(id) {
   const lines = mustRead(p).split(/\r?\n/);
   if ((lines.find((l) => l.trim()) || '').trim() !== `# Slice · ${id}`) die(2, `${p}: title must be "# Slice · ${id}"`);
   const s = {};
-  for (const l of lines) { const m = l.match(/^(tier|files|acceptance|test|changes):[ \t]*(.*)$/); if (m) s[m[1]] = m[2].trim(); }
+  for (const l of lines) {
+    const m = l.match(/^(tier|files|acceptance|test|changes):[ \t]*(.*)$/);
+    if (m) s[m[1]] = m[2].trim();
+    const lc = l.match(/^\s*lifecycle:[ \t]*(.*)$/);
+    if (lc) (s.lifecycle = s.lifecycle || []).push(lc[1].trim());
+  }
+  if (s.lifecycle) s.lifecycle = s.lifecycle.filter((x) => x && !/^none$/i.test(x));
   for (const k of ['tier', 'files', 'acceptance', 'test']) if (!s[k]) die(2, `${p}: missing field: ${k}`);
   if (!['1', '2', '3'].includes(s.tier)) die(2, `${p}: tier must be 1, 2 or 3, got ${s.tier}`);
   checkFiles(p, s.files);
@@ -152,6 +160,11 @@ acceptance: ${s.acceptance}`);
   preflight(id) {
     if (!id) die(2, 'usage: preflight <slice-id>');
     const s = readSlice(id);
+    if (s.lifecycle === undefined && ['1', '2'].includes(s.tier)) {
+      let size = null;
+      try { size = JSON.parse(read('.claude/project-profile.json').replace(/^\uFEFF/, '')).size; } catch { /* missing/unparseable = not M/L */ }
+      if (size === 'M' || size === 'L') console.log('preflight: no lifecycle: field (M/L slice)');
+    }
     const terms = [...new Set((s.changes || '').split(',').map((x) => x.trim()).filter((x) => x && !/^none$/i.test(x)))];
     if (!terms.length) return console.log('preflight: no changes: field, nothing checked');
     const norm = (f) => fwd(f.trim()).replace(/^(\.\/)+/, '');
@@ -441,6 +454,9 @@ acceptance: ${s.acceptance}`);
   },
 };
 
-const [cmd, ...args] = process.argv.slice(2);
-if (!cmds[cmd]) die(2, `usage: findings-cli.js <${Object.keys(cmds).join('|')}> ...`);
-cmds[cmd](...args);
+if (require.main !== module) module.exports = { readSlice };
+else {
+  const [cmd, ...args] = process.argv.slice(2);
+  if (!cmds[cmd]) die(2, `usage: findings-cli.js <${Object.keys(cmds).join('|')}> ...`);
+  cmds[cmd](...args);
+}

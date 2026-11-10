@@ -872,3 +872,34 @@ test('FC preflight: no git repo -> git grep failed line, exit 0', () => {
     assert.strictEqual(x.stdout.trim(), 'preflight: git grep failed, nothing checked');
   } finally { t.rm(); }
 });
+
+// ---------- lifecycle field ----------
+
+test('FC preflight: lifecycle: field warning on M/L repos only (tier 1/2); readSlice parses lifecycle lines', () => {
+  const t = cliRepo('lifecycle-');
+  try {
+    const pf = () => { const x = t.run('preflight', 'lc'); assert.strictEqual(x.status, 0, x.stderr); return x.stdout.trim().split('\n'); };
+    const warn = 'preflight: no lifecycle: field (M/L slice)';
+    t.w('runtime/slices/lc.md', sliceDoc('lc', 2, 'a.js', 'x', 'none'));
+    t.w('.claude/project-profile.json', '﻿{\r\n"size": "M"\r\n}\r\n');
+    assert.deepStrictEqual(pf(), [warn, 'preflight: no changes: field, nothing checked']);
+    t.w('.claude/project-profile.json', '{"size":"S"}');
+    assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    t.fs.rmSync(t.path.join(t.d, '.claude/project-profile.json'));
+    assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    t.w('.claude/project-profile.json', '{"size":"L"}');
+    t.w('runtime/slices/lc.md', sliceDoc('lc', 2, 'a.js', 'x', 'none').replace('test: none', 'lifecycle: none\ntest: none'));
+    assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    t.w('runtime/slices/lc.md', sliceDoc('lc', 3, 'a.js', 'x', 'none'));
+    assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
+    // readSlice via the CLI module export
+    const code = `const c=require(${JSON.stringify(t.path.join(__dirname, '..', 'findings-cli.js'))});` +
+      `const r=['two','none','absent'].map((n)=>c.readSlice('lc-'+n).lifecycle);console.log(JSON.stringify(r));`;
+    t.w('runtime/slices/lc-two.md', sliceDoc('lc-two', 2, 'a.js', 'x', 'none').replace('test: none', 'lifecycle: a @ db: restart=kept\n  lifecycle:  b @ file: restart=lost  \ntest: none'));
+    t.w('runtime/slices/lc-none.md', sliceDoc('lc-none', 2, 'a.js', 'x', 'none').replace('test: none', 'lifecycle: none\ntest: none'));
+    t.w('runtime/slices/lc-absent.md', sliceDoc('lc-absent', 2, 'a.js', 'x', 'none'));
+    const o = require('child_process').spawnSync('node', ['-e', code], { cwd: t.d, encoding: 'utf8' });
+    assert.strictEqual(o.status, 0, o.stderr);
+    assert.deepStrictEqual(JSON.parse(o.stdout), [['a @ db: restart=kept', 'b @ file: restart=lost'], [], null]);
+  } finally { t.rm(); }
+});
