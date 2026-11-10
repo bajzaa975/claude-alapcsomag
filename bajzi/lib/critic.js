@@ -1,6 +1,6 @@
 'use strict';
 // The plan critic's deterministic half: project size, critic model, critic-file parse/check, readiness.
-// File format: header `key: value` lines, `## S<n> · <slice-id> · <high|medium|low>` scenarios (fields
+// File format: header `key: value` lines (`started: <ISO-UTC>` = critic dispatch time), `## S<n> · <slice-id> · <high|medium|low>` scenarios (fields
 // trigger / breaks / test), then `## Triage` (`auto: true`, `skipped: <reason>`, `S<n>: accept|reject`).
 const fs = require('node:fs');
 const path = require('node:path');
@@ -46,12 +46,17 @@ function parseCritic(text) {
     else if (kv[1] === 'skipped') triage.skipped = kv[2];
     else if (/^S\d+$/.test(kv[1]) && (kv[2] === 'accept' || kv[2] === 'reject')) triage.verdicts[kv[1]] = kv[2];
   }
-  return { header, scenarios, triage: triage || { auto: false, skipped: null, verdicts: {} }, hasTriage: triage !== null };
+  const st = header.started;
+  const startedOk = typeof st === 'string' && /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(st) && Number.isFinite(Date.parse(st));
+  const startedBad = typeof st === 'string' && !startedOk;
+  header.started = startedOk ? st : null;
+  return { header, startedBad, scenarios, triage: triage || { auto: false, skipped: null, verdicts: {} }, hasTriage: triage !== null };
 }
 
 function criticCheck(text, sliceIds) {
   const errors = [];
-  const { scenarios } = parseCritic(text);
+  const { scenarios, startedBad } = parseCritic(text);
+  if (startedBad) errors.push('started: must be an ISO UTC time like 2026-11-10T08:00:00Z');
   const per = {};
   const seen = new Set();
   for (const s of scenarios) {

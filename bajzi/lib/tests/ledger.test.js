@@ -39,13 +39,13 @@ function fixture({ transcripts = true, r2 = true, critic = true } = {}) {
   }
   w('runtime/findings/s1-t2-r1.md', doc('s1-t2', 1, finding('F1', 'major', 'class: lifecycle\n')));
   if (critic) {
-    w('runtime/critic/s1.md', ['# Critic', 'model: fable', '',
+    w('runtime/critic/s1.md', ['# Critic', 'model: fable', 'started: 2026-11-01T08:45:00Z', '',
       '## S1 · s1-t1 · high', 'trigger: a', 'breaks: b', 'test: c', '',
       '## S2 · s1-t2 · low', 'trigger: a', 'breaks: b', 'test: c', '',
       '## S3 · s1-t2 · medium', 'trigger: a', 'breaks: b', 'test: c', '',
       '## Triage', 'S1: accept', 'S2: reject', 'S3: accept', ''].join('\n'));
   }
-  if (critic) { const m = new Date('2026-11-01T08:30:00Z'); fs.utimesSync(path.join(repo, 'runtime/critic/s1.md'), m, m); }
+  if (critic) { const m = new Date('2026-11-01T09:30:00Z'); fs.utimesSync(path.join(repo, 'runtime/critic/s1.md'), m, m); }
   sh(repo, ['git', 'init', '-q']);
   const cenv = (d) => ({ GIT_COMMITTER_DATE: d, GIT_AUTHOR_DATE: d, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' });
   fs.writeFileSync(path.join(repo, '.keep'), '');
@@ -247,6 +247,27 @@ test('usage: work before the plan/critic file existed is excluded; no plan/criti
   ledger(g, STEM);
   [row] = lines(g);
   assert.strictEqual(row.cost.phases.build.usd, 5); // no plan/critic file: parent commit (08:00) opens the window
+});
+
+test('usage: with started: the critic run is costed whatever the critic and plan file mtimes are', () => {
+  const f = fixture();
+  const late = new Date('2026-11-01T12:00:00Z');
+  fs.mkdirSync(path.join(f.repo, 'runtime/plans'), { recursive: true });
+  fs.writeFileSync(path.join(f.repo, 'runtime/plans/s1.md'), '# plan\n');
+  fs.utimesSync(path.join(f.repo, 'runtime/plans/s1.md'), late, late);
+  fs.utimesSync(path.join(f.repo, 'runtime/critic/s1.md'), late, late);
+  const sd = path.join(f.tdir, 'proj', 'sess', 'subagents');
+  const u = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 1000000, cache_creation_input_tokens: 0 };
+  fs.writeFileSync(path.join(sd, 'agent-e1.jsonl'), msg('e1', 'claude-opus-5-5', u, '2026-11-01T09:00:00Z', f.repo) + '\n');
+  fs.writeFileSync(path.join(sd, 'agent-e1.meta.json'), JSON.stringify({ agentType: 'bajzi:plan-critic' }));
+  ledger(f, STEM);
+  assert.strictEqual(lines(f)[0].cost.phases.critic.usd, 0.4);
+  // an unparseable started: is a critic-check error and the old mtime rule applies
+  const file = path.join(f.repo, 'runtime/critic/s1.md');
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('started: 2026-11-01T08:45:00Z', 'started: soon'));
+  assert.strictEqual(sh(f.repo, ['node', CLI, 'critic-check', STEM], f.env).status, 2);
+  ledger(f, STEM);
+  assert.strictEqual(lines(f)[0].cost.phases.critic.usd, 0.2);
 });
 
 test('ledger: a BOM line is kept; an unparseable line refuses (exit 2) and nothing is rewritten', () => {

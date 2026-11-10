@@ -96,3 +96,11 @@ test('criticCheck: a scenario heading in any other shape is an error naming its 
   const errs = C.criticCheck(HEAD + '## S2 · p-t1 · high (stateful)\ntrigger: a\nbreaks: b\ntest: c\n', ['p-t1']);
   assert.match(errs.join('\n'), /S2: .*heading/);
 });
+
+test('started: header is exposed as an ISO string or null; an unparseable value is a criticCheck error', () => {
+  const ok = C.parseCritic(HEAD + 'started: 2026-11-10T08:00:00Z\n' + sc(1, 'p-t1'));
+  assert.strictEqual(ok.header.started, '2026-11-10T08:00:00Z');
+  assert.strictEqual(C.parseCritic(HEAD + sc(1, 'p-t1')).header.started, null);
+  assert.deepStrictEqual(C.criticCheck(HEAD + 'started: 2026-11-10T08:00:00Z\n' + sc(1, 'p-t1'), ['p-t1']), []);
+  assert.match(C.criticCheck(HEAD + 'started: yesterday\n' + sc(1, 'p-t1'), ['p-t1']).join('\n'), /started:/);
+});

@@ -10,11 +10,11 @@ Plan = `runtime/plans/<stem>.md` or `docs/superpowers/plans/<stem>.md`; slices =
 
 0. Size M or L only. `FC critic-ready "<stem>"` exit 0 -> print "already triaged", stop. S or XS repo (project-profile `size`) -> print "critic not needed", stop.
 1. `FC critic-slices "<stem>"` exit 2 -> print "cut the slices first", stop (before any dispatch). `FC critic-model` -> `<model>` (exit 2 = invalid `plan_critic_model`: print it, stop).
-2. Brief (`runtime/briefs/<stem>-critic.txt`): the plan path, the slice paths, the stem. Dispatch per dispatch.md with
+2. Record the current UTC time (`date -u +%Y-%m-%dT%H:%M:%SZ`) as `<start>` before the first dispatch. Brief (`runtime/briefs/<stem>-critic.txt`): the plan path, the slice paths, the stem. Dispatch per dispatch.md with
    `subagent_type: bajzi:plan-critic`, `model: <model>`, `effort: high`, description `critic <stem>`.
    The dispatch fails on the Fable session or usage limit -> re-dispatch once with `model: opus` and set the header line
-   to `model: opus (fable limit)`; never stop for the limit.
-3. Save the final message to `runtime/critic/<stem>.md` (a rerun overwrites it and drops any triage). `FC critic-check "<stem>"`
+   to `model: opus (fable limit)` and keep the FIRST `<start>`; never stop for the limit.
+3. Save the final message to `runtime/critic/<stem>.md`, with the header line `started: <start>` added after `model:` (a rerun overwrites it and drops any triage). `FC critic-check "<stem>"`
    exit 2 -> print the errors and re-dispatch once; still failing -> STOP and report.
 4. Triage. Zero scenarios -> write `## Triage` with `auto: true`.
    - Attended: ONE `ask_owner` card listing every scenario (accept/reject each; default accept high, reject the rest).

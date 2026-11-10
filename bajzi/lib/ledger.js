@@ -116,8 +116,9 @@ async function sprintUsage(cwd, since, until) {
   return { files: files.length, agents, phases };
 }
 
-// Earliest of the plan file and the critic file mtimes (and the oldest implement commit); only when neither file exists,
-// the committer time of that commit's parent. null when there is no implement commit.
+// The critic file's `started:` time when valid, else the earliest of the plan file and the critic file mtimes; always with
+// the oldest implement commit. Without `started:` and when neither file exists, the committer time of that commit's
+// parent. null when there is no implement commit.
 function windowStart(cwd, stem) {
   try {
     const git = (a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -126,6 +127,8 @@ function windowStart(cwd, stem) {
     const [ct, parent] = rows.reduce((a, b) => (Number(b[0]) < Number(a[0]) ? b : a));
     const times = [Number(ct) * 1000];
     let found = false;
+    const started = C.parseCritic(read(path.join(cwd, 'runtime', 'critic', `${stem}.md`))).header.started;
+    if (started) return Math.min(...times, Date.parse(started));
     for (const f of [`runtime/plans/${stem}.md`, `docs/superpowers/plans/${stem}.md`, `runtime/critic/${stem}.md`]) {
       try { times.push(fs.statSync(path.join(cwd, f)).mtimeMs); found = true; } catch { /* absent */ }
     }
