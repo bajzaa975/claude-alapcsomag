@@ -90,3 +90,14 @@ test('DAY-RUN-RULES and dispatch.md name FC effort and medium for Tier 2/3 revie
     assert.match(t, /Tier 2\/3[^.]*medium/, f.join('/'));
   }
 });
+
+test('dispatch.md and the fix skill route the fixer effort through FC effort <id> fix and the CAVEAT check', () => {
+  assert.match(read('skills', 'lib', 'dispatch.md'), /`FC effort "<slice-id>" fix`/);
+  const fix = read('skills', 'fix', 'SKILL.md').replace(/\s+/g, ' ');
+  assert.match(fix, /FC effort "<slice-id>" fix/);
+  assert.match(fix, /FC report-check/);
+  assert.match(fix, /FC decisions/);
+  assert.match(fix, /FC directive/);
+  assert.match(fix, /fixer report had no CAVEAT line/);
+  assert.match(fix, /Round 2 still runs/);
+});

@@ -11,6 +11,10 @@
 //
 //   slice <id>                     runtime/slices/<id>.md -> the agent to dispatch; `test: none`
 //                                  prints `test: skip` (the skills run no test); id `debt` is reserved
+//   effort <id> fix                the fixer's effort: `high` for Tier 1, unknown or missing slices, else `medium`
+//   report-check <report-file>     prints the fixer report's `CAVEAT:` lines (`caveats: none` | `caveats: <n>`); exit 2 when it has none
+//   decisions <findings-file>      lists the open `needs_decision:` findings (`<id> · <location> · <choice>`), or `decisions: none`
+//   directive <findings-file> <Fn> "<text>"   writes (replaces) `directive: <text>` on Fn in the .fixer.md copy
 //   effort <id> <1|2>              the reviewer's effort: `medium` when the slice file has tier lines that are all 2 or 3,
 //                                  else `xhigh` (round 1) / `high` (round 2); never fails on a malformed slice file
 //   preflight <id>                 optional `changes:` literals -> tracked files outside `files:` that still hold them
@@ -162,14 +166,47 @@ acceptance: ${s.acceptance}`);
 
   effort(id, round) {
     checkId(id);
-    if (!['1', '2'].includes(round)) die(2, 'usage: effort <slice-id> <1|2>');
+    if (!['1', '2', 'fix'].includes(round)) die(2, 'usage: effort <slice-id> <1|2|fix>');
     // Lenient on purpose (not readSlice): a missing or malformed file falls through to the Tier 1 values.
     const tiers = [];
     try {
       for (const l of read(path.posix.join('runtime/slices', `${id}.md`)).split(/\r?\n/)) { const m = l.match(/^tier:[ \t]*(\S*)/); if (m) tiers.push(m[1]); }
     } catch { /* unreadable = unknown */ }
     const low = tiers.length > 0 && tiers.every((x) => x === '2' || x === '3');
-    console.log(low ? 'medium' : round === '1' ? 'xhigh' : 'high');
+    console.log(low ? 'medium' : round === '1' ? 'xhigh' : 'high'); // fix: Tier 1/unknown high, else medium
+  },
+
+  'report-check'(file) {
+    if (!file) die(2, 'usage: report-check <report-file>');
+    const all = mustRead(file).split(/\r?\n/).map((l) => l.match(/^\s*CAVEAT:[ \t]*(.*)$/)).filter((m) => m && m[1].trim()).map((m) => m[1].trim());
+    if (!all.length) die(2, `${file}: no "CAVEAT:" line (the fixer ends its report with CAVEAT: none or one CAVEAT: <text> per caveat)`);
+    const real = all.filter((t) => !/^none$/i.test(t));
+    console.log(real.length ? `caveats: ${real.length}\n${real.map((t) => `CAVEAT: ${t}`).join('\n')}` : 'caveats: none');
+  },
+
+  decisions(file) {
+    if (!file) die(2, 'usage: decisions <findings-file>');
+    const doc = mustParse(mustRead(file), file);
+    const ds = doc.findings.filter((f) => f.needs_decision && f.status !== 'resolved' && f.severity !== F.TEST_GAP);
+    console.log(ds.length ? ds.map((f) => `${f.id} · ${f.location} · ${f.needs_decision}`).join('\n') : 'decisions: none');
+  },
+
+  directive(file, id, text) {
+    const one = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!file || !id || !one) die(2, 'usage: directive <findings-file> <Fn> "<text>"');
+    mustParse(mustRead(file), file);
+    const out = fwd(file).replace(/\.md$/, '.fixer.md');
+    const lines = mustRead(out).split('\n');
+    const start = lines.findIndex((l) => l.startsWith(`## ${id} · `));
+    if (start < 0) die(2, `${out}: no finding ${id}`);
+    let end = lines.findIndex((l, i) => i > start && l.startsWith('## '));
+    if (end < 0) end = lines.length;
+    const block = lines.slice(start, end).filter((l) => !/^directive:/.test(l));
+    let last = block.length;
+    while (last > 1 && !block[last - 1].trim()) last--;
+    block.splice(last, 0, `directive: ${one}`);
+    fs.writeFileSync(out, [...lines.slice(0, start), ...block, ...lines.slice(end)].join('\n'));
+    console.log(out);
   },
 
   'critic-model'() {

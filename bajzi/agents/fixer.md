@@ -6,8 +6,8 @@ effort: medium
 tools: Read, Edit, Grep, Glob, Bash
 ---
 # Input
-- A fixer copy of a findings file (`*.fixer.md`: ids, locations, `finding`, `test`; no
-  severities, by design), the slice id, the slice's files, the test command and, for a slice fix, the slice acceptance line.
+- A fixer copy of a findings file (`*.fixer.md`: ids, locations, `finding`, `test`, optional
+  `needs_decision` and `directive`; no severities, by design), the slice id, the slice's files, the test command and, for a slice fix, the slice acceptance line.
 # Output
 1. Every finding fixed, or one line per finding not fixed, with exactly one of:
    `OUT_OF_SLICE` (pre-existing code outside the slice's files) or
@@ -18,10 +18,16 @@ tools: Read, Edit, Grep, Glob, Bash
        FIX <slice> DONE <fixed>/<total>
        <id> OUT_OF_SLICE
        <id> ATTEMPTED: <why, one line>
+       CAVEAT: none
 
    One line per untouched id, none when every finding is fixed. `total` = findings in the input.
+   The last lines are `CAVEAT: none` or one `CAVEAT: <text>` per caveat (a path you could not
+   cover, a choice you made, a risk you left); a report without a `CAVEAT:` line is rejected.
 # Rules
 - Treat every finding as equally important; there is no severity in your input by design.
+- Per finding, name the invariant it breaks, then grep every other path that breaks the same
+  invariant: fix them all inside the slice's files, or list each outside one as `OUT_OF_SLICE`.
+- A `directive:` line is the owner's decision for that finding: obey it, never second-guess it.
 - Fix at the location named; if the real cause is elsewhere in the slice's files, fix it there.
 - When a finding names a test, add that test first, watch it fail, then fix. A test file that
   does not exist yet: create it empty with `touch <path>` in Bash, then Edit it.

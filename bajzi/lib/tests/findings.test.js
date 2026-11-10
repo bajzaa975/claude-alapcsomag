@@ -929,3 +929,81 @@ test('FC slice/sprint: M/L plan slice without a ready critic file -> exit 5 nami
     assert.strictEqual(t.run('sprint', 'gp').status, 0);
   } finally { t.rm(); }
 });
+
+// ---------- t4: class / needs_decision / critic fields, fixer rules ----------
+
+const withFields = (extra) => R1.replace(/(## F1 .*\n(?:.*\n){3}test: .*\n)/, `$1${extra}\n`);
+
+test('validate accepts class lifecycle|other, needs_decision and critic; rejects a bad class', () => {
+  assert.deepStrictEqual(F.validate(withFields('class: lifecycle\nneeds_decision: keep the draft or drop it\ncritic: S2')).errors, []);
+  assert.deepStrictEqual(F.validate(withFields('class: other')).errors, []);
+  assert.match(F.validate(withFields('class: logic')).errors.join(';'), /F1: bad class: logic/);
+  assert.match(F.validate(withFields('class:')).errors.join(';'), /F1: bad class/);
+  assert.match(F.validate(withFields('critic: later')).errors.join(';'), /F1: bad critic: later/);
+  assert.match(F.validate(withFields('needs_decision:')).errors.join(';'), /F1: empty needs_decision/);
+});
+
+test('stripForFixer keeps needs_decision and directive, strips class, critic and severity', () => {
+  const out = F.stripForFixer(withFields('class: lifecycle\nneeds_decision: keep the draft or drop it\ncritic: S2\ndirective: drop it'));
+  assert.ok(out.includes('needs_decision: keep the draft or drop it'));
+  assert.ok(out.includes('directive: drop it'));
+  for (const s of ['class:', 'critic:', 'lifecycle', 'blocker', 'why_severity', 'if_unfixed']) assert.ok(!out.includes(s), `leaked: ${s}`);
+});
+
+test('FC effort <id> fix: Tier 1, unknown or missing -> high; Tier 2/3 -> medium; round check unchanged', () => {
+  const t = cliRepo('efffix-');
+  try {
+    const fix = (id) => { const x = t.run('effort', id, 'fix'); assert.strictEqual(x.status, 0, x.stderr); return x.stdout; };
+    t.w('runtime/slices/a1.md', sliceDoc('a1', 1, 'x', 'y', 'z'));
+    t.w('runtime/slices/a2.md', sliceDoc('a2', 2, 'x', 'y', 'z'));
+    t.w('runtime/slices/mix.md', 'tier: 2\ntier: 1\n');
+    assert.strictEqual(fix('a1'), 'high\n');
+    assert.strictEqual(fix('a2'), 'medium\n');
+    assert.strictEqual(fix('mix'), 'high\n');
+    assert.strictEqual(fix('missing'), 'high\n');
+    assert.strictEqual(t.run('effort', 'a1', '3').status, 2);
+  } finally { t.rm(); }
+});
+
+test('FC report-check: CAVEAT lines printed; none ok; no CAVEAT line or missing file -> exit 2', () => {
+  const t = cliRepo('repchk-');
+  try {
+    t.w('r/none.md', 'FIX s DONE 1/1\nCAVEAT: none\n');
+    t.w('r/text.md', 'FIX s DONE 1/1\nCAVEAT: retry path in b.js not covered\nCAVEAT: none needed here\n');
+    t.w('r/missing.md', 'FIX s DONE 1/1\nF2 ATTEMPTED: x\n');
+    t.w('r/empty.md', 'FIX s DONE 1/1\nCAVEAT:\n');
+    let x = t.run('report-check', 'r/none.md');
+    assert.strictEqual(x.status, 0, x.stderr); assert.match(x.stdout, /caveats: none/);
+    x = t.run('report-check', 'r/text.md');
+    assert.strictEqual(x.status, 0, x.stderr);
+    assert.match(x.stdout, /caveats: 2/); assert.match(x.stdout, /CAVEAT: retry path in b\.js not covered/);
+    for (const f of ['r/missing.md', 'r/empty.md', 'r/absent.md']) assert.strictEqual(t.run('report-check', f).status, 2, f);
+    assert.strictEqual(t.run('report-check').status, 2);
+  } finally { t.rm(); }
+});
+
+test('FC decisions lists needs_decision findings; FC directive writes/replaces directive: in the fixer copy', () => {
+  const t = cliRepo('decis-');
+  try {
+    const f = 'runtime/findings/s42-r1.md';
+    t.w(f, withFields('needs_decision: keep the draft or drop it'));
+    let x = t.run('decisions', f);
+    assert.strictEqual(x.status, 0, x.stderr);
+    assert.match(x.stdout, /^F1 · app\/billing\/retry\.py:41 · keep the draft or drop it$/m);
+    assert.ok(!/F2/.test(x.stdout));
+    t.w('runtime/findings/none-r1.md', R1.replace('s42', 'none'));
+    assert.match(t.run('decisions', 'runtime/findings/none-r1.md').stdout, /decisions: none/);
+    assert.strictEqual(t.run('directive', f, 'F1', 'drop it').status, 2, 'no fixer copy yet');
+    assert.strictEqual(t.run('copy', 'fixer', f).status, 0);
+    const copy = () => t.fs.readFileSync(t.path.join(t.d, 'runtime/findings/s42-r1.fixer.md'), 'utf8');
+    assert.strictEqual(t.run('directive', f, 'F1', 'drop it').status, 0);
+    assert.strictEqual(t.run('directive', f, 'F1', 'keep it\nand log').status, 0);
+    const c = copy();
+    assert.strictEqual(c.split('directive:').length, 2, 'replaced, not appended');
+    assert.match(c, /^directive: keep it and log$/m);
+    assert.match(c.split('## F2')[0], /directive: keep it and log/);
+    assert.ok(!c.split('## F2')[1].includes('directive'));
+    assert.strictEqual(t.run('directive', f, 'F9', 'x').status, 2);
+    assert.strictEqual(t.run('directive', f, 'F1', '  ').status, 2);
+  } finally { t.rm(); }
+});

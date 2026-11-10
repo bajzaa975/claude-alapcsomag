@@ -1289,6 +1289,23 @@ if grep -q 'FC gaps' "$BAJZI_DIR/skills/review/SKILL.md" \
     && grep -q '^## Sprint file' "$BAJZI_DIR/../docs/slice-format.md"; then
     pass "16j4 review names FC gaps, implement names FC sprint, slice-format has Sprint file"; else fail "16j4" "pin missing"; fi
 
+# 16l: fixer rules (t4): FC report-check needs a CAVEAT line, FC effort <id> fix, FC decisions/directive on the fixer copy.
+printf 'FIX s1 DONE 1/1\nCAVEAT: none\n' > "$FD/s1-ok.report.md"
+out="$(cli report-check runtime/findings/s1-ok.report.md)"; rc=$?
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'caveats: none' && pass "16l report-check CAVEAT: none -> exit 0" || fail "16l report-check ok" "rc=$rc $out"
+out="$(cli report-check runtime/findings/s1-r1.report.md 2>&1)"; rc=$?
+[ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'no "CAVEAT:" line' && pass "16l2 report without CAVEAT line -> exit 2" || fail "16l2 report-check missing" "rc=$rc $out"
+rm -f "$FD/s1-ok.report.md"
+out="$(cli effort nope-slice fix)"; [ "$out" = "high" ] && pass "16l3 effort fix for an unknown slice -> high" || fail "16l3 effort fix" "$out"
+{ hdr s1 1 'FINDINGS 1'; fnd F1 major app/a.py:1; printf 'needs_decision: keep or drop the draft\n'; } > "$FD/s9-r1.md"
+sed -i 's/^# Findings · s1 /# Findings · s9 /' "$FD/s9-r1.md"
+out="$(cli decisions runtime/findings/s9-r1.md)"; printf '%s' "$out" | grep -q 'F1 · app/a.py:1 · keep or drop the draft' \
+    && cli copy fixer runtime/findings/s9-r1.md >/dev/null && cli directive runtime/findings/s9-r1.md F1 "drop it" >/dev/null \
+    && cli directive runtime/findings/s9-r1.md F1 "keep it" >/dev/null \
+    && [ "$(grep -c '^directive:' "$FD/s9-r1.fixer.md")" = 1 ] && grep -q '^directive: keep it$' "$FD/s9-r1.fixer.md" \
+    && pass "16l4 decisions + directive (repeat replaces)" || fail "16l4 decisions/directive" "$out"
+rm -f "$FD"/s9-r1*.md
+
 # 16h: the four skills exist, are named, and route through findings-cli.js + the shared dispatch template.
 for s in implement review fix debt; do
     f="$SKILLS/$s/SKILL.md"
