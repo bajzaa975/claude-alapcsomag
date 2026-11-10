@@ -41,6 +41,6 @@
 - The start assessment (size + hosting) runs in `/bajzi:project-setup`; when unsure, hosting is `local`.
 - **Project-sized design: grill it before calling it ready.** When brainstorming sizes the work as a project (a written
   design), run `bajzi:grilling` on it automatically, unasked, before reporting it ready or asking for approval; round
-  questions go through `ask_owner` where available. That grilling is the one batch of HOW questions. Quick tasks and
+  questions go through `ask_owner` where available. Decisions go to the spec's `## Decisions` section plus the `Grilled:` header line. That grilling is the one batch of HOW questions. Quick tasks and
   small changes are never grilled. Details:
   `~/.claude/plugins/marketplaces/bajzi-plugins/docs/design-grilling.md`.

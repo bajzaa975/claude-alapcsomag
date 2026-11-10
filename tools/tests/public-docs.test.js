@@ -223,5 +223,7 @@ test('shared/CLAUDE.md Methodology section carries the auto-grill bullet and its
   const m = t.slice(t.indexOf('## Methodology'));
   assert.ok(m.includes('bajzi:grilling'));
   assert.ok(m.split('\n').some((l) => l.includes('bajzi-plugins/docs/design-grilling.md')));
+  const b = m.slice(m.indexOf('- **Project-sized design'));
+  assert.ok(b.includes('## Decisions') && b.includes('Grilled:'));
   assert.ok(fs.existsSync(path.join(ROOT, 'docs/design-grilling.md')));
 });
