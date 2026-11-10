@@ -99,7 +99,7 @@ effect from the next session.
 | Step | What happens | Command or skill |
 |---|---|---|
 | Idea | You write 3-5 sentences: what you want and for whom. No code yet. | |
-| Refine | Claude asks, one question at a time; you answer, or say you do not know. | `superpowers:brainstorming` (always the base); `/bajzi:grill-me` to stress-test a feature plan; `/bajzi:respec-cards` for a new or large system (L) |
+| Refine | Claude asks, one question at a time; you answer, or say you do not know. | `superpowers:brainstorming` (always the base); `/bajzi:grill-me` to stress-test a feature plan; `/bajzi:respec-cards` for a new or large system (L). A project-sized design is grilled automatically (`bajzi:grilling`) before approval, see `docs/design-grilling.md` |
 | Spec | The goal, non-goals and decisions in a design doc. You read it and correct it. | `superpowers:brainstorming` writes it |
 | Plan | A step-by-step plan; no open question may remain before execution. | `superpowers:writing-plans` |
 | Implement | One slice at a time, test first. | `/bajzi:implement <slice-id>`, or `superpowers:subagent-driven-development` |
