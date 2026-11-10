@@ -258,6 +258,8 @@ repo root:
 node --test bajzi/hooks/node/tests/*.test.js bajzi/skills/*/tests/*.test.js bajzi/tests/agents/*.test.js bajzi/lib/tests/*.test.js bajzi/bin/tests/*.test.js bajzi/gate/tests/*.test.js tools/tests/*.test.js
 ```
 
+The end-to-end development process (phases, agents, tiers, review loop, modes, hooks, measurement) is in [`docs/dev-process.md`](docs/dev-process.md).
+
 ## Changelog and license
 
 See [`CHANGELOG.md`](CHANGELOG.md).
