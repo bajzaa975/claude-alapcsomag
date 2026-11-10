@@ -16,6 +16,9 @@
 //                                  (git grep -w -F; report only, exit 0)
 //   (preflight also prints `preflight: no lifecycle: field (M/L slice)` for a tier 1/2 slice without `lifecycle:` when
 //    .claude/project-profile.json size is M or L)
+//   critic-model                   the plan critic's model alias (profile plan_critic_model, default fable; invalid -> exit 2)
+//   critic-check <stem>            validates runtime/critic/<stem>.md (limits, slice ids, confidence); exit 2 lists errors
+//   critic-ready <stem>            exit 0 when the critic file is valid and fully triaged (or `skipped: <reason>`), else 5
 //   validate <findings-file>       verdict + counts by severity (test gaps last); name must match slice/round
 //   sprint <stem>                  runtime/slices/<stem>-t<N>.md -> runtime/slices/<stem>.md (lowest tier,
 //                                  union files, joined acceptance, distinct tests); prints `slice:` and the
@@ -157,12 +160,30 @@ acceptance: ${s.acceptance}`);
     console.log(low ? 'medium' : round === '1' ? 'xhigh' : 'high');
   },
 
+  'critic-model'() {
+    try { console.log(require('./critic').criticModel(process.cwd())); } catch (e) { die(2, e.message); }
+  },
+
+  'critic-check'(stem) {
+    checkId(stem, 'plan stem');
+    const C = require('./critic');
+    const errors = C.criticCheck(mustRead(path.posix.join('runtime/critic', `${stem}.md`)), C.sliceIds(process.cwd(), stem));
+    if (errors.length) die(2, errors.join('\n'));
+    console.log('critic-check: ok');
+  },
+
+  'critic-ready'(stem) {
+    checkId(stem, 'plan stem');
+    const r = require('./critic').criticReady(process.cwd(), stem);
+    if (!r.ok) die(5, `critic not ready for ${stem}: ${r.why} (run /bajzi:critic ${stem})`);
+    console.log(`critic-ready: ${r.why}`);
+  },
+
   preflight(id) {
     if (!id) die(2, 'usage: preflight <slice-id>');
     const s = readSlice(id);
     if (s.lifecycle === undefined && ['1', '2'].includes(s.tier)) {
-      let size = null;
-      try { size = JSON.parse(read('.claude/project-profile.json').replace(/^\uFEFF/, '')).size; } catch { /* missing/unparseable = not M/L */ }
+      const size = require('./critic').projectSize(process.cwd());
       if (size === 'M' || size === 'L') console.log('preflight: no lifecycle: field (M/L slice)');
     }
     const terms = [...new Set((s.changes || '').split(',').map((x) => x.trim()).filter((x) => x && !/^none$/i.test(x)))];

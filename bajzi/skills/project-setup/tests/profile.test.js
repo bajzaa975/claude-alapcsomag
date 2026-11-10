@@ -484,3 +484,9 @@ test('kit-ci: a run whose only pending action is kit-ci prints the TODO, not "al
   assert.match(out.out, /TODO kit-ci/);
   assert.doesNotMatch(out.out, /already in the profile state/);
 });
+
+test('validate: plan_critic_model accepts an alias, rejects anything else', () => {
+  assert.deepStrictEqual(P.validate({ plan_critic_model: 'opus' }), { ok: true, errors: [] });
+  assert.deepStrictEqual(P.validate({ plan_critic_model: 'fable' }), { ok: true, errors: [] });
+  assert.match(P.validate({ plan_critic_model: 'claude-opus-4-1' }).errors.join('\n'), /plan_critic_model/);
+});

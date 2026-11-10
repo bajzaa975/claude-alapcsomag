@@ -13,7 +13,7 @@ const AGENTS_DIR = path.join(__dirname, '..', '..', 'agents');
 const FORMAT_DOC = path.join(__dirname, '..', '..', '..', 'docs', 'findings-format.md');
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 
-const ALLOWED_MODELS = ['haiku', 'sonnet', 'opus'];
+const ALLOWED_MODELS = ['haiku', 'sonnet', 'opus', 'fable'];
 // The union of every "tools" column in the agent table.
 const ALLOWED_TOOLS = [
   'Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash',
@@ -62,7 +62,7 @@ function validateAgent(content, name) {
   }
 
   if (!ALLOWED_MODELS.includes(fields.model)) {
-    return { ok: false, why: `model is not an alias (haiku|sonnet|opus): ${fields.model}` };
+    return { ok: false, why: `model is not an alias (haiku|sonnet|opus|fable): ${fields.model}` };
   }
 
   const tools = toolList(fields);
@@ -152,6 +152,7 @@ const PINS = {
   reviewer: { model: 'opus', tools: ['Read', 'Grep', 'Glob',
     'mcp__code-review-graph__detect_changes_tool', 'mcp__code-review-graph__get_review_context_tool'] },
   fixer: { model: 'sonnet', tools: ['Read', 'Edit', 'Grep', 'Glob', 'Bash'] },
+  'plan-critic': { model: 'fable', tools: ['Read', 'Grep', 'Glob', 'Bash'] },
   implementer: { model: 'sonnet', tools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'] },
   'implementer-risk': { model: 'sonnet', tools: ['Read', 'Edit', 'Write', 'Grep', 'Glob', 'Bash'] },
 };
