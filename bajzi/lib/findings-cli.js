@@ -21,6 +21,8 @@
 //                                  (git grep -w -F; report only, exit 0)
 //   (preflight also prints `preflight: no lifecycle: field (M/L slice)` for a tier 1/2 slice without `lifecycle:` when
 //    .claude/project-profile.json size is M or L)
+//   ledger <stem>                  appends the sprint's metrics + cost line to runtime/ledger.jsonl (a repeat replaces it)
+//   ledger escaped <stem> "<text>" appends an escaped-bug line; ledger report prints raw rows, then `savings (estimate)`
 //   critic-model                   the plan critic's model alias (profile plan_critic_model, default fable; invalid -> exit 2)
 //   critic-check <stem>            validates runtime/critic/<stem>.md (limits, slice ids, confidence); exit 2 lists errors
 //   critic-ready <stem>            exit 0 when the critic file is valid and fully triaged (or `skipped: <reason>`), else 5
@@ -162,6 +164,12 @@ const cmds = {
     const s = readSlice(id);
     console.log(`agent: bajzi:${s.tier === '1' ? 'implementer-risk' : 'implementer'}\ntier: ${s.tier}\nfiles: ${s.files}\ntest: ${/^none$/i.test(s.test) ? 'skip' : s.test}
 acceptance: ${s.acceptance}`);
+  },
+
+  async ledger(...args) {
+    if (args[0] && args[0] !== 'report' && args[0] !== 'escaped') checkId(args[0], 'sprint stem');
+    if (args[0] === 'escaped' && args[1]) checkId(args[1], 'sprint stem');
+    try { process.stdout.write(await require('./ledger').run(process.cwd(), args)); } catch (e) { die(2, e.message); }
   },
 
   effort(id, round) {
