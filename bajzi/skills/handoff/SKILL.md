@@ -118,7 +118,10 @@ else (no code block, no `/clear` sentence, no stale-files line):
 
 `Handoff saved: runtime/handoff/<slug>.md`
 
-Never fully silent. If the peer-overwrite check stops you, ask as usual instead. If nothing but the
+Never fully silent. If the peer-overwrite check stops you (different session, under 2 hours old),
+ask as usual instead. If it overwrites a different session's handover older than 2 hours, keep the
+one line and append the notice to it:
+`Handoff saved: runtime/handoff/<slug>.md (replaced an older handover from <its Owner-session>)`. If nothing but the
 `Updated:` line would change, you may just bump `Updated:`.
 
 Do nothing else.

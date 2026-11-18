@@ -64,3 +64,8 @@ test('SKILL documents --quiet: one-line output, file rule kept in both modes', (
   assert.match(SKILL, /exactly one triple-backtick code block/);
   assert.match(SKILL, /ONLY in\s+plain mode/);
 });
+
+test('SKILL quiet mode: older different-session overwrite notice stays on the one line', () => {
+  assert.ok(SKILL.includes('(replaced an older handover from <its Owner-session>)'));
+  assert.match(SKILL, /older than 2 hours, keep the\s+one line/);
+});
