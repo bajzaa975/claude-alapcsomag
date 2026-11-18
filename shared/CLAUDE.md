@@ -8,12 +8,12 @@
 4. **Reference paths instead of pasting;** a project CLAUDE.md stays under 200 lines, details live
    in docs files.
 5. **One task = one focused session;** exit the session at the end of the task (`/exit`).
-6. **Workflow tool: advise first, cap always.** Before a plan's execution, a review, an audit, a sweep or
-   research, and whenever a workflow is asked for, give ONE line: `Workflow: recommended | not worth it --
-   <reason> -- ~<n> agents, ~<tokens> est.`. Sequential or same-file work never runs as a workflow. A running
-   workflow has a hard token ceiling in its script, stays under 10 agents, verifies Critical findings only,
-   and never replaces the `/bajzi:review` loop. Details:
-   `~/.claude/plugins/marketplaces/bajzi-plugins/docs/workflow-budget.md`.
+- **Workflow tool: advise first, cap always.** Before a plan's execution, a review, an audit, a sweep or
+  research, and whenever a workflow is asked for, give ONE line: `Workflow: recommended | not worth it --
+  <reason> -- ~<n> agents, ~<tokens> est. (<unit>)`, unit = out or total. Sequential or same-file work never runs as a workflow. A running
+  workflow has a hard token ceiling in its script, stays under 10 agents, verifies Critical findings only,
+  and never replaces the `/bajzi:review` loop. Details:
+  `~/.claude/plugins/marketplaces/bajzi-plugins/docs/workflow-budget.md`.
 
 ## Context guard + handoff (all projects)
 - After every slice commit, every review verdict, at ~40% context and before any stop or park, rewrite

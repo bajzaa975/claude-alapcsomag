@@ -238,6 +238,18 @@ test('shared/CLAUDE.md Token budget section carries the workflow bullet and its 
   assert.ok(read('docs/methodology-guide.md').includes('docs/workflow-budget.md'));
 });
 
+test('workflow bullet starts with "- " and its advice-line format matches the doc (with unit)', () => {
+  const t = read('shared/CLAUDE.md');
+  const m = t.slice(t.indexOf('## Token budget'), t.indexOf('## Context guard'));
+  const lines = m.split('\n');
+  const i = lines.findIndex((l) => l.includes('Workflow tool'));
+  assert.ok(lines[i].startsWith('- '), 'bullet start');
+  const bullet = lines.slice(i).join(' ').replace(/\s+/g, ' ');
+  const fmt = 'Workflow: recommended | not worth it -- <reason> -- ~<n> agents, ~<tokens> est. (<unit>)';
+  assert.ok(bullet.includes(fmt), 'bullet format');
+  assert.ok(read('docs/workflow-budget.md').includes(fmt), 'doc format');
+});
+
 test('the dev-process agents table names every agent in bajzi/agents/', () => {
   const doc = read('docs/dev-process.md');
   const table = doc.slice(doc.indexOf('## 3. Agents'), doc.indexOf('## 4.'));
