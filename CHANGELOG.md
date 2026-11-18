@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.40.0
+- Added: global rule (shared `CLAUDE.md`, Token budget): before executing a plan, a review, an audit, a sweep or research, every session gives one `Workflow: recommended | not worth it` advice line; a running workflow gets a hard token ceiling, stays under 10 agents, verifies Critical findings only and never replaces `/bajzi:review`. Details in `docs/workflow-budget.md`; `/bajzi:setup` adds the bullet to an existing `~/.claude/CLAUDE.md` once
+
 ## 1.39.0
 - Added: plan critic for M/L repos: `/bajzi:critic <stem>` runs the read-only `plan-critic` agent (model from profile key `plan_critic_model`, default fable, opus fallback) and writes ranked failure scenarios plus your triage to `runtime/critic/<stem>.md`; `FC slice`/`FC sprint` exit 5 and a hook on the superpowers execution skills block plan-derived work until the triage exists (`skipped: <reason>` and unattended `auto` triage are accepted)
 - Added: sprint ledger (`FC ledger`, `FC ledger escaped`, `FC ledger report`): raw per-slice and per-sprint metrics, token/cost by phase from transcripts, savings labelled an estimate against an optional `ledger_baselines` baseline
