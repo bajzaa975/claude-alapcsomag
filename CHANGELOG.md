@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.41.0
+- Added: `/bajzi:handoff --quiet` writes the same handoff file (opening-prompt block included) but prints only one chat line, `Handoff saved: runtime/handoff/<slug>.md`, for an idle save with no `/clear` after it; plain `/bajzi:handoff` is unchanged
+
 ## 1.40.0
 - Added: global rule (shared `CLAUDE.md`, Token budget): before executing a plan, a review, an audit, a sweep or research, every session gives one `Workflow: recommended | not worth it` advice line; a running workflow gets a hard token ceiling, stays under 10 agents, verifies Critical findings only and never replaces `/bajzi:review`. Details in `docs/workflow-budget.md`; `/bajzi:setup` adds the bullet to an existing `~/.claude/CLAUDE.md` once
 
