@@ -138,6 +138,11 @@ All three start from an approved plan. A plan that is not approved, or still has
 does not run. A night run never pushes; an item that needs a new decision is parked and the run
 continues.
 
+**Workflows (the Workflow tool):** Claude says in one line whether a multi-agent workflow is worth it
+before it executes a plan, reviews, audits or sweeps. Same-file or step-by-step work runs as plain
+sub-agents instead. A workflow runs only after you say so, and it always has a token ceiling. Details:
+`docs/workflow-budget.md`.
+
 ## 7. Handoff and context
 
 Around 40% context: `/bajzi:handoff`, then `/clear`. The handoff is saved per branch in

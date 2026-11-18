@@ -59,7 +59,7 @@ Sources: `docs/methodology-guide.md`, `docs/slice-format.md`, `docs/findings-for
 11. **Close and deploy:** `superpowers:finishing-a-development-branch`.
     - A person approves the push and the deploy, and the SHA is named first.
     - The install candidate is the last closed, owner-accepted SHA, never HEAD blindly.
-- **Unattended multi-slice runs:** the Workflow tool, driven by a `/bajzi` skill. The owner must opt in. Slice ids are full names.
+- **Unattended multi-slice runs:** the Workflow tool, driven by a `/bajzi` skill. The owner must opt in. Slice ids are full names. Advice line and budget: `docs/workflow-budget.md`.
 - **Files that carry state:**
   - handoff: `runtime/handoff/<branch-slug>.md`;
   - decision log: `runtime/DECISIONS.md`, committed once per sprint;
@@ -125,7 +125,7 @@ The orchestrating session never writes slice code, fixes or reviews itself. Ever
   - Every item gets two review rounds at most, otherwise PARKED.
   - No overlap with the 06:00-10:00 UTC GLM peak window.
 
-- **Dynamic workflow** (the Workflow tool, needs owner opt-in): a script drives the slices in the background.
+- **Dynamic workflow** (the Workflow tool, needs owner opt-in): a script drives the slices in the background. Advice line and budget: `docs/workflow-budget.md`.
   - Per slice, always the same chain: prep → implement → commit → r1 review → fix → r2 → close → gate → push.
   - The script is idempotent and restart-safe:
     - it resumes from the git log (`<id>: implement`, `<id>: fix r1 findings`) and the findings files;
