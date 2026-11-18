@@ -102,7 +102,7 @@ If you received an argument / extra note from the user, build it into the prompt
 
 ## After writing the file
 
-**Plain `/bajzi:handoff` (no `--quiet`):** also print **the suggested prompt itself** into the chat,
+**Plain mode (no `--quiet` argument):** also print **the suggested prompt itself** into the chat,
 in a code block, so the user sees it right away and can copy it. Beyond that, a single short
 sentence: that the HANDOFF is done and `/clear` can come now. The chat prompt is printed ONLY in
 plain mode (the run that precedes a `/clear`).
@@ -110,7 +110,7 @@ plain mode (the run that precedes a `/clear`).
 If `runtime/handoff/` holds files older than 30 days, mention them in one line so the user can
 clear them out. Do NOT delete anything yourself.
 
-**`/bajzi:handoff --quiet`:** for an idle-save that types the command into a pane with no `/clear`
+**Quiet mode (`--quiet` argument):** for an idle-save that types the command into a pane with no `/clear`
 after it. Do everything above exactly as in plain mode (same slug, same directory step, same
 peer-overwrite check, same structure, and the file still holds the `## SUGGESTED OPENING PROMPT`
 section with exactly one code block). Only the chat output differs: exactly ONE line, and nothing
