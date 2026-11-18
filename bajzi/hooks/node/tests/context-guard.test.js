@@ -63,6 +63,7 @@ test('I1a: the Skill tool invoking bajzi:handoff is allowed at 55%, other skills
     allowedBy('ctx-allow-handoff-skill', at(55, pre('Skill', ti)), JSON.stringify(ti));
   }
   allowedBy('ctx-allow-handoff-skill', at(55, pre('SlashCommand', { command: '/bajzi:handoff note' })), 'SlashCommand');
+  allowedBy('ctx-allow-handoff-skill', at(55, pre('SlashCommand', { command: '/bajzi:handoff --quiet' })), 'SlashCommand quiet');
   for (const ti of [{ skill: 'bajzi:mode' }, { skill: 'superpowers:brainstorming' }, { skill: 'bajzi:handoffx' }, { skill: 'other:handoff' }, {}]) {
     denied(at(55, pre('Skill', ti)), JSON.stringify(ti));
   }
