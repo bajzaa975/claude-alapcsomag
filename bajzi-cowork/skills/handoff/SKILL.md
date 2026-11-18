@@ -97,16 +97,29 @@ The prompt must work as a standalone instruction, and must contain:
 Write it in the second person, the way the user would write it — not "the user asks that…",
 but directly: "We are continuing the…".
 
-If you received an argument / extra note from the user, build it into the prompt.
+If you received an argument / extra note from the user, build it into the prompt. The flag
+`--quiet` is not such a note: strip it first and do not build it into the prompt.
 
 ## After writing the file
 
-Also print **the suggested prompt itself** into the chat, in a code block, so the user sees it right
-away and can copy it. Beyond that, a single short sentence: that the HANDOFF is done and `/clear`
-can come now.
+**Plain `/bajzi:handoff` (no `--quiet`):** also print **the suggested prompt itself** into the chat,
+in a code block, so the user sees it right away and can copy it. Beyond that, a single short
+sentence: that the HANDOFF is done and `/clear` can come now. The chat prompt is printed ONLY in
+plain mode (the run that precedes a `/clear`).
 
 If `runtime/handoff/` holds files older than 30 days, mention them in one line so the user can
 clear them out. Do NOT delete anything yourself.
+
+**`/bajzi:handoff --quiet`:** for an idle-save that types the command into a pane with no `/clear`
+after it. Do everything above exactly as in plain mode (same slug, same directory step, same
+peer-overwrite check, same structure, and the file still holds the `## SUGGESTED OPENING PROMPT`
+section with exactly one code block). Only the chat output differs: exactly ONE line, and nothing
+else (no code block, no `/clear` sentence, no stale-files line):
+
+`Handoff saved: runtime/handoff/<slug>.md`
+
+Never fully silent. If the peer-overwrite check stops you, ask as usual instead. If nothing but the
+`Updated:` line would change, you may just bump `Updated:`.
 
 Do nothing else.
 
