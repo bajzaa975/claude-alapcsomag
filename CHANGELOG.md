@@ -2,6 +2,10 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.42.0
+- Added: autopilot no longer waits for the owner. `autopilot-state.js on|off|status` keeps a marker (`<statusDir>/autopilot-<ORCH_BUS_PANE or session id>.json`, 24 h expiry; `BAJZI_NIGHT_RUN=1` also counts), and the new `autopilot-guard` PreToolUse check refuses `AskUserQuestion` and blocking `ask_owner` while it is on. Day-run is not affected
+- Changed: under autopilot, findings that survive review round 2 get one follow-up slice `<slice-id>-f` instead of waiting for the owner; the closing report is written on every end of the run, then autopilot switches itself off
+
 ## 1.41.0
 - Added: `/bajzi:handoff --quiet` writes the same handoff file (opening-prompt block included) but prints only one chat line, `Handoff saved: runtime/handoff/<slug>.md`, for an idle save with no `/clear` after it; plain `/bajzi:handoff` is unchanged
 
