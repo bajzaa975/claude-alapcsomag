@@ -14,9 +14,7 @@ if (!p) { console.log('autopilot: no session key (ORCH_BUS_PANE / CLAUDE_CODE_SE
 if (arg === 'on') {
   const key = path.basename(p).slice('autopilot-'.length, -'.json'.length);
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  const tmp = `${p}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ v: 1, key, session_id: sessionId || null, started: new Date().toISOString(), cwd: process.cwd() }));
-  fs.renameSync(tmp, p);
+  require('../../hooks/node/lib/session-status').writeJson(path.dirname(p), path.basename(p), { v: 1, key, session_id: sessionId || null, started: new Date().toISOString(), cwd: process.cwd() });
   console.log(`autopilot: on (${p})`);
 } else if (arg === 'off') {
   try { fs.unlinkSync(p); } catch { /* missing is fine */ }

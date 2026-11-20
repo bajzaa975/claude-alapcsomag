@@ -1023,7 +1023,7 @@ tmp-file (`wx`, random name) + rename; the `.jsonl` files are plain appends of o
 record carries `"v": 1`; `ts` is Unix seconds. The SessionStart hook prunes record files (the
 three kinds below, `<id>.tired` markers + stale tmp files, nothing else) whose mtime is older than 7 days.
 
-Autopilot marker: `<statusDir>/autopilot-<key>.json`, written by `autopilot-state.js on` and removed by `off`; key = `ORCH_BUS_PANE` when set, else the session id. `BAJZI_NIGHT_RUN=1` also counts as autopilot; a day-run does not.
+Autopilot marker: `<statusDir>/autopilot-<key>.json`, written by `autopilot-state.js on` and removed by `off`; key = `ORCH_BUS_PANE` when set, else the session id. `BAJZI_NIGHT_RUN=1` also counts as autopilot; a day-run does not. A marker whose `started` is unparsable or older than 24 hours (`MAX_AGE_MS` in `hooks/node/lib/autopilot.js`) counts as off, and the guard's deny reason names the absolute `autopilot-state.js off` command that clears it.
 
 `<id>.line.json` — written by the status line when the content changed or 30 s passed since its last write:
 ```json

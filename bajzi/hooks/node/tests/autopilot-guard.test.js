@@ -9,7 +9,7 @@ const G = require('../autopilot-guard');
 
 const dir = tmpDir('bajzi-ap-');
 const env = { BAJZI_STATUS_DIR: dir };
-const mark = (key) => { fs.writeFileSync(path.join(dir, `autopilot-${key}.json`), '{}'); };
+const mark = (key, started) => { fs.writeFileSync(path.join(dir, `autopilot-${key}.json`), JSON.stringify({ started: started || new Date().toISOString() })); };
 function withEnv(e, fn) {
   const old = process.env;
   process.env = { ...old, BAJZI_NIGHT_RUN: '', ORCH_BUS_PANE: '', ...e };
@@ -55,5 +55,17 @@ test('guard: off allows everything; night-run env denies without a marker', () =
   });
   withEnv({ BAJZI_STATUS_DIR: dir, BAJZI_NIGHT_RUN: '1' }, () => {
     assert.strictEqual(G.check(ask('AskUserQuestion', {}, 'nomark')).kind, 'deny');
+  });
+});
+
+test('stale or unparsable marker is off; reason names the clearing command', () => {
+  mark('old', new Date(Date.now() - A.MAX_AGE_MS - 60000).toISOString());
+  assert.strictEqual(A.isOn({ env, sessionId: 'old' }), false);
+  fs.writeFileSync(path.join(dir, 'autopilot-bad.json'), 'nope');
+  assert.strictEqual(A.isOn({ env, sessionId: 'bad' }), false);
+  mark('g2');
+  withEnv({ BAJZI_STATUS_DIR: dir }, () => {
+    const r = G.check(ask('AskUserQuestion', {}, 'g2'));
+    assert.match(r.reason, /node \/.*autopilot-state\.js off$/);
   });
 });

@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { SAFE_ID, statusDir } = require('./session-status');
 
+const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 function markerPath({ env = process.env, sessionId } = {}) {
   try {
     const pane = env && env.ORCH_BUS_PANE;
@@ -18,8 +20,10 @@ function isOn({ env = process.env, sessionId } = {}) {
   try {
     if (env && env.BAJZI_NIGHT_RUN === '1') return true;
     const p = markerPath({ env, sessionId });
-    return !!p && fs.existsSync(p);
+    if (!p || !fs.existsSync(p)) return false;
+    const t = Date.parse(JSON.parse(fs.readFileSync(p, 'utf8')).started);
+    return Number.isFinite(t) && Date.now() - t <= MAX_AGE_MS;
   } catch { return false; }
 }
 
-module.exports = { markerPath, isOn };
+module.exports = { markerPath, isOn, MAX_AGE_MS };
