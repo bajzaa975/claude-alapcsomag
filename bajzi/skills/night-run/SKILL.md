@@ -58,8 +58,12 @@ keeps the PC awake and one `wsl.exe` client open (the distro stays alive) until 
 `<NIGHT_DIR>/logs/hold.log` (the ls of `.claude/`, the first `runner.log` lines): that output is
 the PHASE E step-1 result, read it BEFORE the step-2 runner check, which runs through `run`.
 Exit 8 = `launch.sh` refused (`BACKUP FAILED`, `A runner is ALREADY running`, `run.sh not found`,
-a wrong NIGHT_DIR) or did not report in time: quote the output, treat it as a refused launch (no
-step 2, no second try), and ask park-or-fix. The launch report says in one
+a wrong NIGHT_DIR; `LAUNCH-EXIT=<non-zero>` in the log): quote the output, treat it as a refused
+launch (no step 2, no second try), and ask park-or-fix. Exit 9 = unknown (no `LAUNCH-EXIT` line
+within the wait; the holder keeps running and may still start the runner): run the PHASE E step-2
+single-runner check through `run`, and once more after about 60 s if no runner shows yet. Runner
+found -> report the launch normally. Still none -> read `hold.log` again and report "not started
+(unknown)" with the log, never "refused". The launch report says in one
 line that closing the lid or a Windows Update restart still stops the run, and that
 `git worktree prune` must not be run in the project folder on Windows during the run.
 

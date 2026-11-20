@@ -54,6 +54,11 @@ if [ -n "$STUB_HOLD_LOG" ]; then
   nd=$(printf '%s' "$*" | sed "s/.*'-NightDir','\\([^']*\\)'.*/\\1/")
   mkdir -p "$nd/logs"; printf '%b' "$STUB_HOLD_LOG" > "$nd/logs/hold.log"
 fi
+if [ -n "$STUB_HOLD_LATE" ]; then
+  nd=$(printf '%s' "$*" | sed "s/.*'-NightDir','\\([^']*\\)'.*/\\1/")
+  mkdir -p "$nd/logs"
+  (sleep "$STUB_HOLD_LATE"; echo LAUNCH-EXIT=0 >> "$nd/logs/hold.log") >/dev/null 2>&1 &
+fi
 `);
   const home = path.join(dir, 'home');
   const version = env.STUB_WSL_VERSION || '1.42.0';
@@ -235,12 +240,23 @@ test('launch: a launch.sh refusal in hold.log reaches the session and is not rep
   assert.match(r.stderr, /launch\.sh refused/);
 });
 
-test('launch: no LAUNCH-EXIT line in time -> exit 8, not success', () => {
+test('launch: no LAUNCH-EXIT line in time -> exit 9 (outcome unknown), not success and not refused', () => {
   const s = sandbox({ STUB_HOLD_LOG: 'half a log\n' });
   const r = s.sh(['launch', s.nd]);
-  assert.strictEqual(r.status, 8);
+  assert.strictEqual(r.status, 9);
   assert.doesNotMatch(r.stdout, /holder started/);
-  assert.match(r.stderr, /did not finish/);
+  assert.match(r.stdout, /half a log/);
+  assert.match(r.stderr, /launch outcome not known yet: the holder is still running; check for the runner/);
+  assert.doesNotMatch(r.stderr, /refused/);
+});
+
+test('launch: the holder writes LAUNCH-EXIT=0 only after the wait ended -> exit 9, not refused', () => {
+  const s = sandbox({ STUB_HOLD_LOG: '', STUB_HOLD_LATE: '3', BAJZI_HOLD_WAIT: '1' });
+  const r = s.sh(['launch', s.nd]);
+  assert.strictEqual(r.status, 9);
+  assert.match(r.stderr, /not known yet/);
+  assert.doesNotMatch(r.stderr, /refused/);
+  assert.doesNotMatch(r.stdout, /holder started/);
 });
 
 test('not Git Bash (uname) or an unknown subcommand -> usage, exit 2', () => {

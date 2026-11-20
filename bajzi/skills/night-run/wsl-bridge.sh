@@ -8,7 +8,8 @@
 #   run     read a bash step on stdin, run it in WSL with CLAUDE_PLUGIN_ROOT set, pass the exit code.
 #           Skips the lookups when DISTRO, WSL_CWD and WSL_PLUGIN_ROOT are all set in the environment.
 #   launch  start the hidden detached night-hold.ps1 for <NIGHT_DIR> (a WSL path), wait for launch.sh to
-#           finish, print its output (logs/hold.log); exit 8 when launch.sh refused or never reported.
+#           finish, print its output (logs/hold.log); exit 8 when launch.sh refused (LAUNCH-EXIT=<non-zero>),
+#           exit 9 when it did not report within BAJZI_HOLD_WAIT (the holder keeps running: outcome unknown).
 # Every wsl.exe call that carries a script uses --exec (no outer shell would expand $vars and $(...) first)
 # and no double quotes in the script (wsl.exe argument parsing).
 # shellcheck disable=SC2016  # remote scripts are single-quoted on purpose: the WSL shell expands them
@@ -98,7 +99,7 @@ case "$SUB" in
     printf '%s\n' "$LOG"
     case "$(printf '%s\n' "$LOG" | grep '^LAUNCH-EXIT=' | tail -n1)" in
       LAUNCH-EXIT=0) ;;
-      '') fail 8 "launch.sh did not finish in time; read $ND/logs/hold.log before anything else";;
+      '') fail 9 "launch outcome not known yet: the holder is still running; check for the runner";;
       *) fail 8 "launch.sh refused or failed (output above); nothing was launched unless it says launched";;
     esac
     echo "holder started"; echo "$ND/logs/hold.log";;
