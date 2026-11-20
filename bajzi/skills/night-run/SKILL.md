@@ -32,6 +32,57 @@ goes into generated files under `~/night-runs/<project>/`.
     status           Bare mode: read-only health check (below). Changes nothing.
     report           Bare mode: PHASE F, the morning follow-through.
 
+## Windows pane: run through WSL
+
+When `uname -s` is MINGW*, MSYS* or CYGWIN* (a native Windows session), EVERY shell step of
+this skill (PHASE A-F, `status`, `report`) runs inside WSL, written exactly as the Linux step:
+
+    bash "${CLAUDE_PLUGIN_ROOT}/skills/night-run/wsl-bridge.sh" run <<'STEP'
+    ...the Linux step...
+    STEP
+
+First run `wsl-bridge.sh check` and keep its `DISTRO=`, `WSL_CWD=` and `WSL_PLUGIN_ROOT=`
+lines: prefix every later `run` with them as env (`DISTRO=.. WSL_CWD=.. WSL_PLUGIN_ROOT=.. bash
+.../wsl-bridge.sh run`), else each step repeats the lookup. Exit 2 = usage or unreadable plugin
+version (stop); exit 3 = no usable WSL distro (say why, stop); exit 4 = the
+WSL bajzi is older: give the owner the printed update command as one owner step and stop;
+exit 5 = `gh` is not logged in inside WSL (owner step); exit 6 = `claude` is not logged in
+inside WSL (`claude auth status` fails; owner step: log in there); exit 7 = GitHub cannot see
+the project repo from WSL (`gh repo view` of the `origin` remote fails; owner step: fix the
+remote or `gh` access there). Inside steps `CLAUDE_PLUGIN_ROOT` is
+the WSL plugin root, NIGHT_DIR is the WSL home `~/night-runs/<project>`, BASE is `WSL_CWD`.
+Write files only through `run` heredocs, never the Write tool. The single-runner check also
+runs through `run`. PHASE E on Windows is `wsl-bridge.sh launch <NIGHT_DIR>`: a hidden holder
+keeps the PC awake and one `wsl.exe` client open (the distro stays alive) until the runner ends.
+`launch` waits (up to 90 s) for `launch.sh` to finish and prints its output from
+`<NIGHT_DIR>/logs/hold.log` (the ls of `.claude/`, the first `runner.log` lines): that output is
+the PHASE E step-1 result, read it BEFORE the step-2 runner check, which runs through `run`.
+Exit 8 = `launch.sh` refused (`BACKUP FAILED`, `A runner is ALREADY running`, `run.sh not found`,
+a wrong NIGHT_DIR; `LAUNCH-EXIT=<non-zero>` in the log): quote the output, treat it as a refused
+launch (no step 2, no second try), and ask park-or-fix. Exit 9 = unknown (no `LAUNCH-EXIT` line
+within the wait; the holder keeps running and may still start the runner): run the PHASE E step-2
+single-runner check through `run`, and once more after about 60 s if no runner shows yet. Runner
+found -> report the launch normally. Still none -> read `hold.log` again and report "not started
+(unknown)" with the log, never "refused". The launch report says in one
+line that closing the lid or a Windows Update restart still stops the run, and that
+`git worktree prune` must not be run in the project folder on Windows during the run.
+
+## Launcher answers
+
+Text after ` -- ` in the arguments is the owner's answers from a launcher (e.g. the
+orchestrator app's Night-run wizard). Use them as given and NEVER re-ask them:
+
+- `length: Claude recommends[, at most N h (GLM peak)]` -> propose hours within N; `hours:<n>` stays the arg.
+- `mode: Claude|Mix|GLM` -> saver L0|L2|L3.
+- `final Opus review: yes|no`.
+- `who starts: Claude after my go` -> PHASE E launches on the owner's go;
+  `who starts: me, with the Start button` -> PHASE E hands the launch command to the owner as
+  one step (`ask_owner` kind step where available).
+- `scope:` -> the queue scope.
+- `if you need me: park and continue|stop the queue`.
+- `grill me if needed: yes|no` (no = take defaults and log them).
+- `note:` free context.
+
 ## Review loop — when an item is actually done
 
 Every queue item goes through the review-and-fix loop, and the reviewer is **always the reviewer
@@ -1258,7 +1309,9 @@ session; `nohup` alone dies with the session that launched it). Fallback, only i
 refuses the call (auto-mode classifier "Interfere With Workloads", or a permission prompt the
 owner declines): STOP, quote the refusal, and hand the owner the same one-line command
 (`bash <NIGHT_DIR>/launch.sh`) to run in a plain bash terminal; never work around a refusal (no
-other wrapper, no rewording, no `!`). Check `echo "${BAJZI_SANDBOX:-}"` before step 1: in
+other wrapper, no rewording, no `!`). When the runner cannot be launched (any OS),
+say so and why and ask park-or-fix; never run the work in this session and call it a night run
+(an in-session autopilot run happens only when the owner chooses it by that name). Check `echo "${BAJZI_SANDBOX:-}"` before step 1: in
 a sandboxed `split` session (`BAJZI_SANDBOX=1`) `~/night-runs` and `<BASE>` are read-only, so
 `launch.sh` would fail at the `run.flock` open (printing a false `A runner is ALREADY running`)
 or at the settings install — do not run `launch.sh`: go straight to the fallback and hand the
