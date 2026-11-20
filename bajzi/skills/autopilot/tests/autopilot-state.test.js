@@ -38,3 +38,26 @@ test('no key -> message, exit 0; bad arg -> exit 2', () => {
   assert.match(r.stdout, /no session key/);
   assert.strictEqual(run('bogus', {}).status, 2);
 });
+
+test('on fails loudly when the marker cannot be written', () => {
+  const file = path.join(dir, 'plainfile');
+  fs.writeFileSync(file, 'x');
+  const r = spawnSync(process.execPath, [S, 'on'], { env: { PATH: process.env.PATH, BAJZI_STATUS_DIR: file, CLAUDE_CODE_SESSION_ID: 's9' }, encoding: 'utf8' });
+  assert.strictEqual(r.status, 1);
+  assert.doesNotMatch(r.stdout, /autopilot: on/);
+  assert.match(r.stderr, /NOT active/);
+  const long = 'p'.repeat(125);
+  const r2 = run('on', { ORCH_BUS_PANE: long });
+  assert.strictEqual(r2.status, 1);
+  assert.doesNotMatch(r2.stdout, /autopilot: on/);
+  assert.ok(!fs.existsSync(path.join(dir, `autopilot-${long}.json`)));
+});
+
+test('status: stale marker is off, fresh is on', () => {
+  const e = { CLAUDE_CODE_SESSION_ID: 'sess3' };
+  const f = path.join(dir, 'autopilot-sess3.json');
+  fs.writeFileSync(f, JSON.stringify({ v: 1, key: 'sess3', started: new Date(Date.now() - 25 * 3600e3).toISOString() }));
+  assert.match(run('status', e).stdout, /off \(stale marker/);
+  run('on', e);
+  assert.match(run('status', e).stdout, /^autopilot: on/);
+});

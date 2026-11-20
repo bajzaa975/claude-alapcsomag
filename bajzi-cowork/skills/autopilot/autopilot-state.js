@@ -13,12 +13,18 @@ const p = L.markerPath({ env, sessionId });
 if (!p) { console.log('autopilot: no session key (ORCH_BUS_PANE / CLAUDE_CODE_SESSION_ID unset); no marker written'); process.exit(0); }
 if (arg === 'on') {
   const key = path.basename(p).slice('autopilot-'.length, -'.json'.length);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  require('../../hooks/node/lib/session-status').writeJson(path.dirname(p), path.basename(p), { v: 1, key, session_id: sessionId || null, started: new Date().toISOString(), cwd: process.cwd() });
+  let ok = false;
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    ok = require('../../hooks/node/lib/session-status').writeJson(path.dirname(p), path.basename(p), { v: 1, key, session_id: sessionId || null, started: new Date().toISOString(), cwd: process.cwd() }) !== false;
+  } catch { /* reported below */ }
+  if (!ok) { console.error(`autopilot: FAILED to write the marker (${p}); the autopilot guard is NOT active`); process.exit(1); }
   console.log(`autopilot: on (${p})`);
 } else if (arg === 'off') {
   try { fs.unlinkSync(p); } catch { /* missing is fine */ }
   console.log('autopilot: off');
 } else {
-  console.log(`autopilot: ${fs.existsSync(p) ? 'on' : 'off'} (${p})`);
+  const on = L.isOn({ env, sessionId });
+  if (!on && fs.existsSync(p)) console.log(`autopilot: off (stale marker: ${p}; clear it with: node ${__filename} off)`);
+  else console.log(`autopilot: ${on ? 'on' : 'off'} (${p})`);
 }
