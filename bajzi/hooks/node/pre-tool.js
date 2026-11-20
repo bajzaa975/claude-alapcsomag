@@ -15,6 +15,7 @@ const CHECKS = [
   ['writer-guard', t => /^(?:Edit|Write|MultiEdit|NotebookEdit)$/.test(t), () => require('./writer-guard')],
   ['saver-guard', t => /^(?:Edit|Write|MultiEdit|NotebookEdit|Agent|Task|Bash|PowerShell)$/.test(t), () => require('./saver-guard')],
   ['critic-gate', t => t === 'Skill', () => require('./critic-gate')],
+  ['autopilot-guard', t => t === 'AskUserQuestion' || /ask_owner$/.test(t), () => require('./autopilot-guard')],
   ['file-lock', t => /^(?:Edit|Write|MultiEdit|NotebookEdit)$/.test(t), () => require('./file-lock')],
 ];
 

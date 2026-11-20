@@ -9,11 +9,17 @@ AUTOPILOT MODE ON. The scope and any extra instructions arrive in the argument (
 "SPRINT-12..15" or "the next 3 items on the list"). If no scope is given, ask once in a
 single sentence — after that you ask nothing more.
 
-The user is not at the machine; from now on you work unsupervised. Rules:
+The user is not at the machine; from now on you work unsupervised.
+
+**First step:** run `node <this skill's dir>/autopilot-state.js on` from the repo root. It writes the
+session's autopilot marker. Run it again after a /clear or a resume while autopilot is still meant to be on.
+
+Rules:
 
 1. **Do NOT ask, do not wait for approval.** Decide every question that comes up yourself based on
    the project documentation, the code's conventions and common sense — picking the least risky
-   option that is easiest to reverse later.
+   option that is easiest to reverse later. Under autopilot a hook refuses blocking owner questions
+   (`blocking=true`, AskUserQuestion): take the default and log it in the decision log.
 2. **DECISION LOG:** at the start of the session run `node <this skill's dir>/decision-log.js` once (from the repo
    root). Write each substantive (non-trivial) decision when it is made into the handoff's `## Pending decisions` (untracked, no commit). Build ONE entry per sprint from that section and commit it
    at the sprint's end, to the path it printed (`runtime/DECISIONS.md` normally; the entry is
@@ -48,7 +54,7 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    every review verdict, at ~40% context and before any stop or park. If context goes above ~40%: you do NOT start a new
    item — you close out the current one, write the closing report, and stop in a controlled way
    (listing the remaining items under "NOT STARTED").
-6. **CLOSING REPORT:** at the end of the run write `runtime/AUTOPILOT-REPORT.md`: completed items
+6. **CLOSING REPORT:** on EVERY end of the run (also aborted, errored, stopped or parked, before the stop) write `runtime/AUTOPILOT-REPORT.md`: completed items
    (with test status), a summary of the decisions made on the user's behalf (referencing the decision log path),
    PARKED and BLOCKED items, the test gaps recorded in `runtime/findings/test-gaps.md` (listed for the owner,
    never fixed in the run), each sprint's closing lines when its review step printed them (the six time lines and the Tier 1 majors), and a "LET'S REVIEW THIS TOGETHER" list in priority order, numbered in the same
@@ -58,6 +64,15 @@ The user is not at the machine; from now on you work unsupervised. Rules:
    - If `~/.claude/worker-mode` is `glm` and `worker` is on PATH, run `worker --usage
      <session start ISO>` and include its last two lines under a "Token usage (GLM vs
      Anthropic)" heading; skip silently if the command is missing.
+   - After writing the report run `node <this skill's dir>/autopilot-state.js off`.
+7. **ROUND 3 (follow-up slice):** this is autopilot's own, owner-pre-authorised step, not a workaround.
+   After a round-2 close that sent blocker/major findings to `runtime/findings/needs-owner.md`, open
+   ONE follow-up slice `<slice-id>-f` (slice header per the slice rules; its acceptance is those
+   findings' text copied into the slice file, never a `runtime/findings/` path) and run it through
+   the implement and review skills like any slice. A slice id that already ends in `-f` never
+   spawns another: those findings stay for the owner. When the `-f` slice ends CLEAN, append
+   ` -- resolved by <slice-id>-f` to the matching `needs-owner.md` lines. Log it as "decided by
+   Claude, owner can revert" in the decision log and the closing report.
 
-**Turning it off:** if the user writes at any point "autopilot off" — you immediately return to normal
+**Turning it off:** if the user writes at any point "autopilot off" — you run `node <this skill's dir>/autopilot-state.js off`, immediately return to normal
 (question-asking) mode, and briefly summarize where you are.

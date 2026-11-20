@@ -36,5 +36,6 @@ Every fix goes through `bajzi:fixer`; you never fix the findings yourself. `FC` 
 6. `tip=$(git rev-parse HEAD)`, then run `/bajzi:review <slice-id> <base>..<tip> --round 2`.
 7. STOP. Round 2 is the last round this skill runs; whatever is still open is routed by the
    round-2 close (owner or debt). A round 3 is the owner's call, started by hand.
+   Under autopilot the autopilot skill's follow-up-slice rule applies instead.
 
 Any other `FC` or git exit code a step above does not name -> print its output and the exit code, STOP.
