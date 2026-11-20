@@ -39,3 +39,11 @@ test('autopilot: rule 6 includes the sprint closing lines from review', () => {
 test('autopilot: rule 2 never commits the untracked fallback decision log', () => {
   assert.ok(SKILL.includes('only written, never committed, when the printed path is `runtime/handoff/autopilot-decisions.md`'));
 });
+
+test('autopilot: marker on/off, -f follow-up rule, closing report on every end', () => {
+  assert.ok(SKILL.includes('autopilot-state.js on'));
+  assert.ok(SKILL.includes('autopilot-state.js off'));
+  assert.ok(SKILL.includes('`<slice-id>-f`'));
+  assert.ok(SKILL.includes('already ends in `-f` never spawns another'));
+  assert.ok(SKILL.includes('on EVERY end of the run'));
+});

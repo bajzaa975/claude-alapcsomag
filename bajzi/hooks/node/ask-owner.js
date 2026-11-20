@@ -10,7 +10,7 @@ const RULE = [
   "- Then write only one line in the chat: 'Question for you in the panel: <title>'.",
   '- If the owner answers a panel question in the chat instead and the orch-bus tool `owner_answered` (`mcp__orch-bus__owner_answered`, loaded like ask_owner) is available, call it with the id ask_owner returned and the answer, so the panel card closes.',
   '- If the decision can be undone, set default_taken, carry on with it and do not wait. Only for risky or irreversible decisions set blocking=true and end your turn; the owner\'s answer arrives as your next message.',
-  '- No person at the keyboard (claude -p / print mode, autopilot, night run): never set blocking=true. Post it with blocking=false (no default for a risky one), park that item and continue with the rest.',
+  '- No person at the keyboard (claude -p / print mode, autopilot, night run): never set blocking=true. Post it with blocking=false (no default for a risky one), park that item and continue with the rest. Under autopilot a hook refuses blocking=true and AskUserQuestion.',
   '- Plain words: no internal labels, IDs, finding numbers or file:line pins in owner text.',
   '- Never put a password, token, key or any other secret or credential value in any field, and never ask the owner to send one; a step that needs a secret says where the owner enters it themselves.',
   'If the tool is absent or the call returns an error, ask the way your other instructions say.',
