@@ -14,6 +14,14 @@ test('SKILL.md has the Windows route sections and bridge calls', () => {
   }
 });
 
+test('Windows PHASE E reads hold.log before the runner check; exit codes 6, 7 and 8 are documented', () => {
+  assert.match(skill, /`<NIGHT_DIR>\/logs\/hold\.log`[\s\S]{0,300}BEFORE the step-2 runner check/);
+  assert.match(skill, /exit 8 = `launch\.sh` refused|Exit 8 = `launch\.sh` refused/);
+  assert.match(skill, /exit 6 = `claude` is not logged in/);
+  assert.match(skill, /exit 7 = GitHub cannot see/);
+  assert.match(spec, /6 `claude` not logged in in WSL, 7 GitHub cannot see the project repo from WSL, 8 `launch\.sh` refused/);
+});
+
 test('launcher answers: mode and who-starts mappings, never re-ask', () => {
   assert.match(skill, /mode: Claude\|Mix\|GLM` -> saver L0\|L2\|L3/);
   assert.ok(skill.includes('`who starts: Claude after my go` -> PHASE E launches on the owner\'s go'));

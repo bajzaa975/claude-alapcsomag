@@ -46,11 +46,20 @@ lines: prefix every later `run` with them as env (`DISTRO=.. WSL_CWD=.. WSL_PLUG
 .../wsl-bridge.sh run`), else each step repeats the lookup. Exit 2 = usage or unreadable plugin
 version (stop); exit 3 = no usable WSL distro (say why, stop); exit 4 = the
 WSL bajzi is older: give the owner the printed update command as one owner step and stop;
-exit 5 = `gh` is not logged in inside WSL (owner step). Inside steps `CLAUDE_PLUGIN_ROOT` is
+exit 5 = `gh` is not logged in inside WSL (owner step); exit 6 = `claude` is not logged in
+inside WSL (`claude auth status` fails; owner step: log in there); exit 7 = GitHub cannot see
+the project repo from WSL (`gh repo view` of the `origin` remote fails; owner step: fix the
+remote or `gh` access there). Inside steps `CLAUDE_PLUGIN_ROOT` is
 the WSL plugin root, NIGHT_DIR is the WSL home `~/night-runs/<project>`, BASE is `WSL_CWD`.
 Write files only through `run` heredocs, never the Write tool. The single-runner check also
 runs through `run`. PHASE E on Windows is `wsl-bridge.sh launch <NIGHT_DIR>`: a hidden holder
-keeps the PC awake and the distro alive until the runner ends. The launch report says in one
+keeps the PC awake and one `wsl.exe` client open (the distro stays alive) until the runner ends.
+`launch` waits (up to 90 s) for `launch.sh` to finish and prints its output from
+`<NIGHT_DIR>/logs/hold.log` (the ls of `.claude/`, the first `runner.log` lines): that output is
+the PHASE E step-1 result, read it BEFORE the step-2 runner check, which runs through `run`.
+Exit 8 = `launch.sh` refused (`BACKUP FAILED`, `A runner is ALREADY running`, `run.sh not found`,
+a wrong NIGHT_DIR) or did not report in time: quote the output, treat it as a refused launch (no
+step 2, no second try), and ask park-or-fix. The launch report says in one
 line that closing the lid or a Windows Update restart still stops the run, and that
 `git worktree prune` must not be run in the project folder on Windows during the run.
 
