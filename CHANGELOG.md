@@ -2,6 +2,11 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.43.0
+- Added: `/bajzi:night-run` from a native Windows pane runs the Linux engine inside WSL on the same PC, on the same project folder. `wsl-bridge.sh` (pick/check/run/launch) routes every skill step into WSL and fails closed with plain exit codes (no distro, older bajzi in WSL, gh/claude not logged in, repo not visible, launch refused or not known yet); `night-hold.ps1` keeps the PC awake and the distro alive until the runner ends
+- Added: launcher answers after ` -- ` (length, mode Claude/Mix/GLM = L0/L2/L3, who starts, scope, if you need me, grill, note) are used as given and never re-asked
+- Changed: when the runner cannot be launched the session says so and asks; it never runs the work in-session and calls it a night run
+
 ## 1.42.0
 - Added: autopilot no longer waits for the owner. `autopilot-state.js on|off|status` keeps a marker (`<statusDir>/autopilot-<ORCH_BUS_PANE or session id>.json`, 24 h expiry; `BAJZI_NIGHT_RUN=1` also counts), and the new `autopilot-guard` PreToolUse check refuses `AskUserQuestion` and blocking `ask_owner` while it is on. Day-run is not affected
 - Changed: under autopilot, findings that survive review round 2 get one follow-up slice `<slice-id>-f` instead of waiting for the owner; the closing report is written on every end of the run, then autopilot switches itself off
