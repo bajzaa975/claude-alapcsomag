@@ -18,6 +18,9 @@ test('Windows PHASE E reads hold.log before the runner check; exit codes 6, 7 an
   assert.match(skill, /`<NIGHT_DIR>\/logs\/hold\.log`[\s\S]{0,300}BEFORE the step-2 runner check/);
   assert.match(skill, /exit 8 = `launch\.sh` refused|Exit 8 = `launch\.sh` refused/);
   assert.match(skill, /Exit 9 = unknown[\s\S]{0,400}single-runner check[\s\S]{0,400}never "refused"/);
+  const exit9 = skill.slice(skill.indexOf('Exit 9 = unknown'), skill.indexOf('never "refused"'));
+  assert.match(exit9, /once\s+more\s+after\s+about\s+60\s+s/);
+  assert.match(exit9, /"not\s+started\s+\(unknown\)"/);
   assert.match(skill, /exit 6 = `claude` is not logged in/);
   assert.match(skill, /exit 7 = GitHub cannot see/);
   assert.match(spec, /6 `claude` not logged in in WSL, 7 GitHub cannot see the project repo from WSL, 8 `launch\.sh` refused[^)]*`launch`\), 9 launch outcome not known/);
