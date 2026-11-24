@@ -468,3 +468,17 @@ test('BRIEF.md.tmpl 5.1: red CI runs ci-tail.sh, one fixer, park with the tail; 
   assert.ok(!st.includes('*ci-tail'), 'no wildcard before the ci-tail script path');
   has(SKILL, '<CI_TAIL_SH>');
 });
+
+test('BRIEF merge step: base check then standalone exact merge; run.sh prompt repeats it; no -C merge allow', () => {
+  const b = flat(BRIEF.slice(BRIEF.indexOf('### 5.2 Before merging'), BRIEF.indexOf('### 5.3')));
+  has(b, "`gh pr view <n> --json baseRefName,state -q '.baseRefName+\" \"+.state'` must print exactly `{{BASE_BRANCH}} OPEN`");
+  has(b, 'report `reason=merge-forbidden` with what it printed');
+  has(b, 'its OWN Bash call, exactly `gh pr merge <n> --squash` run from the story worktree');
+  has(b, 'never chained with `;`, `&&` or `|`, never with `--repo`/`-R`, `--admin`, `--auto` or `--delete-branch`');
+  has(b, 'anything else is refused and the story ends merge-forbidden');
+  const run = fs.readFileSync(path.join(DIR, 'run.sh'), 'utf8');
+  has(run, 'as its own Bash call with exactly the shape gh pr merge <n> --squash (no chaining, no --repo/-R/--admin/--auto/--delete-branch) right after a separate gh pr view base check that must print $BASE_BRANCH OPEN');
+  const st = read('templates', 'settings.local.json.tmpl');
+  assert.ok(!/git -C [^)]* merge /.test(st), 'no -C ... merge allow rule (a wildcard before the subcommand)');
+  has(st, 'Bash(/usr/bin/git merge origin/<BASE_BRANCH>)');
+});

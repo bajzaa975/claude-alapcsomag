@@ -744,9 +744,18 @@ gh run list --branch "{{BRANCH_NAMESPACE}}/{{BRANCH_PREFIX}}-<id>-<slug>" --even
    passes. They exist because something merged green and broke anyway.
 3. If anything changed in step 1, push and wait for a NEW green
    `pull_request`-event run before merging.
-4. Merge: `gh pr merge <n> --squash`. Never `--delete-branch`: deleting a branch
-   that still has a worktree attached fails mid-merge and leaves the repo
-   half-done. Section 5.3 below does the deletion, tag-first.
+4. Base check, its OWN Bash call, immediately BEFORE the merge:
+   `gh pr view <n> --json baseRefName,state -q '.baseRefName+" "+.state'` must
+   print exactly `{{BASE_BRANCH}} OPEN`. Anything else (another base, not OPEN, a
+   gh error or empty output) = do NOT merge, leave the PR open and report
+   `reason=merge-forbidden` with what it printed.
+5. Merge, its OWN Bash call, exactly `gh pr merge <n> --squash` run from the
+   story worktree: never chained with `;`, `&&` or `|`, never with `--repo`/`-R`,
+   `--admin`, `--auto` or `--delete-branch`. The night settings allow only that
+   exact shape and deny those flags; anything else is refused and the story ends
+   merge-forbidden. Never `--delete-branch`: deleting a branch that still has a
+   worktree attached fails mid-merge and leaves the repo half-done. Section 5.3
+   below does the deletion, tag-first.
 
 ### 5.3 Clean up after a green merge — archive-tag FIRST, then delete
 

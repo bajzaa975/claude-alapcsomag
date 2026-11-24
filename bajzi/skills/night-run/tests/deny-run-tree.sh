@@ -434,6 +434,17 @@ for c in "bash -c 'x' ci-tail.sh $NIGHT 1" "bash -c 'x' ci-tail.sh \"$NIGHT\" 1"
   bash_perm citail "$c" allow; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
 done
 
+# --- (D3) merge shape: no -C ... merge allow (a wildcard before the subcommand); the cwd form stays allowed ----
+render mergeshape.json
+bash_perm mergeshape "/usr/bin/git merge origin/dev" allow; check $? "the cwd-form merge origin/<base> is still allowed"
+for c in "/usr/bin/git -C \"$NIGHT/wt/S1\" merge origin/dev" "/usr/bin/git -C $NIGHT/wt/S1 merge origin/dev" \
+         "/usr/bin/git -C $NIGHT/wt/S1 --exec-path=/x merge origin/dev" "/usr/bin/git -C \"$BASE\" merge origin/dev" "/usr/bin/git -C $BASE merge origin/dev"; do
+  bash_perm mergeshape "$c" allow; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
+done
+bash_perm mergeshape "gh pr merge 4 --squash" allow; check $? "gh pr merge <n> --squash is allowed"
+bash_perm mergeshape "cd /x; gh pr merge 4 --repo o/r --squash 2>&1" allow; [ $? -ne 0 ]; check $? "a chained gh pr merge --repo is not allowed"
+bash_perm mergeshape "gh pr view 4 --json baseRefName,state -q '.baseRefName+\" \"+.state'" allow; check $? "the base-check gh pr view is allowed"
+
 # --- (E) the supervisor's own settings: the night file minus THIS night's state-file deny ----------
 # The supervisor re-queues a story by deleting its state row, which Edit(~/night-runs/<project>/state*.txt)
 # forbids; PHASE C (and supervise.sh at every tick) renders <NIGHT_DIR>/supervise.settings.json without
