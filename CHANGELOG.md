@@ -2,6 +2,10 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.45.0
+- Fixed: night-run settings no longer pre-approve git commands in any path under the story worktree folder. The PHASE C post-render step generates exact allows per queued story id (quoted and bare path) from queue.txt on every run, with exact command tails (fetch origin, status --porcelain, add -A, diff origin/<base>...HEAD, commit, push, merge origin/<base>); an option slipped in before or after the verb, tab-separated ones included, no longer matches an allow. A queue id outside run.sh's id rule fails the render; the rules check reports WT WILDCARD ALLOW and MISSING STORY RULE.
+- Fixed: the commit allow names the author exactly as the brief writes it ("$GIT_AUTHOR_NAME"/"$GIT_AUTHOR_EMAIL"), so an extra -c setting between them no longer matches; the run.sh story prompt uses the same form.
+
 ## 1.44.0
 - Fixed: a Windows night run started its runner without the login PATH, so `claude` was not found and the whole queue failed in seconds. The holder now runs `launch.sh` in a login shell, `launch.sh` refuses to start when `CLAUDE_BIN` cannot be found, and the runner stops the queue when a story's `claude` exits 127 within 10 s
 - Fixed: night story sessions merge their PR with one standalone `gh pr merge <n> --squash` call after a base check (`gh pr view <n> --json baseRefName,state` must print `<BASE_BRANCH> OPEN`; `MERGED` counts as merged; CLOSED or another base ends `blocked`). The night settings now deny `gh pr merge --auto` and any extra token between the worktree path and `merge` in the worktree base merge
