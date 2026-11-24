@@ -46,6 +46,18 @@ test('launcher receives the deny-file path as one argument when the path has a s
   assert.strictEqual(argv[argv.indexOf('--settings') + 1], deny);
 });
 
+// A run cut to its last five lines has `fail 0` but no `pass` line; only an explicit `pass 0` (no test found) is rejected.
+const green = (o) => /fail 0\b/.test(o) && !/pass 0\b/.test(o);
+
+test('passing-run check accepts a tailed passing run and rejects a zero-test run', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'bajzi-green-'));
+  fs.writeFileSync(path.join(d, 'a.test.js'), "require('node:test')('a', () => {});\n");
+  const run = (cwd) => spawnSync(process.execPath, ['--test'], { cwd, encoding: 'utf8', env: ENV }).stdout;
+  assert.ok(green(run(d).trim().split('\n').slice(-5).join('\n')), 'tailed passing run');
+  const e = fs.mkdtempSync(path.join(os.tmpdir(), 'bajzi-green-empty-'));
+  assert.ok(!green(run(e)), 'zero-test run');
+});
+
 const skip = process.env.BAJZI_CONTRACT === '1' ? false : 'set BAJZI_CONTRACT=1 (calls glm -p)';
 
 test('documented GLM dispatch command implements a fixture slice and runs its test command', { skip, timeout: 900e3 }, () => {
@@ -67,13 +79,11 @@ test('documented GLM dispatch command implements a fixture slice and runs its te
   // and no tool error (a deny comes back as an error).
   const outs = runs.map((u) => blocks.find((b) => b.type === 'tool_result' && b.tool_use_id === u.id))
     .map((res) => (res && !res.is_error ? JSON.stringify(res.content ?? '') : ''));
-  // `fail 0` alone also matches a run that found no test file, so a passing run needs pass >= 1 too.
-  const green = (o) => /fail 0\b/.test(o) && /pass [1-9]\d*\b/.test(o);
   assert.ok(outs.some(green), `no passing test run: ${outs.join('\n').slice(0, 800)}`);
   assert.ok(fs.existsSync(path.join(repo, 'mathutils.test.js')), 'the fixture test file was not written');
   const t = spawnSync('node', ['--test'], { cwd: repo, encoding: 'utf8', env: ENV });
   assert.ok(t.status === 0 && green(t.stdout), `fixture tests not green:\n${t.stdout}`);
-  // dispatch.md saves the final message and the implement row reads DONE/BLOCKED from its exact last line.
+  // implementer.md puts the DONE line before the changed-files list, so match it on its own line, not as the last line.
   const result = r.stdout.split(/\r?\n/).map((l) => { try { return JSON.parse(l); } catch { return null; } })
     .find((e) => e && e.type === 'result');
   assert.match(String(result?.result ?? ''), new RegExp(`^SLICE ${SLICE} DONE$`, 'm'), `no DONE line in the result event`);
