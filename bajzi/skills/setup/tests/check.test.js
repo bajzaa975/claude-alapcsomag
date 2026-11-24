@@ -488,10 +488,10 @@ test('worker deny-list: Bash rules refuse the dangerous spellings, allow ordinar
   const globs = deny.map((r) => /^Bash\((.*)\)$/.exec(r)).filter(Boolean)
     .map((m) => new RegExp('^' + m[1].replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$'));
   const hit = (c) => globs.some((g) => g.test(c));
-  for (const c of ['git add bajzi/.claude-plugin/plugin.json', 'git add bajzi/gate/pre-push.js', 'git commit -m "docs: rebase notes"', 'grep -rn pseudo .', 'cat .env.example']) {
+  for (const c of ['git add bajzi/.claude-plugin/plugin.json', 'git add bajzi/gate/pre-push.js', 'git commit -m "docs: rebase notes"', 'git -C x commit -m wip', 'grep -rn pseudo .', 'cat .env.example']) {
     assert.ok(!hit(c), `must stay allowed: ${c}`);
   }
-  for (const c of ['git push', 'git push origin x', 'git -C x push', '/usr/bin/git push', 'git reset --hard', 'git -C x rebase main', 'gh pr merge 3', 'gh release create v1',
+  for (const c of ['git push', 'git push origin x', 'git -C x push', '/usr/bin/git push', 'git reset --hard', 'git -C x rebase main', 'git -C x add push.js', 'git -C x commit -m "fix push retry"', 'gh pr merge 3', 'gh release create v1',
     'sudo ls', 'echo a && sudo ls', 'kill -9 12', 'claude plugin install x', 'cat .env', 'cat .env.production', 'cat .env.local', 'cat ./.env', 'cat .env.dev.local', 'cat ~/.ssh/config']) {
     assert.ok(hit(c), `must be denied: ${c}`);
   }
@@ -505,6 +505,12 @@ test('worker deny-list: Bash rules refuse the dangerous spellings, allow ordinar
   const seg = /Hand each to GLM:(.*?)\(GLM tokens\)/.exec(modeMd);
   assert.ok(seg, 'mode/SKILL.md hand-off sentence');
   for (const l of [...lines, seg[1]]) assert.doesNotMatch(l.replace(/worker-deny\.settings\.json/g, ''), /\bpush\b|pr merge|\brelease\b/i, l);
+  // every git verb the known-limits sentence hands to GLM matches no deny rule
+  const lim = /with the project\s+read-only,(.*?)fail\s+when/s.exec(modeMd);
+  assert.ok(lim, 'mode/SKILL.md known-limits list');
+  const verbs = [...lim[1].matchAll(/`([^`]+)`/g)].map((m) => m[1].replace(/<[^>]*>/g, '').trim()).filter((t) => t && !/^(gh|every)/.test(t));
+  assert.ok(verbs.length >= 4, verbs.join());
+  for (const v of verbs) for (const t of v.split('/')) assert.ok(!hit(`git ${t.replace(/^git /, '')}`) && !hit(`git -C x ${t.replace(/^git /, '')}`), `handed to GLM but denied: ${t}`);
   // every glm -p launch instruction in the mode skill carries the bypass flag and --settings
   for (const l of modeMd.split('\n')) {
     if (/glm -p [-"]/.test(l)) assert.match(l, /glm -p --permission-mode bypassPermissions --settings /, l);

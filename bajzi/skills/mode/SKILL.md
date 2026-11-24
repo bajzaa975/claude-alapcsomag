@@ -126,9 +126,9 @@ peak-window ban applies at every level that uses GLM (L1-L3), enforced by the sh
   write there. The Edit/Write tools reach only `runtime/` and `~/.claude/projects/*/memory/` (scratch files: write them with the shell; a refused pure tmp Write is logged `cause=scratch`, not a code-write deny).
   Elsewhere the saver-guard tier applies. A `split` session's level is fixed at L2; to work on
   Claude only, start plain `claude` at L0. Known limits of the sandboxed tier: with the project
-  read-only, `git switch`/`checkout <branch>`, branch creation, `merge`, `pull`, `fetch`, `push`,
-  `stash`, `rebase`, `worktree add`, every `gh` call and builds/tests that write into the project fail
-  when Claude runs them itself. Hand each to GLM: `glm -p --permission-mode bypassPermissions --settings "<absolute lib/worker-deny.settings.json>" "<git/gh task>"` (GLM tokens); the publishing steps (the branch push, a PR merge, a release) are refused by that deny file and stay an owner step.
+  read-only, `git switch`/`checkout <branch>`, branch creation, `merge`, `pull`, `fetch`,
+  `worktree add`, every `gh` call and builds/tests that write into the project fail
+  when Claude runs them itself. Hand each to GLM: `glm -p --permission-mode bypassPermissions --settings "<absolute lib/worker-deny.settings.json>" "<git/gh task>"` (GLM tokens); every verb that deny file refuses (`push`, `stash`, `rebase`, `reset --hard`, `clean -f`/`-x`, `branch -d`/`-D`, `filter-branch`, `update-ref`, `worktree remove`/`prune`, a PR merge, a release) stays an owner step.
 - The hook injects saver text when day-run is on OR `$CC_WORKER_MODE` names a level
   (a runner-forced level) OR the provider is non-Anthropic; in plain normal mode with none of
   those it emits `{}` and saver mode has no effect at all. A non-Anthropic provider forces L3
