@@ -137,6 +137,7 @@ test('launch.sh: the runner and everything it spawns get no provider env from th
   const fake = `${nd}/run.sh`;
   fs.writeFileSync(fake, `env > "${nd}/env.out"\n`);
   fs.writeFileSync(`${nd}/settings.local.json`, '{}');
+  fs.writeFileSync(`${nd}/config.env`, 'CLAUDE_BIN=bash\n');
   const out = render({ BASE: nd, NIGHT_DIR: nd, RUN_SH: fake });
   const env = { ...process.env, CLAUDECODE: '1', ANTHROPIC_BASE_URL: 'x', ANTHROPIC_AUTH_TOKEN: 'y', CC_WORKER_MODE: '1', BAJZI_SPLIT: '1', BAJZI_SANDBOX: '1', ...Object.fromEntries(SESSION_VARS.map((k) => [k, 'z'])), CLAUDE_CODE_OWNER_X: 'keep' };
   const r = spawnSync('bash', [], { input: out, encoding: 'utf8', env, timeout: 30000 });
@@ -146,6 +147,29 @@ test('launch.sh: the runner and everything it spawns get no provider env from th
   assert.ok(!new RegExp(`^(CLAUDECODE|ANTHROPIC_\\w+|CC_WORKER_MODE|BAJZI_SPLIT|BAJZI_SANDBOX|${SESSION_VARS.join('|')})=`, 'm').test(got), got);
   assert.ok(/^CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=/m.test(got), 'launch.sh own export survives');
   assert.ok(/^CLAUDE_CODE_OWNER_X=keep/m.test(got), 'owner-set CLAUDE_CODE_* survives');
+});
+
+test('launch.sh: CLAUDE_BIN must resolve in the launch PATH, else exit 1 and no runner', (t) => {
+  const dirs = [];
+  const os = require('node:os');
+  const fwd = (x) => x.split(path.sep).join('/');
+  const run = (bin) => {
+    const nd = fwd(fs.mkdtempSync(path.join(os.tmpdir(), 'nr-bin-')));
+    dirs.push(nd);
+    fs.writeFileSync(`${nd}/run.sh`, `echo ran > "${nd}/ran"\n`);
+    fs.writeFileSync(`${nd}/settings.local.json`, '{}');
+    fs.writeFileSync(`${nd}/config.env`, `CLAUDE_BIN="${bin.replace('@ND@', nd)}"\n`);
+    const r = spawnSync('bash', [], { input: render({ BASE: nd, NIGHT_DIR: nd, RUN_SH: `${nd}/run.sh` }), encoding: 'utf8', timeout: 30000 });
+    return { r, nd };
+  };
+  t.after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
+  const miss = run('@ND@/no-such-claude');
+  assert.strictEqual(miss.r.status, 1, miss.r.stdout + miss.r.stderr);
+  has(miss.r.stdout, `CLAUDE_BIN not found in the launch PATH: ${miss.nd}/no-such-claude (PATH=`);
+  assert.ok(!fs.existsSync(`${miss.nd}/ran`), 'no runner started');
+  const okr = run('bash');
+  assert.ok(!okr.r.stdout.includes('CLAUDE_BIN not found'), okr.r.stdout + okr.r.stderr);
+  assert.ok(okr.r.stdout.includes('launched'), okr.r.stdout);
 });
 
 const pat = (s) => (s.match(/ANTHROPIC_\*\|[^)\s]*\)/) || [])[0];

@@ -13,7 +13,7 @@ Add-Type -Namespace Bajzi -Name Power -MemberDefinition '[DllImport("kernel32.dl
 [void][Bajzi.Power]::SetThreadExecutionState(2147483649)
 try {
   # --exec: no outer shell; the script has no inner double quotes (PowerShell 5.1 would strip them).
-  wsl.exe -d $Distro --exec bash -c 'mkdir -p $1/logs; bash $1/launch.sh >> $1/logs/hold.log 2>&1; echo LAUNCH-EXIT=$? >> $1/logs/hold.log' _ $NightDir | Out-Null
+  wsl.exe -d $Distro --exec bash -lc 'mkdir -p $1/logs; bash $1/launch.sh >> $1/logs/hold.log 2>&1; echo LAUNCH-EXIT=$? >> $1/logs/hold.log' _ $NightDir | Out-Null
   $left = $UntilEpoch - [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   # One long-lived client: flock -w returns when the runner released run.flock (exit 0) or after $left seconds.
   if ($left -gt 0) { wsl.exe -d $Distro --exec flock -w $left "$NightDir/run.flock" true | Out-Null }
