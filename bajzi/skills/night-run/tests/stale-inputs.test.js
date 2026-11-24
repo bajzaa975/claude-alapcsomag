@@ -469,16 +469,28 @@ test('BRIEF.md.tmpl 5.1: red CI runs ci-tail.sh, one fixer, park with the tail; 
   has(SKILL, '<CI_TAIL_SH>');
 });
 
-test('BRIEF merge step: base check then standalone exact merge; run.sh prompt repeats it; no -C merge allow', () => {
+test('BRIEF merge step: base check then standalone exact merge; run.sh prompt repeats it; wt-only -C merge allow', () => {
   const b = flat(BRIEF.slice(BRIEF.indexOf('### 5.2 Before merging'), BRIEF.indexOf('### 5.3')));
   has(b, "`gh pr view <n> --json baseRefName,state -q '.baseRefName+\" \"+.state'` must print exactly `{{BASE_BRANCH}} OPEN`");
+  has(b, "`{{BASE_BRANCH}} MERGED` means this PR is already squash-merged");
+  has(b, 'Anything else (another base, CLOSED, a gh error or empty output)');
   has(b, 'report `reason=merge-forbidden` with what it printed');
+  has(b, '`/usr/bin/git -C "{{NIGHT_DIR}}/wt/<id>" merge origin/{{BASE_BRANCH}}`');
   has(b, 'its OWN Bash call, exactly `gh pr merge <n> --squash` run from the story worktree');
   has(b, 'never chained with `;`, `&&` or `|`, never with `--repo`/`-R`, `--admin`, `--auto` or `--delete-branch`');
   has(b, 'anything else is refused and the story ends merge-forbidden');
   const run = fs.readFileSync(path.join(DIR, 'run.sh'), 'utf8');
   has(run, 'as its own Bash call with exactly the shape gh pr merge <n> --squash (no chaining, no --repo/-R/--admin/--auto/--delete-branch) right after a separate gh pr view base check that must print $BASE_BRANCH OPEN');
+  const gate = run.split('\n').find((l) => l.includes('apply the merge gate exactly as written')) || '';
+  assert.ok(gate.includes('otherwise leave the PR open and report reason=merge-forbidden'), 'a failed base check ends state open like BRIEF 5.2, not PARK');
+  assert.ok(!gate.includes('PARK'), 'the gate prompt line never parks');
+  const s9 = flat(BRIEF.slice(BRIEF.indexOf('| `merge-forbidden`'), BRIEF.indexOf('| `tests`')));
+  has(s9, 'the 5.2 base check printed anything other than `{{BASE_BRANCH}} OPEN`');
+  has(run, 'or the base check printed anything other than $BASE_BRANCH OPEN');
   const st = read('templates', 'settings.local.json.tmpl');
-  assert.ok(!/git -C [^)]* merge /.test(st), 'no -C ... merge allow rule (a wildcard before the subcommand)');
+  const cmerge = st.match(/Bash\((\/usr\/bin\/git -C [^)]* merge origin\/<BASE_BRANCH>)\)/g) || [];
+  assert.strictEqual(cmerge.length, 2, `exactly the two wt -C merge allows, got: ${cmerge}`);
+  assert.ok(cmerge.every((r) => r.includes('wt/*')), `every -C merge allow is wt-only, no BASE_DIR variant: ${cmerge}`);
   has(st, 'Bash(/usr/bin/git merge origin/<BASE_BRANCH>)');
+  has(st, 'Bash(*gh pr merge*--auto*)');
 });

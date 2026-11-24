@@ -737,18 +737,23 @@ gh run list --branch "{{BRANCH_NAMESPACE}}/{{BRANCH_PREFIX}}-<id>-<slug>" --even
 
 ### 5.2 Before merging
 
-1. From the story worktree: `/usr/bin/git fetch origin`, then
-   `/usr/bin/git merge origin/{{BASE_BRANCH}}` — a merge commit is fine, never
-   rebase.
+1. Into the story worktree — the session's cwd is `{{BASE}}`, so name the tree
+   with `-C`, the form the night settings pre-approve:
+   `/usr/bin/git -C "{{NIGHT_DIR}}/wt/<id>" fetch origin`, then
+   `/usr/bin/git -C "{{NIGHT_DIR}}/wt/<id>" merge origin/{{BASE_BRANCH}}` — a merge
+   commit is fine, never rebase.
 2. Run the project's POST-MERGE INVARIANTS from section 6 and confirm each one
    passes. They exist because something merged green and broke anyway.
 3. If anything changed in step 1, push and wait for a NEW green
    `pull_request`-event run before merging.
 4. Base check, its OWN Bash call, immediately BEFORE the merge:
    `gh pr view <n> --json baseRefName,state -q '.baseRefName+" "+.state'` must
-   print exactly `{{BASE_BRANCH}} OPEN`. Anything else (another base, not OPEN, a
-   gh error or empty output) = do NOT merge, leave the PR open and report
-   `reason=merge-forbidden` with what it printed.
+   print exactly `{{BASE_BRANCH}} OPEN` to merge. A print of
+   `{{BASE_BRANCH}} MERGED` means this PR is already squash-merged (a resumed
+   session whose earlier run merged and was killed before its RESULT line): do
+   not merge again, run the 5.3 cleanup and end the story `merged`. Anything
+   else (another base, CLOSED, a gh error or empty output) = do NOT merge, leave
+   the PR open and report `reason=merge-forbidden` with what it printed.
 5. Merge, its OWN Bash call, exactly `gh pr merge <n> --squash` run from the
    story worktree: never chained with `;`, `&&` or `|`, never with `--repo`/`-R`,
    `--admin`, `--auto` or `--delete-branch`. The night settings allow only that
@@ -927,7 +932,7 @@ morning cannot use.
      | `context`   | the section 2 context threshold fired first                  |
      | `ci`        | the CI wait bound was reached with the run still queued or running |
      | `forbidden` | the story requires a change in a forbidden zone — section 1 or section 6 — so it is `blocked`, not parked |
-     | `merge-forbidden` | the story is BOTH review-green and CI-green, but merging is not allowed — section 6 / `docs/NIGHT-RULES.md` forbids this session from merging (or the owner granted no merge for this project tonight). The PR is pushed, green and LEFT OPEN for the morning sweep; the state is `open`, `review=pass`, and nothing is merged. This is a SUCCESS, not a failure |
+     | `merge-forbidden` | the story is BOTH review-green and CI-green, but merging is not allowed — section 6 / `docs/NIGHT-RULES.md` forbids this session from merging, the owner granted no merge for this project tonight, or the 5.2 base check printed anything other than `{{BASE_BRANCH}} OPEN` / `{{BASE_BRANCH}} MERGED` (a MERGED print means the PR is already merged: state `merged`, then the 5.3 cleanup). The PR is pushed, green and LEFT OPEN for the morning sweep; the state is `open`, `review=pass`, and nothing is merged. This is a SUCCESS, not a failure |
      | `tests`     | tests fail and cannot be made to pass without a forbidden route to green (section 4.4) |
      | `-`         | nothing was parked or blocked; valid ONLY with `merged`      |
 

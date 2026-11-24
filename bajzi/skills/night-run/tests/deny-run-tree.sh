@@ -434,15 +434,24 @@ for c in "bash -c 'x' ci-tail.sh $NIGHT 1" "bash -c 'x' ci-tail.sh \"$NIGHT\" 1"
   bash_perm citail "$c" allow; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
 done
 
-# --- (D3) merge shape: no -C ... merge allow (a wildcard before the subcommand); the cwd form stays allowed ----
+# --- (D3) merge shape: the brief's -C worktree merge matches a wt-only allow; a BASE_DIR -C merge does not ----
 render mergeshape.json
+bash_perm mergeshape "/usr/bin/git -C \"$NIGHT/wt/S1\" merge origin/dev" allow
+check $? "the brief's quoted -C worktree merge matches an allow rule (runs in <NIGHT_DIR>/wt/S1, not BASE)"
+bash_perm mergeshape "/usr/bin/git -C $NIGHT/wt/S1 merge origin/dev" allow; check $? "the bare spelling of the worktree merge matches too"
 bash_perm mergeshape "/usr/bin/git merge origin/dev" allow; check $? "the cwd-form merge origin/<base> is still allowed"
-for c in "/usr/bin/git -C \"$NIGHT/wt/S1\" merge origin/dev" "/usr/bin/git -C $NIGHT/wt/S1 merge origin/dev" \
-         "/usr/bin/git -C $NIGHT/wt/S1 --exec-path=/x merge origin/dev" "/usr/bin/git -C \"$BASE\" merge origin/dev" "/usr/bin/git -C $BASE merge origin/dev"; do
+# the '*' in the wt path is the owner-accepted ceiling: a Bash '*' crosses '/' and spaces, so injected
+# options and traversal spellings match the allow; the two traversal denies at the deny head close that
+# (see _comment_limits). Every other path - a BASE_DIR -C merge - matches no allow:
+bash_perm mergeshape "/usr/bin/git -C $NIGHT/wt/S1 --exec-path=/x merge origin/dev" allow
+check $? "the wt allow's '*' also matches injected options - the accepted wildcard-in-path ceiling"
+for c in "/usr/bin/git -C \"$BASE\" merge origin/dev" "/usr/bin/git -C $BASE merge origin/dev"; do
   bash_perm mergeshape "$c" allow; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
 done
 bash_perm mergeshape "gh pr merge 4 --squash" allow; check $? "gh pr merge <n> --squash is allowed"
 bash_perm mergeshape "cd /x; gh pr merge 4 --repo o/r --squash 2>&1" allow; [ $? -ne 0 ]; check $? "a chained gh pr merge --repo is not allowed"
+bash_denied mergeshape "gh pr merge 4 --auto --squash"; check $? "gh pr merge --auto is denied"
+! bash_denied mergeshape "gh pr merge 4 --squash"; check $? "the plain squash merge is not denied"
 bash_perm mergeshape "gh pr view 4 --json baseRefName,state -q '.baseRefName+\" \"+.state'" allow; check $? "the base-check gh pr view is allowed"
 
 # --- (E) the supervisor's own settings: the night file minus THIS night's state-file deny ----------
