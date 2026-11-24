@@ -101,3 +101,9 @@ test('dispatch.md and the fix skill route the fixer effort through FC effort <id
   assert.match(fix, /fixer report had no CAVEAT line/);
   assert.match(fix, /Round 2 still runs/);
 });
+
+test('review SKILL step 2 names FC effort per round; implement SKILL has step 2a FC preflight', () => {
+  const step = read('skills', 'review', 'SKILL.md').split(/^2\. /m)[1].split(/^3\. /m)[0];
+  assert.match(step, /FC effort "<slice-id>" <round>/);
+  assert.match(read('skills', 'implement', 'SKILL.md'), /^2a\. `FC preflight/m);
+});

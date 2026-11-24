@@ -685,6 +685,7 @@ test('a repo default of glm makes a launch run on GLM, and the child gets no ses
   const r = run('worker', ['-p', 'x'], {}, { cwd });
   assert.strictEqual(r.code, 0, r.stderr);
   assert.ok(r.childEnv.ANTHROPIC_BASE_URL, 'repo glm launches on the GLM provider');
+  assert.strictEqual(r.childEnv.BAJZI_SESSION_LEVEL, undefined, 'a repo default is not pinned into the child');
 });
 
 // --- ob-t2: GLM minimum-share alarm ---

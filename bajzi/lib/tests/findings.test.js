@@ -848,7 +848,9 @@ test('FC preflight: lists tracked files outside files: that hold a changed liter
     assert.ok(pf().includes('tests/test_app.py: english'));
     t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none'));
     assert.deepStrictEqual(pf(), ['preflight: no changes: field, nothing checked']);
-    assert.strictEqual(t.run('slice', 'rn').stdout.includes('changes'), false);
+    t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none').replace('test: none', 'changes: english, reading\ntest: none'));
+    assert.strictEqual(t.run('slice', 'rn').stdout.trimEnd(), 'agent: bajzi:implementer-risk\ntier: 1\nfiles: app.py\ntest: skip\nacceptance: r');
+    t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none'));
     t.w('tests/test_none.py', 'none\n'); t.g('add', 'tests/test_none.py'); t.g('commit', '-qm', 'none');
     for (const v of ['none', ' NONE ']) {
       t.w('runtime/slices/rn.md', sliceDoc('rn', 1, 'app.py', 'r', 'none').replace('test: none', `changes: ${v}\ntest: none`));

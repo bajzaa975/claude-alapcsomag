@@ -231,8 +231,12 @@ test('shared/CLAUDE.md Methodology section carries the auto-grill bullet and its
 test('shared/CLAUDE.md Token budget section carries the workflow bullet and its doc exists', () => {
   const t = read('shared/CLAUDE.md');
   const m = t.slice(t.indexOf('## Token budget'), t.indexOf('## Context guard'));
-  assert.ok(m.includes('Workflow tool'));
-  assert.ok(m.split('\n').some((l) => l.includes('bajzi-plugins/docs/workflow-budget.md')));
+  const lines = m.split('\n');
+  const i = lines.findIndex((l) => l.includes('Workflow tool'));
+  assert.ok(i >= 0);
+  const item = [lines[i]];
+  for (let j = i + 1; j < lines.length && /^\s+\S/.test(lines[j]); j++) item.push(lines[j]);
+  assert.ok(item.join('\n').includes('bajzi-plugins/docs/workflow-budget.md'), 'path inside the workflow bullet');
   const d = read('docs/workflow-budget.md');
   for (const x of ['Workflow: recommended | not worth it', 'Critical (blocker)', 'at most 1 checker each', 'budget.spent() - start', 'never replaces']) assert.ok(d.includes(x), x);
   assert.ok(read('docs/methodology-guide.md').includes('docs/workflow-budget.md'));
