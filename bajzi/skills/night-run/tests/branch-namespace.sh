@@ -99,7 +99,7 @@ say(brief.split(`${ns}/nrt-<id>-<slug>`).length - 1 >= 7, `4 ${ns}: every story-
 const set = JSON.parse(sub(fs.readFileSync(path.join(dir, 'settings.local.json.tmpl'), 'utf8'),
   { '<BRANCH_NAMESPACE>': ns, '<BRANCH_PREFIX>': 'nrt' }));
 const push = set.permissions.allow.filter((r) => / push /.test(r) && !r.endsWith(' origin HEAD)'));
-say(push.length === 10, `5 ${ns}: 10 named-branch push allow rules (got ${push.length})`);
+say(push.length === 6, `5 ${ns}: 6 named-branch push allow rules (got ${push.length})`);
 say(push.every((r) => r.endsWith(` origin ${ns}/nrt-*)`)), `5 ${ns}: every named-branch push allow rule is ${ns}/nrt-* only`);
 JS
 }

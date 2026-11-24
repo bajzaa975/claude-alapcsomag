@@ -493,7 +493,7 @@ test('BRIEF.md.tmpl 5.1: red CI runs ci-tail.sh, one fixer, park with the tail; 
   has(SKILL, '<CI_TAIL_SH>');
 });
 
-test('BRIEF merge step: base check then standalone exact merge; run.sh prompt repeats it; wt-only -C merge allow', () => {
+test('BRIEF merge step: base check then standalone exact merge; run.sh prompt repeats it; the template keeps no -C merge and no wt allow', () => {
   const b = flat(BRIEF.slice(BRIEF.indexOf('### 5.2 Before merging'), BRIEF.indexOf('### 5.3')));
   has(b, "`gh pr view <n> --json baseRefName,state -q '.baseRefName+\" \"+.state'` must print exactly `{{BASE_BRANCH}} OPEN`");
   has(b, "`{{BASE_BRANCH}} MERGED` means this PR is already squash-merged");
@@ -517,11 +517,131 @@ test('BRIEF merge step: base check then standalone exact merge; run.sh prompt re
   has(gate, 'a CLOSED print or another base = the PR went wrong, end blocked with reason=merge-forbidden');
   const st = read('templates', 'settings.local.json.tmpl');
   const cmerge = st.match(/Bash\((\/usr\/bin\/git -C [^)]* merge origin\/<BASE_BRANCH>)\)/g) || [];
-  assert.strictEqual(cmerge.length, 2, `exactly the two wt -C merge allows, got: ${cmerge}`);
-  assert.ok(cmerge.every((r) => r.includes('wt/*')), `every -C merge allow is wt-only, no BASE_DIR variant: ${cmerge}`);
+  assert.strictEqual(cmerge.length, 0, `no -C merge allow in the template (the post-render step writes them exact per queue id): ${cmerge}`);
+  const allows = JSON.parse(st).permissions.allow;
+  assert.ok(!allows.some((r) => r.includes('/wt/')), 'the template has no wt allow at all, wildcard or not');
+  assert.ok(!allows.some((r) => r.includes('wt/*')), 'no allow contains wt/*');
   has(st, 'Bash(/usr/bin/git merge origin/<BASE_BRANCH>)');
   has(st, 'Bash(*gh pr merge*--auto*)');
   has(st, 'Bash(*git -C \\"<NIGHT_DIR>/wt/*\\" * merge origin/<BASE_BRANCH>)');
   has(st, 'Bash(*git -C <NIGHT_DIR>/wt/* * merge origin/<BASE_BRANCH>)');
   has(st, 'Bash(*git -C \\"<NIGHT_DIR>/wt/* *\\" merge origin/<BASE_BRANCH>)');
+});
+
+// ---- story-worktree allows are exact per queued id (nr_rules.py + the PHASE C post-render step, extracted) ----
+const os = require('node:os');
+const grab = (re, what) => { const m = SKILL.match(re); assert.ok(m, `SKILL.md has the ${what} heredoc`); return m[1]; };
+const NRLIB = grab(/cat > [^\n]*nr_rules\.py <<'NRLIB'\n([\s\S]*?)\nNRLIB\n/, 'nr_rules.py');
+const POST = grab(/\npython3 - [^\n]*<<'POST'\n([\s\S]*?)\nPOST\n/, 'post-render');
+const CHECK = grab(/\npython3 - [^\n]*settings\.local\.json <BASE>[^\n]*<<'PY'\n([\s\S]*?)\nPY\n/, 'rules-check');
+const BR = ['main', 'feat', 'night'];                                        // BASE_BRANCH, BRANCH_NAMESPACE, BRANCH_PREFIX
+const AUTH = '-c user.name="$GIT_AUTHOR_NAME" -c user.email="$GIT_AUTHOR_EMAIL" commit *';
+const VERBS = ['fetch origin', 'status --porcelain', 'add -A', 'diff origin/main...HEAD', AUTH, 'push -u origin HEAD', 'push origin HEAD',
+  'push -u origin feat/night-*', 'push origin feat/night-*', 'merge origin/main'];   // written by hand, not read from nr_rules.py
+const bashRx = (r) => { const m = r.match(/^Bash\((.*)\)$/s); if (!m) return null;   // anchored, every '*' is '.*', ':*' = ' *', the rest literal
+  const b = m[1].endsWith(':*') ? m[1].slice(0, -2) + ' *' : m[1];
+  return new RegExp('^' + b.split('*').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$', 's'); };
+const matches = (rules, c) => rules.some((r) => (bashRx(r) || /^$/).test(c));
+const wtEnv = (t, queue, tag) => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), `nr-wt-${tag}-`));
+  t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const night = path.join(d, 'night-runs', 'app'), base = path.join(d, 'app-night');
+  fs.mkdirSync(night, { recursive: true });
+  fs.writeFileSync(path.join(night, 'queue.txt'), queue);
+  fs.writeFileSync(path.join(night, 'addon-allow.txt'), '');
+  fs.writeFileSync(path.join(d, 'nr_rules.py'), NRLIB);
+  const sub = { '<CI_TAIL_SH>': '/opt/x/ci-tail.sh', '<BASE_DIR>': base, '<NIGHT_DIR>': night, '<BASE_BRANCH>': 'main', '<BRANCH_PREFIX>': 'night', '<BRANCH_NAMESPACE>': 'feat', '<project>': 'app' };
+  const j = JSON.parse(read('templates', 'settings.local.json.tmpl'));
+  for (const k of ['allow', 'deny']) j.permissions[k] = j.permissions[k].map((r) => Object.entries(sub).reduce((s, [a, b]) => s.split(a).join(b), r)).filter((r) => !/<[A-Za-z]/.test(r));
+  const f = path.join(d, 'settings.local.json');
+  fs.writeFileSync(f, JSON.stringify(j));
+  const py = (script, args) => spawnSync('python3', ['-', ...args], { input: script, cwd: d, encoding: 'utf8', env: { ...process.env, HOME: d } });
+  return { d, night, base, f, py, post: () => py(POST, [f, night, path.join(d, 'NIGHT-RULES.md'), ...BR, path.join(night, 'addon-allow.txt')]),
+    check: () => py(CHECK, [f, base, night, path.join(d, 'NIGHT-RULES.md'), ...BR]), allow: () => JSON.parse(fs.readFileSync(f, 'utf8')).permissions.allow };
+};
+
+test('night-wt-exact: one exact allow set per queue id, idempotent, no wt wildcard, the check agrees', (t) => {
+  const e = wtEnv(t, '# queue\n\nS1|one|-|note a|b\n  S10 |ten|-|n\nS1|dup|-|n\n', 'ok');
+  const r1 = e.post();
+  assert.strictEqual(r1.status, 0, r1.stderr + r1.stdout);
+  const out1 = fs.readFileSync(e.f, 'utf8');
+  const allow = e.allow();
+  assert.ok(!allow.some((r) => r.includes('/wt/*')), 'no allow contains /wt/*');
+  for (const id of ['S1', 'S10']) for (const v of VERBS) for (const p of [`"${e.night}/wt/${id}"`, `${e.night}/wt/${id}`])
+    assert.ok(allow.includes(`Bash(/usr/bin/git -C ${p} ${v})`), `${id} ${p} ${v}`);
+  assert.strictEqual(allow.filter((r) => r.includes(e.night + '/wt/')).length, 2 * VERBS.length * 2, 'exactly the 10 verbs x 2 quotings x 2 ids');
+  for (const gone of ['worktree add', 'worktree list', 'ls-remote', 'cherry']) assert.ok(!allow.some((r) => r.includes('/wt/') && r.includes(gone)), `no wt ${gone}`);
+  assert.ok(allow.some((r) => r.includes(`-C "${e.base}" worktree add *`)), 'BASE_DIR forms stay');
+  assert.strictEqual(e.post().status, 0);
+  assert.strictEqual(fs.readFileSync(e.f, 'utf8'), out1, 'a second post-render run is byte-identical');
+  const c = e.check();
+  assert.strictEqual(c.status, 0, c.stdout + c.stderr);
+  assert.strictEqual(c.stdout, '', 'the rules check is silent on a good render');
+  const N = e.night, git = '/usr/bin/git';
+  assert.ok(!matches(allow, `${git} -C ${N}/wt/S1\t--exec-path=/x merge origin/main`), 'tab-injected option rejected');
+  assert.ok(!matches(allow, `${git} -C ${N}/wt/S1 --exec-path=/x merge origin/main`), 'space-injected option rejected');
+  assert.ok(!matches(allow, `${git} -C ${N}/wt/S1/../../x merge origin/main`), 'traversal rejected');
+  assert.ok(!matches(allow, `${git} -C ${N}/wt/S2 merge origin/main`), 'an id outside the queue is rejected');
+  for (const q of [`"${N}/wt/S1"`, `${N}/wt/S10`]) assert.ok(matches(allow, `${git} -C ${q} merge origin/main`), `brief merge ${q}`);
+  const brief = (p) => `${git} -C ${p} -c user.name="$GIT_AUTHOR_NAME" -c user.email="$GIT_AUTHOR_EMAIL" commit -m "WIP: x [night S1]"`;
+  const inj = (p) => `${git} -C ${p} -c user.name=a -c core.sshCommand=x -c user.email=b commit -m x`;
+  for (const p of [`"${N}/wt/S1"`, `${N}/wt/S1`, `"${e.base}"`, e.base]) {
+    assert.ok(matches(allow, brief(p)), `brief commit ${p}`);
+    assert.ok(!matches(allow, inj(p)), `injected commit ${p}`);
+  }
+  assert.ok(matches(allow, `${git} -c user.name="$GIT_AUTHOR_NAME" -c user.email="$GIT_AUTHOR_EMAIL" commit -m x`), 'cwd-form brief commit');
+  assert.ok(!matches(allow, `${git} -c user.name=a -c core.sshCommand=x -c user.email=b commit -m x`), 'cwd-form injected commit rejected');
+  // the tails are exact (directive A): an option after a verb matches no allow any more, the brief's forms still do
+  for (const p of [`"${N}/wt/S1"`, `${N}/wt/S1`]) {
+    for (const c of [`${git} -C ${p} fetch origin`, `${git} -C ${p} status --porcelain`, `${git} -C ${p} add -A`, `${git} -C ${p} diff origin/main...HEAD`])
+      assert.ok(matches(allow, c), `brief exact form: ${c}`);
+  }
+  for (const c of [`${git} -C "${N}/wt/S1" diff --output=/tmp/x HEAD`, `${git} -C ${N}/wt/S1 diff --output=/tmp/x HEAD`,
+                   `${git} -C "${N}/wt/S1" fetch --upload-pack=x /tmp/r`, `${git} -C ${N}/wt/S1 fetch --upload-pack=x /tmp/r`])
+    assert.ok(!matches(allow, c), `option after the verb is no longer auto-approved: ${c}`);
+  // only S1 queued: a wt/S10 command is not covered (S1's rules do not leak onto a longer id)
+  const s = wtEnv(t, 'S1|one|-|n\n', 'one');
+  assert.strictEqual(s.post().status, 0);
+  assert.ok(matches(s.allow(), `${git} -C ${s.night}/wt/S1 merge origin/main`));
+  assert.ok(!matches(s.allow(), `${git} -C ${s.night}/wt/S10 merge origin/main`));
+  assert.ok(!matches(s.allow(), `${git} -C "${s.night}/wt/S10" status --short`));
+  // the rules check: a wildcard allow and a lacking id
+  const j = JSON.parse(fs.readFileSync(e.f, 'utf8'));
+  j.permissions.allow.push(`Bash(${git} -C ${N}/wt/* status*)`);
+  const gone = `Bash(${git} -C "${N}/wt/S10" diff origin/main...HEAD)`;
+  assert.ok(j.permissions.allow.includes(gone));
+  j.permissions.allow = j.permissions.allow.filter((r) => r !== gone);
+  fs.writeFileSync(e.f, JSON.stringify(j));
+  const bad = e.check();
+  assert.strictEqual(bad.status, 1);
+  assert.ok(bad.stdout.includes(`WT WILDCARD ALLOW: Bash(${git} -C ${N}/wt/* status*)`), bad.stdout);
+  assert.ok(/^MISSING STORY RULE: S10 /m.test(bad.stdout) && !/^MISSING STORY RULE: S1 /m.test(bad.stdout), bad.stdout);
+  const again = e.post();   // re-running the step heals both
+  assert.strictEqual(again.status, 0);
+  assert.strictEqual(fs.readFileSync(e.f, 'utf8'), out1, 're-render restores the exact set');
+});
+
+test('night-wt-exact: run.sh prompt_for names the brief commit form the exact allows pin', (t) => {
+  const lib = path.join(__dirname, 'lib.sh');
+  const run = path.join(DIR, 'run.sh');
+  const tmp = fs.mkdtempSync(path.join(process.env.NR_SCRATCH || os.tmpdir(), 'nr-prompt-'));
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const sh = (p) => p.split(path.sep).join('/');
+  const nd = path.join(tmp, 'n');
+  const script = `. '${sh(lib)}'; nr_make_night '${sh(nd)}'; printf 'S1|slug|-|note\n' >'${sh(nd)}/queue.txt'; ` +
+    `nr_config '${sh(nd)}/config.env' '${sh(nd)}' '${sh(nd)}' '${sh(nd)}/no-claude'; ` +
+    `cd '${sh(tmp)}' && bash '${sh(run)}' --config '${sh(nd)}/config.env' --dry-run 2>&1`;
+  const out = spawnSync('bash', ['-c', script], { encoding: 'utf8' }).stdout;
+  assert.match(out, /git -c user\.name="\$GIT_AUTHOR_NAME" -c user\.email="\$GIT_AUTHOR_EMAIL" commit/,
+    `the prompt's commit sentence must name the brief's exact form: ${out.split('\n').find((l) => l.includes('pin it with')) || 'no commit line'}`);
+});
+
+test('night-wt-exact: a queue id outside run.sh\'s rule fails the render, never skipped or rendered', (t) => {
+  for (const id of ['-x', 'a b', '.hid', 'a/b']) {
+    const e = wtEnv(t, `S1|one|-|n\n${id}|two|-|n\n`, 'bad');
+    const r = e.post();
+    assert.notStrictEqual(r.status, 0, `id ${JSON.stringify(id)} must fail`);
+    assert.ok(/QUEUE ID INVALID/.test(r.stderr + r.stdout), r.stderr);
+    assert.ok(!e.allow().some((x) => x.includes('/wt/')), 'nothing was rendered for a failed render');
+  }
 });

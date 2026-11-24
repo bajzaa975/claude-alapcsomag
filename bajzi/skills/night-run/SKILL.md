@@ -922,7 +922,7 @@ The JSON template is NOT copy-ready and its own `_comment_placeholders` says wha
   listed shapes and cannot judge how wide a rule is in general; therefore PHASE D shows every
   add-on rule verbatim and the user decides. The shapes are listed under "Add-on skills".
 
-Then run the post-render step. It does three mechanical things in place, after the section-3
+Then run the post-render step. It does four mechanical things in place, after the section-3
 lines are in: (1) Story worktrees: a repo-relative `Edit(<glob>)`/`Read(<glob>)` deny
 resolves against the session cwd (`BASE`), but stories work in `<NIGHT_DIR>/wt/<id>`, so
 every repo-relative one (its glob does not start with `~` or `/`; a leading `./` is dropped)
@@ -942,7 +942,20 @@ approve `docker rm -f night-x prod-db` — the denies are what protect the neigh
 a pattern guard, not a security boundary: docker is root-equivalent on the host, and a
 mount written in a compose file is not caught. The docker step first strips every docker
 allow and every `Bash(*docker...` deny, then adds the current choice, so re-running it is
-idempotent and switching section 7 back to `denied` restores the blanket denies. (3) Last,
+idempotent and switching section 7 back to `denied` restores the blanket denies. (3) Story-worktree
+allows: the template carries NONE (a Bash-rule `*` in the path position crosses `/`, spaces and tabs, so
+a wildcard worktree allow would approve traversal and options injected before the verb). The step
+strips every allow naming `<NIGHT_DIR>/wt/` and, on EVERY run, reads the story ids of the CURRENT
+`<NIGHT_DIR>/queue.txt` (already written by the `queue.txt` item above; run.sh's parse: first `|`
+field trimmed, blank and `#` lines skipped; a missing file fails the step) and appends, per id and per
+`WT_VERBS` verb (`fetch origin`, `status --porcelain`, `add -A`, `diff origin/<BASE_BRANCH>...HEAD`, the
+commit shape, the four push shapes, `merge origin/<BASE_BRANCH>`; exact tails, `log` and `rev-parse`
+dropped so an option after a verb matches no allow; never `worktree add|list`, `ls-remote` or `cherry`,
+which the brief never issues in a story worktree), the exact rule `Bash(/usr/bin/git -C "<NIGHT_DIR>/wt/<id>" <verb>)`
+and its bare twin. It takes `<BASE_BRANCH>`, `<BRANCH_NAMESPACE>` and `<BRANCH_PREFIX>` as the three
+arguments before the add-on file, and an id outside run.sh's rule (`[A-Za-z0-9._-]`, not starting with
+`-` or `.`) FAILS the render with `QUEUE ID INVALID`. Re-run the step after queue.txt changes: a queue id
+added later has no rules and falls through to the auto-mode classifier. (4) Last,
 every rule of `<NIGHT_DIR>/addon-allow.txt` not yet in `permissions.allow` is appended to it,
 AFTER the docker step, which strips every allow naming docker and would otherwise strip an
 add-on rule such as `Bash(mytool --no-docker *)`. Both snippets import the shared helpers from
@@ -998,11 +1011,28 @@ def docker(md):  # NIGHT-RULES section 7 -> (prefix, allows, denies, never-stop 
     return p, allow, deny, names, bad
 def addon_rules(path):  # <NIGHT_DIR>/addon-allow.txt -> its add-on rules: every non-blank line not starting with '#', in file order
     return [r for r in (l.strip() for l in open(path, encoding="utf-8")) if r and not r.startswith("#")]
+WT_VERBS = ("fetch origin", "status --porcelain", "add -A", "diff origin/{base}...HEAD",   # the exact forms the brief and run.sh prompt issue against a story worktree
+            '-c user.name="$GIT_AUTHOR_NAME" -c user.email="$GIT_AUTHOR_EMAIL" commit *',
+            "push -u origin HEAD", "push origin HEAD", "push -u origin {ns}/{px}-*", "push origin {ns}/{px}-*",
+            "merge origin/{base}")
+def queue_ids(path):  # <NIGHT_DIR>/queue.txt -> its story ids, run.sh's parse: first '|' field trimmed, blanks and '#' lines skipped
+    ids = []
+    for line in open(path, encoding="utf-8"):
+        i = line.rstrip("\n").split("|", 1)[0].strip()
+        if not i or i.startswith("#") or i in ids:
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", i) or i[0] in "-.":   # run.sh's id rule: never skipped, never rendered
+            raise SystemExit("QUEUE ID INVALID: %r in %s (run.sh rejects it: [A-Za-z0-9._-], not starting with '-' or '.'); fix queue.txt" % (i, path))
+        ids.append(i)
+    return ids
+def wt_rules(night, ids, base, ns, px):  # the EXACT story-worktree allows: per id, per verb, the quoted then the bare spelling
+    return ["Bash(/usr/bin/git -C %s %s)" % (p % (night, i), v.format(base=base, ns=ns, px=px))
+            for i in ids for v in WT_VERBS for p in ('"%s/wt/%s"', "%s/wt/%s")]
 NRLIB
-python3 - ~/night-runs/<project>/settings.local.json <NIGHT_DIR> <BASE>/docs/NIGHT-RULES.md <NIGHT_DIR>/addon-allow.txt <<'POST'
+python3 - ~/night-runs/<project>/settings.local.json <NIGHT_DIR> <BASE>/docs/NIGHT-RULES.md <BASE_BRANCH> <BRANCH_NAMESPACE> <BRANCH_PREFIX> <NIGHT_DIR>/addon-allow.txt <<'POST'
 import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(sys.argv[1])))
-from nr_rules import BLANKET, addon_rules, docker, mirror, repo_relative
+from nr_rules import BLANKET, addon_rules, docker, mirror, queue_ids, repo_relative, wt_rules
 f, night, md = sys.argv[1], sys.argv[2].rstrip("/"), sys.argv[3]
 s = json.load(open(f, encoding="utf-8"))
 p = s["permissions"]
@@ -1010,12 +1040,13 @@ for r in list(p["deny"]):
     rr = repo_relative(r)
     if rr and mirror(rr[0], night, rr[1]) not in p["deny"]:
         p["deny"].append(mirror(rr[0], night, rr[1]))
-p["allow"] = [r for r in p["allow"] if "docker" not in r]          # strip every earlier docker choice ...
+p["allow"] = [r for r in p["allow"] if night + "/wt/" not in r and "docker" not in r]   # strip every story-worktree allow and every earlier docker choice ...
 p["deny"] = [r for r in p["deny"] if not r.startswith("Bash(*docker")]
 dk = docker(md)                                                    # ... then add the current one
 p["allow"] += dk[1] if dk else []
+p["allow"] += wt_rules(night, queue_ids(night + "/queue.txt"), *sys.argv[4:7])   # ... then ONE exact set per queued id, after the docker step so an id or path naming docker survives it
 p["deny"] += dk[2] if dk else list(BLANKET)
-add = sys.argv[4] if len(sys.argv) > 4 else ""                    # the add-on allow rules go in LAST,
+add = sys.argv[7] if len(sys.argv) > 7 else ""                    # the add-on allow rules go in LAST,
 for r in addon_rules(add) if add and os.path.exists(add) else []:
     if r not in p["allow"]:                                        # after the docker step, so it never strips them
         p["allow"].append(r)
@@ -1035,10 +1066,10 @@ Then prove the render, with the `~` expanded:
 
 ```bash
 python3 -c "import json,sys;json.load(open(sys.argv[1]))" ~/night-runs/<project>/settings.local.json && echo JSON_OK
-python3 - ~/night-runs/<project>/settings.local.json <BASE> <NIGHT_DIR> <BASE>/docs/NIGHT-RULES.md <<'PY'
+python3 - ~/night-runs/<project>/settings.local.json <BASE> <NIGHT_DIR> <BASE>/docs/NIGHT-RULES.md <BASE_BRANCH> <BRANCH_NAMESPACE> <BRANCH_PREFIX> <<'PY'
 import json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(sys.argv[1])))
-from nr_rules import BLANKET, addon_rules, docker, mirror, repo_relative
+from nr_rules import BLANKET, addon_rules, docker, mirror, queue_ids, repo_relative, wt_rules
 perms = json.load(open(sys.argv[1]))["permissions"]
 base, night = sys.argv[2].rstrip("/"), sys.argv[3].rstrip("/")   # config.env BASE / NIGHT_DIR, absolute
 rules = perms.get("allow", []) + perms.get("deny", []) + perms.get("ask", [])
@@ -1107,6 +1138,15 @@ for r in deny:
             if not denied(kind, q):
                 wt.append(r)
                 print("WT PATH NOT DENIED: %s -> %s" % (r, q))
+wild = [r for r in allow if "/wt/*" in r]   # a '*' in the worktree path position crosses '/', spaces and tabs
+for r in wild:
+    print("WT WILDCARD ALLOW:", r)
+story = []   # every queued story id needs all of its exact allows (the same helper the post-render step writes them with)
+for i in queue_ids(night + "/queue.txt"):
+    miss = [r for r in wt_rules(night, [i], *sys.argv[5:8]) if r not in allow]
+    if miss:
+        story.append(i)
+        print("MISSING STORY RULE: %s (%d rules, first: %s)" % (i, len(miss), miss[0]))
 def bash_denied(c):  # a Bash(...) deny matches command c: anchored, every '*' crosses spaces, ':*' = ' *', the rest literal
     for r in deny:
         if m := re.fullmatch(r"Bash\((.*)\)", r):
@@ -1130,7 +1170,7 @@ else:
              if r.startswith("Bash(*docker") and r not in BLANKET]
 for d in dock:
     print("DOCKER RULE MISMATCH:", d)
-sys.exit(1 if bad or addon is None or gone or wide or hits or wt or dock or unparsed else 0)
+sys.exit(1 if bad or addon is None or gone or wide or hits or wt or wild or story or dock or unparsed else 0)
 PY
 echo "rules rc=$?"   # 0 = every rule rendered, every add-on rule of addon-allow.txt in permissions.allow and of no refused shape, no Edit/Write deny covers the run's own trees, every repo-relative Edit/Read deny is mirrored into wt/*, docker matches section 7, every never-stop name parsed and denied; anything else = the lines above
 ```
@@ -1163,7 +1203,13 @@ it with the file), and with `ADDON ALLOW TOO WIDE: <rule>` for an add-on rule in
 shapes listed under "Add-on skills": narrow the add-on's rule or drop it. Template allows are
 not judged. A deny always beats an add-on allow; the rules check refuses only the listed shapes
 and cannot judge how wide a rule is in general; therefore PHASE D shows every add-on rule
-verbatim and the user decides.
+verbatim and the user decides. The sixth reads `<NIGHT_DIR>/queue.txt` through the same
+`queue_ids`/`wt_rules` helpers the post-render step writes the story-worktree allows with, so the two
+cannot drift: it fails with `WT WILDCARD ALLOW: <rule>` for any allow containing `/wt/*`, with
+`MISSING STORY RULE: <id> (...)` for a queue id lacking any of its exact allows (re-run the post-render
+step), and, via the helper, with `QUEUE ID INVALID` for an id run.sh would reject; it takes
+`<BASE_BRANCH>`, `<BRANCH_NAMESPACE>` and `<BRANCH_PREFIX>` as the three arguments after the
+NIGHT-RULES file.
 All three heredocs are proved by
 `bajzi/skills/night-run/tests/deny-run-tree.sh`, which extracts and runs them.
 
@@ -1236,7 +1282,7 @@ for hours while the owner sleeps, so the gate is not optional. Show:
 5. one line that the PHASE C render gate came back clean: no leftover `{{placeholder}}` in
    `BRIEF.md`, `settings.local.json` is valid JSON, and the rules check over
    `permissions.allow + permissions.deny + permissions.ask` printed no `UNRENDERED RULE:`, no `DENY COVERS RUN TREE:`, no `MISSING WT MIRROR:`, no
-   `WT PATH NOT DENIED:`, no `DOCKER RULE MISMATCH:`, no `NEVER-STOP NAME UNPARSEABLE:`, no `ADDON ALLOW FILE MISSING:`, no `ADDON ALLOW MISSING:` and no `ADDON ALLOW TOO WIDE:` line (`rules rc=0`), plus the
+   `WT PATH NOT DENIED:`, no `WT WILDCARD ALLOW:`, no `MISSING STORY RULE:`, no `DOCKER RULE MISMATCH:`, no `NEVER-STOP NAME UNPARSEABLE:`, no `ADDON ALLOW FILE MISSING:`, no `ADDON ALLOW MISSING:` and no `ADDON ALLOW TOO WIDE:` line (`rules rc=0`), plus the
    docker choice the post-render step printed (`docker: denied` or `docker: allowed, prefix <prefix>`),
    and that `supervise.settings.json` was written from that file (`supset rc=0`, the one state deny removed).
    Say it in those words, then list every add-on allow rule read from `<NIGHT_DIR>/addon-allow.txt`

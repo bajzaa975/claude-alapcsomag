@@ -30,6 +30,8 @@ HOME=$T/home   # the rules check reads <NIGHT_DIR>/addon-allow.txt: NIGHT_DIR (u
 BASE=$HOME/app-night
 NIGHT=$HOME/night-runs/app
 mkdir -p "$NIGHT"
+printf '# queue\n\nS1|s1|-|n\nS-1|s-1|-|n\n' >"$NIGHT/queue.txt"   # the post-render step writes one exact allow set per queue id
+BR="dev feat feat/"   # BASE_BRANCH BRANCH_NAMESPACE BRANCH_PREFIX, as the render below substitutes them
 
 # Git Bash: python is a native Windows program, so MSYS would rewrite the POSIX BASE/NIGHT
 # arguments and python's '~' would be USERPROFILE. Pin both to the POSIX $HOME form and hand
@@ -50,10 +52,10 @@ fi
 # The rules-check snippet: the heredoc body under the `python3 - <settings> ...` line.
 sed -n "/^python3 - .*settings\.local\.json.*<<'PY'/,/^PY\$/p" "$SKILL" | sed '1d;$d' >"$T/check.py"
 for msg in 'UNRENDERED RULE' 'DENY COVERS RUN TREE' 'MISSING WT MIRROR' 'WT PATH NOT DENIED' 'DOCKER RULE MISMATCH' \
-           'NEVER-STOP NAME UNPARSEABLE' 'ADDON ALLOW TOO WIDE' 'ADDON ALLOW MISSING' 'ADDON ALLOW FILE MISSING'; do
+           'NEVER-STOP NAME UNPARSEABLE' 'ADDON ALLOW TOO WIDE' 'ADDON ALLOW MISSING' 'ADDON ALLOW FILE MISSING' 'WT WILDCARD ALLOW' 'MISSING STORY RULE'; do
   grep -q "$msg" "$T/check.py" || { echo "check.py lacks: $msg"; false; }
 done
-check $? "SKILL.md PHASE C rules-check snippet found, with all nine messages"
+check $? "SKILL.md PHASE C rules-check snippet found, with all eleven messages"
 # The post-render step (worktree mirrors + section-7 docker choice): the heredoc under `<<'POST'`.
 sed -n "/^python3 - .*<<'POST'\$/,/^POST\$/p" "$SKILL" | sed '1d;$d' >"$T/post.py"
 [ -s "$T/post.py" ]; check $? "SKILL.md PHASE C post-render snippet found"
@@ -98,18 +100,18 @@ json.dump(d, open(out, "w"))
 PY
   ) || return
   if [ -n "${ADDON:-}" ]; then cp "$T/$ADDON" "$NIGHT/addon-allow.txt"; else : >"$NIGHT/addon-allow.txt"; fi
-  (cd "$T" && py - "$out" "$NIGHT" "$RULES" "$(nat "$NIGHT/addon-allow.txt")" <post.py >"$out.post" 2>&1) || return
+  (cd "$T" && py - "$out" "$NIGHT" "$RULES" $BR "$(nat "$NIGHT/addon-allow.txt")" <post.py >"$out.post" 2>&1) || return
   [ -z "${DROP:-}" ] || (cd "$T" && py -c "import json,sys;f=sys.argv[1];d=json.load(open(f));d['permissions']['deny'].remove(sys.argv[2]);json.dump(d,open(f,'w'))" "$out" "$DROP")
 }
 
 run_check(){ # <name> [extra deny rule...] -> $T/<name>.out, rc in $RC
   local n=$1; shift
   render "$n.json" "$@" || { RC=99; return; }
-  (cd "$T" && py - "$n.json" "$BASE" "$NIGHT" "${CHECK_RULES:-$RULES}" <check.py >"$n.out" 2>&1); RC=$?
+  (cd "$T" && py - "$n.json" "$BASE" "$NIGHT" "${CHECK_RULES:-$RULES}" $BR <check.py >"$n.out" 2>&1); RC=$?
 }
 denies(){ # <name> <Edit|Read|Edit|Read> <path>: rc 0 if a deny of that kind in $T/<name>.json covers <path>,
           # judged by check.py's own matcher (rx/path/up), so the probe and the check cannot drift apart
-  (cd "$T" && PK=$2 PP=$3 py - "$1.json" "$BASE" "$NIGHT" <<'PY'
+  (cd "$T" && PK=$2 PP=$3 py - "$1.json" "$BASE" "$NIGHT" "" $BR <<'PY'
 import contextlib, io, os, re
 ns = {}
 with contextlib.redirect_stdout(io.StringIO()):
@@ -139,7 +141,7 @@ bash_denied(){ bash_perm "$1" "$2" deny; }
 post(){ # <file> <NIGHT-RULES fixture>: re-run the SKILL.md post-render step on an already rendered $T/<file>;
         # with $ADDON set it is copied to <NIGHT_DIR>/addon-allow.txt and passed, else no last argument is given
   [ -z "${ADDON:-}" ] || cp "$T/$ADDON" "$NIGHT/addon-allow.txt"
-  (cd "$T" && py - "$1" "$NIGHT" "$2" ${ADDON:+"$(nat "$NIGHT/addon-allow.txt")"} <post.py >/dev/null 2>&1)
+  (cd "$T" && py - "$1" "$NIGHT" "$2" $BR ${ADDON:+"$(nat "$NIGHT/addon-allow.txt")"} <post.py >/dev/null 2>&1)
 }
 has(){ # <name> <allow|deny> <rule>: rc 0 if the rendered $T/<name>.json lists <rule> under permissions.<allow|deny>
   (cd "$T" && py -c "import json,sys;sys.exit(0 if sys.argv[3] in json.load(open(sys.argv[1]))['permissions'][sys.argv[2]] else 1)" "$1.json" "$2" "$3")
@@ -341,7 +343,7 @@ post rev.json allowed.md && cmp -s "$T/rev.json" "$T/rev1.json"; check $? "docke
 post rev.json denied.md
 has rev deny "${BLANKET[0]}" && has rev deny "${BLANKET[1]}" && ! grep -qF 'Bash(docker' "$T/rev.json" && ! grep -qF 'Bash(*docker*' "$T/rev.json"
 check $? "allowed then denied: blanket denies back, scoped allows and added docker denies gone"
-(cd "$T" && py - rev.json "$BASE" "$NIGHT" denied.md <check.py >rev.out 2>&1) && [ ! -s "$T/rev.out" ]
+(cd "$T" && py - rev.json "$BASE" "$NIGHT" denied.md $BR <check.py >rev.out 2>&1) && [ ! -s "$T/rev.out" ]
 check $? "allowed then denied: the rules check returns 0"
 post rev.json allowed.md && cmp -s "$T/rev.json" "$T/rev1.json"; check $? "denied then allowed again gives the first allowed file"
 
@@ -402,7 +404,7 @@ for r in 'mcp__srv__tool' 'Edit(~/notes/**)' 'Bash(mytool status *)'; do
   ADDON=narrow.txt expect_pass_n narrow "add-on allow rule $r (one MCP tool, a narrow path, a narrow command) passes the rules check"
 done
 render nofile.json && rm -f "$NIGHT/addon-allow.txt"
-(cd "$T" && py - nofile.json "$BASE" "$NIGHT" "$RULES" <check.py >nofile.out 2>&1); RC=$?
+(cd "$T" && py - nofile.json "$BASE" "$NIGHT" "$RULES" $BR <check.py >nofile.out 2>&1); RC=$?
 [ "$RC" -eq 1 ] && grep -qxF "ADDON ALLOW FILE MISSING: $NIGHT/addon-allow.txt" "$T/nofile.out"
 check $? "no <NIGHT_DIR>/addon-allow.txt fails with 'ADDON ALLOW FILE MISSING: <path>'"
 printf 'Bash(mytool --no-docker *)\n' >"$T/addondk.txt"
@@ -415,7 +417,7 @@ ADDON=addondk.txt post addkallowed.json denied.md && has addkallowed allow 'Bash
   && ! has addkallowed allow 'Bash(docker ps*)'
 check $? "re-running the post-render step allowed -> denied drops the docker allows and keeps the add-on rule"
 ADDON=addondk.txt render rerun.json && post rerun.json denied.md
-(cd "$T" && py - rerun.json "$BASE" "$NIGHT" denied.md <check.py >rerun.out 2>&1); RC=$?
+(cd "$T" && py - rerun.json "$BASE" "$NIGHT" denied.md $BR <check.py >rerun.out 2>&1); RC=$?
 [ "$RC" -eq 1 ] && grep -qxF 'ADDON ALLOW MISSING: Bash(mytool --no-docker *)' "$T/rerun.out"
 check $? "the post-render step re-run without its addon-allow.txt argument (docker step strips the add-on rule) fails with ADDON ALLOW MISSING"
 
@@ -448,13 +450,13 @@ for opt in "--exec-path=/x" "-c core.sshCommand=/x" "-c x=y" "--git-dir=/x" "--w
   bash_denied mergeshape "/usr/bin/git -C $NIGHT/wt/S1 $opt merge origin/dev"; check $? "denied: unquoted -C wt with injected $opt"
   bash_denied mergeshape "/usr/bin/git -C \"$NIGHT/wt/S1\" $opt merge origin/dev"; check $? "denied: quoted -C wt with injected $opt"
 done
-# F1: quoted and backslash-escaped option spellings match the allow too (the raw-text matcher does no
-# quote handling), so each must be denied as well: allow matches AND deny matches.
+# F1: quoted and backslash-escaped option spellings are NOT matched by any allow any more (the allows are exact
+# per queue id, no '*' in the path position) and each is still denied: the deny is the second guard.
 for c in "/usr/bin/git -C $NIGHT/wt/S1 '-c' x=y merge origin/dev" \
          "/usr/bin/git -C $NIGHT/wt/S1 '--exec-path=/x' merge origin/dev" \
          "/usr/bin/git -C $NIGHT/wt/S1 \\-c x=y merge origin/dev" \
          "/usr/bin/git -C \"$NIGHT/wt/S1\" '-c' \"x=y\" merge origin/dev"; do
-  bash_perm mergeshape "$c" allow; check $? "the wt merge allow matches the injected spelling (the hole): $c"
+  bash_perm mergeshape "$c" allow; [ $? -ne 0 ]; check $? "no allow matches the injected spelling: $c"
   bash_denied mergeshape "$c"; check $? "denied: $c"
 done
 # a quoted path followed by a single-quoted option ends in "' merge", so no allow matches it; still denied
@@ -466,6 +468,10 @@ for c in "/usr/bin/git -C \"$NIGHT/wt/S-1\" merge origin/dev" "/usr/bin/git -C $
   ! bash_denied mergeshape "$c"; check $? "the brief's merge is not denied: $c"
   bash_perm mergeshape "$c" allow; check $? "the brief's merge is allowed: $c"
 done
+for c in "/usr/bin/git -C $NIGHT/wt/S1"$'\t'"--exec-path=/x merge origin/dev" "/usr/bin/git -C $NIGHT/wt/S10 merge origin/dev" \
+         "/usr/bin/git -C $NIGHT/wt/S1/../../x merge origin/dev"; do
+  bash_perm mergeshape "$c" allow; [ $? -ne 0 ]; check $? "no allow matches (tab-separated option, an id not in the queue, traversal): $c"
+done
 for c in "/usr/bin/git -C \"$BASE\" merge origin/dev" "/usr/bin/git -C $BASE merge origin/dev"; do
   bash_perm mergeshape "$c" allow; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
 done
@@ -476,6 +482,26 @@ bash_denied mergeshape "gh pr merge 4 --repo o/r --squash"; check $? "gh pr merg
 bash_denied mergeshape "gh pr merge 4 -R o/r --squash"; check $? "gh pr merge -R is denied"
 ! bash_denied mergeshape "gh pr merge 4 --squash"; check $? "the plain squash merge is not denied"
 bash_perm mergeshape "gh pr view 4 --json baseRefName,state -q '.baseRefName+\" \"+.state'" allow; check $? "the base-check gh pr view is allowed"
+
+# --- (D4) the story-worktree allows are exact per queue id: the check names a wildcard allow and a missing id ----
+render wtwild.json
+(cd "$T" && py -c "
+import json,sys;f=sys.argv[1];d=json.load(open(f));d['permissions']['allow'].append('Bash(/usr/bin/git -C %s/wt/* status*)'%sys.argv[2]);json.dump(d,open(f,'w'))" wtwild.json "$NIGHT")
+(cd "$T" && py - wtwild.json "$BASE" "$NIGHT" "$RULES" $BR <check.py >wtwild.out 2>&1); RC=$?
+[ "$RC" -eq 1 ] && grep -qxF "WT WILDCARD ALLOW: Bash(/usr/bin/git -C $NIGHT/wt/* status*)" "$T/wtwild.out"
+check $? "an allow with a wt/* wildcard path fails the rules check with WT WILDCARD ALLOW"
+render story.json
+(cd "$T" && py -c "
+import json,sys;f=sys.argv[1];d=json.load(open(f));a=d['permissions']['allow']
+r='Bash(/usr/bin/git -C \"%s/wt/S-1\" diff origin/dev...HEAD)'%sys.argv[2]
+a.remove(r);json.dump(d,open(f,'w'))" story.json "$NIGHT")
+(cd "$T" && py - story.json "$BASE" "$NIGHT" "$RULES" $BR <check.py >story.out 2>&1); RC=$?
+[ "$RC" -eq 1 ] && grep -q '^MISSING STORY RULE: S-1 ' "$T/story.out" && ! grep -q 'MISSING STORY RULE: S1 ' "$T/story.out"
+check $? "a queue id lacking one of its exact allows fails with MISSING STORY RULE naming that id only"
+printf 'S1|s|-|n\nbad id|s|-|n\n' >"$NIGHT/queue.txt"
+render badid.json; [ $? -ne 0 ] && grep -q 'QUEUE ID INVALID' "$T/badid.json.post"
+check $? "a queue id outside run.sh's rule fails the post-render step with QUEUE ID INVALID"
+printf '# queue\n\nS1|s1|-|n\nS-1|s-1|-|n\n' >"$NIGHT/queue.txt"
 
 # --- (E) the supervisor's own settings: the night file minus THIS night's state-file deny ----------
 # The supervisor re-queues a story by deleting its state row, which Edit(~/night-runs/<project>/state*.txt)
