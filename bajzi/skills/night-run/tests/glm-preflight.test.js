@@ -337,7 +337,7 @@ const step8Block = (pred) => {
 };
 const cleanEnv = (extra) => {
   const env = Object.assign({}, process.env);
-  for (const k of ['ANTHROPIC_BASE_URL', 'CC_WORKER_MODE', 'ZAI_API_KEY', 'CLAUDECODE']) delete env[k];
+  for (const k of ['ANTHROPIC_BASE_URL', 'CC_WORKER_MODE', 'ZAI_API_KEY', 'CLAUDECODE', 'BAJZI_SESSION_LEVEL']) delete env[k];
   return Object.assign(env, extra);
 };
 const bash = (script, env) => spawnSync('bash', ['-c', script], { encoding: 'utf8', env });
