@@ -1,8 +1,7 @@
 'use strict';
 // saver-glm-dispatch F1: contract test for the documented GLM fallback command
 // (skills/lib/dispatch.md step 3): `glm -p --permission-mode bypassPermissions --settings <lib/worker-deny.settings.json>`
-// with the agent body,
-// `---` and the slice on stdin. Needs the glm launcher and a Z.ai key, takes minutes, costs quota.
+// (plus `--output-format stream-json --verbose` so the tool trace can be read) with the agent body, `---` and the slice on stdin. Needs the glm launcher and a Z.ai key, takes minutes, costs quota.
 // Skipped unless BAJZI_CONTRACT=1, so the default suite never calls GLM.
 //   BAJZI_CONTRACT=1 node --test bajzi/tests/agents/contract-glm-dispatch.test.js
 // Override the launcher with BAJZI_CONTRACT_GLM.
@@ -26,6 +25,22 @@ acceptance: clamp(value, min, max) returns min when value < min, max when value 
 test: node --test
 `;
 
+const win = process.platform === 'win32';
+const q = (a) => (win ? `"${a}"` : a); // Node does not quote argv through the Windows shell
+const launch = (glm, deny, opts) => spawnSync(q(glm), ['-p', '--permission-mode', 'bypassPermissions', '--settings', q(deny),
+  '--output-format', 'stream-json', '--verbose'], { ...opts, shell: win });
+
+test('launcher receives the deny-file path as one argument when the path has a space', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'bajzi glm space-'));
+  const stub = path.join(d, 'stub.js');
+  fs.writeFileSync(stub, `#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));\n`, { mode: 0o755 });
+  const deny = path.join(d, 'worker deny.settings.json');
+  const r = launch(stub, deny, { encoding: 'utf8', env: ENV, input: '' });
+  assert.strictEqual(r.status, 0, `${r.error || ''} ${r.stderr}`);
+  const argv = JSON.parse(r.stdout);
+  assert.strictEqual(argv[argv.indexOf('--settings') + 1], deny);
+});
+
 const skip = process.env.BAJZI_CONTRACT === '1' ? false : 'set BAJZI_CONTRACT=1 (calls glm -p)';
 
 test('documented GLM dispatch command implements a fixture slice and runs its test command', { skip, timeout: 900e3 }, () => {
@@ -34,10 +49,8 @@ test('documented GLM dispatch command implements a fixture slice and runs its te
   // dispatch.md: agent body without frontmatter, a `---` line, then the brief verbatim.
   const agent = fs.readFileSync(path.join(__dirname, '..', '..', 'agents', 'implementer.md'), 'utf8')
     .replace(/\r\n/g, '\n').replace(/^---\n[\s\S]*?\n---\n/, '');
-  const r = spawnSync(GLM, ['-p', '--permission-mode', 'bypassPermissions', '--settings', DENY,
-    '--output-format', 'stream-json', '--verbose'],
-    { cwd: repo, input: `${agent}\n---\n${SLICE_FILE}`, encoding: 'utf8', timeout: 800e3, env: ENV,
-      maxBuffer: 64 * 1024 * 1024, shell: process.platform === 'win32' });
+  const r = launch(GLM, DENY, { cwd: repo, input: `${agent}\n---\n${SLICE_FILE}`, encoding: 'utf8', timeout: 800e3, env: ENV,
+    maxBuffer: 64 * 1024 * 1024 });
   assert.strictEqual(r.status, 0, `glm exit ${r.status} ${r.error || ''} ${r.stderr}`);
   // The worker's final wording varies, so read the tool trace: the slice's `test:` command must have run
   // as a Bash call and returned passing output (not a deny), and the fixture must be green afterwards.
