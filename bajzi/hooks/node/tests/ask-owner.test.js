@@ -14,7 +14,8 @@ test('pane set -> RULE as SessionStart context with the key phrases', () => {
   assert.equal(o.additionalContext, RULE);
   for (const s of ['mcp__orch-bus__ask_owner', 'select:mcp__orch-bus__ask_owner', 'Question for you in the panel: <title>',
     'set default_taken, carry on with it and do not wait', 'blocking=true', 'claude -p', 'never set blocking=true',
-    'secret', 'Artifact checklist', 'ask the way your other instructions say', 'mcp__orch-bus__owner_answered', 'so the panel card closes']) assert.ok(RULE.includes(s), s);
+    'secret', 'Artifact checklist', 'ask the way your other instructions say', 'mcp__orch-bus__owner_answered', 'so the panel card closes',
+    'after "Now write only:"', "question -> 'Question for you in the panel: <title>'", "step -> 'Step for you in the panel (Your steps): <title>'", "info -> 'Info for you in the panel: <title>'"]) assert.ok(RULE.includes(s), s);
 });
 test('pane unset or empty -> nothing', () => {
   for (const p of [undefined, '']) { const r = run(p); assert.deepEqual([r.code, r.stdout], [0, ''], String(p)); }
