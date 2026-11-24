@@ -26,7 +26,7 @@ line per item. Exit 2 = the manifest could not be read. Fix nothing in this mode
 `/bajzi:setup` run when there is drift.
 
 The check also runs the Claude CLI's own health (the interactive `/status` cannot run headless):
-`claude doctor` (without "No installation issues found" -> `DRIFT cli-doctor <first issue line>`)
+`claude doctor` (without "No installation issues found" -> `DRIFT cli-doctor <first non-empty output line, or exit <n> when empty>`)
 and `claude plugin validate --json` for `~/.claude` and every installed plugin path (a component
 with errors -> `DRIFT component-invalid <file>: <first error>`; unusable output ->
 `DRIFT component-validate-failed <dir>`; warnings ignored). No `claude` on PATH, a spawn error or a
@@ -150,8 +150,9 @@ read: steps 1 and 2 uninstall and remove NOTHING; report that the add-on list co
    The copy is also refreshed silently on every session start (only where it is already installed;
    never downgrades; `settings.json` untouched).
 10. **User-scope MCPs:** for every entry of the manifest's `user_mcps` object that `claude mcp list`
-    does not show, add it with the entry's JSON on stdin (`-`, Claude Code 2.1.327+), so tokens never
-    appear in argv or shell history:
+    does not show, first run `claude --version`: Claude Code 2.1.327 is the minimum for this step, so
+    when older run `claude update` before adding (no argv fallback). Add it with the entry's JSON on
+    stdin (`-`), so tokens never appear in argv or shell history:
     ```
     node -e "process.stdout.write(JSON.stringify(require(process.argv[1]).user_mcps[process.argv[2]]))" "${CLAUDE_PLUGIN_ROOT}/skills/setup/manifest.json" <name> | claude mcp add-json --scope user <name> -
     ```

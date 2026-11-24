@@ -222,7 +222,8 @@ const clip = (t, n = 200) => String(t).trim().slice(0, n);
 // Claude CLI health: `claude doctor` + `claude plugin validate --json` per plugin dir. Returns
 // { drift, note }; a missing CLI, spawn error or timeout is a note, never drift.
 function cliHealth(home, env) {
-  const run = args => spawnSync('claude', args, { env, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
+  const win = process.platform === 'win32'; // npm installs claude.cmd, which needs a shell
+  const run = args => spawnSync('claude', win ? args.map(a => (/[\s&()]/.test(a) ? `"${a}"` : a)) : args, { env, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'], shell: win });
   const skip = r => (r.error ? (r.error.code === 'ENOENT' ? 'claude not on PATH' : r.error.code || r.error.message) : null);
   const drift = [];
   const doc = run(['doctor']);
@@ -242,11 +243,13 @@ function cliHealth(home, env) {
     if (skip(r)) return { drift, note: skip(r) };
     let j = null;
     try { j = JSON.parse(r.stdout); } catch { /* unparseable */ }
-    if (!isObj(j)) { drift.push(['component-validate-failed', dir]); continue; }
-    for (const item of Array.isArray(j.contents) ? j.contents : []) {
+    if (!isObj(j) || !Array.isArray(j.contents)) { drift.push(['component-validate-failed', dir]); continue; }
+    let bad = 0;
+    for (const item of j.contents) {
       const errs = item && Array.isArray(item.errors) ? item.errors : [];
-      if (errs.length) drift.push(['component-invalid', `${item.file}: ${clip(isObj(errs[0]) ? errs[0].message : errs[0])}`]);
+      if (errs.length) { bad++; drift.push(['component-invalid', `${item.file}: ${clip(isObj(errs[0]) ? errs[0].message : errs[0])}`]); }
     }
+    if (r.status !== 0 && !bad) drift.push(['component-validate-failed', dir]);
   }
   return { drift, note: null };
 }

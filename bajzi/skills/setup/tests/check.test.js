@@ -671,7 +671,7 @@ function cliShim(m, { doctor, validate }) {
   fs.mkdirSync(dir, { recursive: true });
   const script = `#!/bin/sh
 if [ "$1" = doctor ]; then ${doctor}; exit $DOC_EXIT; fi
-if [ "$1" = plugin ]; then ${validate}; exit 0; fi
+if [ "$1" = plugin ]; then ${validate}; exit \${VAL_EXIT:-0}; fi
 `;
   fs.writeFileSync(path.join(dir, 'claude'), script, { mode: 0o755 });
   return Object.assign({}, m, { env: Object.assign({}, m.env, { PATH: dir + path.delimiter + m.env.PATH, BAJZI_SETUP_NO_CLI: '', DOC_EXIT: '0' }) });
@@ -707,6 +707,31 @@ test('cli health: garbage validate output -> DRIFT component-validate-failed', {
   assert.match(r.out, /^DRIFT component-validate-failed .*\.claude$/m);
 });
 
+test('cli health: validate output without a contents array -> DRIFT component-validate-failed', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: "echo '{}'" });
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT component-validate-failed .*\.claude$/m);
+});
+
+test('cli health: validate exits non-zero with clean JSON -> DRIFT component-validate-failed', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: OKVAL });
+  m.env.VAL_EXIT = '1';
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT component-validate-failed .*\.claude$/m);
+});
+
+test('cli health: a claude.cmd shim is found on win32', { skip: process.platform !== 'win32' }, () => {
+  const m = machine();
+  const dir = path.join(m.home, 'shim');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'claude.cmd'), `@echo off\r\nif "%1"=="doctor" (echo No installation issues found& exit /b 0)\r\necho {"contents":[]}\r\n`);
+  const r = run(Object.assign({}, m, { env: Object.assign({}, m.env, { PATH: dir + path.delimiter + m.env.PATH, BAJZI_SETUP_NO_CLI: '' }) }));
+  assert.strictEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /claude CLI check skipped/);
+});
+
 test('cli health: no claude on PATH -> note, no drift; BAJZI_SETUP_NO_CLI=1 skips silently', () => {
   const m = machine();
   const r = run(Object.assign({}, m, { env: Object.assign({}, m.env, { BAJZI_SETUP_NO_CLI: '' }) }));
@@ -725,4 +750,9 @@ test('setup SKILL.md step 10 pipes the MCP JSON on stdin', () => {
   const s = fs.readFileSync(SKILL, 'utf8');
   assert.match(s, /\| claude mcp add-json --scope user <name> -$/m);
   assert.doesNotMatch(s, /add-json --scope user <name> '/);
+});
+
+test('setup SKILL.md step 10 declares Claude Code 2.1.327 the minimum and updates first', () => {
+  const s = fs.readFileSync(SKILL, 'utf8');
+  assert.match(s, /claude --version[^]*?2\.1\.327[^]*?claude update/);
 });
