@@ -275,6 +275,7 @@ test('night-hold.ps1 keeps the PC awake, starts launch.sh, holds one client on t
   assert.match(p, /--exec flock -w \$left "\$NightDir\/run\.flock" true/);
   assert.ok(p.includes('$UntilEpoch'));
   assert.ok(p.includes('launch.sh'));
+  assert.match(p, /--exec bash -lc '/, 'login shell (the PATH `check` saw), still --exec');
   assert.ok(p.includes('LAUNCH-EXIT=$?'));
   assert.doesNotMatch(p, /Start-Sleep|while \(/, 'one long-lived client, no poll loop with gaps');
   assert.ok(/^[\x00-\x7f]*$/.test(p) && !p.includes('\r'), 'ASCII only');

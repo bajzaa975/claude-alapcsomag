@@ -41,6 +41,9 @@ export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=3600000
 for v in $(compgen -e); do
   case "$v" in ANTHROPIC_*|CC_ROUTER_*|CC_WORKER_MODE|CLAUDE_CODE_SUBAGENT_MODEL|CLAUDECODE|CLAUDE_CODE_SESSION_ID|CLAUDE_CODE_BRIDGE_SESSION_ID|CLAUDE_CODE_MESSAGING_SOCKET|CLAUDE_CODE_MESSAGING_TOKEN|CLAUDE_CODE_CHILD_SESSION|CLAUDE_CODE_SESSION_ATTENDED|CLAUDE_CODE_ENTRYPOINT|CLAUDE_CODE_EXECPATH|CLAUDE_PID|CLAUDE_EFFORT|BAJZI_SESSION_LEVEL|BAJZI_SPLIT|BAJZI_SANDBOX) unset "$v";; esac
 done
+# The runner must find claude in THIS PATH: resolve CLAUDE_BIN as run.sh will (config.env, default claude).
+bin=$(. "$ND/config.env" >/dev/null 2>&1; printf '%s' "${CLAUDE_BIN:-claude}")
+command -v "$bin" >/dev/null 2>&1 || { echo "CLAUDE_BIN not found in the launch PATH: $bin (PATH=$PATH)"; exit 1; }
 setsid nohup bash "{{RUN_SH}}" --config "$ND/config.env" --deadline "{{DEADLINE}}" --date "{{RUN_DATE}}" >> "$ND/logs/console.log" 2>&1 </dev/null &
 echo "launched, waiting 10 s for the first log lines..."
 sleep 10
