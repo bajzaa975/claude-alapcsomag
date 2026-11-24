@@ -32,4 +32,14 @@ LOG=$ND/logs/runner.log
 check "$(grep -qF 'CLAUDE_BIN not found (rc=127)' "$LOG" 2>/dev/null; echo $?)" "slow lock release: still stops on rc=127"
 check "$([ "$(grep -c ' START ' "$LOG" 2>/dev/null)" -eq 1 ]; echo $?)" "slow lock release: exactly one story attempted"
 nr_cleanup "$ND"
+# A 127 after the 10 s window is a story failure, not a missing binary: the queue keeps running.
+T3=$T/late; ND=$T3/night; BASE=$T3/base; CFG=$T3/config.env
+mkdir -p "$T3"; nr_make_base "$BASE"; nr_make_night "$ND"; nr_queue "$ND" S1 S2
+printf '#!/usr/bin/env bash\nsleep 12\nexit 127\n' >"$T3/slow-claude"; chmod 0755 "$T3/slow-claude"
+nr_config "$CFG" "$ND" "$BASE" "$T3/slow-claude"
+setsid -w bash "$NR_RUN" --config "$CFG" >"$T3/out.txt" 2>&1
+LOG=$ND/logs/runner.log
+check "$(grep -q ' START S2' "$LOG" 2>/dev/null; echo $?)" "late 127 (12 s): S2 still started"
+check "$(grep -qF 'CLAUDE_BIN not found' "$LOG" 2>/dev/null; [ $? -ne 0 ]; echo $?)" "late 127 (12 s): no CLAUDE_BIN not found line"
+nr_cleanup "$ND"
 nr_summary claude-bin.sh
