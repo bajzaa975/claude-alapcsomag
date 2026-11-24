@@ -434,6 +434,49 @@ for c in "bash -c 'x' ci-tail.sh $NIGHT 1" "bash -c 'x' ci-tail.sh \"$NIGHT\" 1"
   bash_perm citail "$c" allow; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
 done
 
+# --- (D3) merge shape: the brief's -C worktree merge matches a wt-only allow; a BASE_DIR -C merge does not ----
+render mergeshape.json
+bash_perm mergeshape "/usr/bin/git -C \"$NIGHT/wt/S1\" merge origin/dev" allow
+check $? "the brief's quoted -C worktree merge matches an allow rule (runs in <NIGHT_DIR>/wt/S1, not BASE)"
+bash_perm mergeshape "/usr/bin/git -C $NIGHT/wt/S1 merge origin/dev" allow; check $? "the bare spelling of the worktree merge matches too"
+bash_perm mergeshape "/usr/bin/git merge origin/dev" allow; check $? "the cwd-form merge origin/<base> is still allowed"
+# the '*' in the wt path crosses '/' and spaces, so options injected between the path and 'merge' match
+# the allow; the three '* <token> merge origin/<base>' denies refuse ANY such token (deny beats allow),
+# quoting and backslash escapes included, and a quoted path holding a space has a deny of its own.
+# Traversal spellings are the '..' denies' job (see _comment_limits).
+for opt in "--exec-path=/x" "-c core.sshCommand=/x" "-c x=y" "--git-dir=/x" "--work-tree=/x" "--config-env=a=B"; do
+  bash_denied mergeshape "/usr/bin/git -C $NIGHT/wt/S1 $opt merge origin/dev"; check $? "denied: unquoted -C wt with injected $opt"
+  bash_denied mergeshape "/usr/bin/git -C \"$NIGHT/wt/S1\" $opt merge origin/dev"; check $? "denied: quoted -C wt with injected $opt"
+done
+# F1: quoted and backslash-escaped option spellings match the allow too (the raw-text matcher does no
+# quote handling), so each must be denied as well: allow matches AND deny matches.
+for c in "/usr/bin/git -C $NIGHT/wt/S1 '-c' x=y merge origin/dev" \
+         "/usr/bin/git -C $NIGHT/wt/S1 '--exec-path=/x' merge origin/dev" \
+         "/usr/bin/git -C $NIGHT/wt/S1 \\-c x=y merge origin/dev" \
+         "/usr/bin/git -C \"$NIGHT/wt/S1\" '-c' \"x=y\" merge origin/dev"; do
+  bash_perm mergeshape "$c" allow; check $? "the wt merge allow matches the injected spelling (the hole): $c"
+  bash_denied mergeshape "$c"; check $? "denied: $c"
+done
+# a quoted path followed by a single-quoted option ends in "' merge", so no allow matches it; still denied
+bash_denied mergeshape "/usr/bin/git -C \"$NIGHT/wt/S1\" '--exec-path=/x' merge origin/dev"
+check $? "denied: quoted -C wt with a single-quoted --exec-path"
+bash_denied mergeshape "/usr/bin/git -C \"$NIGHT/wt/a b\" merge origin/dev"
+check $? "denied: a quoted worktree path holding a space (its own deny rule)"
+for c in "/usr/bin/git -C \"$NIGHT/wt/S-1\" merge origin/dev" "/usr/bin/git -C $NIGHT/wt/S-1 merge origin/dev"; do
+  ! bash_denied mergeshape "$c"; check $? "the brief's merge is not denied: $c"
+  bash_perm mergeshape "$c" allow; check $? "the brief's merge is allowed: $c"
+done
+for c in "/usr/bin/git -C \"$BASE\" merge origin/dev" "/usr/bin/git -C $BASE merge origin/dev"; do
+  bash_perm mergeshape "$c" allow; [ $? -ne 0 ]; check $? "no allow rule matches: $c"
+done
+bash_perm mergeshape "gh pr merge 4 --squash" allow; check $? "gh pr merge <n> --squash is allowed"
+bash_perm mergeshape "cd /x; gh pr merge 4 --repo o/r --squash 2>&1" allow; [ $? -ne 0 ]; check $? "a chained gh pr merge --repo is not allowed"
+bash_denied mergeshape "gh pr merge 4 --auto --squash"; check $? "gh pr merge --auto is denied"
+bash_denied mergeshape "gh pr merge 4 --repo o/r --squash"; check $? "gh pr merge --repo is denied"
+bash_denied mergeshape "gh pr merge 4 -R o/r --squash"; check $? "gh pr merge -R is denied"
+! bash_denied mergeshape "gh pr merge 4 --squash"; check $? "the plain squash merge is not denied"
+bash_perm mergeshape "gh pr view 4 --json baseRefName,state -q '.baseRefName+\" \"+.state'" allow; check $? "the base-check gh pr view is allowed"
+
 # --- (E) the supervisor's own settings: the night file minus THIS night's state-file deny ----------
 # The supervisor re-queues a story by deleting its state row, which Edit(~/night-runs/<project>/state*.txt)
 # forbids; PHASE C (and supervise.sh at every tick) renders <NIGHT_DIR>/supervise.settings.json without
