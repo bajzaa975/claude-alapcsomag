@@ -1,5 +1,5 @@
 {
-  "_comment": "Deny-list settings for a headless GLM worker launched as: glm -p --permission-mode bypassPermissions --settings <this file>. The auto-mode rule in the setup manifest approves the bypassPermissions launch only together with this file. It is a pattern guard, not a sandbox: Bash rules are wildcard matches on the command text (leading and trailing * so the bare, /usr/bin and -C <dir> spellings all match) and can be evaded by a determined command. git add and git commit stay allowed so the worker can commit on its own branch.",
+  "_comment": "Deny-list settings for a headless GLM worker launched as: glm -p --permission-mode bypassPermissions --settings <this file>. The auto-mode rule in the setup manifest approves the bypassPermissions launch only together with this file. It is a pattern guard, not a sandbox: Bash rules are wildcard matches on the command text (leading and trailing * so the bare, /usr/bin and -C <dir> spellings all match) and can be evaded by a determined command. git add and git commit stay allowed so the worker can commit on its own branch. MEASURED 2026-11-24: under bypassPermissions a Read(~/.ssh/**) rule did NOT stop 'cat ~/.ssh/config' run through Bash, so the secret paths are also denied as Bash text patterns at the end of the list.",
   "permissions": {
     "deny": [
       "Bash(*git*push*)",
@@ -48,7 +48,12 @@
       "Edit(~/.claude/.credentials.json)",
       "Edit(~/.claude/settings*.json)",
       "Edit(~/.claude/plugins/**)",
-      "Edit(~/.claude/bajzi/**)"
+      "Edit(~/.claude/bajzi/**)",
+      "Bash(*.ssh/*)",
+      "Bash(*.ssh *)",
+      "Bash(*.aws/*)",
+      "Bash(*.config/gh*)",
+      "Bash(*.credentials.json*)"
     ]
   }
 }
