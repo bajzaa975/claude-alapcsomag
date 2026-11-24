@@ -65,6 +65,18 @@ test('(b) pre-tool: a context block at the 50% threshold denies, byte-identical 
   assert.strictEqual(run(PRE, pre('Skill', { skill: 'bajzi:handoff' }), 55).stdout, '');   // the handoff exemption holds
 });
 
+test('pre-tool: autopilot marker -> blocking ask_owner and AskUserQuestion denied by autopilot-guard; non-blocking passes', () => {
+  const d = tmpDir('bajzi-ap-');
+  fs.writeFileSync(path.join(d, 'autopilot-s1.json'), JSON.stringify({ started: new Date().toISOString() }));
+  const go = (t, i) => runScript(PRE, JSON.stringify(pre(t, i)), { TMPDIR: tmpDir('bajzi-th-'), BAJZI_STATUS_DIR: d, ORCH_BUS_PANE: undefined, BAJZI_NIGHT_RUN: undefined });
+  for (const [t, i] of [['mcp__orch-bus__ask_owner', { blocking: true }], ['AskUserQuestion', {}]]) {
+    const o = out(go(t, i));
+    assert.strictEqual(o.permissionDecision, 'deny', t);
+    assert.match(o.permissionDecisionReason, /autopilot-guard/, t);
+  }
+  assert.strictEqual(go('mcp__orch-bus__ask_owner', { blocking: false }).stdout, '');
+});
+
 test('pre-tool: both checks deny = one envelope, both reasons, context block first', () => {
   const o = out(run(PRE, pre('Read', { file_path: '.env' }), 55));
   assert.strictEqual(o.permissionDecision, 'deny');
@@ -231,7 +243,7 @@ test('post-tool: the session-signal check runs on every tool and gets the hook i
   for (const tool of ['Read', 'Bash', 'Write', 'Agent', 'Task', 'Skill', 'WebFetch', 'mcp__srv__get', 'Artifact', 'SomeFutureTool']) {
     const d = seedNeedsYou();
     const input = Object.assign(post(tool, {}, 'see https://claude.ai/code/artifact/a1'), { cwd: 'D:/w ' + tool });
-    const r = runScript(POST, JSON.stringify(input), { BAJZI_STATUS_DIR: d });
+    const r = runScript(POST, JSON.stringify(input), { BAJZI_STATUS_DIR: d, ORCH_BUS_PANE: undefined, BAJZI_NIGHT_RUN: undefined });
     assert.strictEqual(r.code, 0, tool);
     assert.strictEqual(r.stdout, '', tool);
     assert.strictEqual(r.stderr, '', tool);

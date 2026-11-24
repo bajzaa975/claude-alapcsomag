@@ -401,7 +401,11 @@ test('p95 < 150 ms with a ~20 MB transcript and an active goal near the end', PE
   const stdin = JSON.stringify(input(cwd, { transcript_path: f }));
   for (let i = 0; i < 8; i++) runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd });   // warm: git + goal cache catch-up
   const ms = [];
-  for (let i = 0; i < 20; i++) ms.push(runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd }).ms);
+  for (let i = 0; i < 20; i++) {
+    const r = runScript(SCRIPT, stdin, { HOME: home, TMPDIR: tmp }, { cwd });
+    ms.push(r.ms);
+    assert.match(r.stdout, /\u25ce goal 1 eval/, 'the goal field is rendered in every timed run');
+  }
   assert.ok(p95(ms) < 150, `p95 ${p95(ms).toFixed(1)} ms`);
 });
 
@@ -477,4 +481,12 @@ test('GLM share below 60 gets a ! marker at L2+, not at L1; old cache shape stil
   assert.strictEqual(r('glm'), 'L2 \u00b7 GLM 42%!');
   assert.doesNotMatch(r('light'), /GLM 42%!/);   // L1
   assert.match(r('light'), /GLM 42%/);
+});
+
+test('GLM share boundary: exactly 60 at L2 shows no ! marker', () => {
+  const home = tmpDir('bajzi-h-');
+  fs.mkdirSync(path.join(home, '.claude', 'bajzi'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'bajzi', 'glm-share.json'), JSON.stringify({ ts: NIGHT - 1000, pct: 60 }));
+  const cwd = tmpDir('bajzi-nr-');
+  assert.strictEqual(strip(render({ workspace: { current_dir: cwd } }, { env: { CC_WORKER_MODE: 'glm' }, home, nowMs: NIGHT })), 'L2 \u00b7 GLM 60%');
 });
