@@ -43,5 +43,8 @@ the skill has no other round.
    `tier-1 r1 majors: <slice-id> <n>` per Tier 1 slice of the sprint (round-1 blocker + major findings located in that slice's `files:`;
    `tier-1 r1 majors: none` when there is no Tier 1 slice). Rule: when two consecutive sprints show Tier 1 round-1 majors at about
    twice the project's recorded baseline for Opus-written Tier 1 slices, raise it with the owner as a scope question (Tier 1 back to Opus).
+   After the report, if the repo has a GitHub remote and `gh pr view --json state -q .state` prints `OPEN` for the current branch, end with
+   `Next for you: type /steward to watch the pull request (CI, conflicts, review comments).` `/steward` is a built-in only the user can start:
+   never run it, never use `/ship` (it reviews and fixes in one session, breaking the independent reviewer rule). No open PR: print nothing more.
 
 Any other `FC` or git exit code a step above does not name -> print its output and the exit code, STOP.
