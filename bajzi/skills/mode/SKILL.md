@@ -88,7 +88,7 @@ printf '%s\n' <mode> > "$t" && mv -f "$t" "<dir>/bajzi-mode"
 ## Saver levels (GLM rungs under day-run)
 
 Saver mode adds cheaper GLM rungs UNDER the day-run routing table: the task classes a level
-lists are dispatched to a headless GLM worker via `glm -p "<task>"` instead of the Agent
+lists are dispatched to a headless GLM worker via `glm -p --permission-mode bypassPermissions --settings "<absolute lib/worker-deny.settings.json>" "<task>"` instead of the Agent
 tool, so they cost no Anthropic quota. Task classes, ordered by risk (how far a mistake
 travels before something catches it): 1 search/locate, 2 tests/lint/build, 3 long-file
 summaries, 4 first-round fixes, 5 implementing.
@@ -128,7 +128,7 @@ peak-window ban applies at every level that uses GLM (L1-L3), enforced by the sh
   Claude only, start plain `claude` at L0. Known limits of the sandboxed tier: with the project
   read-only, `git switch`/`checkout <branch>`, branch creation, `merge`, `pull`, `fetch`, `push`,
   `stash`, `rebase`, `worktree add`, every `gh` call and builds/tests that write into the project fail
-  when Claude runs them itself. Hand each to GLM: `glm -p "<git/gh task>"` (GLM tokens).
+  when Claude runs them itself. Hand each to GLM: `glm -p --permission-mode bypassPermissions --settings "<absolute lib/worker-deny.settings.json>" "<git/gh task>"` (GLM tokens); the publishing steps (the branch push, a PR merge, a release) are refused by that deny file and stay an owner step.
 - The hook injects saver text when day-run is on OR `$CC_WORKER_MODE` names a level
   (a runner-forced level) OR the provider is non-Anthropic; in plain normal mode with none of
   those it emits `{}` and saver mode has no effect at all. A non-Anthropic provider forces L3

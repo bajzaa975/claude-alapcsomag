@@ -468,7 +468,7 @@ test('worker deny-list: valid, deny-only, blocks push and the env files; every b
   assert.deepStrictEqual(Object.keys(wd).sort(), ['_comment', 'permissions']);
   assert.deepStrictEqual(Object.keys(wd.permissions), ['deny']);
   const deny = wd.permissions.deny;
-  assert.ok(deny.includes('Bash(*git*push*)'));
+  assert.ok(deny.includes('Bash(*git push*)'));
   for (const r of ['Read(.env)', 'Read(.env.local)', 'Read(.env.*.local)', 'Read(.env.production*)', 'Read(.env.development*)', 'Read(.env.test*)', 'Read(.env.staging*)']) {
     assert.ok(deny.includes(r), r);
   }
@@ -480,6 +480,35 @@ test('worker deny-list: valid, deny-only, blocks push and the env files; every b
   }
   const dispatch = fs.readFileSync(path.join(BAJZI, 'skills/lib/dispatch.md'), 'utf8');
   assert.ok(/glm -p --permission-mode bypassPermissions --settings "\$\{CLAUDE_PLUGIN_ROOT\}\/lib\/worker-deny\.settings\.json" </.test(dispatch));
+});
+
+test('worker deny-list: Bash rules refuse the dangerous spellings, allow ordinary git add/commit; env reads covered through Bash; hand-offs name no denied command', () => {
+  const BAJZI = path.join(__dirname, '..', '..', '..');
+  const deny = JSON.parse(fs.readFileSync(path.join(BAJZI, 'lib', 'worker-deny.settings.json'), 'utf8')).permissions.deny;
+  const globs = deny.map((r) => /^Bash\((.*)\)$/.exec(r)).filter(Boolean)
+    .map((m) => new RegExp('^' + m[1].replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$'));
+  const hit = (c) => globs.some((g) => g.test(c));
+  for (const c of ['git add bajzi/.claude-plugin/plugin.json', 'git add bajzi/gate/pre-push.js', 'git commit -m "docs: rebase notes"', 'grep -rn pseudo .', 'cat .env.example']) {
+    assert.ok(!hit(c), `must stay allowed: ${c}`);
+  }
+  for (const c of ['git push', 'git push origin x', 'git -C x push', '/usr/bin/git push', 'git reset --hard', 'git -C x rebase main', 'gh pr merge 3', 'gh release create v1',
+    'sudo ls', 'echo a && sudo ls', 'kill -9 12', 'claude plugin install x', 'cat .env', 'cat .env.production', 'cat .env.local', 'cat ./.env', 'cat .env.dev.local', 'cat ~/.ssh/config']) {
+    assert.ok(hit(c), `must be denied: ${c}`);
+  }
+  // every Read/Edit rule of the .env family has a Bash text counterpart (probed by a sample command), .env.example stays readable
+  for (const e of ['.env', '.env.local', '.env.x.local', '.env.production', '.env.development', '.env.test', '.env.staging']) assert.ok(hit(`cat ${e}`), `cat ${e}`);
+  // the split-session hand-offs name no command the worker deny file refuses
+  const dispatch = fs.readFileSync(path.join(BAJZI, 'skills/lib/dispatch.md'), 'utf8');
+  const lines = dispatch.split('\n').filter((l) => l.includes('"<git/gh task>"'));
+  assert.ok(lines.length >= 1);
+  const modeMd = fs.readFileSync(path.join(BAJZI, 'skills/mode/SKILL.md'), 'utf8');
+  const seg = /Hand each to GLM:(.*?)\(GLM tokens\)/.exec(modeMd);
+  assert.ok(seg, 'mode/SKILL.md hand-off sentence');
+  for (const l of [...lines, seg[1]]) assert.doesNotMatch(l.replace(/worker-deny\.settings\.json/g, ''), /\bpush\b|pr merge|\brelease\b/i, l);
+  // every glm -p launch instruction in the mode skill carries the bypass flag and --settings
+  for (const l of modeMd.split('\n')) {
+    if (/glm -p [-"]/.test(l)) assert.match(l, /glm -p --permission-mode bypassPermissions --settings /, l);
+  }
 });
 
 const MP = '.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md';
