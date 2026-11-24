@@ -35,7 +35,12 @@ test('launcher receives the deny-file path as one argument when the path has a s
   const stub = path.join(d, 'stub.js');
   fs.writeFileSync(stub, `#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));\n`, { mode: 0o755 });
   const deny = path.join(d, 'worker deny.settings.json');
-  const r = launch(stub, deny, { encoding: 'utf8', env: ENV, input: '' });
+  let launcher = stub;
+  if (win) { // cmd.exe would open a bare .js with Windows Script Host, so start node through a .cmd
+    launcher = path.join(d, 'stub.cmd');
+    fs.writeFileSync(launcher, `@"${process.execPath}" "%~dp0stub.js" %*\r\n`);
+  }
+  const r = launch(launcher, deny, { encoding: 'utf8', env: ENV, input: '' });
   assert.strictEqual(r.status, 0, `${r.error || ''} ${r.stderr}`);
   const argv = JSON.parse(r.stdout);
   assert.strictEqual(argv[argv.indexOf('--settings') + 1], deny);
