@@ -25,18 +25,19 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
    a Claude session blocks writer agents). Run the same brief on GLM: write the agent's own
    `${CLAUDE_PLUGIN_ROOT}/agents/<agent>.md` body without its frontmatter, a line `---`, then the brief
    file verbatim, to ONE file `runtime/briefs/<slice>-<class>.glm.txt`. From the repo root run
-   `glm -p --permission-mode bypassPermissions < runtime/briefs/<slice>-<class>.glm.txt` with the Bash tool,
+   `glm -p --permission-mode bypassPermissions --settings "${CLAUDE_PLUGIN_ROOT}/lib/worker-deny.settings.json" < runtime/briefs/<slice>-<class>.glm.txt` with the Bash tool,
    foreground (timeout 600000), or run_in_background when it may exceed 10 minutes. (`glm` passes its
    args straight to `claude`, `bin/cc-router.js` spawn. Measured: with `acceptEdits` a headless worker
-   edits files but its compound Bash call, the slice's `test:` command, is refused; `bypassPermissions`
-   ran both. User/project deny rules still apply under it. No per-command `--allowedTools`: test commands vary.) Save its stdout as the agent's final message where the table says, then
+   edits files but its compound Bash call, the slice's `test:` command, is refused; `bypassPermissions --settings <file>` ran both. User/project deny rules still apply under it. Measured 2026-11-24: a launch with `bypassPermissions` and no `--settings` is refused by the auto-mode
+   classifier (the setup rule allows it only with the deny-list file), and the
+   fallback worker cannot run Bash; with the file the launch is approved and its `git push` deny blocks a push. No per-command `--allowedTools`: test commands vary.) Save its stdout as the agent's final message where the table says, then
    `FC log <class> glm:<agent> runtime/briefs/<slice>-<class>.glm.txt allow`. `glm` exit 75 (Z.ai peak)
    -> dispatch the ORIGINAL Agent call again; the guard allows writes in the peak window. Any other
    non-zero exit -> print it and STOP. Tier 1 slices use `bajzi:implementer-risk`, which the guard
    allows, so they never take this path.
    **Split session** (`BAJZI_SPLIT=1`, Linux sandbox): only `glm`, `git add`, `git commit` and the `FC` calls
    write into the project. Branch creation, `git switch`/`checkout`/`merge`/`pull`/`fetch`/`push` and every
-   `gh` call run as `glm -p "<git/gh task>"` (same brief form), never directly.
+   `gh` call run as `glm -p --permission-mode bypassPermissions --settings "${CLAUDE_PLUGIN_ROOT}/lib/worker-deny.settings.json" "<git/gh task>"` (same brief form), never directly.
 4. **Save the final message** verbatim where the row says (Write tool), before reading it.
 
 **Any `FC` exit code a skill step does not name -> print its output and the exit code, STOP.**

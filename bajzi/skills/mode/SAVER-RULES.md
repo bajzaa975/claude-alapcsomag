@@ -1,8 +1,8 @@
 SAVER LEVEL L2 (glm, balanced). `worker --level 1` = light, `--level 3` = tight, `--level 0` = all Claude.
 FLASH RUNG (glm_fast_model): locate/map, tests/lint/build/shellcheck, read a file > 300 lines (summary only).
-  Dispatch = Bash:  glm -p --model haiku "<full task text>"
+  Dispatch = Bash:  glm -p --permission-mode bypassPermissions --settings "{{WORKER_SETTINGS}}" --model haiku "<full task text>"
 GLM RUNG (glm_model): documents > 100 lines, implement a specified slice / TDD, fix review findings round 1.
-  Dispatch = Bash:  glm -p "<full task text>"   (add --output-format json when you need usage;
+  Dispatch = Bash:  glm -p --permission-mode bypassPermissions --settings "{{WORKER_SETTINGS}}" "<full task text>"   (add --output-format json when you need usage;
   run_in_background for anything over ~1 minute -- EXCEPT in a headless `claude -p` session, or
   when the result decides your last action: there wait in the foreground, or the turn ends and the
   task is killed before you act on it).

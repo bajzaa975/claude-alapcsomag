@@ -168,6 +168,8 @@ case "$level" in
 esac
 saver_block=""
 [ -n "$saver_file" ] && [ -f "$mdir/$saver_file" ] && saver_block=$(head -40 "$mdir/$saver_file" 2>/dev/null)
+# The saver md files name the worker deny-list as {{WORKER_SETTINGS}}; render the absolute path (no token survives).
+saver_block="${saver_block//'{{WORKER_SETTINGS}}'/$root/lib/worker-deny.settings.json}"
 if [ "$nonanth" = "no" ] && { [ "$level" = "glm" ] || [ "$level" = "tight" ]; }; then
     # Level/provider mismatch: the saver guard blocks code writing on a Claude session at L2/L3,
     # whether or not a saver block was injected (the L2 block needs the launcher on PATH).

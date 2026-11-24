@@ -462,6 +462,26 @@ test('real manifest: public autoMode rule, no broad glm -p allow rule, nothing t
   for (const s of real.forbidden_leftovers.settings_substrings) assert.ok(!hay.includes(s), s);
 });
 
+test('worker deny-list: valid, deny-only, blocks push and the env files; every bypassPermissions launch names --settings', () => {
+  const BAJZI = path.join(__dirname, '..', '..', '..');
+  const wd = JSON.parse(fs.readFileSync(path.join(BAJZI, 'lib', 'worker-deny.settings.json'), 'utf8'));
+  assert.deepStrictEqual(Object.keys(wd).sort(), ['_comment', 'permissions']);
+  assert.deepStrictEqual(Object.keys(wd.permissions), ['deny']);
+  const deny = wd.permissions.deny;
+  assert.ok(deny.includes('Bash(*git*push*)'));
+  for (const r of ['Read(.env)', 'Read(.env.local)', 'Read(.env.*.local)', 'Read(.env.production*)', 'Read(.env.development*)', 'Read(.env.test*)', 'Read(.env.staging*)']) {
+    assert.ok(deny.includes(r), r);
+  }
+  assert.ok(!deny.includes('Read(.env.*)'));
+  for (const f of ['skills/lib/dispatch.md', 'skills/mode/SAVER-RULES.md', 'skills/mode/SAVER-L1.md', 'skills/mode/SAVER-L3.md']) {
+    for (const line of fs.readFileSync(path.join(BAJZI, f), 'utf8').split('\n')) {
+      if (line.includes('bypassPermissions')) assert.match(line, /bypassPermissions.*--settings/, `${f}: ${line}`);
+    }
+  }
+  const dispatch = fs.readFileSync(path.join(BAJZI, 'skills/lib/dispatch.md'), 'utf8');
+  assert.ok(/glm -p --permission-mode bypassPermissions --settings "\$\{CLAUDE_PLUGIN_ROOT\}\/lib\/worker-deny\.settings\.json" </.test(dispatch));
+});
+
 const MP = '.claude/plugins/marketplaces/bajzi-plugins/shared/CLAUDE.md';
 const writeRules = (m, rel, text) => { const p = path.join(m.home, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text); };
 
