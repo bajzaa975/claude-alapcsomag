@@ -1479,6 +1479,23 @@ else
     fail "7c byte-8001 newline" "${out:0:200}"
 fi
 
+# case 16: every `glm -p` dispatch line of the injected L1/L2/L3 text carries
+# --permission-mode bypassPermissions --settings "<abs worker-deny path>"; the path exists; no {{ token survives.
+printf '%s\n' "day-run" > "$FAKE_HOME/.claude/bajzi-mode"
+WD="$BAJZI_DIR/lib/worker-deny.settings.json"
+for lv in light glm tight; do
+    printf '%s\n' "$lv" > "$WM"
+    ctx="$(printf '{"cwd":"%s"}' "$FAKE_CWD" | CLAUDE_PLUGIN_ROOT="$BAJZI_DIR" HOME="$FAKE_HOME" BAJZI_SAVER_LAUNCHER=bash bash "$HOOK_SH" \
+        | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).hookSpecificOutput.additionalContext))' 2>&1)"
+    n="$(printf '%s\n' "$ctx" | grep -c 'glm -p ')"
+    bad="$(printf '%s\n' "$ctx" | grep 'glm -p ' | grep -vcF -- "glm -p --permission-mode bypassPermissions --settings \"$WD\"")"
+    if [ "$n" -ge 1 ] && [ "$bad" = "0" ] && [ -f "$WD" ] && ! printf '%s' "$ctx" | grep -qF '{{'; then
+        pass "16 $lv: $n glm -p dispatch line(s) carry bypassPermissions + --settings <abs path>, no token left"
+    else
+        fail "16 $lv glm -p dispatch lines" "n=$n without-settings=$bad ctx=${ctx:0:300}"
+    fi
+done
+
 # case 8: the claude shim was never invoked -- checked last, so it covers
 # every case above, not just the ones textually before it.
 if [ ! -e "$MARKER" ]; then
