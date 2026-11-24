@@ -1119,9 +1119,8 @@ render_brief(){ # id deadline_epoch finalize_epoch; rc != 0 means DO NOT RUN the
 
 # ------------------------------------------------------------ story prompt ---
 prompt_for(){ # id slug note brief_path deadline_epoch finalize_epoch budget_seconds
-  local gname gemail
   local br
-  gname=$(sq "$GIT_USER_NAME"); gemail=$(sq "$GIT_USER_EMAIL"); br=$(story_branch "$1" "$2")
+  br=$(story_branch "$1" "$2")
   # Lock mode: run.sh created the tree and appended its worktrees.tsv row itself.
   local tsv=" Append the tree to $NIGHT_DIR/worktrees.tsv as \"$1<TAB>path<TAB>branch<TAB>ISO time\"."
   [ -n "$BRANCH_LOCK_CMD" ] && tsv=" run.sh prepared this tree before starting you (branch lock mode), so it exists even on a first attempt; BRIEF 3.1 case 1 says how to treat it."
@@ -1133,7 +1132,7 @@ prompt_for(){ # id slug note brief_path deadline_epoch finalize_epoch budget_sec
   fi
   cat <<P
 Invoke the bajzi:autopilot skill first (scope: $PROJECT story $1 only), then read $4 in full and obey it.
-Your hard wall clock cap is $7 seconds: the runner's \`timeout\` kills this session at unix epoch $5 ($(date -d "@$5" '+%F %T %Z')), and SIGKILLs it 60 seconds later. At unix epoch $6 ($(date -d "@$6" '+%F %T %Z')) STOP taking new work and finalize — commit what is green, push, open or update the PR, write the handoff, emit the RESULT line. Compare \`date +%s\` with those two numbers, not a feeling, whenever the brief asks how much time is left. Wait at most $CI_WAIT_MINUTES minutes for CI in total. Commit as $GIT_USER_NAME <$GIT_USER_EMAIL> — a fresh worktree may have no git identity, so pin it with \`git -c user.name=$gname -c user.email=$gemail commit ...\`.
+Your hard wall clock cap is $7 seconds: the runner's \`timeout\` kills this session at unix epoch $5 ($(date -d "@$5" '+%F %T %Z')), and SIGKILLs it 60 seconds later. At unix epoch $6 ($(date -d "@$6" '+%F %T %Z')) STOP taking new work and finalize — commit what is green, push, open or update the PR, write the handoff, emit the RESULT line. Compare \`date +%s\` with those two numbers, not a feeling, whenever the brief asks how much time is left. Wait at most $CI_WAIT_MINUTES minutes for CI in total. Commit as $GIT_USER_NAME <$GIT_USER_EMAIL> — a fresh worktree may have no git identity, so pin it with \`git -c user.name="\$GIT_AUTHOR_NAME" -c user.email="\$GIT_AUTHOR_EMAIL" commit ...\`.
 You are a HEADLESS per-story session started by the shared night runner; there is no orchestrator, so you are BOTH the story agent (BRIEF section 3) and the merge gate (BRIEF section 5) for story $1 and nothing else. You are NOT your own reviewer: BRIEF section 4 is the review-and-fix loop and it MUST be run by fresh, independent sub-agents; a verdict you write about your own diff is not a review and never satisfies the gate.
 $4 is the authoritative brief and the reviewer's criteria source. It is read-only (0444) — never modify it, never chmod it, never render your own copy.
 Project: $PROJECT (repo $REPO, base branch $BASE_BRANCH). Required CI check: $REQUIRED_CHECK — only a pull_request-event run of it counts.

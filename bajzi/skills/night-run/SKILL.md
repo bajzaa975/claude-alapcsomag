@@ -948,9 +948,10 @@ a wildcard worktree allow would approve traversal and options injected before th
 strips every allow naming `<NIGHT_DIR>/wt/` and, on EVERY run, reads the story ids of the CURRENT
 `<NIGHT_DIR>/queue.txt` (already written by the `queue.txt` item above; run.sh's parse: first `|`
 field trimmed, blank and `#` lines skipped; a missing file fails the step) and appends, per id and per
-`WT_VERBS` verb (`fetch`, `rev-parse`, `status`, `diff`, `log`, `add`, the commit shape, the four push
-shapes, `merge origin/<BASE_BRANCH>`; never `worktree add|list`, `ls-remote` or `cherry`, which the
-brief never issues in a story worktree), the exact rule `Bash(/usr/bin/git -C "<NIGHT_DIR>/wt/<id>" <verb>)`
+`WT_VERBS` verb (`fetch origin`, `status --porcelain`, `add -A`, `diff origin/<BASE_BRANCH>...HEAD`, the
+commit shape, the four push shapes, `merge origin/<BASE_BRANCH>`; exact tails, `log` and `rev-parse`
+dropped so an option after a verb matches no allow; never `worktree add|list`, `ls-remote` or `cherry`,
+which the brief never issues in a story worktree), the exact rule `Bash(/usr/bin/git -C "<NIGHT_DIR>/wt/<id>" <verb>)`
 and its bare twin. It takes `<BASE_BRANCH>`, `<BRANCH_NAMESPACE>` and `<BRANCH_PREFIX>` as the three
 arguments before the add-on file, and an id outside run.sh's rule (`[A-Za-z0-9._-]`, not starting with
 `-` or `.`) FAILS the render with `QUEUE ID INVALID`. Re-run the step after queue.txt changes: a queue id
@@ -1010,7 +1011,7 @@ def docker(md):  # NIGHT-RULES section 7 -> (prefix, allows, denies, never-stop 
     return p, allow, deny, names, bad
 def addon_rules(path):  # <NIGHT_DIR>/addon-allow.txt -> its add-on rules: every non-blank line not starting with '#', in file order
     return [r for r in (l.strip() for l in open(path, encoding="utf-8")) if r and not r.startswith("#")]
-WT_VERBS = ("fetch *", "rev-parse *", "status*", "diff *", "log *", "add *",   # what the brief and run.sh prompt issue against a story worktree
+WT_VERBS = ("fetch origin", "status --porcelain", "add -A", "diff origin/{base}...HEAD",   # the exact forms the brief and run.sh prompt issue against a story worktree
             '-c user.name="$GIT_AUTHOR_NAME" -c user.email="$GIT_AUTHOR_EMAIL" commit *',
             "push -u origin HEAD", "push origin HEAD", "push -u origin {ns}/{px}-*", "push origin {ns}/{px}-*",
             "merge origin/{base}")

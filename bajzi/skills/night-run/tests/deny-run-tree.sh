@@ -493,7 +493,7 @@ check $? "an allow with a wt/* wildcard path fails the rules check with WT WILDC
 render story.json
 (cd "$T" && py -c "
 import json,sys;f=sys.argv[1];d=json.load(open(f));a=d['permissions']['allow']
-r='Bash(/usr/bin/git -C \"%s/wt/S-1\" diff *)'%sys.argv[2]
+r='Bash(/usr/bin/git -C \"%s/wt/S-1\" diff origin/dev...HEAD)'%sys.argv[2]
 a.remove(r);json.dump(d,open(f,'w'))" story.json "$NIGHT")
 (cd "$T" && py - story.json "$BASE" "$NIGHT" "$RULES" $BR <check.py >story.out 2>&1); RC=$?
 [ "$RC" -eq 1 ] && grep -q '^MISSING STORY RULE: S-1 ' "$T/story.out" && ! grep -q 'MISSING STORY RULE: S1 ' "$T/story.out"
