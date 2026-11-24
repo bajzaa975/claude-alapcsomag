@@ -226,6 +226,7 @@ function cliHealth(home, env) {
   const run = args => spawnSync('claude', win ? args.map(a => (/[\s&()]/.test(a) ? `"${a}"` : a)) : args, { env, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'], shell: win });
   const skip = r => (r.error ? (r.error.code === 'ENOENT' ? 'claude not on PATH' : r.error.code || r.error.message) : null);
   const drift = [];
+  if (!onPath('claude', env)) return { drift, note: 'claude not on PATH' }; // a win32 shell would not raise ENOENT
   const doc = run(['doctor']);
   if (skip(doc)) return { drift, note: skip(doc) };
   const out = String(doc.stdout || '');
@@ -282,4 +283,4 @@ function main(argv = process.argv.slice(2), env = process.env) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { checkAll, mergeSettings, main, onPath, rtkConfigPath, rtkExcludes };
+module.exports = { cliHealth, checkAll, mergeSettings, main, onPath, rtkConfigPath, rtkExcludes };

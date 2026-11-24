@@ -740,6 +740,27 @@ test('cli health: no claude on PATH -> note, no drift; BAJZI_SETUP_NO_CLI=1 skip
   assert.doesNotMatch(run(m).out, /claude CLI check/);
 });
 
+test('cli health: claude missing from PATH -> no spawn at all', () => {
+  const cp = require('node:child_process');
+  const real = cp.spawnSync;
+  let calls = 0;
+  cp.spawnSync = () => { calls++; return { status: 0, stdout: '' }; };
+  const mod = require.resolve('../check');
+  delete require.cache[mod];
+  try {
+    const m = machine();
+    const dir = path.join(m.home, 'nopath');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'unrelated'), '');
+    const h = require('../check').cliHealth(m.home, { PATH: dir });
+    assert.strictEqual(calls, 0);
+    assert.deepStrictEqual(h, { drift: [], note: 'claude not on PATH' });
+  } finally {
+    cp.spawnSync = real;
+    delete require.cache[mod];
+  }
+});
+
 test('review SKILL.md step 7 has the /steward hint and forbids /ship', () => {
   const s = fs.readFileSync(path.join(__dirname, '..', '..', 'review', 'SKILL.md'), 'utf8');
   assert.match(s, /Next for you: type \/steward to watch the pull request/);
