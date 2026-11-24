@@ -67,7 +67,14 @@ test('documented GLM dispatch command implements a fixture slice and runs its te
   // and no tool error (a deny comes back as an error).
   const outs = runs.map((u) => blocks.find((b) => b.type === 'tool_result' && b.tool_use_id === u.id))
     .map((res) => (res && !res.is_error ? JSON.stringify(res.content ?? '') : ''));
-  assert.ok(outs.some((o) => /fail 0\b/.test(o)), `no passing test run: ${outs.join('\n').slice(0, 800)}`);
+  // `fail 0` alone also matches a run that found no test file, so a passing run needs pass >= 1 too.
+  const green = (o) => /fail 0\b/.test(o) && /pass [1-9]\d*\b/.test(o);
+  assert.ok(outs.some(green), `no passing test run: ${outs.join('\n').slice(0, 800)}`);
+  assert.ok(fs.existsSync(path.join(repo, 'mathutils.test.js')), 'the fixture test file was not written');
   const t = spawnSync('node', ['--test'], { cwd: repo, encoding: 'utf8', env: ENV });
-  assert.strictEqual(t.status, 0, `fixture tests not green:\n${t.stdout}`);
+  assert.ok(t.status === 0 && green(t.stdout), `fixture tests not green:\n${t.stdout}`);
+  // dispatch.md saves the final message and the implement row reads DONE/BLOCKED from its exact last line.
+  const result = r.stdout.split(/\r?\n/).map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .find((e) => e && e.type === 'result');
+  assert.match(String(result?.result ?? ''), new RegExp(`^SLICE ${SLICE} DONE$`, 'm'), `no DONE line in the result event`);
 });
