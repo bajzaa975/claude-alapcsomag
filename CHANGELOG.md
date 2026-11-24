@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.46.0
+- Fixed: the saver-mode GLM worker could edit files but run no command (tests, commits). The setup auto-mode rule approves `glm -p --permission-mode bypassPermissions` only with a deny-list `--settings` file, which the package never shipped. New `bajzi/lib/worker-deny.settings.json` (pushes, history rewrites, merges and releases, plugin/settings changes, sudo, process kills, secret reads incl. shell reads of env/ssh/aws/gh/credentials files); every GLM launch in the dispatch recipe, the saver rules and the mode skill now passes it. In a split session, push, stash, rebase, PR merge and release are owner steps.
+
 ## 1.45.0
 - Fixed: night-run settings no longer pre-approve git commands in any path under the story worktree folder. The PHASE C post-render step generates exact allows per queued story id (quoted and bare path) from queue.txt on every run, with exact command tails (fetch origin, status --porcelain, add -A, diff origin/<base>...HEAD, commit, push, merge origin/<base>); an option slipped in before or after the verb, tab-separated ones included, no longer matches an allow. A queue id outside run.sh's id rule fails the render; the rules check reports WT WILDCARD ALLOW and MISSING STORY RULE.
 - Fixed: the commit allow names the author exactly as the brief writes it ("$GIT_AUTHOR_NAME"/"$GIT_AUTHOR_EMAIL"), so an extra -c setting between them no longer matches; the run.sh story prompt uses the same form.
