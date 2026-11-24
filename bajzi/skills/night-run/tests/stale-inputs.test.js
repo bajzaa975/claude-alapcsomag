@@ -482,7 +482,7 @@ test('BRIEF merge step: base check then standalone exact merge; run.sh prompt re
   const run = fs.readFileSync(path.join(DIR, 'run.sh'), 'utf8');
   has(run, 'as its own Bash call with exactly the shape gh pr merge <n> --squash (no chaining, no --repo/-R/--admin/--auto/--delete-branch) right after a separate gh pr view base check that must print $BASE_BRANCH OPEN');
   const gate = run.split('\n').find((l) => l.includes('apply the merge gate exactly as written')) || '';
-  assert.ok(gate.includes('otherwise leave the PR open and report reason=merge-forbidden'), 'a failed base check ends state open like BRIEF 5.2, not PARK');
+  assert.ok(gate.includes('otherwise leave the PR open and report reason=merge-forbidden'), 'a failed base check ends open (gh error/empty) or blocked (CLOSED or another base) like BRIEF 5.2, never PARK');
   assert.ok(!gate.includes('PARK'), 'the gate prompt line never parks');
   const s9 = flat(BRIEF.slice(BRIEF.indexOf('| `merge-forbidden`'), BRIEF.indexOf('| `tests`')));
   has(s9, 'or the merge was refused after the base check printed `{{BASE_BRANCH}} OPEN`');
@@ -497,6 +497,7 @@ test('BRIEF merge step: base check then standalone exact merge; run.sh prompt re
   assert.ok(cmerge.every((r) => r.includes('wt/*')), `every -C merge allow is wt-only, no BASE_DIR variant: ${cmerge}`);
   has(st, 'Bash(/usr/bin/git merge origin/<BASE_BRANCH>)');
   has(st, 'Bash(*gh pr merge*--auto*)');
-  has(st, 'Bash(*git -C \\"<NIGHT_DIR>/wt/*\\" -* merge origin/<BASE_BRANCH>)');
-  has(st, 'Bash(*git -C <NIGHT_DIR>/wt/* -* merge origin/<BASE_BRANCH>)');
+  has(st, 'Bash(*git -C \\"<NIGHT_DIR>/wt/*\\" * merge origin/<BASE_BRANCH>)');
+  has(st, 'Bash(*git -C <NIGHT_DIR>/wt/* * merge origin/<BASE_BRANCH>)');
+  has(st, 'Bash(*git -C \\"<NIGHT_DIR>/wt/* *\\" merge origin/<BASE_BRANCH>)');
 });

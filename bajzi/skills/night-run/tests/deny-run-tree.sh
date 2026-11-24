@@ -441,12 +441,27 @@ check $? "the brief's quoted -C worktree merge matches an allow rule (runs in <N
 bash_perm mergeshape "/usr/bin/git -C $NIGHT/wt/S1 merge origin/dev" allow; check $? "the bare spelling of the worktree merge matches too"
 bash_perm mergeshape "/usr/bin/git merge origin/dev" allow; check $? "the cwd-form merge origin/<base> is still allowed"
 # the '*' in the wt path crosses '/' and spaces, so options injected between the path and 'merge' match
-# the allow; the two '-* merge origin/<base>' denies refuse them (deny beats allow), quoted and unquoted.
+# the allow; the three '* <token> merge origin/<base>' denies refuse ANY such token (deny beats allow),
+# quoting and backslash escapes included, and a quoted path holding a space has a deny of its own.
 # Traversal spellings are the '..' denies' job (see _comment_limits).
 for opt in "--exec-path=/x" "-c core.sshCommand=/x" "-c x=y" "--git-dir=/x" "--work-tree=/x" "--config-env=a=B"; do
   bash_denied mergeshape "/usr/bin/git -C $NIGHT/wt/S1 $opt merge origin/dev"; check $? "denied: unquoted -C wt with injected $opt"
   bash_denied mergeshape "/usr/bin/git -C \"$NIGHT/wt/S1\" $opt merge origin/dev"; check $? "denied: quoted -C wt with injected $opt"
 done
+# F1: quoted and backslash-escaped option spellings match the allow too (the raw-text matcher does no
+# quote handling), so each must be denied as well: allow matches AND deny matches.
+for c in "/usr/bin/git -C $NIGHT/wt/S1 '-c' x=y merge origin/dev" \
+         "/usr/bin/git -C $NIGHT/wt/S1 '--exec-path=/x' merge origin/dev" \
+         "/usr/bin/git -C $NIGHT/wt/S1 \\-c x=y merge origin/dev" \
+         "/usr/bin/git -C \"$NIGHT/wt/S1\" '-c' \"x=y\" merge origin/dev"; do
+  bash_perm mergeshape "$c" allow; check $? "the wt merge allow matches the injected spelling (the hole): $c"
+  bash_denied mergeshape "$c"; check $? "denied: $c"
+done
+# a quoted path followed by a single-quoted option ends in "' merge", so no allow matches it; still denied
+bash_denied mergeshape "/usr/bin/git -C \"$NIGHT/wt/S1\" '--exec-path=/x' merge origin/dev"
+check $? "denied: quoted -C wt with a single-quoted --exec-path"
+bash_denied mergeshape "/usr/bin/git -C \"$NIGHT/wt/a b\" merge origin/dev"
+check $? "denied: a quoted worktree path holding a space (its own deny rule)"
 for c in "/usr/bin/git -C \"$NIGHT/wt/S-1\" merge origin/dev" "/usr/bin/git -C $NIGHT/wt/S-1 merge origin/dev"; do
   ! bash_denied mergeshape "$c"; check $? "the brief's merge is not denied: $c"
   bash_perm mergeshape "$c" allow; check $? "the brief's merge is allowed: $c"
