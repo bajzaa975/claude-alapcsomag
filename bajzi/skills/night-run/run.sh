@@ -1158,7 +1158,7 @@ P
 #   stop     = finish the run now (weekly limit, or a wait we may not take)
 QUEUE_ACTION="continue"
 run_story(){ # id slug note
-  local id=$1 slug=$2 note=$3 rc prompt now budget remain epoch finalize prev sidf lf old lrc
+  local id=$1 slug=$2 note=$3 rc prompt now budget remain epoch finalize prev sidf lf old lrc started_at ended_at
   QUEUE_ACTION="continue"
   sidf=$STORYDIR/$id.sid
   # The per-story clock is CLAMPED to the --deadline: --deadline is the hard
@@ -1268,6 +1268,7 @@ run_story(){ # id slug note
   # ticking for the watcher, and a signal to the runner has to be handled while
   # the story is still running, not hours later.
   await_session "$STORY_PID"; rc=$?
+  ended_at=$(date +%s)   # the 127 window is measured here, before the drain, lock release and classification
   # The wrapper is gone; the SESSION may not be. A claude that survived its own
   # timeout would otherwise keep working in the worktree the next story uses.
   stop_session "$STORY_SID" "DRAIN $id"
@@ -1278,7 +1279,7 @@ run_story(){ # id slug note
   record_state "$id" "$CLASS_TOKEN" $CLASS_REASON
   log "END $id rc=$rc token=$CLASS_TOKEN $(grep -o 'RESULT .*' "$LOGS/$id.log" | tail -1)"
   # rc 127 within 10 s: the binary was never found (a bare PATH), so every further story would die the same way.
-  if [ "$rc" -eq 127 ] && [ $(( $(date +%s) - started_at )) -le 10 ]; then
+  if [ "$rc" -eq 127 ] && [ $(( ended_at - started_at )) -le 10 ]; then
     log "CLAUDE_BIN not found (rc=127) for $id: $CLAUDE_BIN - stopping the queue"
     QUEUE_ACTION="stop"
   fi

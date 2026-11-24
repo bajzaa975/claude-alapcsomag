@@ -149,17 +149,20 @@ test('launch.sh: the runner and everything it spawns get no provider env from th
   assert.ok(/^CLAUDE_CODE_OWNER_X=keep/m.test(got), 'owner-set CLAUDE_CODE_* survives');
 });
 
-test('launch.sh: CLAUDE_BIN must resolve in the launch PATH, else exit 1 and no runner', () => {
+test('launch.sh: CLAUDE_BIN must resolve in the launch PATH, else exit 1 and no runner', (t) => {
+  const dirs = [];
   const os = require('node:os');
   const fwd = (x) => x.split(path.sep).join('/');
   const run = (bin) => {
     const nd = fwd(fs.mkdtempSync(path.join(os.tmpdir(), 'nr-bin-')));
+    dirs.push(nd);
     fs.writeFileSync(`${nd}/run.sh`, `echo ran > "${nd}/ran"\n`);
     fs.writeFileSync(`${nd}/settings.local.json`, '{}');
     fs.writeFileSync(`${nd}/config.env`, `CLAUDE_BIN="${bin.replace('@ND@', nd)}"\n`);
     const r = spawnSync('bash', [], { input: render({ BASE: nd, NIGHT_DIR: nd, RUN_SH: `${nd}/run.sh` }), encoding: 'utf8', timeout: 30000 });
     return { r, nd };
   };
+  t.after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
   const miss = run('@ND@/no-such-claude');
   assert.strictEqual(miss.r.status, 1, miss.r.stdout + miss.r.stderr);
   has(miss.r.stdout, `CLAUDE_BIN not found in the launch PATH: ${miss.nd}/no-such-claude (PATH=`);
