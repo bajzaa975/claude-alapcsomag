@@ -2,6 +2,11 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.44.0
+- Fixed: a Windows night run started its runner without the login PATH, so `claude` was not found and the whole queue failed in seconds. The holder now runs `launch.sh` in a login shell, `launch.sh` refuses to start when `CLAUDE_BIN` cannot be found, and the runner stops the queue when a story's `claude` exits 127 within 10 s
+- Fixed: night story sessions merge their PR with one standalone `gh pr merge <n> --squash` call after a base check (`gh pr view <n> --json baseRefName,state` must print `<BASE_BRANCH> OPEN`; `MERGED` counts as merged; CLOSED or another base ends `blocked`). The night settings now deny `gh pr merge --auto` and any extra token between the worktree path and `merge` in the worktree base merge
+- Changed: the owner-questions rule tells sessions to write the panel line the `ask_owner` reply names, with per-kind fallbacks for questions, steps and info
+
 ## 1.43.0
 - Added: `/bajzi:night-run` from a native Windows pane runs the Linux engine inside WSL on the same PC, on the same project folder. `wsl-bridge.sh` (pick/check/run/launch) routes every skill step into WSL and fails closed with plain exit codes (no distro, older bajzi in WSL, gh/claude not logged in, repo not visible, launch refused or not known yet); `night-hold.ps1` keeps the PC awake and the distro alive until the runner ends
 - Added: launcher answers after ` -- ` (length, mode Claude/Mix/GLM = L0/L2/L3, who starts, scope, if you need me, grill, note) are used as given and never re-asked
