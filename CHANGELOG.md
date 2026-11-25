@@ -3,6 +3,8 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+
+## 1.48.0
 - Fixed: headless GLM workers, the night GLM smoke and night-run sessions no longer load channel plugins (Telegram, Discord, iMessage, fakechat); a worker started in a project with the Telegram plugin on used to replace the live session's bot poller and leave the bot deaf.
 
 ## 1.47.0
