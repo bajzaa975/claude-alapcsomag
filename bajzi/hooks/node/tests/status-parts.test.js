@@ -73,6 +73,15 @@ test('goal: quoted record in a string and sidechain are ignored', () => {
   assert.strictEqual(gs(gfile(gline({ met: false, sentinel: true }, { isSidechain: true })), gid()), null);
 });
 
+test('goal: a goal_status attachment that is not a top-level attachment record is ignored', () => {
+  const att = { type: 'goal_status', condition: 'c', met: false, sentinel: true };
+  const user = JSON.stringify({ type: 'user', attachment: att }) + '\n';
+  const tool = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', attachment: att }] } }) + '\n';
+  assert.strictEqual(gs(gfile(user), gid()), null);
+  assert.strictEqual(gs(gfile(tool), gid()), null);
+  assert.strictEqual(gs(gfile(user + tool), gid()), null);
+});
+
 test('goal: torn last line is not consumed until complete', () => {
   const id = gid();
   const f = gfile(SET + EV.slice(0, -1));
@@ -128,6 +137,12 @@ test('goal: bad cache is fresh state; non-SAFE_ID -> null, no cache', () => {
   const f = gfile(SET + EV);
   for (const bad of ['not json', '{"v":2}', '{"v":1,"path":1}', '[]']) {
     fs.writeFileSync(gcache(id), bad);
+    assert.strictEqual(gs(f, id).evals, 1);
+  }
+  const ino = fs.statSync(f).ino;
+  for (const bad of [{ offset: -1, evals: 0 }, { offset: SET.length, evals: 'x' }, { offset: SET.length, evals: -1 }]) {
+    fs.writeFileSync(gcache(id), JSON.stringify(Object.assign({ v: 1, path: f, ino, skip: false, active: true, setAt: null }, bad)));
+    assert.deepStrictEqual(gs(f, id), gs(f, gid()));
     assert.strictEqual(gs(f, id).evals, 1);
   }
   assert.strictEqual(gs(f, '../evil'), null);

@@ -232,6 +232,9 @@ test('CLI refresh: copy throws mid-way -> catch-all keeps stdout+stderr empty, e
   assert.strictEqual(r.stderr, '');
   assert.strictEqual(readDest(home, 'statusline.js'), '// old');
   assert.deepStrictEqual(leftovers(home), []);
+  // the copy began (bridge.js sorts before hook-io.js) and stopped at the failing target: no version stamp
+  assert.ok(fs.existsSync(path.join(dest, 'lib', 'bridge.js')));
+  assert.ok(!fs.existsSync(path.join(dest, 'statusline.version')));
 });
 
 test('CLI refresh: no installed copy -> empty stdout, exit 0, nothing created', () => {
