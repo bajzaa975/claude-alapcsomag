@@ -777,3 +777,68 @@ test('setup SKILL.md step 10 declares Claude Code 2.1.327 the minimum and update
   const s = fs.readFileSync(SKILL, 'utf8');
   assert.match(s, /claude --version[^]*?2\.1\.327[^]*?claude update/);
 });
+
+test('global rules: a path in a section with a missing heading gets no pointer line; a repeated path is reported once', () => {
+  const m = machine();
+  const P = 'See `~/.claude/plugins/marketplaces/bajzi-plugins/docs/methodology-guide.md`.';
+  writeRules(m, MP, `## One\n${P}\n## Two\n${P}\n`);
+  let r = run(m);
+  assert.strictEqual((r.out.match(/^DRIFT global-rules missing "/gm) || []).length, 2, r.out);
+  assert.doesNotMatch(r.out, /missing-pointer/);
+  writeRules(m, '.claude/CLAUDE.md', '## One\n## Two\n');
+  r = run(m);
+  assert.strictEqual((r.out.match(/missing-pointer/g) || []).length, 1, r.out);
+  assert.match(r.out, /^DRIFT global-rules missing-pointer "docs\/methodology-guide\.md"$/m);
+});
+
+test('cli health: doctor prints the OK line but exits 1 -> DRIFT cli-doctor', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: OKVAL });
+  m.env.DOC_EXIT = '1';
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT cli-doctor /m);
+});
+
+test('cli health: validate runs once in ~/.claude and once per distinct existing installPath', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: 'echo "$4" >> "$VAL_LOG"; ' + OKVAL });
+  const ok = path.join(m.home, 'plug-ok');
+  fs.mkdirSync(ok);
+  m.env.VAL_LOG = path.join(m.home, '..', path.basename(m.home) + '-val.log');
+  edit(m, '.claude/plugins/installed_plugins.json', v => {
+    v.plugins['bajzi@bajzi-plugins'] = [{ scope: 'user', installPath: ok }];
+    v.plugins['superpowers@claude-plugins-official'] = [{ scope: 'user', installPath: ok }];
+    v.plugins['gone@claude-plugins-official'] = [{ scope: 'user', installPath: path.join(m.home, 'no-such-dir') }];
+  });
+  run(m);
+  const dirs = fs.readFileSync(m.env.VAL_LOG, 'utf8').split('\n').filter(Boolean).sort();
+  assert.deepStrictEqual(dirs, [m.c, ok].sort());
+});
+
+test('setup SKILL.md step 10 one-liner prints the manifest user_mcps entry JSON', () => {
+  const s = fs.readFileSync(SKILL, 'utf8');
+  const mm = /^ {4}node -e "([^"]+)" "\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/setup\/manifest\.json" <name> \| claude mcp add-json/m.exec(s);
+  assert.ok(mm, 'step 10 command not found in SKILL.md');
+  const manifest = JSON.parse(fs.readFileSync(REAL_MANIFEST, 'utf8'));
+  const name = Object.keys(manifest.user_mcps)[0];
+  const r = spawnSync(process.execPath, ['-e', mm[1], REAL_MANIFEST, name], { encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(r.stdout, JSON.stringify(manifest.user_mcps[name]));
+});
+
+test('check.js is read-only with the CLI health part on: no file under HOME changes', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: OKVAL });
+  m.env.PATH = path.join(m.home, 'shim');   // only the shim resolves: the real claude can never run
+  fs.rmSync(path.join(m.c, 'bajzi-mode'));
+  const snap = () => {
+    const out = {};
+    const walk = d => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); const s = fs.statSync(p);
+      if (s.isDirectory()) walk(p); else out[p] = fs.readFileSync(p, 'utf8') + '|' + s.mtimeMs; } };
+    walk(m.home);
+    return out;
+  };
+  const before = snap();
+  const r = run(m);
+  assert.doesNotMatch(r.out, /claude CLI check skipped/);
+  run(m, ['--json']);
+  assert.deepStrictEqual(snap(), before);
+});
