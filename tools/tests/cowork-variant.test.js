@@ -51,7 +51,7 @@ test('SKILLS whitelist has explain, not tired', () => {
 
 test('shipped .md files equal their bajzi/skills source minus only the marketplace-path lines (independent filter)', () => {
   const src = path.join(__dirname, '..', '..', 'bajzi', 'skills');
-  const strip = (t) => { const a = t.split(/(?<=\n)/); return a.filter((l, i) => !l.includes('~/.claude/plugins/marketplaces/') && !(i > 0 && a[i - 1].includes('~/.claude/plugins/marketplaces/') && l.trim() === '')).join(''); };
+  const strip = (t) => { const a = t.split(/(?<=\n)/); return a.filter((l, i) => !l.includes('~/.claude/plugins/marketplaces/') && !(i > 0 && a[i - 1].includes('~/.claude/plugins/marketplaces/') && /^\r?\n$/.test(l))).join(''); };
   let dropped = 0;
   for (const s of SKILLS) {
     const dir = path.join(DST, 'skills', s);
@@ -75,6 +75,7 @@ test('dropCloneRefs drops pointer lines and the one blank line after them, in ev
     [`a\n\n${P}`, 'a\n\n'],
     [`a\r\n\r\n${P}\r\n\r\nb\r\n`, 'a\r\n\r\nb\r\n'],
     [`a\n\n${P}\n\nb\n`, 'a\n\nb\n'],
+    [`a\n\n${P}\n  \t\nb\n`, `a\n\n  \t\nb\n`],
   ];
   for (const [i, o] of cases) assert.strictEqual(dropCloneRefs(Buffer.from(i)).toString(), o);
 });
