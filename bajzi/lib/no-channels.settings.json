@@ -1,0 +1,9 @@
+{
+  "_comment": "Settings for a headless launch that must not start channel servers (night-run PHASE A GLM smoke): only the four channel plugins are switched off, no permissions keys, so the smoke's env-deny check still reflects the owner's own settings. Pass with --settings.",
+  "enabledPlugins": {
+    "telegram@claude-plugins-official": false,
+    "discord@claude-plugins-official": false,
+    "imessage@claude-plugins-official": false,
+    "fakechat@claude-plugins-official": false
+  }
+}
