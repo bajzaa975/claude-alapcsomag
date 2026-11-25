@@ -3,6 +3,8 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+
+## 1.49.0
 - Fixed: a session the `glm`/`worker`/`ccr` shim starts on GLM or DeepSeek no longer runs in `auto` permission mode (its classifier only exists on Anthropic's servers, so every tool call prompted and the session hung) and never runs bypassPermissions without the package deny list; `--channels` keeps channel plugins on.
 
 ## 1.48.0
