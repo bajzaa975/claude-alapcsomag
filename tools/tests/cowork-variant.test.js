@@ -49,6 +49,25 @@ test('SKILLS whitelist has explain, not tired', () => {
   assert.ok(!SKILLS.includes('tired'));
 });
 
+test('shipped .md files equal their bajzi/skills source minus only the marketplace-path lines (independent filter)', () => {
+  const src = path.join(__dirname, '..', '..', 'bajzi', 'skills');
+  const strip = (t) => { const a = t.split(/(?<=\n)/); return a.filter((l, i) => !l.includes('~/.claude/plugins/marketplaces/') && !(i > 0 && a[i - 1].includes('~/.claude/plugins/marketplaces/') && l.trim() === '')).join(''); };
+  let dropped = 0;
+  for (const s of SKILLS) {
+    const dir = path.join(DST, 'skills', s);
+    for (const f of fs.readdirSync(dir, { recursive: true })) {
+      if (!f.endsWith('.md') || !fs.statSync(path.join(dir, f)).isFile()) continue;
+      const from = fs.readFileSync(path.join(src, s, f), 'utf8');
+      assert.strictEqual(fs.readFileSync(path.join(dir, f), 'utf8'), strip(from), `${s}/${f}`);
+      if (s === 'modszertan' && f === 'SKILL.md') {
+        const n = (t) => t.split('\n').length;
+        dropped = n(from) - n(fs.readFileSync(path.join(dir, f), 'utf8'));
+      }
+    }
+  }
+  assert.strictEqual(dropped, 2, 'modszertan SKILL.md must lose exactly the pointer line and the blank after it');
+});
+
 test('dropCloneRefs drops pointer lines and the one blank line after them, in every layout', () => {
   const P = 'see ~/.claude/plugins/marketplaces/x';
   const cases = [

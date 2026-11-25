@@ -191,6 +191,12 @@ test('prices.json carries as_of and no model without a documented price', () => 
   for (const [m, v] of Object.entries(p.models)) {
     assert.ok(v.input > 0 && v.output > 0 && v.cache_write_mult > 0 && v.cache_read_mult > 0, m);
   }
+  // pinned: a new or changed model fails here until its price is checked against the reference
+  assert.deepStrictEqual(p.models, {
+    'claude-fable-5-2': { input: 8, output: 40, cache_write_mult: 1.25, cache_read_mult: 0.025 },
+    'claude-opus-5-5': { input: 4, output: 20, cache_write_mult: 1.25, cache_read_mult: 0.05 },
+    'claude-sonnet-5-5': { input: 2, output: 10, cache_write_mult: 1.25, cache_read_mult: 0.05 },
+  });
 });
 
 test('ledger: a sprint reviewed under the stem name (<stem>-r1.md, -r2.md) fills the slice rows', () => {
