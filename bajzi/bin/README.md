@@ -33,6 +33,16 @@ command from a plain shell; sessions that set their own level keep it. Resolutio
 and `--status`: `CC_WORKER_MODE` > the session file > `BAJZI_SESSION_LEVEL` (inherited by a launched child, never opens the saver gate) > `worker-mode` > `claude`; `--status` names
 the source.
 
+## Permission guard
+
+A session the shim starts on GLM or DeepSeek (`glm`, `ccr code`, `worker` at L2/L3; not `split`) never runs in
+`auto` mode (its classifier only exists on Anthropic's servers, so every tool call would prompt) and never in
+`bypassPermissions` without the deny list `lib/worker-deny.settings.json`. `auto` (flag or `permissions.defaultMode`
+in `--settings`, project or user settings) and bare bypass become `--permission-mode bypassPermissions --settings
+<deny list>`; another `--settings` is merged with the deny list into `~/.claude/bajzi/sandbox/glm-<hash>.json`.
+`--channels` keeps channel plugins on (deny list still applied). A missing deny list exits 78; other modes pass
+through unchanged. The launch log shows `perm=...`.
+
 ## install.sh
 
 `bash bajzi/bin/install.sh` runs the shim's tests first (`node --test

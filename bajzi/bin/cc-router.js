@@ -388,7 +388,12 @@ function bwrapProbe() {
   if (!r.error && r.status === 0) return '';
   return ((r.stderr || '').split('\n').find(l => l.trim()) || (r.error ? r.error.message : r.signal ? 'killed by ' + r.signal : 'exit ' + r.status)).trim();
 }
+let rootMemo = null;   // one git lookup per launch
 function projectRoot() {
+  if (rootMemo !== null) return rootMemo;
+  return rootMemo = projectRootGit();
+}
+function projectRootGit() {
   try { const r = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); if (r) return r; } catch (_) {}
   return process.cwd();
 }
@@ -449,6 +454,81 @@ if (entry === 'split') {
   else process.stderr.write('split: no OS sandbox ' + (PLATFORM === 'linux' ? '(bubblewrap/socat missing)' : 'on ' + PLATFORM) + ' - Windows-tier guard only\n');
   marker = 'split sandbox=' + (sandbox ? 'yes' : 'no');
 }
+
+// GLM/DeepSeek never run in `auto` (its classifier lives on Anthropic's servers: through Z.ai every tool call falls back to an
+// approval prompt and the session hangs) and never in bypassPermissions without the package deny list (spec §6.2).
+const DENY_REL = ['lib', 'worker-deny.settings.json'];
+function readObj(p) { try { const o = JSON.parse(fs.readFileSync(p, 'utf8')); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch (_) { return null; } }
+function settingsObj(v) { v = String(v).trim(); return v.startsWith('{') ? (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch (_) { return null; } })() : readObj(v); }
+function denyFiles(last) {   // the repo / plugin copy next to this file, else the installed plugin's (the shim itself runs from ~/.local/bin)
+  const local = path.join(__dirname, '..', ...DENY_REL);
+  const norm = p => { const q = path.resolve(p); return process.platform === 'win32' ? q.toLowerCase() : q; };
+  const other = last !== null && !last.trim().startsWith('{') && norm(last) !== norm(local);   // the caller may name the installed copy
+  if (fs.existsSync(local) && !other) return [local];
+  const inst = bajziRoot(projectRoot());
+  return [local, inst && path.join(inst, ...DENY_REL)].filter(p => p && fs.existsSync(p));
+}
+function guardPermissions() {
+  let flag = '', skip = false, last = null;   // last: the value of the LAST --settings
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--permission-mode') flag = args[i + 1] || '';
+    else if (a.startsWith('--permission-mode=')) flag = a.slice(18);
+    else if (a === '--dangerously-skip-permissions') skip = true;
+    else if (a === '--settings') last = args[i + 1] === undefined ? last : args[i + 1];
+    else if (a.startsWith('--settings=')) last = a.slice(11);
+  }
+  let mode = skip ? 'bypassPermissions' : flag;
+  if (!mode) {
+    const cfg = process.env.CLAUDE_CONFIG_DIR || DIR, rootDir = projectRoot();
+    const srcs = [last !== null ? settingsObj(last) : null, readObj(path.join(rootDir, '.claude', 'settings.local.json')),
+      readObj(path.join(rootDir, '.claude', 'settings.json')), readObj(path.join(cfg, 'settings.json'))];
+    for (const o of srcs) { const d = o && o.permissions && o.permissions.defaultMode; if (typeof d === 'string' && d) { mode = d; break; } }
+  }
+  if (mode !== 'auto' && mode !== 'bypassPermissions') return '';
+  const denies = denyFiles(last);
+  if (!denies.length) die('worker-deny.settings.json (the package deny list) not found; not starting ' + provider + ' in bypass/auto mode. Update the bajzi plugin (claude plugin update bajzi@bajzi-plugins).', 78);
+  const norm = p => { const q = path.resolve(p); return process.platform === 'win32' ? q.toLowerCase() : q; };
+  const isDeny = last !== null && !last.trim().startsWith('{') && denies.some(d => norm(d) === norm(last));
+  const channels = args.some(a => a === '--channels' || a.startsWith('--channels='));   // the caller wants channel plugins: keep them on
+  const modeFlags = args.filter(a => a === '--permission-mode' || a.startsWith('--permission-mode=')).length;
+  if (isDeny && !channels && !skip && flag === 'bypassPermissions' && modeFlags === 1) return '';   // the existing worker launch: byte-identical
+  const merge = channels || (last !== null && !isDeny);   // else: no --settings (add the deny file) or already the deny file (keep it)
+  const keep = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--permission-mode' || (a === '--settings' && merge)) i++;
+    else if (a === '--dangerously-skip-permissions' || a.startsWith('--permission-mode=') || (merge && a.startsWith('--settings='))) { /* dropped */ }
+    else keep.push(a);
+  }
+  const head = ['--permission-mode', 'bypassPermissions'], tag = 'perm=' + (mode === 'auto' ? 'auto' : 'bypass') + '->bypass+deny';
+  if (!merge) { args = head.concat(last === null ? ['--settings', denies[0]] : [], keep); return tag; }
+  // measured 2026-11-25: with two --settings flags only the LAST applies, so the deny list is merged into the user's settings, never added as a second flag
+  const user = last === null || isDeny ? {} : settingsObj(last), deny = readObj(denies[0]);
+  if (!user) die('cannot read the --settings value (' + last.slice(0, 80) + '); not starting ' + provider + ' in bypass/auto mode', 64);
+  if (!deny) die('worker-deny.settings.json is not valid JSON; not starting ' + provider + ' in bypass/auto mode. Update the bajzi plugin (claude plugin update bajzi@bajzi-plugins).', 78);
+  if (channels) process.stderr.write('glm: --channels given - channel plugins stay on; deny list still applied\n');
+  const merged = Object.assign({}, user);
+  const perms = Object.assign({}, user.permissions);
+  perms.deny = [...new Set([].concat(Array.isArray(perms.deny) ? perms.deny : [], (deny.permissions && deny.permissions.deny) || []))];
+  merged.permissions = perms;
+  merged.enabledPlugins = Object.assign({}, user.enabledPlugins, channels ? {} : deny.enabledPlugins);
+  const text = JSON.stringify(merged, null, 2) + '\n';
+  const dir = path.join(DIR, 'bajzi', 'sandbox');
+  const file = path.join(dir, 'glm-' + crypto.createHash('sha1').update(text).digest('hex').slice(0, 12) + '.json');
+  const tmp = file + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(tmp, text, { flag: 'wx', mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (_) {}
+    die('cannot write the merged settings ' + file + ': ' + e.message + ' (not starting without the deny list)', 73);
+  }
+  args = head.concat('--settings', file, keep);
+  return tag + '(merged)';
+}
+if (provider !== 'claude') marker = guardPermissions();
 
 logLaunch(provider, asked, marker);
 const exe = claudeExe();

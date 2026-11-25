@@ -16,6 +16,7 @@ function run(entry, args, extraEnv = {}, opts = {}) {   // opts.cwd: the router'
     CC_ROUTER_CONFIG: path.join(dir, 'cc-router.json'), CC_ROUTER_LOG: path.join(dir, 'cc-router.log'),
     CC_PROJECTS_DIR: path.join(dir, 'projects'), CC_CLAUDE_BIN: process.execPath,
     CC_CLAUDE_PREFIX_ARGS: JSON.stringify([FAKE]), ZAI_API_KEY: 'test-key',
+    CLAUDE_CONFIG_DIR: path.join(dir, 'cfg'),   // the permission guard reads <config>/settings.json: never the real one
     CC_GLM_PEAK_OK: '1',   // A4 adds the peak refusal; every other test must not depend on the clock
     BAJZI_STATUS_DIR: path.join(dir, 'sessions'),   // session level files land in the sandbox, never the real home
   });
@@ -26,7 +27,7 @@ function run(entry, args, extraEnv = {}, opts = {}) {   // opts.cwd: the router'
     for (const o of Object.keys(env)) if (o !== k && o.toUpperCase() === k.toUpperCase()) delete env[o];   // win32 copies PATH as Path
     if (v === '' || v === undefined) delete env[k]; else env[k] = v;
   }
-  const r = spawnSync(process.execPath, [ROUTER, ...args], { env, encoding: 'utf8', cwd: opts.cwd });
+  const r = spawnSync(process.execPath, [ROUTER, ...args], { env, encoding: 'utf8', cwd: opts.cwd || dir });   // default: the sandbox dir, never the caller's project settings
   const line = (r.stdout || '').split('\n').find(l => l.startsWith('FAKE_CLAUDE '));
   const parsed = line ? JSON.parse(line.slice(12)) : null;
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '', dir,
@@ -51,6 +52,17 @@ test('baseline: glm entry routes to z.ai and maps haiku to the fast model', () =
   assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic');
   assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.3-flash');   // DEFAULTS glm_fast_model
   assert.deepStrictEqual(r.childArgv, ['-p', 'x', '--model', 'haiku']);      // caller args reach the child unchanged, in order
+});
+test('baseline: glm child argv is unchanged even when the caller sits in a project whose settings say auto', () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-bproj-')), old = process.cwd();
+  fs.mkdirSync(path.join(proj, '.claude'));
+  fs.writeFileSync(path.join(proj, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { defaultMode: 'auto' } }));
+  process.chdir(proj);
+  try {
+    const r = run('glm', ['-p', 'x', '--model', 'haiku'], { GIT_CEILING_DIRECTORIES: path.dirname(proj) });
+    assert.strictEqual(r.code, 0, r.stderr);
+    assert.deepStrictEqual(r.childArgv, ['-p', 'x', '--model', 'haiku']);
+  } finally { process.chdir(old); }
 });
 test('baseline: worker in claude mode passes no z.ai URL', () => {
   const r = run('worker', ['-p', 'x']);
@@ -721,4 +733,142 @@ test('usage --target must be an integer 1-100', () => {
     const r = run('worker', ['--usage', '1h'].concat(v));
     assert.strictEqual(r.code, 64, v.join(' ')); assert.match(r.stderr, /--target needs an integer 1-100/);
   }
+});
+
+// --- glm-no-auto: a GLM/DeepSeek session never runs in auto mode or bare bypass without the deny list. ---
+const DENY = path.join(__dirname, '..', '..', 'lib', 'worker-deny.settings.json');
+const denyObj = JSON.parse(fs.readFileSync(DENY, 'utf8'));
+function permCtx() {   // HOME/CLAUDE_CONFIG_DIR/project all temp: the merged file and the settings reads never touch the real home
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-phome-'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-pproj-'));
+  const cfg = path.join(home, 'cfg'); fs.mkdirSync(cfg);
+  const env = { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: cfg, GIT_CEILING_DIRECTORIES: path.dirname(cwd) };
+  return { home, cwd, cfg, env, go: (args, entry = 'glm', more = {}) => run(entry, args, Object.assign({}, env, more), { cwd }) };
+}
+const sbDir = c => path.join(c.home, '.claude', 'bajzi', 'sandbox');
+const mergedOf = (c, argv) => { const i = argv.indexOf('--settings'); assert.ok(i >= 0 && argv.lastIndexOf('--settings') === i, 'exactly one --settings'); assert.ok(argv[i + 1].startsWith(sbDir(c)), argv[i + 1]); return readJson(argv[i + 1]); };
+const BYPASS = ['--permission-mode', 'bypassPermissions'];
+const settingsCount = argv => argv.filter(a => a === '--settings' || a.startsWith('--settings=')).length;
+
+test('perm: --permission-mode auto (both spellings) -> bypassPermissions + the deny file, no auto left', () => {
+  for (const a of [['--permission-mode', 'auto'], ['--permission-mode=auto']]) {
+    const c = permCtx(), r = c.go(['-p', 'x'].concat(a));
+    assert.strictEqual(r.code, 0, r.stderr);
+    assert.deepStrictEqual(r.childArgv, BYPASS.concat('--settings', DENY, '-p', 'x'));
+    assert.match(fs.readFileSync(r.dir + '/cc-router.log', 'utf8'), /perm=auto->bypass\+deny /);
+  }
+});
+test('perm: no flag + user settings defaultMode auto -> rewritten; no defaultMode -> unchanged', () => {
+  const c = permCtx();
+  fs.writeFileSync(path.join(c.cfg, 'settings.json'), JSON.stringify({ permissions: { defaultMode: 'auto' } }));
+  assert.deepStrictEqual(c.go(['-p', 'x']).childArgv, BYPASS.concat('--settings', DENY, '-p', 'x'));
+  const d = permCtx(); fs.writeFileSync(path.join(d.cfg, 'settings.json'), JSON.stringify({ permissions: { allow: [] } }));
+  assert.deepStrictEqual(d.go(['-p', 'x']).childArgv, ['-p', 'x']);
+});
+test('perm: project settings.local.json wins over settings.json; settings.json alone also counts', () => {
+  const c = permCtx(); fs.mkdirSync(path.join(c.cwd, '.claude'));
+  fs.writeFileSync(path.join(c.cwd, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { defaultMode: 'auto' } }));
+  assert.deepStrictEqual(c.go(['-p', 'x']).childArgv, BYPASS.concat('--settings', DENY, '-p', 'x'));
+  fs.writeFileSync(path.join(c.cwd, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { defaultMode: 'plan' } }));
+  fs.writeFileSync(path.join(c.cwd, '.claude', 'settings.json'), JSON.stringify({ permissions: { defaultMode: 'auto' } }));
+  assert.deepStrictEqual(c.go(['-p', 'x']).childArgv, ['-p', 'x']);   // local defines plan first
+  fs.rmSync(path.join(c.cwd, '.claude', 'settings.local.json'));
+  assert.deepStrictEqual(c.go(['-p', 'x']).childArgv, BYPASS.concat('--settings', DENY, '-p', 'x'));
+});
+test('perm: default, plan, acceptEdits, dontAsk -> args unchanged', () => {
+  for (const m of ['default', 'plan', 'acceptEdits', 'dontAsk']) {
+    const c = permCtx(), a = ['-p', 'x', '--permission-mode', m];
+    assert.deepStrictEqual(c.go(a).childArgv, a, m);
+  }
+});
+test('perm: bare bypass and --dangerously-skip-permissions get the deny file', () => {
+  const c = permCtx();
+  assert.deepStrictEqual(c.go(['-p', 'x'].concat(BYPASS)).childArgv, BYPASS.concat('--settings', DENY, '-p', 'x'));
+  const r = c.go(['--dangerously-skip-permissions', '-p', 'x']);
+  assert.deepStrictEqual(r.childArgv, BYPASS.concat('--settings', DENY, '-p', 'x'));
+  assert.match(fs.readFileSync(r.dir + '/cc-router.log', 'utf8'), /perm=bypass->bypass\+deny /);
+});
+test('perm: bypass + the deny file is byte-identical (also with --settings=)', () => {
+  const c = permCtx();
+  for (const a of [['-p', '--permission-mode', 'bypassPermissions', '--settings', DENY, 'task'], ['-p', '--permission-mode=bypassPermissions', '--settings=' + DENY, 'task']]) {
+    const r = c.go(a); assert.deepStrictEqual(r.childArgv, a);
+    assert.doesNotMatch(fs.readFileSync(r.dir + '/cc-router.log', 'utf8'), /perm=/);
+  }
+});
+test('perm: auto + the deny file already given -> mode rewritten, the settings arg stays, no merged file', () => {
+  const c = permCtx(), r = c.go(['-p', '--permission-mode', 'auto', '--settings', DENY, 'x']);
+  assert.deepStrictEqual(r.childArgv, BYPASS.concat('-p', '--settings', DENY, 'x'));
+  assert.ok(!fs.existsSync(sbDir(c)));
+});
+test('perm: other --settings file + defaultMode auto -> ONE merged --settings with both deny lists and the channel plugins off', () => {
+  const c = permCtx(), uf = path.join(c.home, 'user.json');
+  fs.writeFileSync(uf, JSON.stringify({ permissions: { defaultMode: 'auto', deny: ['Bash(rm *)', denyObj.permissions.deny[0]], allow: ['Read'] }, enabledPlugins: { 'x@y': true }, env: { A: '1' } }));
+  const r = c.go(['-p', 'x', '--settings', uf]);
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.deepStrictEqual(r.childArgv.slice(0, 2), BYPASS);
+  assert.strictEqual(settingsCount(r.childArgv), 1);
+  const m = mergedOf(c, r.childArgv);
+  assert.deepStrictEqual(m.permissions.deny, ['Bash(rm *)'].concat(denyObj.permissions.deny));   // user order first, no dups
+  assert.deepStrictEqual(m.permissions.allow, ['Read']); assert.deepStrictEqual(m.env, { A: '1' });
+  assert.deepStrictEqual(m.enabledPlugins, Object.assign({ 'x@y': true }, denyObj.enabledPlugins));
+  assert.strictEqual(m._comment, undefined);
+  assert.strictEqual(fs.statSync(path.join(sbDir(c), fs.readdirSync(sbDir(c))[0])).mode & 0o777, process.platform === 'win32' ? fs.statSync(uf).mode & 0o777 : 0o600);
+  assert.match(fs.readFileSync(r.dir + '/cc-router.log', 'utf8'), /perm=auto->bypass\+deny\(merged\)/);
+});
+test('perm: inline JSON --settings (last wins, --settings= too) with auto -> merged', () => {
+  const c = permCtx();
+  const r = c.go(['-p', 'x', '--settings', '{"permissions":{"deny":["Bash(a)"]}}', '--settings={"permissions":{"defaultMode":"auto","deny":["Bash(b)"]}}']);
+  assert.strictEqual(r.code, 0, r.stderr);
+  const m = mergedOf(c, r.childArgv);
+  assert.deepStrictEqual(m.permissions.deny.slice(0, 1), ['Bash(b)']); assert.ok(!m.permissions.deny.includes('Bash(a)'));
+  assert.strictEqual(m.permissions.defaultMode, 'auto');   // an explicit flag still wins in the child
+  assert.ok(m.permissions.deny.includes(denyObj.permissions.deny[0]));
+});
+test('perm: unreadable or invalid user --settings with auto -> exit 64, no child', () => {
+  for (const s of ['{not json', path.join(os.tmpdir(), 'ccr-no-such-settings.json')]) {
+    const c = permCtx(), r = c.go(['-p', 'x', '--permission-mode', 'auto', '--settings', s]);
+    assert.strictEqual(r.code, 64); assert.strictEqual(r.childArgv, null); assert.match(r.stderr, /not starting/);
+  }
+});
+test('perm: invalid --settings is harmless when the mode is not auto/bypass', () => {
+  const c = permCtx(), a = ['-p', 'x', '--settings', '{nope'];
+  assert.deepStrictEqual(c.go(a).childArgv, a);
+});
+test('perm: --channels keeps channel plugins on: merged file has the deny list, no plugin switched off, one stderr line', () => {
+  const c = permCtx();
+  const r = c.go(['-p', 'x', '--permission-mode', 'auto', '--channels', 'plugin:telegram@claude-plugins-official']);
+  assert.strictEqual(r.code, 0, r.stderr);
+  assert.match(r.stderr, /glm: --channels given - channel plugins stay on; deny list still applied\n/);
+  const m = mergedOf(c, r.childArgv);
+  assert.deepStrictEqual(m.permissions.deny, denyObj.permissions.deny);
+  assert.ok(!JSON.stringify(m.enabledPlugins || {}).includes('telegram'));
+  assert.ok(r.childArgv.includes('--channels'));
+});
+test('perm: --channels with the deny file as --settings is merged too (no byte-identical shortcut); user enabledPlugins stay', () => {
+  const c = permCtx(), uf = path.join(c.home, 'u.json');
+  fs.writeFileSync(uf, JSON.stringify({ enabledPlugins: { 'telegram@claude-plugins-official': true } }));
+  const r = c.go(['-p', '--permission-mode', 'bypassPermissions', '--settings', DENY, '--channels=x']);
+  const m = mergedOf(c, r.childArgv);
+  assert.deepStrictEqual(m.permissions.deny, denyObj.permissions.deny); assert.deepStrictEqual(m.enabledPlugins, {});
+  const r2 = c.go(['-p', '--permission-mode', 'bypassPermissions', '--settings', uf, '--channels', 'x']);
+  assert.deepStrictEqual(mergedOf(c, r2.childArgv).enabledPlugins, { 'telegram@claude-plugins-official': true });
+});
+test('perm: headless -p with auto from settings, the ccr deepseek entry and the worker entry at L3 are rewritten; split is not', () => {
+  const c = permCtx();
+  assert.deepStrictEqual(c.go(['code', '-p', 'x', '--model', 'deepseek-v4-pro', '--permission-mode', 'auto'], 'ccr', { DEEPSEEK_API_KEY: 'k' }).childArgv,
+    BYPASS.concat('--settings', DENY, '-p', 'x', '--model', 'deepseek-v4-pro'));
+  assert.deepStrictEqual(c.go(['-p', 'x', '--permission-mode', 'auto'], 'worker', { CC_WORKER_MODE: 'tight' }).childArgv, BYPASS.concat('--settings', DENY, '-p', 'x'));
+  assert.deepStrictEqual(c.go(['-p', 'x', '--permission-mode', 'auto'], 'worker', { CC_WORKER_MODE: 'claude' }).childArgv, ['-p', 'x', '--permission-mode', 'auto']);   // Claude provider
+  const s = c.go(['-p', 'x', '--permission-mode', 'auto'], 'split', { PATH: '/nonexistent' });
+  assert.ok(s.childArgv === null || s.childArgv.join(' ').includes('--permission-mode auto'), 'split keeps auto');
+});
+test('perm: deny file missing (copy of the router alone, no installed plugin) -> exit 78 naming the fix; non-bypass modes still start', () => {
+  const c = permCtx(), lone = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-lone-')), 'bin'); fs.mkdirSync(lone);
+  fs.copyFileSync(ROUTER, path.join(lone, 'cc-router.js'));
+  const env = Object.assign({}, process.env, c.env, { CC_ROUTER_ENTRY: 'glm', ZAI_API_KEY: 'k', CC_GLM_PEAK_OK: '1', CC_CLAUDE_BIN: process.execPath,
+    CC_CLAUDE_PREFIX_ARGS: JSON.stringify([FAKE]), CC_ROUTER_LOG: path.join(c.home, 'l.log') });
+  const go = a => spawnSync(process.execPath, [path.join(lone, 'cc-router.js')].concat(a), { env, encoding: 'utf8', cwd: c.cwd });
+  const r = go(['-p', 'x', '--permission-mode', 'auto']);
+  assert.strictEqual(r.status, 78); assert.match(r.stderr, /claude plugin update bajzi@bajzi-plugins/); assert.doesNotMatch(r.stdout, /FAKE_CLAUDE/);
+  assert.strictEqual(go(['-p', 'x', '--permission-mode', 'plan']).status, 0);
 });
