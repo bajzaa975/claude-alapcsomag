@@ -388,7 +388,12 @@ function bwrapProbe() {
   if (!r.error && r.status === 0) return '';
   return ((r.stderr || '').split('\n').find(l => l.trim()) || (r.error ? r.error.message : r.signal ? 'killed by ' + r.signal : 'exit ' + r.status)).trim();
 }
+let rootMemo = null;   // one git lookup per launch
 function projectRoot() {
+  if (rootMemo !== null) return rootMemo;
+  return rootMemo = projectRootGit();
+}
+function projectRootGit() {
   try { const r = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); if (r) return r; } catch (_) {}
   return process.cwd();
 }
@@ -455,9 +460,13 @@ if (entry === 'split') {
 const DENY_REL = ['lib', 'worker-deny.settings.json'];
 function readObj(p) { try { const o = JSON.parse(fs.readFileSync(p, 'utf8')); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch (_) { return null; } }
 function settingsObj(v) { v = String(v).trim(); return v.startsWith('{') ? (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch (_) { return null; } })() : readObj(v); }
-function denyFiles() {   // the repo / plugin copy next to this file, else the installed plugin's (the shim itself runs from ~/.local/bin)
-  const root = projectRoot(), inst = bajziRoot(root);
-  return [path.join(__dirname, '..', ...DENY_REL), inst && path.join(inst, ...DENY_REL)].filter(p => p && fs.existsSync(p));
+function denyFiles(last) {   // the repo / plugin copy next to this file, else the installed plugin's (the shim itself runs from ~/.local/bin)
+  const local = path.join(__dirname, '..', ...DENY_REL);
+  const norm = p => { const q = path.resolve(p); return process.platform === 'win32' ? q.toLowerCase() : q; };
+  const other = last !== null && !last.trim().startsWith('{') && norm(last) !== norm(local);   // the caller may name the installed copy
+  if (fs.existsSync(local) && !other) return [local];
+  const inst = bajziRoot(projectRoot());
+  return [local, inst && path.join(inst, ...DENY_REL)].filter(p => p && fs.existsSync(p));
 }
 function guardPermissions() {
   let flag = '', skip = false, last = null;   // last: the value of the LAST --settings
@@ -477,7 +486,7 @@ function guardPermissions() {
     for (const o of srcs) { const d = o && o.permissions && o.permissions.defaultMode; if (typeof d === 'string' && d) { mode = d; break; } }
   }
   if (mode !== 'auto' && mode !== 'bypassPermissions') return '';
-  const denies = denyFiles();
+  const denies = denyFiles(last);
   if (!denies.length) die('worker-deny.settings.json (the package deny list) not found; not starting ' + provider + ' in bypass/auto mode. Update the bajzi plugin (claude plugin update bajzi@bajzi-plugins).', 78);
   const norm = p => { const q = path.resolve(p); return process.platform === 'win32' ? q.toLowerCase() : q; };
   const isDeny = last !== null && !last.trim().startsWith('{') && denies.some(d => norm(d) === norm(last));

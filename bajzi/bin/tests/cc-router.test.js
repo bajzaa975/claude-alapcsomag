@@ -27,7 +27,7 @@ function run(entry, args, extraEnv = {}, opts = {}) {   // opts.cwd: the router'
     for (const o of Object.keys(env)) if (o !== k && o.toUpperCase() === k.toUpperCase()) delete env[o];   // win32 copies PATH as Path
     if (v === '' || v === undefined) delete env[k]; else env[k] = v;
   }
-  const r = spawnSync(process.execPath, [ROUTER, ...args], { env, encoding: 'utf8', cwd: opts.cwd });
+  const r = spawnSync(process.execPath, [ROUTER, ...args], { env, encoding: 'utf8', cwd: opts.cwd || dir });   // default: the sandbox dir, never the caller's project settings
   const line = (r.stdout || '').split('\n').find(l => l.startsWith('FAKE_CLAUDE '));
   const parsed = line ? JSON.parse(line.slice(12)) : null;
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '', dir,
@@ -52,6 +52,17 @@ test('baseline: glm entry routes to z.ai and maps haiku to the fast model', () =
   assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic');
   assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.3-flash');   // DEFAULTS glm_fast_model
   assert.deepStrictEqual(r.childArgv, ['-p', 'x', '--model', 'haiku']);      // caller args reach the child unchanged, in order
+});
+test('baseline: glm child argv is unchanged even when the caller sits in a project whose settings say auto', () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-bproj-')), old = process.cwd();
+  fs.mkdirSync(path.join(proj, '.claude'));
+  fs.writeFileSync(path.join(proj, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { defaultMode: 'auto' } }));
+  process.chdir(proj);
+  try {
+    const r = run('glm', ['-p', 'x', '--model', 'haiku'], { GIT_CEILING_DIRECTORIES: path.dirname(proj) });
+    assert.strictEqual(r.code, 0, r.stderr);
+    assert.deepStrictEqual(r.childArgv, ['-p', 'x', '--model', 'haiku']);
+  } finally { process.chdir(old); }
 });
 test('baseline: worker in claude mode passes no z.ai URL', () => {
   const r = run('worker', ['-p', 'x']);
@@ -777,7 +788,7 @@ test('perm: bare bypass and --dangerously-skip-permissions get the deny file', (
   assert.deepStrictEqual(r.childArgv, BYPASS.concat('--settings', DENY, '-p', 'x'));
   assert.match(fs.readFileSync(r.dir + '/cc-router.log', 'utf8'), /perm=bypass->bypass\+deny /);
 });
-test('perm: bypass + the deny file is byte-identical (also with a space in the path and --settings=)', () => {
+test('perm: bypass + the deny file is byte-identical (also with --settings=)', () => {
   const c = permCtx();
   for (const a of [['-p', '--permission-mode', 'bypassPermissions', '--settings', DENY, 'task'], ['-p', '--permission-mode=bypassPermissions', '--settings=' + DENY, 'task']]) {
     const r = c.go(a); assert.deepStrictEqual(r.childArgv, a);
