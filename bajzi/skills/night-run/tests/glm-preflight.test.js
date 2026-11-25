@@ -163,7 +163,7 @@ test('step 8 (c): smoke worktree, glm command with no permission flags, pass rul
   const g = glmLines[0];
   has(g, 'timeout 1500 glm -p "$(cat ');
   has(g, '--output-format json');
-  for (const flag of ['--permission', '--dangerously', '--settings', '--allowed', '--disallowed', '--add-dir']) {
+  for (const flag of ['--permission', '--dangerously', '--allowed', '--disallowed', '--add-dir']) {
     assert.ok(!g.includes(flag), `glm smoke line carries no ${flag}`);
   }
   assert.ok(!g.includes('.env'), 'the env file is never named in a Bash command (secret guard)');
@@ -429,4 +429,17 @@ test('step 8 (c) setup clears a registered-but-deleted or unregistered SMOKE-GLM
     assert.ok(!fs.existsSync(wt), `${state}: cleanup removed the worktree\n${c.stderr}`);
     assert.strictEqual(git(base, 'branch', '--list', BR), '', `${state}: cleanup deleted the branch`);
   }
+});
+
+test('night settings template switches the channel plugins off and nothing else under enabledPlugins', () => {
+  assert.deepStrictEqual(SETTINGS_TMPL.enabledPlugins, Object.fromEntries(['telegram', 'discord', 'imessage', 'fakechat'].map((n) => [`${n}@claude-plugins-official`, false])));
+});
+
+test('GLM smoke launch passes a settings file with only the channel plugins off', () => {
+  const f = path.join(SKILL_DIR, '..', '..', 'lib', 'no-channels.settings.json');
+  const j = JSON.parse(read(f));
+  assert.deepStrictEqual(j.enabledPlugins, Object.fromEntries(['telegram', 'discord', 'imessage', 'fakechat'].map((n) => [`${n}@claude-plugins-official`, false])));
+  assert.deepStrictEqual(Object.keys(j).filter((k) => k !== '_comment' && k !== 'enabledPlugins'), []);
+  const line = flat(SKILL).split('timeout 1500 glm -p')[1].split('echo "exit=')[0];
+  has(line, '--settings "${CLAUDE_PLUGIN_ROOT}/lib/no-channels.settings.json"');
 });

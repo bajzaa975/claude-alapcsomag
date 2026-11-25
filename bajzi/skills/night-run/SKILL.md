@@ -497,7 +497,7 @@ only where the `owner/name` value is wanted. There is no third spelling.
    tool's background mode, wait for its exit, and stop it only by the PID you started.
 
    ```bash
-   cd "<NIGHT_DIR>/wt/SMOKE-GLM" && timeout 1500 glm -p "$(cat "<NIGHT_DIR>/GLM-SMOKE-PROMPT.md")" --output-format json > "<NIGHT_DIR>/logs/glm-smoke.json" 2> "<NIGHT_DIR>/logs/glm-smoke.err"; echo "exit=$?"
+   cd "<NIGHT_DIR>/wt/SMOKE-GLM" && timeout 1500 glm -p "$(cat "<NIGHT_DIR>/GLM-SMOKE-PROMPT.md")" --settings "${CLAUDE_PLUGIN_ROOT}/lib/no-channels.settings.json" --output-format json > "<NIGHT_DIR>/logs/glm-smoke.json" 2> "<NIGHT_DIR>/logs/glm-smoke.err"; echo "exit=$?"
    node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).result || "")' "<NIGHT_DIR>/logs/glm-smoke.json"
    ```
 
