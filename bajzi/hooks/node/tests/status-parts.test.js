@@ -140,7 +140,7 @@ test('goal: bad cache is fresh state; non-SAFE_ID -> null, no cache', () => {
     assert.strictEqual(gs(f, id).evals, 1);
   }
   const ino = fs.statSync(f).ino;
-  for (const bad of [{ offset: -1, evals: 0 }, { offset: SET.length, evals: 'x' }, { offset: SET.length, evals: -1 }]) {
+  for (const bad of [{ offset: -1, evals: 0 }, { offset: -2, evals: 0 }, { offset: 0.5, evals: 0 }, { offset: SET.length, evals: 'x' }, { offset: SET.length, evals: -1 }]) {
     fs.writeFileSync(gcache(id), JSON.stringify(Object.assign({ v: 1, path: f, ino, skip: false, active: true, setAt: null }, bad)));
     assert.deepStrictEqual(gs(f, id), gs(f, gid()));
     assert.strictEqual(gs(f, id).evals, 1);
