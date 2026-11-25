@@ -63,7 +63,7 @@ function machine() {
 }
 
 function run(m, args = []) {
-  const env = Object.assign({ SystemRoot: process.env.SystemRoot || '' }, m.env);
+  const env = Object.assign({ SystemRoot: process.env.SystemRoot || '', BAJZI_SETUP_NO_CLI: '1' }, m.env);
   const r = spawnSync(process.execPath, [CHECK, ...args], { env, encoding: 'utf8' });
   return { code: r.status, out: r.stdout || '', err: r.stderr || '' };
 }
@@ -254,7 +254,7 @@ test('reviewer allow-list: invalid (missing, GLM id) and drifted from the manife
 test('setup step 11 writes the manifest default under BAJZI_HOME (same override as every reader)', () => {
   const m = machine();
   fs.rmSync(path.join(m.c, 'bajzi', 'config.json'));
-  const mm = /node -e "([^"]+)" "\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/setup\/manifest\.json"/.exec(fs.readFileSync(SKILL, 'utf8'));
+  const mm = /node -e "([^"]+)" "\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/setup\/manifest\.json"/.exec(fs.readFileSync(SKILL, 'utf8').split('Reviewer allow-list')[1]);
   assert.ok(mm, 'step 11 command not found in SKILL.md');
   const decoy = fs.mkdtempSync(path.join(os.tmpdir(), 'bajzi-decoy-'));   // os.homedir() for the child: never the real home
   const r = spawnSync(process.execPath, ['-e', mm[1], m.env.BAJZI_MANIFEST],
@@ -663,4 +663,117 @@ test('SKILL.md step 11 one-liner keeps the other keys of an existing config.json
 test('SKILL.md missing-pointer step inserts the whole list item', () => {
   const skill = fs.readFileSync(SKILL, 'utf8');
   assert.match(skill, /insert the whole shared list item[^]*?contains the `bajzi-plugins\/docs/);
+});
+
+// --- Claude CLI health (PATH shim `claude`) ---
+function cliShim(m, { doctor, validate }) {
+  const dir = path.join(m.home, 'shim');
+  fs.mkdirSync(dir, { recursive: true });
+  const script = `#!/bin/sh
+if [ "$1" = doctor ]; then ${doctor}; exit $DOC_EXIT; fi
+if [ "$1" = plugin ]; then ${validate}; exit \${VAL_EXIT:-0}; fi
+`;
+  fs.writeFileSync(path.join(dir, 'claude'), script, { mode: 0o755 });
+  return Object.assign({}, m, { env: Object.assign({}, m.env, { PATH: dir + path.delimiter + m.env.PATH, BAJZI_SETUP_NO_CLI: '', DOC_EXIT: '0' }) });
+}
+const OKDOC = "echo 'No installation issues found'";
+const OKVAL = "echo '{\"contents\":[{\"file\":\"a.md\",\"errors\":[],\"warnings\":[{\"message\":\"w\"}]}]}'";
+
+test('cli health: clean doctor and validate add no drift', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: OKVAL });
+  const r = run(m);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.match(r.out, /setup --check: clean/);
+});
+
+test('cli health: doctor issue -> DRIFT cli-doctor with the first non-empty line', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: "printf '\\n  Warning: bad install  \\nmore\\n'", validate: OKVAL });
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT cli-doctor Warning: bad install$/m);
+});
+
+test('cli health: validate errors -> DRIFT component-invalid, in ~/.claude and installed paths', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: "echo '{\"contents\":[{\"file\":\"skills/x.md\",\"errors\":[{\"message\":\"bad frontmatter\"}]}]}'" });
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT component-invalid skills\/x\.md: bad frontmatter$/m);
+});
+
+test('cli health: garbage validate output -> DRIFT component-validate-failed', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: "echo not-json" });
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT component-validate-failed .*\.claude$/m);
+});
+
+test('cli health: validate output without a contents array -> DRIFT component-validate-failed', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: "echo '{}'" });
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT component-validate-failed .*\.claude$/m);
+});
+
+test('cli health: validate exits non-zero with clean JSON -> DRIFT component-validate-failed', { skip: process.platform === 'win32' }, () => {
+  const m = cliShim(machine(), { doctor: OKDOC, validate: OKVAL });
+  m.env.VAL_EXIT = '1';
+  const r = run(m);
+  assert.strictEqual(r.code, 1);
+  assert.match(r.out, /^DRIFT component-validate-failed .*\.claude$/m);
+});
+
+test('cli health: a claude.cmd shim is found on win32', { skip: process.platform !== 'win32' }, () => {
+  const m = machine();
+  const dir = path.join(m.home, 'shim');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'claude.cmd'), `@echo off\r\nif "%1"=="doctor" (echo No installation issues found& exit /b 0)\r\necho {"contents":[]}\r\n`);
+  const r = run(Object.assign({}, m, { env: Object.assign({}, m.env, { PATH: dir + path.delimiter + m.env.PATH, BAJZI_SETUP_NO_CLI: '' }) }));
+  assert.strictEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /claude CLI check skipped/);
+});
+
+test('cli health: no claude on PATH -> note, no drift; BAJZI_SETUP_NO_CLI=1 skips silently', () => {
+  const m = machine();
+  const r = run(Object.assign({}, m, { env: Object.assign({}, m.env, { BAJZI_SETUP_NO_CLI: '' }) }));
+  assert.strictEqual(r.code, 0, r.out);
+  assert.match(r.out, /^note: claude CLI check skipped \(claude not on PATH\)$/m);
+  assert.doesNotMatch(run(m).out, /claude CLI check/);
+});
+
+test('cli health: claude missing from PATH -> no spawn at all', () => {
+  const cp = require('node:child_process');
+  const real = cp.spawnSync;
+  let calls = 0;
+  cp.spawnSync = () => { calls++; return { status: 0, stdout: '' }; };
+  const mod = require.resolve('../check');
+  delete require.cache[mod];
+  try {
+    const m = machine();
+    const dir = path.join(m.home, 'nopath');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'unrelated'), '');
+    const h = require('../check').cliHealth(m.home, { PATH: dir });
+    assert.strictEqual(calls, 0);
+    assert.deepStrictEqual(h, { drift: [], note: 'claude not on PATH' });
+  } finally {
+    cp.spawnSync = real;
+    delete require.cache[mod];
+  }
+});
+
+test('review SKILL.md step 7 has the /steward hint and forbids /ship', () => {
+  const s = fs.readFileSync(path.join(__dirname, '..', '..', 'review', 'SKILL.md'), 'utf8');
+  assert.match(s, /Next for you: type \/steward to watch the pull request/);
+  assert.match(s, /never use `\/ship`/);
+});
+
+test('setup SKILL.md step 10 pipes the MCP JSON on stdin', () => {
+  const s = fs.readFileSync(SKILL, 'utf8');
+  assert.match(s, /\| claude mcp add-json --scope user <name> -$/m);
+  assert.doesNotMatch(s, /add-json --scope user <name> '/);
+});
+
+test('setup SKILL.md step 10 declares Claude Code 2.1.327 the minimum and updates first', () => {
+  const s = fs.readFileSync(SKILL, 'utf8');
+  assert.match(s, /claude --version[^]*?2\.1\.327[^]*?claude update/);
 });

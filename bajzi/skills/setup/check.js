@@ -3,10 +3,12 @@
 // /bajzi:setup --check: compare THIS machine with manifest.json. READ-ONLY: it never writes,
 // creates or deletes anything. One `DRIFT <id> <detail>` line per item; exit 1 on drift,
 // 0 clean, 2 when the manifest cannot be read. BAJZI_HOME / BAJZI_MANIFEST override the
-// home dir and manifest path (tests).
+// home dir and manifest path (tests). main() also runs `claude doctor` and `claude plugin validate`
+// (BAJZI_SETUP_NO_CLI=1 skips that part).
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const reviewerModels = require('../../hooks/node/lib/reviewer-models');
 
 function readJson(p) {
@@ -215,6 +217,44 @@ function checkAll({ home, manifest, env = process.env }) {
   return d;
 }
 
+const clip = (t, n = 200) => String(t).trim().slice(0, n);
+
+// Claude CLI health: `claude doctor` + `claude plugin validate --json` per plugin dir. Returns
+// { drift, note }; a missing CLI, spawn error or timeout is a note, never drift.
+function cliHealth(home, env) {
+  const win = process.platform === 'win32'; // npm installs claude.cmd, which needs a shell
+  const run = args => spawnSync('claude', win ? args.map(a => (/[\s&()]/.test(a) ? `"${a}"` : a)) : args, { env, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'], shell: win });
+  const skip = r => (r.error ? (r.error.code === 'ENOENT' ? 'claude not on PATH' : r.error.code || r.error.message) : null);
+  const drift = [];
+  if (!onPath('claude', env)) return { drift, note: 'claude not on PATH' }; // a win32 shell would not raise ENOENT
+  const doc = run(['doctor']);
+  if (skip(doc)) return { drift, note: skip(doc) };
+  const out = String(doc.stdout || '');
+  if (doc.status !== 0 || !out.includes('No installation issues found')) {
+    drift.push(['cli-doctor', clip(out.split(/\r?\n/).find(l => l.trim()) || `exit ${doc.status}`)]);
+  }
+  const ip = readJson(path.join(home, '.claude', 'plugins', 'installed_plugins.json'));
+  const pl = ip.ok && isObj(ip.value) && isObj(ip.value.plugins) ? ip.value.plugins : {};
+  const dirs = [path.join(home, '.claude')];
+  for (const id of Object.keys(pl)) for (const e of Array.isArray(pl[id]) ? pl[id] : []) {
+    if (e && typeof e.installPath === 'string' && fs.existsSync(e.installPath) && !dirs.includes(e.installPath)) dirs.push(e.installPath);
+  }
+  for (const dir of dirs) {
+    const r = run(['plugin', 'validate', '--json', dir]);
+    if (skip(r)) return { drift, note: skip(r) };
+    let j = null;
+    try { j = JSON.parse(r.stdout); } catch { /* unparseable */ }
+    if (!isObj(j) || !Array.isArray(j.contents)) { drift.push(['component-validate-failed', dir]); continue; }
+    let bad = 0;
+    for (const item of j.contents) {
+      const errs = item && Array.isArray(item.errors) ? item.errors : [];
+      if (errs.length) { bad++; drift.push(['component-invalid', `${item.file}: ${clip(isObj(errs[0]) ? errs[0].message : errs[0])}`]); }
+    }
+    if (r.status !== 0 && !bad) drift.push(['component-validate-failed', dir]);
+  }
+  return { drift, note: null };
+}
+
 function main(argv = process.argv.slice(2), env = process.env) {
   const home = env.BAJZI_HOME || os.homedir();
   const mpath = env.BAJZI_MANIFEST || path.join(__dirname, 'manifest.json');
@@ -224,10 +264,17 @@ function main(argv = process.argv.slice(2), env = process.env) {
     return 2;
   }
   const drift = checkAll({ home, manifest: m.value, env });
+  let cliNote = null;
+  if (env.BAJZI_SETUP_NO_CLI !== '1') {
+    const h = cliHealth(home, env);
+    drift.push(...h.drift);
+    cliNote = h.note;
+  }
   if (argv.includes('--json')) {
     process.stdout.write(JSON.stringify({ drift: drift.map(([id, detail]) => ({ id, detail })) }, null, 2) + '\n');
   } else {
     if (!fs.existsSync(path.join(home, ...OVERLAY_REL))) process.stdout.write('note: no machine-local settings overlay (~/.claude/bajzi/settings-local.json)\n');
+    if (cliNote) process.stdout.write(`note: claude CLI check skipped (${cliNote})\n`);
     for (const [id, detail] of drift) process.stdout.write(`DRIFT ${id} ${detail}\n`);
     process.stdout.write(drift.length ? `setup --check: ${drift.length} drift item(s)\n` : 'setup --check: clean\n');
   }
@@ -236,4 +283,4 @@ function main(argv = process.argv.slice(2), env = process.env) {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { checkAll, mergeSettings, main, onPath, rtkConfigPath, rtkExcludes };
+module.exports = { cliHealth, checkAll, mergeSettings, main, onPath, rtkConfigPath, rtkExcludes };
