@@ -2,6 +2,9 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## Unreleased
+- Fixed: headless GLM workers and night-run sessions no longer load channel plugins (Telegram, Discord, iMessage, fakechat); a worker started in a project with the Telegram plugin on used to replace the live session's bot poller and leave the bot deaf.
+
 ## 1.47.0
 - Changed: `/bajzi:setup` adds user-scope MCP servers with `claude mcp add-json --scope user <name> -` (JSON on stdin), so tokens never reach the command line or shell history; needs Claude Code 2.1.327+ (older: `claude update` first).
 - Added: `/bajzi:setup --check` also runs `claude doctor` and `claude plugin validate --json` on `~/.claude` and every installed plugin, reporting problems as `DRIFT cli-doctor`, `component-invalid` or `component-validate-failed`; a missing CLI prints a skipped note, no drift. `BAJZI_SETUP_NO_CLI=1` skips this part.

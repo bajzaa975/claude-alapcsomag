@@ -465,7 +465,9 @@ test('real manifest: public autoMode rule, no broad glm -p allow rule, nothing t
 test('worker deny-list: valid, deny-only, blocks push and the env files; every bypassPermissions launch names --settings', () => {
   const BAJZI = path.join(__dirname, '..', '..', '..');
   const wd = JSON.parse(fs.readFileSync(path.join(BAJZI, 'lib', 'worker-deny.settings.json'), 'utf8'));
-  assert.deepStrictEqual(Object.keys(wd).sort(), ['_comment', 'permissions']);
+  assert.deepStrictEqual(Object.keys(wd).sort(), ['_comment', 'enabledPlugins', 'permissions']);
+  // channel plugins off (a worker's channel server would replace the live session's poller); never any other plugin
+  assert.deepStrictEqual(wd.enabledPlugins, Object.fromEntries(['telegram', 'discord', 'imessage', 'fakechat'].map((n) => [`${n}@claude-plugins-official`, false])));
   assert.deepStrictEqual(Object.keys(wd.permissions), ['deny']);
   const deny = wd.permissions.deny;
   assert.ok(deny.includes('Bash(*git push*)'));

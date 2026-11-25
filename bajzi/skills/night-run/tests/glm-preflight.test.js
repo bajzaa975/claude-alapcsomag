@@ -430,3 +430,7 @@ test('step 8 (c) setup clears a registered-but-deleted or unregistered SMOKE-GLM
     assert.strictEqual(git(base, 'branch', '--list', BR), '', `${state}: cleanup deleted the branch`);
   }
 });
+
+test('night settings template switches the channel plugins off and nothing else under enabledPlugins', () => {
+  assert.deepStrictEqual(SETTINGS_TMPL.enabledPlugins, Object.fromEntries(['telegram', 'discord', 'imessage', 'fakechat'].map((n) => [`${n}@claude-plugins-official`, false])));
+});
