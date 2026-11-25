@@ -2,6 +2,11 @@
 
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
+## 1.47.0
+- Changed: `/bajzi:setup` adds user-scope MCP servers with `claude mcp add-json --scope user <name> -` (JSON on stdin), so tokens never reach the command line or shell history; needs Claude Code 2.1.327+ (older: `claude update` first).
+- Added: `/bajzi:setup --check` also runs `claude doctor` and `claude plugin validate --json` on `~/.claude` and every installed plugin, reporting problems as `DRIFT cli-doctor`, `component-invalid` or `component-validate-failed`; a missing CLI prints a skipped note, no drift. `BAJZI_SETUP_NO_CLI=1` skips this part.
+- Added: after a CLEAN review, the closing report tells the owner to type `/steward` when the branch has an open GitHub pull request. `/ship` is not used (it reviews and fixes in one session).
+
 ## 1.46.0
 - Fixed: the saver-mode GLM worker could edit files but run no command (tests, commits). The setup auto-mode rule approves `glm -p --permission-mode bypassPermissions` only with a deny-list `--settings` file, which the package never shipped. New `bajzi/lib/worker-deny.settings.json` (pushes, history rewrites, merges and releases, plugin/settings changes, sudo, process kills, secret reads incl. shell reads of env/ssh/aws/gh/credentials files); every GLM launch in the dispatch recipe, the saver rules and the mode skill now passes it. In a split session, push, stash, rebase, PR merge and release are owner steps.
 
