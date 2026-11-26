@@ -3,6 +3,8 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+
+## 1.50.0
 - Fixed: `debt.md` lines outside a `## ` block (legacy bullets) are refused instead of silently dropped on the next rewrite: `findings-cli.js close` exits 4 without parking and `check` counts the file as a cap hit; rewrite such lines as blocks.
 
 ## 1.49.0
