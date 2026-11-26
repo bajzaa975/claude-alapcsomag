@@ -3,6 +3,7 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+- Fixed: `debt.md` lines outside a `## ` block (legacy bullets) are refused instead of silently dropped on the next rewrite: `findings-cli.js close` exits 4 without parking and `check` counts the file as a cap hit; rewrite such lines as blocks.
 
 ## 1.49.0
 - Fixed: a session the `glm`/`worker`/`ccr` shim starts on GLM or DeepSeek no longer runs in `auto` permission mode (its classifier only exists on Anthropic's servers, so every tool call prompted and the session hung) and never runs bypassPermissions without the package deny list; `--channels` keeps channel plugins on.

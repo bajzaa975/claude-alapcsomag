@@ -78,7 +78,7 @@ The validator (`validate`, exit 2) enforces the test-gap rules: refused in a `# 
   `if_unfixed`, `test`, `origin`; severity, `why_severity` and `blind_severity` removed (D7).
 - `runtime/findings/debt.md` (`mergeToDebt`) - title `# Debt`, one entry per parked finding with
   id `<origin>/<id>`, the original fields plus `origin: <slice-id>` and `parked: <date>`, and
-  `blind_severity:` once calibrated. No header fields. Merging an id already present is a no-op.
+  `blind_severity:` once calibrated. No header fields. A non-blank line outside a block (such as a legacy bullet) makes the file invalid: it is refused, never dropped. Merging an id already present is a no-op.
   `mergeToDebt` throws on a missing `origin`/`parked`/findings argument or an invalid item, and
   refuses (`DEBT CAP HIT: ...`) a merge whose result would exceed 24 KB; drain first.
 - `runtime/findings/needs-owner.md` (`bajzi/lib/findings-cli.js:toOwner`) - the items the owner

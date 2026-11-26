@@ -65,6 +65,8 @@ function parse(text) {
       cur[last] = v.trim();
     } else if (line.trim() && last) {
       cur[last] = `${cur[last]} ${line.trim()}`.trim();
+    } else if (line.trim() && doc.kind === 'debt') {
+      doc.problems.push(`line ${i + 1}: unrecognised content outside a debt block (a legacy bullet?); rewrite it as a "## <id> · <severity> · <path>" block`);
     }
   }
   return doc;
