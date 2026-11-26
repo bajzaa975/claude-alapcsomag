@@ -46,6 +46,7 @@ function parse(text) {
   cur = doc.header;
   for (; i < lines.length; i++) {
     const line = lines[i];
+    if (!line.trim() && doc.kind === 'debt') last = null; // a blank line ends a wrapped field
     if (line.startsWith('## ')) {
       const parts = line.slice(3).split(' · ').map((s) => s.trim());
       const f = { id: parts[0], heading: line };
@@ -63,9 +64,10 @@ function parse(text) {
       let v = m[2];
       if (COMMENTABLE.has(last)) v = v.replace(/\s+#.*$/, '');
       cur[last] = v.trim();
-    } else if (line.trim() && last) {
+    } else if (line.trim() && last && !(doc.kind === 'debt' && /^\s*[-*+] /.test(line))) {
       cur[last] = `${cur[last]} ${line.trim()}`.trim();
     } else if (line.trim() && doc.kind === 'debt') {
+      last = null;
       doc.problems.push(`line ${i + 1}: unrecognised content outside a debt block (a legacy bullet?); rewrite it as a "## <id> · <severity> · <path>" block`);
     }
   }
