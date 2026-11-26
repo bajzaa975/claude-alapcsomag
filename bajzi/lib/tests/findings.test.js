@@ -1052,3 +1052,60 @@ test('sprint close: the review brief points at the critic file; reviewer tags cr
   assert.match(rd('agents/reviewer.md'), /critic: S<n>/);
   assert.match(rd('skills/review/SKILL.md'), /FC ledger "<stem>"/);
 });
+
+// ---------- debt.md: lines outside blocks are refused, never dropped ----------
+
+const LEGACY_DEBT = '# Debt\n\n- [2026-11-24] x r2 F6 (minor) a.py:1: text\n';
+
+test('legacy bullet in debt.md: mergeToDebt throws, debtCapHit fails closed', () => {
+  assert.throws(() => F.mergeToDebt(LEGACY_DEBT, [], { origin: 's1', parked: '2026-11-26' }), /line 3/);
+  const cap = F.debtCapHit(LEGACY_DEBT);
+  assert.strictEqual(cap.hit, true);
+  assert.match(cap.reasons[0], /outside a debt block/);
+});
+
+test('findings-cli close: debt.md with a legacy bullet -> exit 4, debt.md untouched', () => {
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const { spawnSync } = require('child_process');
+  const cli = path.join(__dirname, '..', 'findings-cli.js');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'legacydebt-'));
+  const rows = [['F1', 'minor', 'open']];
+  fs.mkdirSync(path.join(d, 'runtime/findings'), { recursive: true });
+  const w = (n, t) => fs.writeFileSync(path.join(d, 'runtime/findings', n), t);
+  w('s42-r1.md', r1(rows)); w('s42-r2.md', r2(rows));
+  w('s42-r1.report.md', 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
+  w('debt.md', LEGACY_DEBT);
+  const run = (...a) => spawnSync('node', [cli, ...a], { cwd: d, encoding: 'utf8' });
+  const res = run('close', 's42');
+  assert.strictEqual(res.status, 4, res.stderr);
+  assert.strictEqual(fs.readFileSync(path.join(d, 'runtime/findings/debt.md'), 'utf8'), LEGACY_DEBT);
+  assert.strictEqual(run('check').status, 4);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+const DBLOCK = '## s1/F1 · minor · a.py:1\nfinding: x\norigin: s1\nparked: 2026-11-26\n';
+const BUL = '- [2026-11-24] legacy bullet\n';
+for (const [pos, text] of [
+  ['after a block, blank line', `# Debt\n\n${DBLOCK}\n${BUL}`],
+  ['after a block, no blank line', `# Debt\n\n${DBLOCK}${BUL}`],
+  ['between blocks', `# Debt\n\n${DBLOCK}\n${BUL}\n${DBLOCK.replace(/F1/, 'F2')}`],
+]) {
+  test(`legacy bullet in debt.md ${pos}: refused through close`, () => {
+    assert.strictEqual(F.validate(text).ok, false);
+    assert.throws(() => F.mergeToDebt(text, [], { origin: 's1', parked: '2026-11-26' }), /outside a debt block/);
+    assert.strictEqual(F.debtCapHit(text).hit, true);
+    const fs = require('fs'); const os = require('os'); const path = require('path');
+    const { spawnSync } = require('child_process');
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'legacydebt2-'));
+    const rows = [['F1', 'minor', 'open']];
+    fs.mkdirSync(path.join(d, 'runtime/findings'), { recursive: true });
+    const w = (n, t) => fs.writeFileSync(path.join(d, 'runtime/findings', n), t);
+    w('s42-r1.md', r1(rows)); w('s42-r2.md', r2(rows));
+    w('s42-r1.report.md', 'FIX s42 DONE 0/1\nF1 OUT_OF_SLICE');
+    w('debt.md', text);
+    const res = spawnSync('node', [path.join(__dirname, '..', 'findings-cli.js'), 'close', 's42'], { cwd: d, encoding: 'utf8' });
+    assert.strictEqual(res.status, 4, res.stderr);
+    assert.strictEqual(fs.readFileSync(path.join(d, 'runtime/findings/debt.md'), 'utf8'), text);
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+}
