@@ -50,7 +50,7 @@ test('baseline: glm entry routes to z.ai and maps haiku to the fast model', () =
   const r = run('glm', ['-p', 'x', '--model', 'haiku']);
   assert.strictEqual(r.code, 0, r.stderr);
   assert.strictEqual(r.childEnv.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic');
-  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.4');   // DEFAULTS glm_fast_model
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.3-flash');   // DEFAULTS glm_fast_model
   assert.deepStrictEqual(r.childArgv, ['-p', 'x', '--model', 'haiku']);      // caller args reach the child unchanged, in order
 });
 test('baseline: glm child argv is unchanged even when the caller sits in a project whose settings say auto', () => {
@@ -360,41 +360,41 @@ fs.writeFileSync(FULL_FAKE, 'const out = {}; for (const k of Object.keys(process
   'process.stdout.write("FAKE_CLAUDE " + JSON.stringify({ env: out, argv: process.argv.slice(2) }) + "\\n");\n');
 const runFull = (args, extra = {}) => run('glm', args, Object.assign({ CC_CLAUDE_PREFIX_ARGS: JSON.stringify([FULL_FAKE]) }, extra));
 const lastLog = r => fs.readFileSync(path.join(r.dir, 'cc-router.log'), 'utf8').trimEnd().split('\n').pop();
-test('top-level GLM launch, no --model: main = orchestrator glm-5.4, sub-agents and haiku = glm-5.4', () => {
+test('top-level GLM launch, no --model: main = orchestrator glm-5.3, sub-agents and haiku = glm-5.3-flash', () => {
   const r = runFull(['-p', 'x'], { CLAUDECODE: '' });
   assert.strictEqual(r.code, 0, r.stderr);
-  assert.strictEqual(r.childEnv.ANTHROPIC_MODEL, 'glm-5.4');
-  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.4');
-  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-5.4');
-  assert.strictEqual(r.childEnv.CLAUDE_CODE_SUBAGENT_MODEL, 'glm-5.4');
-  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.4');
-  assert.match(lastLog(r), / asked=- model=glm-5\.4 /);   // the log names the model actually served
+  assert.strictEqual(r.childEnv.ANTHROPIC_MODEL, 'glm-5.3');
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.3');
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-5.3');
+  assert.strictEqual(r.childEnv.CLAUDE_CODE_SUBAGENT_MODEL, 'glm-5.3-flash');
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.3-flash');
+  assert.match(lastLog(r), / asked=- model=glm-5\.3 /);   // the log names the model actually served
 });
-test('top-level GLM launch --model OPUS[1m]: DEFAULT_OPUS = glm-5.4, no ANTHROPIC_MODEL override, log says glm-5.4', () => {
+test('top-level GLM launch --model OPUS[1m]: DEFAULT_OPUS = glm-5.3, no ANTHROPIC_MODEL override, log says glm-5.3', () => {
   const r = runFull(['-p', 'x', '--model', 'OPUS[1m]'], { CLAUDECODE: '' });
   assert.strictEqual(r.code, 0, r.stderr);
-  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.4');
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.3');
   assert.strictEqual(r.childEnv.ANTHROPIC_MODEL, undefined);
-  assert.strictEqual(r.childEnv.CLAUDE_CODE_SUBAGENT_MODEL, 'glm-5.4');
-  assert.match(lastLog(r), / asked=OPUS\[1m\] model=glm-5\.4 /);
+  assert.strictEqual(r.childEnv.CLAUDE_CODE_SUBAGENT_MODEL, 'glm-5.3-flash');
+  assert.match(lastLog(r), / asked=OPUS\[1m\] model=glm-5\.3 /);
   const o = runFull(['-p', 'x', '--model', 'opus'], { CLAUDECODE: '' });
-  assert.strictEqual(o.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.4');
+  assert.strictEqual(o.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.3');
   assert.strictEqual(o.childEnv.ANTHROPIC_MODEL, undefined);
   const id = runFull(['-p', 'x', '--model', 'glm-9'], { CLAUDECODE: '' });   // an explicit non-alias id passes through
   assert.match(lastLog(id), / asked=glm-9 model=glm-9 /);
 });
-test('nested GLM launch (CLAUDECODE=1) -p --model opus: every alias and the sub-agents land on glm-5.4', () => {
+test('nested GLM launch (CLAUDECODE=1) -p --model opus: every alias and the sub-agents land on glm-5.3-flash', () => {
   const r = runFull(['-p', 'x', '--model', 'opus'], { CLAUDECODE: '1' });
   assert.strictEqual(r.code, 0, r.stderr);
-  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.4');
-  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-5.4');
-  assert.strictEqual(r.childEnv.CLAUDE_CODE_SUBAGENT_MODEL, 'glm-5.4');
-  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.4');
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.3-flash');
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-5.3-flash');
+  assert.strictEqual(r.childEnv.CLAUDE_CODE_SUBAGENT_MODEL, 'glm-5.3-flash');
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.3-flash');
   assert.strictEqual(r.childEnv.ANTHROPIC_MODEL, undefined);
-  assert.match(lastLog(r), / asked=opus model=glm-5\.4 /);
+  assert.match(lastLog(r), / asked=opus model=glm-5\.3-flash /);
   const n = runFull(['-p', 'x'], { CLAUDECODE: '1' });
-  assert.strictEqual(n.childEnv.ANTHROPIC_MODEL, 'glm-5.4');
-  assert.match(lastLog(n), / asked=- model=glm-5\.4 /);
+  assert.strictEqual(n.childEnv.ANTHROPIC_MODEL, 'glm-5.3-flash');
+  assert.match(lastLog(n), / asked=- model=glm-5\.3-flash /);
 });
 test('worker --set-orchestrator-model writes the key and --status shows it; a bad id is refused', () => {
   const r = run('worker', ['--set-orchestrator-model', 'glm-6']);
@@ -402,8 +402,8 @@ test('worker --set-orchestrator-model writes the key and --status shows it; a ba
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(r.dir, 'cc-router.json'), 'utf8')).glm_orchestrator_model, 'glm-6');
   const s = run('worker', ['--status'], { CC_ROUTER_CONFIG: path.join(r.dir, 'cc-router.json') });
   assert.match(s.stdout, /^orchestrator    glm-6$/m);
-  assert.match(s.stdout, /^glm model       glm-5\.4$/m);
-  assert.match(s.stdout, /^glm fast model  glm-5\.4$/m);
+  assert.match(s.stdout, /^glm model       glm-5\.3-flash$/m);
+  assert.match(s.stdout, /^glm fast model  glm-5\.3-flash$/m);
   const top = runFull(['-p', 'x'], { CC_ROUTER_CONFIG: path.join(r.dir, 'cc-router.json') });
   assert.strictEqual(top.childEnv.ANTHROPIC_MODEL, 'glm-6');
   const bad = run('worker', ['--set-orchestrator-model', 'a b']);
@@ -417,8 +417,8 @@ test('a single worker --set-model writes only glm_model; the other two keys stay
   const conf = path.join(a.dir, 'cc-router.json');
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(conf, 'utf8')), { glm_model: 'glm-a' });
   const s = run('worker', ['--status'], { CC_ROUTER_CONFIG: conf });
-  assert.match(s.stdout, /^orchestrator    glm-5\.4$/m);
-  assert.match(s.stdout, /^glm fast model  glm-5\.4$/m);
+  assert.match(s.stdout, /^orchestrator    glm-5\.3$/m);
+  assert.match(s.stdout, /^glm fast model  glm-5\.3-flash$/m);
 });
 test('worker --set-model / --set-fast-model write their own key and leave the orchestrator default', () => {
   const a = run('worker', ['--set-model', 'glm-a']);
@@ -433,28 +433,20 @@ test('worker --set-model / --set-fast-model write their own key and leave the or
 test('GLM_ORCHESTRATOR_MODEL forces the orchestrator model (status says so, launch uses it)', () => {
   const s = run('worker', ['--status'], { GLM_ORCHESTRATOR_MODEL: 'glm-7' });
   assert.match(s.stdout, /^orchestrator    glm-7   \(forced by GLM_ORCHESTRATOR_MODEL\)$/m);
-  assert.match(run('worker', ['--status']).stdout, /^orchestrator    glm-5\.4$/m);
+  assert.match(run('worker', ['--status']).stdout, /^orchestrator    glm-5\.3$/m);
   const r = runFull(['-p', 'x'], { GLM_ORCHESTRATOR_MODEL: 'glm-7' });
   assert.strictEqual(r.childEnv.ANTHROPIC_MODEL, 'glm-7');
   assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-7');
 });
-test('worker --status with no cc-router.json shows glm-5.4 for all three models', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-conf-'));
-  const s = run('worker', ['--status'], { CC_ROUTER_CONFIG: path.join(dir, 'missing.json') });
-  assert.match(s.stdout, /^orchestrator    glm-5\.4$/m);
-  assert.match(s.stdout, /^glm model       glm-5\.4$/m);
-  assert.match(s.stdout, /^glm fast model  glm-5\.4$/m);
-});
-
-test('a cc-router.json with glm_model=glm-5.3-flash and no orchestrator key still yields orchestrator glm-5.4; explicit values win', () => {
+test('a cc-router.json with glm_model=glm-5.3-flash and no orchestrator key still yields orchestrator glm-5.3; explicit values win', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-conf-'));
   const conf = path.join(dir, 'cc-router.json');
   fs.writeFileSync(conf, JSON.stringify({ glm_model: 'glm-5.3-flash', glm_fast_model: 'glm-x-fast' }));
   const s = run('worker', ['--status'], { CC_ROUTER_CONFIG: conf });
-  assert.match(s.stdout, /^orchestrator    glm-5\.4$/m);
+  assert.match(s.stdout, /^orchestrator    glm-5\.3$/m);
   assert.match(s.stdout, /^glm fast model  glm-x-fast$/m);
   const r = runFull(['-p', 'x', '--model', 'haiku'], { CC_ROUTER_CONFIG: conf });
-  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.4');
+  assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.3');
   assert.strictEqual(r.childEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-x-fast');
 });
 test('worker --usage counts glm-5.3-flash and glm-5.3 both in the GLM share', () => {

@@ -101,8 +101,8 @@ summaries, 4 first-round fixes, 5 implementing.
 | **L3 Tight** | 1-3 | 4-5, orchestration, Tier-2 findings | the sprint review - **queued** (SAVER-L3.md) | 85-90% build-phase |
 
 GLM models (`~/.claude/cc-router.json`): a top-level GLM session (the L3 orchestrator) runs on
-`glm_orchestrator_model` (default `glm-5.4`); its sub-agents and every `glm -p` dispatch, GLM rung and
-flash rung alike, run on `glm_model` / `glm_fast_model` (defaults: both `glm-5.4`).
+`glm_orchestrator_model` (default `glm-5.3`); its sub-agents and every `glm -p` dispatch, GLM rung and
+flash rung alike, run on `glm_model` / `glm_fast_model` (defaults: both `glm-5.3-flash`).
 
 Fixed rules, all levels: risk-bearing slices never start on GLM below L3; GLM never reviews GLM's
 code as a substitute for a reviewer-allow-list review - where no such review is available the review is queued, never downgraded; the GLM
