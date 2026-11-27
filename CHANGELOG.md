@@ -3,6 +3,7 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+- Changed: the GLM defaults (`glm_orchestrator_model`, `glm_model`, `glm_fast_model`) move to `glm-5.4`, live-tested on the Z.ai Coding Plan: faster and cheaper than `glm-5.3` / `glm-5.3-flash`. A `cc-router.json` that pins an old id keeps it until that key is deleted.
 
 ## 1.50.0
 - Fixed: `debt.md` lines outside a `## ` block (legacy bullets) are refused instead of silently dropped on the next rewrite: `findings-cli.js close` exits 4 without parking and `check` counts the file as a cap hit; rewrite such lines as blocks.
