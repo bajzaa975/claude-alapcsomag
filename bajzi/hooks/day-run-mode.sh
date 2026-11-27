@@ -25,6 +25,10 @@
 #
 # SAVER LEVELS. After the day-run rules the hook appends AT MOST ONE saver block
 # from skills/mode/, chosen in this order:
+#   0. provider is NON-ANTHROPIC and CC_REVIEWER=1 (set on the external reviewer
+#      launch, dispatch.md "External reviewer")
+#                                 -> the EXTERNAL REVIEWER block ONLY: it must
+#                                    review, so never GLM-WORKER.md.
 #   1. provider is NON-ANTHROPIC and CC_ROUTER_WORKER=1 (set by cc-router on a
 #      `glm -p` spawned from a Claude session)
 #                                 -> GLM-WORKER.md ONLY, no day-run table: a
@@ -59,7 +63,7 @@
 # The hook reads NOTHING besides the two mode files, $HOME/.claude/worker-mode,
 # this session's level file <status dir>/<session_id>.level (BAJZI_STATUS_DIR /
 # BAJZI_HOME pick the dir; the id is the payload's session_id, lib-saver-level.sh),
-# the rules files above, those three env vars, BAJZI_SESSION_LEVEL, BAJZI_SANDBOX + uname -s (the
+# the rules files above, those three env vars, CC_REVIEWER, BAJZI_SESSION_LEVEL, BAJZI_SANDBOX + uname -s (the
 # Linux `split` hint and the split scratch line on an L2/L3 Claude session) and -- under the day-run table on an
 # Anthropic session -- the reviewer allow-list, $HOME/.claude/bajzi/config.json.
 #
