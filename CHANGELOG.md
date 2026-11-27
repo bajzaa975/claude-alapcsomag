@@ -3,6 +3,7 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+- Added: `/bajzi:review` can route a Tier 2/3 review round to `kimi` or `glm` through the `worker --reviewer` switch (read-only `bajzi/lib/reviewer-deny.settings.json`); Tier 1, an `opus` switch, or a GLM reviewer on a GLM-written session keeps the Opus Agent reviewer, and any external failure falls back to Opus.
 - Added: a `kimi` launcher (third provider next to GLM; `KIMI_API_KEY`, `KIMI_BASE_URL`/`kimi_base_url`, `KIMI_MODEL`/`kimi_model`, the same permission guard as `glm`) and `worker --reviewer opus|kimi|glm [--global]` / `--set-kimi-model <id>`; `worker --status` shows the reviewer, the Kimi model and whether the key is set.
 
 ## 1.52.0

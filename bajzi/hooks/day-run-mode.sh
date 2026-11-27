@@ -152,7 +152,7 @@ REVIEWER MODELS (reviewer allow-list; launch the first): $rv"
     else
         block="$block
 REVIEWER MODELS: the reviewer allow-list is invalid (${rv:-node unavailable}). Until /bajzi:setup fixes it,
-REVIEWER = Opus (no version id: the newest Opus the account serves), never GLM."
+REVIEWER = Opus (no version id: the newest Opus the account serves), never the provider that wrote the code."
         warn="$warn reviewer allow-list invalid, run /bajzi:setup."
     fi
 fi

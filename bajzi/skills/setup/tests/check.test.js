@@ -484,6 +484,26 @@ test('worker deny-list: valid, deny-only, blocks push and the env files; every b
   assert.ok(/glm -p --permission-mode bypassPermissions --settings "\$\{CLAUDE_PLUGIN_ROOT\}\/lib\/worker-deny\.settings\.json" </.test(dispatch));
 });
 
+test('reviewer deny-list and external reviewer path: deny-only file, resolution order and fallback texts', () => {
+  const BAJZI = path.join(__dirname, '..', '..', '..');
+  const rd = JSON.parse(fs.readFileSync(path.join(BAJZI, 'lib', 'reviewer-deny.settings.json'), 'utf8'));
+  assert.deepStrictEqual(rd, { permissions: { deny: ['Edit', 'Write', 'NotebookEdit', 'Bash'] } });
+  const dispatch = fs.readFileSync(path.join(BAJZI, 'skills/lib/dispatch.md'), 'utf8');
+  assert.match(dispatch, /^## External reviewer$/m);
+  assert.match(dispatch, /<provider> -p --permission-mode bypassPermissions --settings "\$\{CLAUDE_PLUGIN_ROOT\}\/lib\/reviewer-deny\.settings\.json" </);
+  assert.match(dispatch, /external reviewer <provider> failed \(<reason>\), Opus reviewed this round/);
+  assert.match(dispatch, /GLM reviewer was refused because GLM wrote the code/);
+  const review = fs.readFileSync(path.join(BAJZI, 'skills/review/SKILL.md'), 'utf8');
+  assert.match(review, /External reviewer/);
+  assert.match(review, /worker --reviewer/);
+  for (const f of ['hooks/day-run-mode.sh', '../docs/workflow-budget.md']) {
+    assert.match(fs.readFileSync(path.join(BAJZI, f), 'utf8'), /never the provider that wrote the code/, f);
+  }
+  assert.match(fs.readFileSync(path.join(BAJZI, 'skills/mode/DAY-RUN-RULES.md'), 'utf8'), /never the writer\./);
+  const spec = fs.readFileSync(path.join(BAJZI, '..', 'docs/bajzi-package-spec.md'), 'utf8');
+  assert.match(spec, /the provider the reviewer switch names on a Tier 2\/3 slice; never the provider that wrote the code; Tier 1 always the Agent reviewer/);
+});
+
 test('worker deny-list: Bash rules refuse the dangerous spellings, allow ordinary git add/commit; env reads covered through Bash; hand-offs name no denied command', () => {
   const BAJZI = path.join(__dirname, '..', '..', '..');
   const deny = JSON.parse(fs.readFileSync(path.join(BAJZI, 'lib', 'worker-deny.settings.json'), 'utf8')).permissions.deny;

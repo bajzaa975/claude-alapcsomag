@@ -15,7 +15,7 @@ the skill has no other round.
    (the slice had its two rounds); print the message, do nothing else. Exit 2 -> print, STOP.
 2. Dispatch per dispatch.md: class `review` (round 1) or `rereview` (round 2); `effort` = the output of `FC effort "<slice-id>" <round>`
    (Tier 2/3 medium both rounds; Tier 1, unknown or missing tier xhigh round 1, high round 2). A guard deny ->
-   print the reason and its rule id, STOP (dispatch.md step 3).
+   print the reason and its rule id, STOP (dispatch.md step 3). Which reviewer runs (the normal Agent reviewer, or an external provider named by `worker --reviewer`) is decided per round by dispatch.md `## External reviewer`; the saved file and step 3 are the same on both paths.
 3. Save the reviewer's final message verbatim to `runtime/findings/<slice-id>-r<round>.md`
    (the reviewer has no write path), then `FC validate <that file>`.
    Exit 2 = the file breaks the format: re-dispatch ONCE with the error lines appended to the
