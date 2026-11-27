@@ -69,18 +69,21 @@ function resolveMode() {
 function readMode() { return resolveMode().mode; }
 // --level/--set: the session file when inside a session, else (or with --global) worker-mode. Atomic: tmp + rename.
 const NOSWITCH = ' The level does not switch the provider of a session that is already running: a GLM session starts with worker (or glm).';
-function writeLevel(name) {
-  const target = args.includes('--global') || !SESSION_FILE ? MODE_FILE : SESSION_FILE;
+function atomicWrite(target, text) {
   const tmp = target + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
   let created = false;
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(tmp, name + '\n', { flag: 'wx' }); created = true;
+    fs.writeFileSync(tmp, text, { flag: 'wx' }); created = true;
     fs.renameSync(tmp, target);
   } catch (e) {
     if (created) { try { fs.unlinkSync(tmp); } catch (_) {} }
     die('cannot write ' + target + ': ' + e.message, 73);
   }
+}
+function writeLevel(name) {
+  const target = args.includes('--global') || !SESSION_FILE ? MODE_FILE : SESSION_FILE;
+  atomicWrite(target, name + '\n');
   const n = LEVEL_OF[name];
   if (target === SESSION_FILE) console.log('worker mode = ' + name + '   level L' + n + ' for this session (' + SID + '); other sessions unchanged. Use --level N --global for the machine default.' + NOSWITCH);
   else console.log('worker mode = ' + name + '   level L' + n + ' (' + name + '), machine default (' + MODE_FILE + '); running sessions that set their own level keep it.' + NOSWITCH);
@@ -97,16 +100,7 @@ function resolveReviewer() {
 function writeReviewer(v) {
   if (SID && !args.includes('--global')) {
     const target = path.join(STATUS_DIR, SID + '.reviewer');
-    const tmp = target + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
-    let created = false;
-    try {
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(tmp, v + '\n', { flag: 'wx' }); created = true;
-      fs.renameSync(tmp, target);
-    } catch (e) {
-      if (created) { try { fs.unlinkSync(tmp); } catch (_) {} }
-      die('cannot write ' + target + ': ' + e.message, 73);
-    }
+    atomicWrite(target, v + '\n');
     console.log('reviewer = ' + v + ' for this session (' + SID + '); use --global for the machine default.');
   } else {
     const raw = readConf(true); raw.reviewer = v; writeConf(raw);

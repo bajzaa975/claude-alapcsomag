@@ -118,6 +118,13 @@ fi
 
 mdir="$root/skills/mode"
 
+# An external reviewer launch (dispatch.md "External reviewer" sets CC_REVIEWER=1) is a worker
+# that must review: it gets its own block, never GLM-WORKER.md ("do not review").
+if [ "$nonanth" = "yes" ] && [ "${CC_REVIEWER:-}" = "1" ]; then
+    emit "External reviewer (dispatched headless reviewer)." "EXTERNAL REVIEWER. You were dispatched by another session as a headless reviewer. Review exactly what the prompt asks and return the findings file it specifies, with the header's reviewer: line naming your own provider (not opus). Do not orchestrate, do not dispatch sub-agents, do not write status or queue files, do not commit."
+    exit 0
+fi
+
 # A dispatched worker on a non-Anthropic provider gets the worker block and nothing
 # else -- and, fail-closed, never the day-run table when that block is missing.
 if [ "$nonanth" = "yes" ] && [ "${CC_ROUTER_WORKER:-}" = "1" ]; then

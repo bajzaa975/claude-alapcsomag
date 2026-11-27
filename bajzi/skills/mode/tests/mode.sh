@@ -427,6 +427,9 @@ out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" "$ZAI" CC_ROUTER_WORKE
 expect "11e z.ai + CC_ROUTER_WORKER=1 -> GLM worker, no day-run table" "$out" 'GLM WORKER' 'ROUTING TABLE'
 expect "11e worker gets no saver level block" "$out" 'GLM WORKER' 'SAVER LEVEL'
 expect_msg "11e systemMessage names the GLM worker" "$out" 'GLM worker'
+out="$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" ANTHROPIC_BASE_URL=https://api.kimi.ai/coding/ CC_ROUTER_WORKER=1 CC_REVIEWER=1)"
+expect "11e2 external reviewer launch (CC_REVIEWER=1) -> reviewer block, no 'do not review'" "$out" 'EXTERNAL REVIEWER' 'do not review'
+expect "11e2 reviewer gets no day-run table" "$out" 'EXTERNAL REVIEWER' 'ROUTING TABLE'
 expect "11e' CC_ROUTER_WORKER=1 on Claude provider -> ignored, L2 as usual" \
   "$(run_hook_env "$FAKE_CWD" "$FAKE_HOME" "$FAKE_ROOT" CC_ROUTER_WORKER=1)" 'SAVER LEVEL L2' 'GLM WORKER'
 expect "11e'' Claude session at tight -> L3 text" \
@@ -1179,6 +1182,11 @@ clic log review bajzi:reviewer b.txt deny; rc=$?
 n0="$(wc -l < "$DL")"
 clic log implement glm:implementer b.txt allow; rc=$?
 [ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && tail -1 "$DL" | grep -qE $'	SKILL-IMPLEMENT	glm:implementer	8	allow$'     && pass "16g4c gate open: glm: allow -> SKILL- line written" || fail "16g4c" "rc=$rc $(tail -1 "$DL")"
+# 16g4d: the same for a kimi:reviewer allow (external reviewer launch runs through Bash).
+n0="$(wc -l < "$DL")"
+clic log review kimi:reviewer b.txt allow; rc=$?
+[ $rc -eq 0 ] && [ "$(wc -l < "$DL")" = "$((n0 + 1))" ] && tail -1 "$DL" | grep -qE $'\tSKILL-REVIEW\tkimi:reviewer\t8\tallow$' \
+    && pass "16g4d gate open: kimi: allow -> SKILL- line written" || fail "16g4d" "rc=$rc $(tail -1 "$DL")"
 # 16g5: the gate check cannot run (no hooks/lib-saver-level.sh next to lib/) -> fail toward a duplicate line.
 mkdir -p "$TMP/nohooks"; cp -r "$BAJZI_DIR/lib" "$TMP/nohooks/lib"; n0="$(wc -l < "$DL")"
 (cd "$CAD" && env -u CC_WORKER_MODE -u ANTHROPIC_BASE_URL HOME="$TMP/home-closed" node "$TMP/nohooks/lib/findings-cli.js" log review bajzi:reviewer b.txt allow); rc=$?

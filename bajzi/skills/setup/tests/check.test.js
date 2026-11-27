@@ -487,20 +487,32 @@ test('worker deny-list: valid, deny-only, blocks push and the env files; every b
 test('reviewer deny-list and external reviewer path: deny-only file, resolution order and fallback texts', () => {
   const BAJZI = path.join(__dirname, '..', '..', '..');
   const rd = JSON.parse(fs.readFileSync(path.join(BAJZI, 'lib', 'reviewer-deny.settings.json'), 'utf8'));
-  assert.deepStrictEqual(rd, { permissions: { deny: ['Edit', 'Write', 'NotebookEdit', 'Bash'] } });
+  assert.deepStrictEqual(rd, { permissions: { deny: ['Edit', 'Write', 'NotebookEdit', 'Bash', 'WebFetch', 'WebSearch', 'Task', 'Agent', 'Read(~/.claude/cc-router.env)'] } });
   const dispatch = fs.readFileSync(path.join(BAJZI, 'skills/lib/dispatch.md'), 'utf8');
   assert.match(dispatch, /^## External reviewer$/m);
-  assert.match(dispatch, /<provider> -p --permission-mode bypassPermissions --settings "\$\{CLAUDE_PLUGIN_ROOT\}\/lib\/reviewer-deny\.settings\.json" </);
+  assert.match(dispatch, /<provider> -p --permission-mode bypassPermissions --settings "\$\{CLAUDE_PLUGIN_ROOT\}\/lib\/reviewer-deny\.settings\.json" --strict-mcp-config </);
+  assert.match(dispatch, /CC_REVIEWER=1 timeout 1200 <provider> -p/);
+  assert.match(dispatch, /In the findings header write reviewer: <provider>\./);
+  assert.match(dispatch, /second invalid format, or a launch the permission layer refuses/);
   assert.match(dispatch, /external reviewer <provider> failed \(<reason>\), Opus reviewed this round/);
   assert.match(dispatch, /GLM reviewer was refused because GLM wrote the code/);
   const review = fs.readFileSync(path.join(BAJZI, 'skills/review/SKILL.md'), 'utf8');
   assert.match(review, /External reviewer/);
   assert.match(review, /worker --reviewer/);
+  assert.match(review, /on the external path run the round through the Agent reviewer/);
+  assert.doesNotMatch(review, /step 3 are the same on both paths/);
   for (const f of ['hooks/day-run-mode.sh', '../docs/workflow-budget.md']) {
     assert.match(fs.readFileSync(path.join(BAJZI, f), 'utf8'), /never the provider that wrote the code/, f);
   }
   assert.match(fs.readFileSync(path.join(BAJZI, 'skills/mode/DAY-RUN-RULES.md'), 'utf8'), /never the writer\./);
   const spec = fs.readFileSync(path.join(BAJZI, '..', 'docs/bajzi-package-spec.md'), 'utf8');
+  const s612 = spec.slice(spec.indexOf('**Skills (the review/fix loop).**'), spec.indexOf('**Skills (the review/fix loop).**') + 6000);
+  assert.match(s612, /external provider/);
+  assert.match(s612, /reviewer switch `worker --reviewer`/);
+  assert.match(s612, /fallback to the Opus Agent reviewer/);
+  assert.match(spec, /\| `\/bajzi:review <slice> <range> \[--round 2\]` \|[^\n]*external provider the reviewer switch names/);
+  assert.match(spec, /<session_id>\.reviewer` \|/);
+  assert.match(spec, /`--set-kimi-model` \/ `--reviewer <opus\\\|kimi\\\|glm> --global`/);
   assert.match(spec, /the provider the reviewer switch names on a Tier 2\/3 slice; never the provider that wrote the code; Tier 1 always the Agent reviewer/);
 });
 
