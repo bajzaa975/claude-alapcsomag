@@ -6,9 +6,9 @@ GLM RUNG (glm_model): documents > 100 lines, implement a specified slice / TDD, 
   run_in_background for anything over ~1 minute -- EXCEPT in a headless `claude -p` session, or
   when the result decides your last action: there wait in the foreground, or the turn ends and the
   task is killed before you act on it).
-MODELS: a top-level GLM session = glm_orchestrator_model (glm-5.4); its sub-agents and every `glm -p`
-dispatch (GLM rung and flash rung alike) = glm_model / glm_fast_model, today both glm-5.4.
-NOTE: GLM workers can be slower than Claude Sonnet on wall time; verify their output like any worker's. Keep GLM dispatches FOREGROUND in a
+MODELS: a top-level GLM session = glm_orchestrator_model (glm-5.3); its sub-agents and every `glm -p`
+dispatch (GLM rung and flash rung alike) = glm_model / glm_fast_model, today both glm-5.3-flash.
+NOTE: glm-5.3-flash was about 10x slower than Claude Sonnet on wall time in a small sample; verify its output like any worker's. Keep GLM dispatches FOREGROUND in a
 headless session, and size night budgets for that.
 The worker cannot see this session: give it the repo path, file paths, acceptance criteria and the
 <=40-line report contract in the prompt.
