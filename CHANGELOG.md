@@ -3,6 +3,7 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+- Changed: the GLM defaults return to `glm-5.3` (top-level session) and `glm-5.3-flash` (`glm_model`, `glm_fast_model`). Measured through Claude Code itself, `glm-5.4` took longer and wrote 2-4x the output tokens of `glm-5.3` on the same task, more than its larger plan quota makes up for; limiting thinking did not change that. A `cc-router.json` that pins `glm-5.4` keeps it until that key is deleted.
 
 ## 1.51.0
 - Changed: the GLM defaults (`glm_orchestrator_model`, `glm_model`, `glm_fast_model`) move to `glm-5.4`, live-tested on the Z.ai Coding Plan: faster and cheaper than `glm-5.3` / `glm-5.3-flash`. A `cc-router.json` that pins an old id keeps it until that key is deleted.
