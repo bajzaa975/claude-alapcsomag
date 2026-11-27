@@ -3,6 +3,8 @@
 Newest first. Technical detail per component: [`docs/bajzi-package-spec.md`](docs/bajzi-package-spec.md).
 
 ## Unreleased
+- Added: `/bajzi:review` can route a Tier 2/3 review round to `kimi` or `glm` through the `worker --reviewer` switch (read-only `bajzi/lib/reviewer-deny.settings.json`); Tier 1, an `opus` switch, or a GLM reviewer on a GLM-written session keeps the Opus Agent reviewer, and any external failure falls back to Opus.
+- Added: a `kimi` launcher (third provider next to GLM; `KIMI_API_KEY`, `KIMI_BASE_URL`/`kimi_base_url`, `KIMI_MODEL`/`kimi_model`, the same permission guard as `glm`) and `worker --reviewer opus|kimi|glm [--global]` / `--set-kimi-model <id>`; `worker --status` shows the reviewer, the Kimi model and whether the key is set.
 
 ## 1.52.0
 - Changed: the GLM defaults return to `glm-5.3` (top-level session) and `glm-5.3-flash` (`glm_model`, `glm_fast_model`). Measured through Claude Code itself, `glm-5.4` took longer and wrote 2-4x the output tokens of `glm-5.3` on the same task, more than its larger plan quota makes up for; limiting thinking did not change that. A `cc-router.json` that pins `glm-5.4` keeps it until that key is deleted.

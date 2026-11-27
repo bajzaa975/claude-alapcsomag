@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "deny": ["Edit", "Write", "NotebookEdit", "Bash", "WebFetch", "WebSearch", "Task", "Agent", "Read(~/.claude/cc-router.env)"]
+  }
+}

@@ -53,6 +53,19 @@ argument you pass to it or to git (`"<slice-id>"`); `FC` refuses slice ids and c
 | drain-review | reviewer | `re-review debt round 2` | `FC brief review debt 2 <base>..<tip>` | `runtime/findings/debt-r2.md` |
 | calibrate | reviewer | `calibrate debt` | `FC brief calibrate` | `runtime/findings/debt.rerate.txt` |
 
+## External reviewer
+
+Used only by `/bajzi:review` (class `review` or `rereview`), decided per round, in this order:
+
+1. `FC effort "<slice-id>" <round>` prints `xhigh` or `high` (Tier 1, unknown or missing tier) -> the normal Agent reviewer (Opus), whatever the switch.
+2. Else read the switch with `worker --reviewer`: `opus`, or `worker` missing -> the normal Agent reviewer.
+3. Switch `glm` while the session level (the `level` line of `worker --status`) is L2 or L3 -> the normal Agent reviewer; print one line saying the GLM reviewer was refused because GLM wrote the code.
+4. Switch `kimi` or `glm` -> external path: write the `${CLAUDE_PLUGIN_ROOT}/agents/reviewer.md` body without its frontmatter, a line `---`, then the brief verbatim, then a last line `In the findings header write reviewer: <provider>.`, to `runtime/briefs/<slice>-<class>.<provider>.txt`. From the repo root run
+   `CC_REVIEWER=1 timeout 1200 <provider> -p --permission-mode bypassPermissions --settings "${CLAUDE_PLUGIN_ROOT}/lib/reviewer-deny.settings.json" --strict-mcp-config < runtime/briefs/<slice>-<class>.<provider>.txt` with `run_in_background`. `CC_REVIEWER=1` tells the session hook this headless session is a reviewer, not a worker, so it is not told to skip reviewing.
+   Its stdout is the reviewer's final message: save it where the table says, then `FC log <class> <provider>:reviewer runtime/briefs/<slice>-<class>.<provider>.txt allow`, then `FC validate` as in the review skill (one re-dispatch on the external path with the error lines appended).
+
+**Fallback**: a non-zero exit (124 = timeout, 75 = GLM peak, 78 = missing key or deny file), empty stdout, a second invalid format, or a launch the permission layer refuses -> run the same round through the normal Agent reviewer and print one line `external reviewer <provider> failed (<reason>), Opus reviewed this round`. A review is never skipped. The deny file refuses every write and shell tool, web fetch, web search, Agent and Task, and reading the provider key file (`~/.claude/cc-router.env`), and `--strict-mcp-config` loads no MCP servers: the external reviewer only reads.
+
 ## Reviewer briefs (`FC brief`)
 
 `FC brief review <slice> <1|2> <base>..<tip>` resolves both ends to full SHAs, writes the complete

@@ -22,7 +22,7 @@ function run(entry, args, extraEnv = {}, opts = {}) {   // opts.cwd: the router'
   });
   // The test process may run inside Claude Code: its session id must never reach the router unless a test sets it.
   for (const k of ['CC_WORKER_MODE', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'BAJZI_HOME', 'BAJZI_SESSION_LEVEL', 'BAJZI_LOCK_OWNER',
-    'GLM_MODEL', 'GLM_FAST_MODEL', 'GLM_ORCHESTRATOR_MODEL']) delete env[k];
+    'GLM_MODEL', 'GLM_FAST_MODEL', 'GLM_ORCHESTRATOR_MODEL', 'KIMI_API_KEY', 'KIMI_MODEL', 'KIMI_BASE_URL']) delete env[k];
   for (const [k, v] of Object.entries(extraEnv)) {
     for (const o of Object.keys(env)) if (o !== k && o.toUpperCase() === k.toUpperCase()) delete env[o];   // win32 copies PATH as Path
     if (v === '' || v === undefined) delete env[k]; else env[k] = v;
@@ -871,4 +871,90 @@ test('perm: deny file missing (copy of the router alone, no installed plugin) ->
   const r = go(['-p', 'x', '--permission-mode', 'auto']);
   assert.strictEqual(r.status, 78); assert.match(r.stderr, /claude plugin update bajzi@bajzi-plugins/); assert.doesNotMatch(r.stdout, /FAKE_CLAUDE/);
   assert.strictEqual(go(['-p', 'x', '--permission-mode', 'plan']).status, 0);
+});
+
+const FULLENV = { CC_CLAUDE_PREFIX_ARGS: JSON.stringify(['-e', 'console.log("FAKE_CLAUDE " + JSON.stringify({ env: process.env, argv: process.argv.slice(1) }))', '--']) };   // fake-claude.js prints only a few env keys; this prints all
+// --- kimi: third provider, never chosen by a level; reviewer switch + admin commands ---
+test('kimi: missing KIMI_API_KEY -> exit 78 naming the variable and the env file, no child', () => {
+  const c = permCtx(), r = c.go(['-p', 'x'], 'kimi');
+  assert.strictEqual(r.code, 78);
+  assert.match(r.stderr, /KIMI_API_KEY not found .*cc-router\.env/);
+  assert.doesNotMatch(r.stdout, /FAKE_CLAUDE/);
+});
+test('kimi: env block = default base URL and model, every alias + ANTHROPIC_MODEL equal; no peak refusal at 07:00Z', () => {
+  const c = permCtx(), r = c.go(['-p', 'x'], 'kimi', Object.assign({}, FULLENV, { KIMI_API_KEY: 'kk', CC_GLM_PEAK_OK: '', CC_ROUTER_NOW: '2026-11-27T07:00:00Z' }));
+  assert.strictEqual(r.code, 0, r.stderr);
+  const e = r.childEnv;
+  assert.strictEqual(e.ANTHROPIC_BASE_URL, 'https://api.kimi.ai/coding/');
+  assert.strictEqual(e.ANTHROPIC_AUTH_TOKEN, 'kk');
+  for (const k of ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL', 'ANTHROPIC_MODEL']) assert.strictEqual(e[k], 'kimi-k3', k);
+  assert.strictEqual(e.ENABLE_TOOL_SEARCH, 'false'); assert.strictEqual(e.API_TIMEOUT_MS, '3000000');
+  assert.strictEqual(e.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1'); assert.strictEqual(e.CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT, '1');
+  const g = c.go(['-p', 'x'], 'glm', { CC_GLM_PEAK_OK: '', CC_ROUTER_NOW: '2026-11-27T07:00:00Z', CC_PEAK_LOG: path.join(c.home, 'peak.log') });
+  assert.strictEqual(g.code, 75);   // control: glm is still refused
+});
+test('kimi: conf kimi_model / kimi_base_url, then env KIMI_MODEL / KIMI_BASE_URL override; --model keeps ANTHROPIC_MODEL unset', () => {
+  const c = permCtx(), kgo = (x, more) => c.go(x, 'kimi', Object.assign({ CC_ROUTER_CONFIG: path.join(c.home, 'conf.json'), KIMI_API_KEY: 'kk' }, FULLENV, more));
+  const r = kgo(['-p', 'x'], { });
+  assert.strictEqual(r.code, 0, r.stderr);
+  fs.writeFileSync(path.join(c.home, 'conf.json'), JSON.stringify({ kimi_model: 'kimi-conf', kimi_base_url: 'https://conf.example/' }));
+  const a = kgo(['-p', 'x'], { });
+  assert.strictEqual(a.childEnv.ANTHROPIC_BASE_URL, 'https://conf.example/');
+  for (const k of ['ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL', 'ANTHROPIC_MODEL']) assert.strictEqual(a.childEnv[k], 'kimi-conf', k);
+  const b = kgo(['-p', 'x'], {KIMI_MODEL: 'kimi-env', KIMI_BASE_URL: 'https://env.example/' });
+  assert.strictEqual(b.childEnv.ANTHROPIC_BASE_URL, 'https://env.example/'); assert.strictEqual(b.childEnv.ANTHROPIC_MODEL, 'kimi-env');
+  const d = kgo(['-p', 'x', '--model', 'foo-1'], { });
+  assert.strictEqual(d.childEnv.ANTHROPIC_MODEL, undefined); assert.strictEqual(d.childEnv.CLAUDE_CODE_SUBAGENT_MODEL, 'kimi-conf');
+});
+test('kimi perm: bypass without the deny file -> exit 78; auto and bare bypass are rewritten to the deny file', () => {
+  const c = permCtx(), lone = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ccr-lone-')), 'bin'); fs.mkdirSync(lone);
+  fs.copyFileSync(ROUTER, path.join(lone, 'cc-router.js'));
+  const env = Object.assign({}, process.env, c.env, { CC_ROUTER_ENTRY: 'kimi', KIMI_API_KEY: 'k', CC_CLAUDE_BIN: process.execPath,
+    CC_CLAUDE_PREFIX_ARGS: JSON.stringify([FAKE]), CC_ROUTER_LOG: path.join(c.home, 'l.log') });
+  const r = spawnSync(process.execPath, [path.join(lone, 'cc-router.js'), '-p', 'x', '--permission-mode', 'bypassPermissions'], { env, encoding: 'utf8', cwd: c.cwd });
+  assert.strictEqual(r.status, 78); assert.match(r.stderr, /not starting kimi in bypass\/auto mode/); assert.doesNotMatch(r.stdout, /FAKE_CLAUDE/);
+  assert.deepStrictEqual(c.go(['-p', 'x', '--permission-mode', 'auto'], 'kimi', { KIMI_API_KEY: 'k' }).childArgv, BYPASS.concat('--settings', DENY, '-p', 'x'));
+});
+test('kimi perm: a reviewer-style --settings (deny Edit/Write) with bypass reaches the child merged with the package deny entries', () => {
+  const c = permCtx(), uf = path.join(c.home, 'rev.json');
+  fs.writeFileSync(uf, JSON.stringify({ permissions: { deny: ['Edit', 'Write'] } }));
+  const r = c.go(['-p', 'x', '--permission-mode', 'bypassPermissions', '--settings', uf], 'kimi', { KIMI_API_KEY: 'k' });
+  assert.strictEqual(r.code, 0, r.stderr);
+  const m = mergedOf(c, r.childArgv);
+  for (const d of ['Edit', 'Write'].concat(denyObj.permissions.deny)) assert.ok(m.permissions.deny.includes(d), d);
+  assert.strictEqual(settingsCount(r.childArgv), 1);
+});
+test('reviewer: bad value -> usage exit 64; session file vs --global conf; no value reads session, else conf, else opus', () => {
+  const bad = run('worker', ['--reviewer', 'gpt']);
+  assert.strictEqual(bad.code, 64); assert.match(bad.stderr, /usage: worker --reviewer opus\|kimi\|glm/);
+  const c = permCtx(), conf = path.join(c.home, 'conf.json'), env = { CC_ROUTER_CONFIG: conf };
+  const go = (a, more = {}) => c.go(a, 'worker', Object.assign({}, env, more));
+  assert.strictEqual(go(['--reviewer']).stdout, 'opus\n');
+  const sid = { CLAUDE_CODE_SESSION_ID: 'sess-r' }, sf = path.join(c.home, 'sessions', 'sess-r.reviewer');
+  const w = go(['--reviewer', 'kimi'], Object.assign({ BAJZI_STATUS_DIR: path.join(c.home, 'sessions') }, sid));
+  assert.strictEqual(w.code, 0, w.stderr); assert.strictEqual(fs.readFileSync(sf, 'utf8'), 'kimi\n'); assert.ok(!fs.existsSync(conf));
+  const g = go(['--reviewer', 'glm', '--global'], Object.assign({ BAJZI_STATUS_DIR: path.join(c.home, 'sessions') }, sid));
+  assert.strictEqual(g.code, 0, g.stderr); assert.strictEqual(readJson(conf).reviewer, 'glm'); assert.strictEqual(fs.readFileSync(sf, 'utf8'), 'kimi\n');
+  const rd = Object.assign({ BAJZI_STATUS_DIR: path.join(c.home, 'sessions') }, sid);
+  assert.strictEqual(go(['--reviewer'], rd).stdout, 'kimi\n');   // session wins
+  assert.strictEqual(go(['--reviewer', '--global'], rd).stdout, 'kimi\n');
+  assert.strictEqual(go(['--reviewer'], { BAJZI_STATUS_DIR: path.join(c.home, 'sessions') }).stdout, 'glm\n');   // no session: conf
+  const o = go(['--reviewer', 'opus', '--global']);   // outside a session --global is implied
+  assert.strictEqual(readJson(conf).reviewer, 'opus');
+  const n = go(['--reviewer', 'kimi']); assert.strictEqual(readJson(conf).reviewer, 'kimi'); assert.strictEqual(o.code, 0);
+});
+test('--set-kimi-model writes only kimi_model; a bad id exits 64', () => {
+  const c = permCtx(), conf = path.join(c.home, 'conf.json');
+  const r = c.go(['--set-kimi-model', 'kimi-k3.1'], 'worker', { CC_ROUTER_CONFIG: conf });
+  assert.strictEqual(r.code, 0, r.stderr); assert.deepStrictEqual(readJson(conf), { kimi_model: 'kimi-k3.1' });
+  assert.strictEqual(c.go(['--set-kimi-model', 'a b'], 'worker', { CC_ROUTER_CONFIG: conf }).code, 64);
+  assert.strictEqual(c.go(['--set-kimi-model'], 'worker', { CC_ROUTER_CONFIG: conf }).code, 64);
+  assert.match(c.go(['--router-help'], 'worker').stdout, /--set-kimi-model <id>.*--reviewer/);
+});
+test('--status shows reviewer, kimi model and KIMI_API_KEY found/MISSING, never the key', () => {
+  const c = permCtx();
+  const m = c.go(['--status'], 'worker');
+  assert.match(m.stdout, /^reviewer +opus \(default\)$/m); assert.match(m.stdout, /^kimi model +kimi-k3$/m); assert.match(m.stdout, /^KIMI_API_KEY +MISSING$/m);
+  const f = c.go(['--status'], 'worker', { KIMI_API_KEY: 'sekrit-kimi', KIMI_MODEL: 'kimi-x' });
+  assert.match(f.stdout, /^KIMI_API_KEY +found$/m); assert.match(f.stdout, /^kimi model +kimi-x/m); assert.doesNotMatch(f.stdout + f.stderr, /sekrit-kimi/);
 });

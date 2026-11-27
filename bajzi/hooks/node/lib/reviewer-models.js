@@ -2,7 +2,8 @@
 // The reviewer allow-list (spec Invariant 3): `reviewer_models` in ~/.claude/bajzi/config.json, written by
 // /bajzi:setup from manifest.json `bajzi_config`. BAJZI_HOME overrides the home dir (tests). ORDERED: entry
 // [0] is the launch default wherever one id must be launched. Valid = a non-empty array whose EVERY entry
-// is a claude- id; any other entry voids the WHOLE list (never filtered), so a GLM id can never review.
+// is a claude- id; any other entry voids the WHOLE list (never filtered), so a GLM id can never be listed here.
+// External reviewers (kimi, glm) come only from the `worker --reviewer` switch, never from this list.
 // The only validator on the bajzi side: day-run-mode.sh, routing-counter.sh (--off-list-served),
 // setup/check.js and the night-run skill use it.
 // CLI: prints the ids comma-joined (--first: entry [0] only), exit 0; invalid: prints why, exit 1.

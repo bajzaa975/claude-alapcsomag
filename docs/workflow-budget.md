@@ -56,7 +56,7 @@ the owner's explicit choice still wins.
    Minor finding.
 5. **Models:** the day-run routing table holds: tests and gates on haiku (or sonnet) at low effort,
    implementation and fixes on sonnet, every review lens and checker on the REVIEWER model (the
-   REVIEWER MODELS line, else `reviewer_models`), never GLM, never a hardcoded model.
+   REVIEWER MODELS line, else `reviewer_models`), never the provider that wrote the code, never a hardcoded model.
 6. **Review loop untouched:** a workflow never replaces a sprint's `/bajzi:review` round or adds
    reviewers to it. Multi-lens review is for audits outside the loop. A workflow that drives slices
    runs the same per-slice chain as `docs/dev-process.md`.

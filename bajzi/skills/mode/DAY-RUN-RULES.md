@@ -13,7 +13,7 @@ ROUTING TABLE, task class -> model, effort:
 - review, once per sprint over its whole range = the whole-branch review -> REVIEWER, xhigh; round 2 -> REVIEWER, high;
   Tier 2/3 reviews run at medium (`FC effort` decides); Tier 1 or unknown keeps xhigh/high.
   ALWAYS. Never ORCH's or the implementer's model. EVIDENCE line required or FAIL. REVIEWER = a model from the REVIEWER MODELS line after
-  this block, else `reviewer_models` in ~/.claude/bajzi/config.json; never GLM.
+  this block, else `reviewer_models` in ~/.claude/bajzi/config.json; never the writer.
 - debugging -> high; sonnet when a failing test/repro exists (give it verbatim), climbing the LADDER; else opus, then ORCH, never down to sonnet
 - design/planning/brainstorming -> ORCH, main thread, always
 EFFORT: pass the row's effort as the Agent tool's `effort` parameter on every Claude dispatch (none for glm -p); never change the

@@ -25,6 +25,10 @@
 #
 # SAVER LEVELS. After the day-run rules the hook appends AT MOST ONE saver block
 # from skills/mode/, chosen in this order:
+#   0. provider is NON-ANTHROPIC and CC_REVIEWER=1 (set on the external reviewer
+#      launch, dispatch.md "External reviewer")
+#                                 -> the EXTERNAL REVIEWER block ONLY: it must
+#                                    review, so never GLM-WORKER.md.
 #   1. provider is NON-ANTHROPIC and CC_ROUTER_WORKER=1 (set by cc-router on a
 #      `glm -p` spawned from a Claude session)
 #                                 -> GLM-WORKER.md ONLY, no day-run table: a
@@ -59,7 +63,7 @@
 # The hook reads NOTHING besides the two mode files, $HOME/.claude/worker-mode,
 # this session's level file <status dir>/<session_id>.level (BAJZI_STATUS_DIR /
 # BAJZI_HOME pick the dir; the id is the payload's session_id, lib-saver-level.sh),
-# the rules files above, those three env vars, BAJZI_SESSION_LEVEL, BAJZI_SANDBOX + uname -s (the
+# the rules files above, those three env vars, CC_REVIEWER, BAJZI_SESSION_LEVEL, BAJZI_SANDBOX + uname -s (the
 # Linux `split` hint and the split scratch line on an L2/L3 Claude session) and -- under the day-run table on an
 # Anthropic session -- the reviewer allow-list, $HOME/.claude/bajzi/config.json.
 #
@@ -118,6 +122,13 @@ fi
 
 mdir="$root/skills/mode"
 
+# An external reviewer launch (dispatch.md "External reviewer" sets CC_REVIEWER=1) is a worker
+# that must review: it gets its own block, never GLM-WORKER.md ("do not review").
+if [ "$nonanth" = "yes" ] && [ "${CC_REVIEWER:-}" = "1" ]; then
+    emit "External reviewer (dispatched headless reviewer)." "EXTERNAL REVIEWER. You were dispatched by another session as a headless reviewer. Review exactly what the prompt asks and return the findings file it specifies, with the header's reviewer: line naming your own provider (not opus). Do not orchestrate, do not dispatch sub-agents, do not write status or queue files, do not commit."
+    exit 0
+fi
+
 # A dispatched worker on a non-Anthropic provider gets the worker block and nothing
 # else -- and, fail-closed, never the day-run table when that block is missing.
 if [ "$nonanth" = "yes" ] && [ "${CC_ROUTER_WORKER:-}" = "1" ]; then
@@ -152,7 +163,7 @@ REVIEWER MODELS (reviewer allow-list; launch the first): $rv"
     else
         block="$block
 REVIEWER MODELS: the reviewer allow-list is invalid (${rv:-node unavailable}). Until /bajzi:setup fixes it,
-REVIEWER = Opus (no version id: the newest Opus the account serves), never GLM."
+REVIEWER = Opus (no version id: the newest Opus the account serves), never the provider that wrote the code."
         warn="$warn reviewer allow-list invalid, run /bajzi:setup."
     fi
 fi

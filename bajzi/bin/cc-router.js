@@ -3,6 +3,7 @@
 // Entry points (thin shims next to this file set CC_ROUTER_ENTRY):
 //   worker ...     follows the saver switch: claude|light = plain Claude subscription, glm|tight = Z.ai GLM
 //   glm ...        always GLM
+//   kimi ...       always Kimi (KIMI_API_KEY, base URL and model from env / cc-router.json); never chosen by a level
 //   ccr code ...   compatibility with the old claude-code-router launcher: always non-Claude
 //                  (--model deepseek-* goes to DeepSeek, everything else to GLM)
 //   split ...      L2 split session: Claude orchestrates, GLM writes (CC_WORKER_MODE=glm); OS sandbox on Linux
@@ -34,6 +35,9 @@ function die(msg, code) { process.stderr.write('[' + entry + '] ' + msg + '\n');
 function readConf(raw) { let o = null; try { o = JSON.parse(fs.readFileSync(CONF_FILE, 'utf8')); } catch (_) {} if (!o || typeof o !== 'object' || Array.isArray(o)) o = {}; return raw ? o : Object.assign({}, DEFAULTS, o); }   // raw: the file only, no defaults
 function writeConf(c) { fs.mkdirSync(path.dirname(CONF_FILE), { recursive: true }); fs.writeFileSync(CONF_FILE, JSON.stringify(c, null, 2) + '\n'); }
 function models() { const c = readConf(); return { orch: process.env.GLM_ORCHESTRATOR_MODEL || c.glm_orchestrator_model, big: process.env.GLM_MODEL || c.glm_model, fast: process.env.GLM_FAST_MODEL || c.glm_fast_model }; }
+// kimi: model and base URL = env, else cc-router.json, else the default. Unverified until the live test.
+function kimiModel() { return process.env.KIMI_MODEL || readConf(true).kimi_model || 'kimi-k3'; }
+function kimiBase() { return process.env.KIMI_BASE_URL || readConf(true).kimi_base_url || 'https://api.kimi.ai/coding/'; }
 function glmMain(m) { return insideClaude ? m.big : m.orch; }   // the opus/sonnet aliases and the default main model
 // Per-session level (spec §6.1): <status dir>/<session_id>.level, written by --level/--set from inside a
 // Claude session (CLAUDE_CODE_SESSION_ID). KEEP IN SYNC with hooks/node/lib/session-status.js (SAFE_ID,
@@ -65,21 +69,43 @@ function resolveMode() {
 function readMode() { return resolveMode().mode; }
 // --level/--set: the session file when inside a session, else (or with --global) worker-mode. Atomic: tmp + rename.
 const NOSWITCH = ' The level does not switch the provider of a session that is already running: a GLM session starts with worker (or glm).';
-function writeLevel(name) {
-  const target = args.includes('--global') || !SESSION_FILE ? MODE_FILE : SESSION_FILE;
+function atomicWrite(target, text) {
   const tmp = target + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
   let created = false;
   try {
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(tmp, name + '\n', { flag: 'wx' }); created = true;
+    fs.writeFileSync(tmp, text, { flag: 'wx' }); created = true;
     fs.renameSync(tmp, target);
   } catch (e) {
     if (created) { try { fs.unlinkSync(tmp); } catch (_) {} }
     die('cannot write ' + target + ': ' + e.message, 73);
   }
+}
+function writeLevel(name) {
+  const target = args.includes('--global') || !SESSION_FILE ? MODE_FILE : SESSION_FILE;
+  atomicWrite(target, name + '\n');
   const n = LEVEL_OF[name];
   if (target === SESSION_FILE) console.log('worker mode = ' + name + '   level L' + n + ' for this session (' + SID + '); other sessions unchanged. Use --level N --global for the machine default.' + NOSWITCH);
   else console.log('worker mode = ' + name + '   level L' + n + ' (' + name + '), machine default (' + MODE_FILE + '); running sessions that set their own level keep it.' + NOSWITCH);
+}
+// Review provider (opus|kimi|glm): the session file <STATUS_DIR>/<sid>.reviewer, else conf `reviewer`, else opus.
+const REVIEWERS = ['opus', 'kimi', 'glm'];
+function resolveReviewer() {
+  const s = SID ? readWord(path.join(STATUS_DIR, SID + '.reviewer')) : '';
+  if (REVIEWERS.includes(s)) return { value: s, src: 'session ' + SID };
+  const c = String(readConf(true).reviewer || '').toLowerCase();
+  if (REVIEWERS.includes(c)) return { value: c, src: 'global ' + CONF_FILE };
+  return { value: 'opus', src: 'default' };
+}
+function writeReviewer(v) {
+  if (SID && !args.includes('--global')) {
+    const target = path.join(STATUS_DIR, SID + '.reviewer');
+    atomicWrite(target, v + '\n');
+    console.log('reviewer = ' + v + ' for this session (' + SID + '); use --global for the machine default.');
+  } else {
+    const raw = readConf(true); raw.reviewer = v; writeConf(raw);
+    console.log('reviewer = ' + v + ' (global, ' + CONF_FILE + ')');
+  }
 }
 function secret(name) {   // 1. process env  2. Windows: User env in the registry (covers already-open apps)  3. ~/.claude/cc-router.env
   if (process.env[name]) return process.env[name];
@@ -100,6 +126,7 @@ function modelArg(a) { const i = a.indexOf('--model'); if (i >= 0 && a[i + 1]) r
 function effective(provider, req) {
   if (provider === 'claude') return req || '(session default)';
   if (provider === 'deepseek') return req || 'deepseek-v4-pro';
+  if (provider === 'kimi') return req || kimiModel();
   const m = models(), r = (req || '').toLowerCase().replace(/\[.*$/, '');
   if (!r || r === 'sonnet' || r === 'opus') return glmMain(m); if (r === 'haiku') return m.fast; return req;
 }
@@ -275,6 +302,16 @@ function workerAdmin() {
     if (!/^[0-3]$/.test(n || '') || !name) die('usage: worker --level 0|1|2|3 [--global]   (0 claude, 1 light, 2 glm, 3 tight)', 64);
     writeLevel(name); return true;
   }
+  if (a0 === 'reviewer') {
+    if (val === undefined) { console.log(resolveReviewer().value); return true; }
+    if (!REVIEWERS.includes(val)) die('usage: worker --reviewer ' + REVIEWERS.join('|') + ' [--global]   (no value prints the current one)', 64);
+    writeReviewer(val); return true;
+  }
+  if (a0 === 'set-kimi-model') {
+    if (!okModel(args[1])) die('usage: worker --set-kimi-model <model-id>', 64);
+    const raw = readConf(true); raw.kimi_model = args[1]; writeConf(raw);
+    console.log('kimi_model = ' + args[1]); return true;
+  }
   const KEY = { 'set-model': 'glm_model', 'set-fast-model': 'glm_fast_model', 'set-orchestrator-model': 'glm_orchestrator_model' }[a0];
   if (KEY) {
     if (!okModel(args[1])) die('usage: worker --' + a0 + ' <model-id>   e.g. worker --' + a0 + ' glm-5.4', 64);
@@ -296,13 +333,17 @@ function workerAdmin() {
     console.log('glm model       ' + m.big + (process.env.GLM_MODEL ? '   (forced by GLM_MODEL)' : ''));
     console.log('glm fast model  ' + m.fast + (process.env.GLM_FAST_MODEL ? '   (forced by GLM_FAST_MODEL)' : ''));
     console.log('ZAI_API_KEY     ' + (secret('ZAI_API_KEY') ? 'found' : 'MISSING'));
+    const rv = resolveReviewer();
+    console.log('reviewer        ' + rv.value + ' (' + rv.src + ')');
+    console.log('kimi model      ' + kimiModel() + (process.env.KIMI_MODEL ? '   (forced by KIMI_MODEL)' : ''));
+    console.log('KIMI_API_KEY    ' + (secret('KIMI_API_KEY') ? 'found' : 'MISSING'));
     console.log('claude binary   ' + claudeExe());
     console.log('router          v' + VERSION + '   ' + __filename);
     console.log('files           ' + MODE_FILE + ' | ' + CONF_FILE + ' | ' + LOG_FILE + (SESSION_FILE ? ' | ' + SESSION_FILE : ''));
     return true;
   }
   if (a0 === 'router-help') {
-    console.log('worker --status | --mode | --level 0|1|2|3 [--global] | --set claude|light|glm|tight [--global] | --set-orchestrator-model <id> | --set-model <id> | --set-fast-model <id> | --log [n] | --usage [since] [--json]\nanything else is passed to Claude Code unchanged, e.g.  worker -p "..." --model sonnet'); return true;
+    console.log('worker --status | --mode | --level 0|1|2|3 [--global] | --set claude|light|glm|tight [--global] | --set-orchestrator-model <id> | --set-model <id> | --set-fast-model <id> | --set-kimi-model <id> | --reviewer [opus|kimi|glm] [--global] | --log [n] | --usage [since] [--json]\nanything else is passed to Claude Code unchanged, e.g.  worker -p "..." --model sonnet'); return true;
   }
   return false;
 }
@@ -322,6 +363,7 @@ if (entry === 'ccr') {
     console.log('ccr shim (cc-router v' + VERSION + '): no router service is needed; "ccr code" routes per process. Nothing to ' + (sub || 'do') + '.'); process.exit(0);
   } else die('this is the cc-router shim; only "ccr code [claude args]" is supported (got: ' + (sub || 'nothing') + ')', 64);
 } else if (entry === 'glm') { provider = 'glm'; }
+else if (entry === 'kimi') { provider = 'kimi'; }
 else if (entry === 'split') {   // the main session stays on the Claude subscription: no level read, no peak refusal
   if (args.some(a => a === '--settings' || a.startsWith('--settings='))) die('split passes its own --settings (the OS sandbox); drop yours, or start plain claude', 64);
   provider = 'claude';
@@ -354,6 +396,14 @@ if (provider === 'glm') {
     CLAUDE_CODE_SUBAGENT_MODEL: m.big, API_TIMEOUT_MS: '3000000', ENABLE_TOOL_SEARCH: 'false', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: '1' });   // GLM ids are not in Claude Code's model catalog; silences the yellow warning
   if (!asked) env.ANTHROPIC_MODEL = glmMain(m);
+} else if (provider === 'kimi') {   // the Z.ai peak refusal above is glm-only and never applies here
+  const key = secret('KIMI_API_KEY'); if (!key) die('KIMI_API_KEY not found (environment variable, or a line in ' + ENV_FILE + ').', 78);
+  const m = kimiModel();
+  Object.assign(env, { ANTHROPIC_BASE_URL: kimiBase(), ANTHROPIC_AUTH_TOKEN: key,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: m, ANTHROPIC_DEFAULT_SONNET_MODEL: m, ANTHROPIC_DEFAULT_HAIKU_MODEL: m,
+    CLAUDE_CODE_SUBAGENT_MODEL: m, API_TIMEOUT_MS: '3000000', ENABLE_TOOL_SEARCH: 'false', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: '1' });
+  if (!asked) env.ANTHROPIC_MODEL = m;
 } else if (provider === 'deepseek') {   // UNTESTED path: keeps old "ccr code --model deepseek-*" calls failing clearly or working
   const key = secret('DEEPSEEK_API_KEY'); if (!key) die('DEEPSEEK_API_KEY not found (environment variable, or a line in ' + ENV_FILE + ').', 78);
   const m = asked || 'deepseek-v4-pro';
