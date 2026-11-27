@@ -1,9 +1,9 @@
 # bin/ — the cc-router shim
 
 `cc-router.js` is a per-process model router for Claude Code: no proxy, no daemon, no
-global settings. Thin launchers next to it (`worker`, `glm`, `ccr`, `split`) set `CC_ROUTER_ENTRY`
+global settings. Thin launchers next to it (`worker`, `glm`, `kimi`, `ccr`, `split`) set `CC_ROUTER_ENTRY`
 and run this file. `worker ...` follows the saver switch (`claude|light` = plain Claude
-subscription, `glm|tight` = Z.ai GLM); `glm ...` is always GLM; `ccr code ...` keeps the
+subscription, `glm|tight` = Z.ai GLM); `glm ...` is always GLM; `kimi ...` is always Kimi (never chosen by a level); `ccr code ...` keeps the
 old claude-code-router launcher working (`--model deepseek-*` goes to DeepSeek, everything
 else to GLM); `split ...` starts an L2 split session on the Claude subscription (Claude
 orchestrates, GLM writes: `CC_WORKER_MODE=glm`, `BAJZI_SPLIT=1`), on Linux with bubblewrap +
@@ -33,9 +33,19 @@ command from a plain shell; sessions that set their own level keep it. Resolutio
 and `--status`: `CC_WORKER_MODE` > the session file > `BAJZI_SESSION_LEVEL` (inherited by a launched child, never opens the saver gate) > `worker-mode` > `claude`; `--status` names
 the source.
 
+## Kimi and the reviewer switch
+
+`kimi ...` needs `KIMI_API_KEY` (environment variable or a line in `~/.claude/cc-router.env`; missing exits 78).
+Base URL: env `KIMI_BASE_URL`, else `cc-router.json` `kimi_base_url`, else `https://api.kimi.ai/coding/`. Model:
+env `KIMI_MODEL`, else `kimi_model`, else `kimi-k3`; it also fills every Claude alias and the sub-agent model.
+The Z.ai peak refusal never applies. `worker --set-kimi-model <id>` writes `kimi_model`.
+`worker --reviewer opus|kimi|glm [--global]` stores the review provider: inside a Claude session in
+`<status dir>/<session id>.reviewer`, else (or with `--global`) in `cc-router.json` `reviewer`; with no value it
+prints the resolved one (session file, else `cc-router.json`, else `opus`). `worker --status` shows it.
+
 ## Permission guard
 
-A session the shim starts on GLM or DeepSeek (`glm`, `ccr code`, `worker` at L2/L3; not `split`) never runs in
+A session the shim starts on GLM, Kimi or DeepSeek (`glm`, `kimi`, `ccr code`, `worker` at L2/L3; not `split`) never runs in
 `auto` mode (its classifier only exists on Anthropic's servers, so every tool call would prompt) and never in
 `bypassPermissions` without the deny list `lib/worker-deny.settings.json`. `auto` (flag or `permissions.defaultMode`
 in `--settings`, project or user settings) and bare bypass become `--permission-mode bypassPermissions --settings
@@ -46,8 +56,8 @@ through unchanged. The launch log shows `perm=...`.
 ## install.sh
 
 `bash bajzi/bin/install.sh` runs the shim's tests first (`node --test
-bajzi/bin/tests/cc-router.test.js`) and, only when they pass, copies `cc-router.js` and the eight
-launchers in `launchers/` (`worker`, `glm`, `ccr`, `split` + `.cmd` twins) into `~/.local/bin`. An
+bajzi/bin/tests/cc-router.test.js`) and, only when they pass, copies `cc-router.js` and the ten
+launchers in `launchers/` (`worker`, `glm`, `kimi`, `ccr`, `split` + `.cmd` twins) into `~/.local/bin`. An
 identical destination is left untouched; a different one is kept as `<name>.bak` first. The
 launchers are tracked byte-for-byte (`.gitattributes`: `-text`), so edit them here, not in
 `~/.local/bin`. `tests/install.test.js` exercises the installer against a decoy `HOME`.
